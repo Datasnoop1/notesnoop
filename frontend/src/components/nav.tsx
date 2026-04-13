@@ -103,6 +103,10 @@ export default function Nav() {
                   </span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => router.push("/account")} className="cursor-pointer">
+                    <User className="w-4 h-4 mr-2" />
+                    Account settings
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
                     <LogOut className="w-4 h-4 mr-2" />
                     Sign out
