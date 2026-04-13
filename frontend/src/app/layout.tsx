@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Nav from "@/components/nav";
-import FeedbackButtons from "@/components/feedback-buttons";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -24,7 +23,6 @@ export default function RootLayout({
             {children}
           </div>
         </main>
-        <FeedbackButtons />
       </body>
     </html>
   );

@@ -140,7 +140,7 @@ function FeedbackDialog({
 
 export default function FeedbackButtons() {
   return (
-    <div className="fixed bottom-4 right-4 flex gap-2 z-40">
+    <div className="flex items-center gap-1.5">
       <FeedbackDialog
         type="bug"
         icon={<Bug className="w-3.5 h-3.5" />}

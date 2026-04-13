@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { Menu, LogOut, User } from "lucide-react";
+import { Menu, LogOut, User, Bug, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase";
+import FeedbackButtons from "@/components/feedback-buttons";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 const NAV_ITEMS = [
@@ -90,8 +91,12 @@ export default function Nav() {
             ))}
           </nav>
 
-          {/* Right side — auth */}
+          {/* Feedback + auth */}
           <div className="flex items-center gap-2">
+            <div className="hidden md:flex items-center gap-1.5 mr-1">
+              <FeedbackButtons />
+            </div>
+            <div className="hidden md:block w-px h-5 bg-slate-200 mr-1" />
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger className="hidden md:flex items-center gap-2 px-2 py-1 rounded-md hover:bg-slate-100 transition-colors">
