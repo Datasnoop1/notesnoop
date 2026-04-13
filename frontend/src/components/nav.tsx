@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
-import { Menu, X } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { Menu, LogOut, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -11,6 +11,14 @@ import {
   SheetTrigger,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { createClient } from "@/lib/supabase";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 const NAV_ITEMS = [
   { label: "Home", href: "/" },
@@ -23,12 +31,33 @@ const NAV_ITEMS = [
 
 export default function Nav() {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => setUser(session?.user ?? null)
+    );
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setUser(null);
+    router.push("/login");
+  }
 
   function isActive(href: string) {
     if (href === "/") return pathname === "/";
     return pathname.startsWith(href);
   }
+
+  const initials = user?.email?.slice(0, 2).toUpperCase() ?? "?";
 
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-slate-200">
@@ -61,11 +90,32 @@ export default function Nav() {
             ))}
           </nav>
 
-          {/* Right side */}
+          {/* Right side — auth */}
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="hidden md:inline-flex">
-              Sign in
-            </Button>
+            {user ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger className="hidden md:flex items-center gap-2 px-2 py-1 rounded-md hover:bg-slate-100 transition-colors">
+                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">
+                    {initials}
+                  </div>
+                  <span className="text-sm text-slate-600 max-w-[140px] truncate">
+                    {user.email}
+                  </span>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Link href="/login">
+                <Button variant="outline" size="sm" className="hidden md:inline-flex">
+                  Sign in
+                </Button>
+              </Link>
+            )}
 
             {/* Mobile hamburger */}
             <Sheet open={open} onOpenChange={setOpen}>
@@ -93,6 +143,22 @@ export default function Nav() {
                       {item.label}
                     </Link>
                   ))}
+                  {user ? (
+                    <button
+                      onClick={() => { handleSignOut(); setOpen(false); }}
+                      className="px-3 py-2 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 text-left mt-4"
+                    >
+                      Sign out
+                    </button>
+                  ) : (
+                    <Link
+                      href="/login"
+                      onClick={() => setOpen(false)}
+                      className="px-3 py-2 rounded-md text-sm font-medium text-indigo-600 hover:bg-indigo-50 mt-4"
+                    >
+                      Sign in
+                    </Link>
+                  )}
                 </nav>
               </SheetContent>
             </Sheet>
