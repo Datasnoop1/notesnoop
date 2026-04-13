@@ -3,21 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  getDashboard,
-  getTopCompanies,
-  type DashboardKPIs,
-  type TopCompany,
-} from "@/lib/api";
-import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
+import { getDashboard, type DashboardKPIs } from "@/lib/api";
+import { fmtNumber } from "@/lib/format";
 
 function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse bg-slate-200 rounded ${className}`} />;
@@ -37,14 +24,34 @@ const QUICK_ACCESS = [
   { href: "/people", title: "People", desc: "Find administrators and shareholders by name" },
 ];
 
+const PROVINCES = [
+  { name: "Antwerpen", code: "1", color: "bg-indigo-600", count: "320K+" },
+  { name: "Oost-Vlaanderen", code: "9", color: "bg-indigo-500", count: "240K+" },
+  { name: "West-Vlaanderen", code: "8", color: "bg-indigo-500", count: "210K+" },
+  { name: "Vlaams-Brabant", code: "3", color: "bg-indigo-400", count: "180K+" },
+  { name: "Limburg", code: "35", color: "bg-indigo-300", count: "130K+" },
+  { name: "Brussel", code: "1", color: "bg-indigo-700", count: "280K+" },
+  { name: "Hainaut", code: "7", color: "bg-indigo-400", count: "170K+" },
+  { name: "Liège", code: "4", color: "bg-indigo-400", count: "160K+" },
+  { name: "Namur", code: "5", color: "bg-indigo-200", count: "70K+" },
+  { name: "Luxembourg", code: "6", color: "bg-indigo-200", count: "45K+" },
+  { name: "Brabant Wallon", code: "13", color: "bg-indigo-200", count: "60K+" },
+];
+
+/* Layout rows representing Belgium's geography roughly north-to-south */
+const MAP_ROWS = [
+  ["West-Vlaanderen", "Oost-Vlaanderen", "Antwerpen", "Limburg"],
+  ["Brabant Wallon", "Brussel", "Vlaams-Brabant"],
+  ["Hainaut", "Namur", "Liège", "Luxembourg"],
+];
+
 export default function Dashboard() {
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
-  const [top, setTop] = useState<TopCompany[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    Promise.all([getDashboard(), getTopCompanies("revenue", 15)])
-      .then(([d, t]) => { setKpis(d); setTop(t); })
+    getDashboard()
+      .then(setKpis)
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -104,49 +111,27 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Top Companies */}
+      {/* Province Heatmap */}
       <div>
-        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-4">Largest Companies by Revenue</h2>
-        <Card className="bg-white overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Company</TableHead>
-                <TableHead>Sector</TableHead>
-                <TableHead className="text-right">Revenue</TableHead>
-                <TableHead className="text-right">EBITDA</TableHead>
-                <TableHead className="text-right">Margin</TableHead>
-                <TableHead className="text-right">FTE</TableHead>
-                <TableHead className="text-right">FY</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading
-                ? Array.from({ length: 8 }).map((_, i) => (
-                    <TableRow key={i}>
-                      {Array.from({ length: 7 }).map((_, j) => (
-                        <TableCell key={j}><Skeleton className="h-4 w-20" /></TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                : top.map((c) => (
-                    <TableRow key={c.cbe} className="hover:bg-slate-50">
-                      <TableCell>
-                        <Link href={`/company/${c.cbe}`} className="text-indigo-600 hover:underline font-medium">
-                          {c.name || fmtCbe(c.cbe)}
-                        </Link>
-                      </TableCell>
-                      <TableCell className="text-slate-500 text-sm max-w-[200px] truncate">{c.sector || "—"}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{fmtEur(c.revenue)}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{fmtEur(c.ebitda)}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{fmtPct(c.ebitda_margin_pct)}</TableCell>
-                      <TableCell className="text-right font-mono text-sm">{fmtNumber(c.fte_total)}</TableCell>
-                      <TableCell className="text-right text-sm">{c.fiscal_year || "—"}</TableCell>
-                    </TableRow>
-                  ))}
-            </TableBody>
-          </Table>
-        </Card>
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-4">Company Density by Province</h2>
+        <div className="space-y-3">
+          {MAP_ROWS.map((row, ri) => (
+            <div key={ri} className={`grid gap-3 ${row.length === 3 ? "grid-cols-3" : "grid-cols-4"}`}>
+              {row.map((name) => {
+                const prov = PROVINCES.find((p) => p.name === name)!;
+                return (
+                  <Link key={prov.name} href={`/screener?zipcode=${prov.code}`}>
+                    <div className={`${prov.color} rounded-lg p-4 text-white hover:opacity-90 transition-opacity cursor-pointer`}>
+                      <div className="font-semibold text-sm">{prov.name}</div>
+                      <div className="text-xl font-bold mt-1">{prov.count}</div>
+                      <div className="text-[10px] uppercase tracking-wide opacity-75 mt-0.5">companies</div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
