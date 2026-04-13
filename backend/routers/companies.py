@@ -290,18 +290,32 @@ async def get_company_structure(cbe: str):
     cbe = cbe.strip().replace(".", "")
 
     try:
-        admins = fetch_all(
-            "SELECT * FROM administrator WHERE enterprise_number = %s ORDER BY mandate_start DESC",
-            (cbe,),
-        )
-        pis = fetch_all(
-            "SELECT * FROM participating_interest WHERE enterprise_number = %s ORDER BY name",
-            (cbe,),
-        )
-        shareholders = fetch_all(
-            "SELECT * FROM shareholder WHERE enterprise_number = %s ORDER BY name",
-            (cbe,),
-        )
+        # Deduplicate admins: only latest filing per person+role
+        admins = fetch_all("""
+            SELECT DISTINCT ON (name, role) name, role, person_type, identifier,
+                   mandate_start, mandate_end, representative_name, fiscal_year, deposit_key
+            FROM administrator
+            WHERE enterprise_number = %s
+            ORDER BY name, role, deposit_key DESC
+        """, (cbe,))
+
+        # Deduplicate participating interests: latest filing per subsidiary
+        pis = fetch_all("""
+            SELECT DISTINCT ON (name) name, identifier, ownership_pct, country,
+                   equity_value, net_result, fiscal_year
+            FROM participating_interest
+            WHERE enterprise_number = %s
+            ORDER BY name, deposit_key DESC
+        """, (cbe,))
+
+        # Deduplicate shareholders: latest filing per shareholder
+        shareholders = fetch_all("""
+            SELECT DISTINCT ON (name) name, identifier, ownership_pct,
+                   shareholder_type, shares_held, fiscal_year
+            FROM shareholder
+            WHERE enterprise_number = %s
+            ORDER BY name, deposit_key DESC
+        """, (cbe,))
         sb_pubs = fetch_all(
             "SELECT pub_date, pub_type, reference, pdf_url FROM staatsblad_publication "
             "WHERE enterprise_number = %s ORDER BY pub_date DESC",
