@@ -307,21 +307,21 @@ export default function CompanyDetailPage(props: {
   }));
 
   return (
-    <div className="mx-auto w-full max-w-[1200px] px-4 py-6">
+    <div className="mx-auto w-full max-w-[1200px] px-4 py-4">
       {/* Back link */}
       <Link
         href="/company"
-        className="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-600"
+        className="mb-3 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600"
       >
-        <ArrowLeft className="h-3.5 w-3.5" /> Back to search
+        <ArrowLeft className="h-3 w-3" /> Back to search
       </Link>
 
       {/* Company header */}
-      <div className="mb-6 border-b pb-5">
+      <div className="mb-4 border-b pb-3">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-900">
+              <h1 className="text-xl font-bold text-slate-900">
                 {detail.name || fmtCbe(cbe)}
               </h1>
               {detail.status === "AC" ? (
@@ -413,7 +413,7 @@ export default function CompanyDetailPage(props: {
         </TabsList>
 
         {/* ===== Financials tab ===== */}
-        <TabsContent value="financials" className="mt-4">
+        <TabsContent value="financials" className="mt-3">
           {!financials || financials.summary.length === 0 ? (
             <div className="py-8 text-center">
               <p className="text-sm text-slate-500 mb-4">No financial data available for this company.</p>
@@ -457,31 +457,31 @@ export default function CompanyDetailPage(props: {
                       .sort((a, b) => b.fiscal_year - a.fiscal_year)
                       .map((row) => (
                         <TableRow key={row.fiscal_year}>
-                          <TableCell className="font-medium">
+                          <TableCell className="font-medium text-xs py-1.5">
                             {row.fiscal_year}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
+                          <TableCell className="text-right font-mono text-xs py-1.5">
                             {fmtEur(row.revenue)}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
+                          <TableCell className="text-right font-mono text-xs py-1.5">
                             {fmtEur(row.ebit)}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
+                          <TableCell className="text-right font-mono text-xs py-1.5">
                             {fmtEur(row.ebitda)}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
+                          <TableCell className="text-right font-mono text-xs py-1.5">
                             {fmtPct(row.ebitda_margin_pct)}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
+                          <TableCell className="text-right font-mono text-xs py-1.5">
                             {fmtEur(row.net_profit)}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
+                          <TableCell className="text-right font-mono text-xs py-1.5">
                             {fmtEur(row.equity)}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
+                          <TableCell className="text-right font-mono text-xs py-1.5">
                             {fmtEur(row.total_assets)}
                           </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
+                          <TableCell className="text-right font-mono text-xs py-1.5">
                             {fmtNumber(row.fte_total)}
                           </TableCell>
                         </TableRow>
@@ -492,9 +492,9 @@ export default function CompanyDetailPage(props: {
 
               {/* Chart */}
               {chartData.length >= 2 && (
-                <Card className="mt-6">
-                  <CardContent className="pt-4">
-                    <h3 className="mb-4 text-sm font-semibold text-slate-700">
+                <Card className="mt-4">
+                  <CardContent className="pt-3 pb-3">
+                    <h3 className="mb-3 text-xs font-semibold text-slate-700">
                       Revenue & EBITDA trend
                     </h3>
                     <ResponsiveContainer width="100%" height={320}>
@@ -539,7 +539,7 @@ export default function CompanyDetailPage(props: {
         </TabsContent>
 
         {/* ===== Administrators tab ===== */}
-        <TabsContent value="administrators" className="mt-4">
+        <TabsContent value="administrators" className="mt-3">
           {(() => {
             const currentAdmins = (structure?.administrators || []).filter(
               (a) => !a.mandate_end || a.mandate_end === "" || new Date(a.mandate_end) > new Date()
@@ -557,19 +557,19 @@ export default function CompanyDetailPage(props: {
             }
 
             return (
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {/* Current Administrators */}
                 {currentAdmins.length > 0 && (
                   <div>
-                    <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
+                    <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
                       Current Administrators ({currentAdmins.length})
                     </h3>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       {currentAdmins.map((admin, i) => {
                         const adminCbe = cleanCbe(admin.identifier);
                         return (
                           <Card key={`current-${admin.name}-${admin.role}-${i}`}>
-                            <CardContent className="p-4">
+                            <CardContent className="p-3">
                               <div className="flex items-start justify-between gap-2">
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-2">
@@ -637,12 +637,12 @@ export default function CompanyDetailPage(props: {
                       <ChevronDown data-chevron className="h-3.5 w-3.5 transition-transform" />
                     </button>
                     <div className="hidden">
-                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {pastAdmins.map((admin, i) => {
                           const adminCbe = cleanCbe(admin.identifier);
                           return (
                             <Card key={`past-${admin.name}-${admin.role}-${i}`} className="opacity-75">
-                              <CardContent className="p-4">
+                              <CardContent className="p-3">
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2">
@@ -693,7 +693,7 @@ export default function CompanyDetailPage(props: {
         </TabsContent>
 
         {/* ===== Structure tab ===== */}
-        <TabsContent value="structure" className="mt-4">
+        <TabsContent value="structure" className="mt-3">
           {!structure ||
           (structure.shareholders.length === 0 &&
             structure.participating_interests.length === 0) ? (
@@ -701,9 +701,9 @@ export default function CompanyDetailPage(props: {
               No structure data available for this company.
             </p>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid gap-3 lg:grid-cols-2">
               {/* Left column: collapsible cards */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                   {/* Shareholders (collapsible) */}
                   {structure.shareholders.length > 0 && (
                     <Card>
@@ -716,20 +716,20 @@ export default function CompanyDetailPage(props: {
                             if (content) content.classList.toggle("hidden");
                             if (chevron) chevron.classList.toggle("rotate-180");
                           }}
-                          className="w-full flex items-center justify-between mb-3"
+                          className="w-full flex items-center justify-between mb-2"
                         >
                           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
                             Shareholders ({structure.shareholders.length})
                           </h3>
                           <ChevronDown data-chevron className="h-4 w-4 text-slate-400 transition-transform" />
                         </button>
-                        <div className="space-y-2">
+                        <div className="space-y-1.5">
                           {structure.shareholders.map((sh, i) => {
                             const shCbe = cleanCbe(sh.identifier);
                             return (
                               <div
                                 key={`${sh.name}-${i}`}
-                                className="rounded-md border p-3"
+                                className="rounded-md border px-3 py-2"
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   {shCbe ? (
@@ -780,20 +780,20 @@ export default function CompanyDetailPage(props: {
                             if (content) content.classList.toggle("hidden");
                             if (chevron) chevron.classList.toggle("rotate-180");
                           }}
-                          className="w-full flex items-center justify-between mb-3"
+                          className="w-full flex items-center justify-between mb-2"
                         >
                           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-orange-500 pl-2">
                             Participating Interests ({structure.participating_interests.length})
                           </h3>
                           <ChevronDown data-chevron className="h-4 w-4 text-slate-400 transition-transform" />
                         </button>
-                        <div className="space-y-2">
+                        <div className="space-y-1.5">
                           {structure.participating_interests.map((pi, i) => {
                             const piCbe = cleanCbe(pi.identifier);
                             return (
                               <div
                                 key={`${pi.name}-${i}`}
-                                className="rounded-md border p-3"
+                                className="rounded-md border px-3 py-2"
                               >
                                 <div className="flex items-center justify-between gap-2">
                                   {piCbe ? (
@@ -834,12 +834,12 @@ export default function CompanyDetailPage(props: {
               </div>
 
               {/* Right column: visual timelines */}
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {/* Shareholder Timeline */}
                 {structure.shareholders.filter(sh => sh.fiscal_year).length > 0 && (
                   <Card>
-                    <CardContent className="pt-4">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2 mb-4">
+                    <CardContent className="pt-3 pb-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2 mb-3">
                         Shareholder Timeline
                       </h3>
                       <div className="relative pl-6">
@@ -848,7 +848,7 @@ export default function CompanyDetailPage(props: {
                           .filter(sh => sh.fiscal_year)
                           .sort((a, b) => String(b.fiscal_year).localeCompare(String(a.fiscal_year)))
                           .map((sh, i) => (
-                            <div key={i} className="relative mb-4 last:mb-0">
+                            <div key={i} className="relative mb-3 last:mb-0">
                               <div className="absolute -left-4 top-1 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-white" />
                               <div className="text-xs font-mono text-slate-400 mb-0.5">{sh.fiscal_year}</div>
                               <div className="text-sm font-medium text-slate-900">{sh.name}</div>
@@ -865,8 +865,8 @@ export default function CompanyDetailPage(props: {
                 {/* Subsidiary Timeline */}
                 {structure.participating_interests.filter(pi => pi.fiscal_year).length > 0 && (
                   <Card>
-                    <CardContent className="pt-4">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-orange-500 pl-2 mb-4">
+                    <CardContent className="pt-3 pb-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-orange-500 pl-2 mb-3">
                         Subsidiary Timeline
                       </h3>
                       <div className="relative pl-6">
@@ -875,7 +875,7 @@ export default function CompanyDetailPage(props: {
                           .filter(pi => pi.fiscal_year)
                           .sort((a, b) => String(b.fiscal_year).localeCompare(String(a.fiscal_year)))
                           .map((pi, i) => (
-                            <div key={i} className="relative mb-4 last:mb-0">
+                            <div key={i} className="relative mb-3 last:mb-0">
                               <div className="absolute -left-4 top-1 w-2.5 h-2.5 rounded-full bg-orange-500 border-2 border-white" />
                               <div className="text-xs font-mono text-slate-400 mb-0.5">{pi.fiscal_year}</div>
                               <div className="text-sm font-medium text-slate-900">{pi.name}</div>
@@ -894,12 +894,12 @@ export default function CompanyDetailPage(props: {
         </TabsContent>
 
         {/* ===== Network tab ===== */}
-        <TabsContent value="network" className="mt-4">
+        <TabsContent value="network" className="mt-3">
           <NetworkGraph cbe={cbe} companyName={detail?.name || cbe} />
         </TabsContent>
 
         {/* ===== Publications tab ===== */}
-        <TabsContent value="publications" className="mt-4">
+        <TabsContent value="publications" className="mt-3">
           {!structure ||
           structure.staatsblad_publications.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">

@@ -152,21 +152,21 @@ export default function PeoplePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">
-          <UserSearch className="w-5 h-5 inline mr-2" />
+        <h1 className="text-xl font-bold text-slate-900">
+          <UserSearch className="w-4 h-4 inline mr-1.5" />
           People Search
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-0.5 text-xs text-slate-500">
           Find administrators and shareholders by name
         </p>
       </div>
 
       {/* Search */}
       <Card className="bg-white">
-        <CardContent className="pt-5 pb-5">
+        <CardContent className="pt-3 pb-3">
           <div className="relative max-w-xl">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
@@ -201,8 +201,8 @@ export default function PeoplePage() {
       )}
 
       {!searching && hasSearched && results.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
-          <User className="h-8 w-8 text-slate-300 mb-3" />
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10">
+          <User className="h-6 w-6 text-slate-300 mb-2" />
           <p className="text-sm font-medium text-slate-500">No people found</p>
           <p className="mt-1 text-xs text-slate-400">
             Try a different name or spelling
@@ -212,7 +212,7 @@ export default function PeoplePage() {
 
       {results.length > 0 && (
         <div>
-          <Badge variant="secondary" className="mb-4 text-indigo-700 bg-indigo-50 border-indigo-200">
+          <Badge variant="secondary" className="mb-3 text-indigo-700 bg-indigo-50 border-indigo-200">
             {results.length} {results.length === 1 ? "result" : "results"}
           </Badge>
 
@@ -252,7 +252,7 @@ export default function PeoplePage() {
                     {expandedName === person.name && (
                       <TableRow key={`${person.name}-detail`}>
                         <TableCell colSpan={3} className="bg-slate-50/80 p-0">
-                          <div className="px-6 py-4 space-y-5">
+                          <div className="px-4 py-3 space-y-3">
                             {loadingConnections && (
                               <div className="flex items-center gap-2 text-sm text-slate-500">
                                 <Loader2 className="h-4 w-4 animate-spin" />

@@ -89,15 +89,15 @@ export default function LoginPage() {
 
   return (
     <div className="flex items-center justify-center min-h-[70vh]">
-      <Card className="w-full max-w-md bg-white">
-        <CardContent className="pt-8 pb-6 px-8">
+      <Card className="w-full max-w-sm bg-white">
+        <CardContent className="pt-6 pb-5 px-6">
           {/* Header */}
-          <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold text-slate-900">
-              <Lock className="w-5 h-5 inline mr-2" />
+          <div className="text-center mb-5">
+            <h1 className="text-xl font-bold text-slate-900">
+              <Lock className="w-4 h-4 inline mr-1.5" />
               {titles[mode]}
             </h1>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-xs text-slate-500 mt-1">
               {mode === "forgot"
                 ? "Enter your email and we'll send you a reset link"
                 : "Belgian Company Intelligence"}
@@ -109,7 +109,7 @@ export default function LoginPage() {
             <>
               <Button
                 variant="outline"
-                className="w-full mb-4"
+                className="w-full mb-3"
                 onClick={handleGoogle}
                 disabled={loading}
               >
@@ -122,7 +122,7 @@ export default function LoginPage() {
                 Continue with Google
               </Button>
 
-              <div className="relative my-4">
+              <div className="relative my-3">
                 <Separator />
                 <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-3 text-xs text-slate-400">
                   or
@@ -181,7 +181,7 @@ export default function LoginPage() {
           </form>
 
           {/* Footer links */}
-          <div className="text-center text-sm text-slate-500 mt-4 space-y-2">
+          <div className="text-center text-xs text-slate-500 mt-3 space-y-1.5">
             {mode === "login" && (
               <>
                 <button

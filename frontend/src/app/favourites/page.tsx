@@ -96,15 +96,15 @@ export default function FavouritesPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            <Star className="w-5 h-5 inline mr-2" />
+          <h1 className="text-xl font-bold text-slate-900">
+            <Star className="w-4 h-4 inline mr-1.5" />
             Favourites
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-0.5 text-xs text-slate-500">
             Companies you are tracking for deal sourcing
           </p>
         </div>
@@ -141,8 +141,8 @@ export default function FavouritesPage() {
 
       {/* Empty state */}
       {!loading && favourites.length === 0 && (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
-          <Star className="h-8 w-8 text-slate-300 mb-3" />
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10">
+          <Star className="h-6 w-6 text-slate-300 mb-2" />
           <p className="text-sm font-medium text-slate-500">
             No favourites yet. Star companies to track them here.
           </p>
@@ -172,7 +172,7 @@ export default function FavouritesPage() {
             <TableBody>
               {favourites.map((fav) => (
                 <TableRow key={fav.enterprise_number} className="hover:bg-indigo-50/40">
-                  <TableCell className="font-medium">
+                  <TableCell className="font-medium py-1.5 text-sm">
                     <Link
                       href={`/company/${fav.enterprise_number}`}
                       className="text-indigo-600 hover:text-indigo-800 hover:underline"
@@ -180,25 +180,25 @@ export default function FavouritesPage() {
                       {fav.name || fmtCbe(fav.enterprise_number)}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-slate-600 text-sm">
+                  <TableCell className="text-slate-600 text-xs py-1.5">
                     {fav.nace_code ?? "\u2014"}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-sm">
+                  <TableCell className="text-right font-mono text-xs py-1.5">
                     {fmtEur(fav.revenue)}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-sm">
+                  <TableCell className="text-right font-mono text-xs py-1.5">
                     {fmtEur(fav.ebitda)}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-sm">
+                  <TableCell className="text-right font-mono text-xs py-1.5">
                     {fmtPct(fav.margin_pct)}
                   </TableCell>
-                  <TableCell className="text-right font-mono text-sm">
+                  <TableCell className="text-right font-mono text-xs py-1.5">
                     {fmtNumber(fav.fte_total)}
                   </TableCell>
-                  <TableCell className="text-sm text-slate-500 whitespace-nowrap">
+                  <TableCell className="text-xs text-slate-500 whitespace-nowrap py-1.5">
                     {formatDate(fav.added_at)}
                   </TableCell>
-                  <TableCell className="max-w-[200px] truncate text-sm text-slate-500" title={fav.notes ?? ""}>
+                  <TableCell className="max-w-[200px] truncate text-xs text-slate-500 py-1.5" title={fav.notes ?? ""}>
                     {fav.notes ?? "\u2014"}
                   </TableCell>
                   <TableCell>

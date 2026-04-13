@@ -48,24 +48,24 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       {/* Spacer */}
       <div />
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {KPI_META.map((kpi) => {
           const Icon = kpi.icon;
           return (
             <Card key={kpi.key} className="bg-white">
-              <CardContent className="pt-5 pb-4 text-center">
+              <CardContent className="pt-3 pb-3 text-center">
                 {loading ? (
-                  <><Skeleton className="h-8 w-24 mx-auto mb-2" /><Skeleton className="h-3 w-20 mx-auto" /></>
+                  <><Skeleton className="h-7 w-24 mx-auto mb-1" /><Skeleton className="h-3 w-20 mx-auto" /></>
                 ) : (
                   <>
-                    <Icon className="w-5 h-5 text-indigo-500 mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-slate-900">{kpis ? fmtNumber(kpis[kpi.key]) : "—"}</div>
-                    <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-1">{kpi.label}</div>
+                    <Icon className="w-4 h-4 text-indigo-500 mx-auto mb-1" />
+                    <div className="text-xl font-bold text-slate-900">{kpis ? fmtNumber(kpis[kpi.key]) : "—"}</div>
+                    <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-0.5">{kpi.label}</div>
                   </>
                 )}
               </CardContent>
@@ -73,14 +73,14 @@ export default function Dashboard() {
           );
         })}
         <Card className="bg-white">
-          <CardContent className="pt-5 pb-4 text-center">
+          <CardContent className="pt-3 pb-3 text-center">
             {loading ? (
-              <><Skeleton className="h-8 w-24 mx-auto mb-2" /><Skeleton className="h-3 w-20 mx-auto" /></>
+              <><Skeleton className="h-7 w-24 mx-auto mb-1" /><Skeleton className="h-3 w-20 mx-auto" /></>
             ) : (
               <>
-                <Calendar className="w-5 h-5 text-indigo-500 mx-auto mb-2" />
-                <div className="text-2xl font-bold text-slate-900">{kpis?.snapshot_date || "—"}</div>
-                <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-1">Snapshot Date</div>
+                <Calendar className="w-4 h-4 text-indigo-500 mx-auto mb-1" />
+                <div className="text-xl font-bold text-slate-900">{kpis?.snapshot_date || "—"}</div>
+                <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-0.5">Snapshot Date</div>
               </>
             )}
           </CardContent>
@@ -89,19 +89,19 @@ export default function Dashboard() {
 
       {/* Quick Access */}
       <div>
-        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-4">Quick Access</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-3">Quick Access</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {QUICK_ACCESS.map((item) => {
             const Icon = item.icon;
             return (
               <Link key={item.href} href={item.href}>
                 <Card className="bg-white hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-indigo-600 h-full">
-                  <CardContent className="pt-4 pb-4">
-                    <h3 className="font-semibold text-slate-900">
-                      <Icon className="w-4 h-4 inline mr-2" />
+                  <CardContent className="pt-3 pb-3">
+                    <h3 className="font-semibold text-sm text-slate-900">
+                      <Icon className="w-3.5 h-3.5 inline mr-1.5" />
                       {item.title}
                     </h3>
-                    <p className="text-sm text-slate-500 mt-1">{item.desc}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{item.desc}</p>
                   </CardContent>
                 </Card>
               </Link>
