@@ -54,7 +54,7 @@ interface KpiMeta {
 }
 
 const KPI_META: KpiMeta[] = [
-  { key: "companies", label: "Total Companies", fmt: (v) => fmtNumber(v) },
+  { key: "n_companies", label: "Total Companies", fmt: (v) => fmtNumber(v) },
   { key: "total_revenue", label: "Total Revenue", fmt: (v) => fmtEur(v) },
   { key: "total_ebitda", label: "Total EBITDA", fmt: (v) => fmtEur(v) },
   { key: "median_margin", label: "Median Margin", fmt: (v) => fmtPct(v) },
@@ -63,7 +63,7 @@ const KPI_META: KpiMeta[] = [
 
 /* ---------- sorting ---------- */
 
-type SortKey = "nace2" | "sector" | "companies" | "revenue_m" | "ebitda_m" | "median_margin" | "fte";
+type SortKey = "nace2" | "sector" | "companies" | "revenue_m" | "ebitda_m" | "med_margin" | "med_fte";
 type SortDir = "asc" | "desc";
 
 function sortSectors(data: StatsSector[], key: SortKey, dir: SortDir): StatsSector[] {
@@ -124,8 +124,8 @@ export default function StatsPage() {
     { key: "companies", label: "Companies", align: "text-right" },
     { key: "revenue_m", label: "Revenue (M)", align: "text-right" },
     { key: "ebitda_m", label: "EBITDA (M)", align: "text-right" },
-    { key: "median_margin", label: "Median Margin", align: "text-right" },
-    { key: "fte", label: "FTE", align: "text-right" },
+    { key: "med_margin", label: "Median Margin", align: "text-right" },
+    { key: "med_fte", label: "Median FTE", align: "text-right" },
   ];
 
   return (
@@ -217,10 +217,10 @@ export default function StatsPage() {
                       {fmtEur(row.ebitda_m != null ? row.ebitda_m * 1e6 : null)}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">
-                      {fmtPct(row.median_margin)}
+                      {fmtPct(row.med_margin)}
                     </TableCell>
                     <TableCell className="text-right font-mono text-sm">
-                      {fmtNumber(row.fte)}
+                      {fmtNumber(row.med_fte)}
                     </TableCell>
                   </TableRow>
                 ))

@@ -61,7 +61,6 @@ export default function Dashboard() {
       {/* Hero */}
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Belgian Company Intelligence</h1>
-        <p className="text-slate-500 mt-1">KBO registry &middot; NBB annual accounts</p>
       </div>
 
       {/* KPI Cards */}

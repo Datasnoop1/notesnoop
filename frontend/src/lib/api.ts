@@ -222,11 +222,13 @@ export const getCompanyNetwork = (cbe: string, maxDepth = 2) =>
 
 // ── Stats ──────────────────────────────────────────────────
 export interface StatsOverview {
-  companies: number;
+  n_companies: number;
   total_revenue: number;
   total_ebitda: number;
-  median_margin: number | null;
   total_fte: number;
+  avg_fte: number;
+  total_nfd: number;
+  median_margin: number | null;
 }
 
 export interface StatsSector {
@@ -235,9 +237,9 @@ export interface StatsSector {
   companies: number;
   revenue_m: number;
   ebitda_m: number;
-  median_margin: number | null;
-  fte: number;
-  nfd: number;
+  med_margin: number | null;
+  med_fte: number | null;
+  med_nfd_ebitda: number | null;
 }
 
 export const getStatsOverview = (province?: string) =>

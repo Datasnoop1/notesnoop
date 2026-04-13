@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import {
   Card,
@@ -208,6 +208,12 @@ export default function ScreenerPage() {
     },
     [applyFilters]
   );
+
+  // Auto-load on mount
+  useEffect(() => {
+    applyFilters();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-[1400px] px-4 py-6">
