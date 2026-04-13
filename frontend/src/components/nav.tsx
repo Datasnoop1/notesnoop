@@ -67,7 +67,7 @@ export default function Nav() {
           {/* Brand */}
           <Link href="/" className="flex flex-col justify-center">
             <span className="text-lg font-bold text-indigo-600 leading-tight">
-              LeadPeek
+              Datasnoop
               <span className="ml-1.5 text-[9px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider align-top">Beta</span>
             </span>
             <span className="text-[10px] uppercase tracking-wider text-slate-400 leading-tight">
@@ -136,7 +136,7 @@ export default function Nav() {
               </SheetTrigger>
               <SheetContent side="left" className="w-64">
                 <SheetTitle className="text-lg font-bold text-indigo-600">
-                  LeadPeek
+                  Datasnoop
                 </SheetTitle>
                 <nav className="mt-6 flex flex-col gap-1">
                   {NAV_ITEMS.map((item) => (

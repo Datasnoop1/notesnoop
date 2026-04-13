@@ -79,7 +79,7 @@ function FeedbackDialog({
             <p className="text-sm text-slate-500">
               {type === "bug"
                 ? "Describe what went wrong and we'll look into it."
-                : "Tell us what would make LeadPeek better."}
+                : "Tell us what would make Datasnoop better."}
             </p>
           </div>
 

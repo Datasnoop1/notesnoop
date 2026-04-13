@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-const STORAGE_KEY = "leadpeek_brand_vote";
+const STORAGE_KEY = "finx_brand_vote";
 
 const OPTIONS = [
   { value: "Data Snoop", emoji: "🔍" },

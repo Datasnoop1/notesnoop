@@ -1,4 +1,4 @@
-"""LeadPeek FastAPI backend — Belgian company intelligence API."""
+"""Datasnoop FastAPI backend — Belgian company intelligence API."""
 
 import logging
 import os
@@ -19,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="LeadPeek API",
+    title="Datasnoop API",
     description="Belgian company intelligence — KBO registry + NBB annual accounts",
     version="0.1.0",
 )
