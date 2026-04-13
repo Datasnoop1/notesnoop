@@ -107,6 +107,7 @@ interface Shareholder {
   ownership_pct: number | null;
   shareholder_type: string | null;
   identifier: string | null;
+  fiscal_year: string | null;
 }
 
 interface ParticipatingInterest {
@@ -114,6 +115,7 @@ interface ParticipatingInterest {
   ownership_pct: number | null;
   country: string | null;
   identifier: string | null;
+  fiscal_year: string | null;
 }
 
 interface StaatsbladPub {
@@ -679,113 +681,156 @@ export default function CompanyDetailPage(props: {
           ) : (
             <>
               <div className="grid gap-6 lg:grid-cols-2">
-                {/* Shareholders */}
-                {structure.shareholders.length > 0 && (
-                  <Card>
-                    <CardContent>
-                      <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
-                        Shareholders
-                      </h3>
-                      <div className="space-y-2">
-                        {structure.shareholders.map((sh, i) => {
-                          const shCbe = cleanCbe(sh.identifier);
-                          return (
-                            <div
-                              key={`${sh.name}-${i}`}
-                              className="rounded-md border p-3"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                {shCbe ? (
-                                  <Link
-                                    href={`/company/${shCbe}`}
-                                    className="font-semibold text-sm text-indigo-600 hover:underline"
-                                  >
-                                    {sh.name}
-                                  </Link>
-                                ) : (
-                                  <span className="font-semibold text-sm text-slate-900">
-                                    {sh.name}
-                                  </span>
-                                )}
-                                <div className="flex items-center gap-2 shrink-0">
-                                  {sh.ownership_pct != null && (
-                                    <span className="font-mono text-xs font-medium text-slate-700">
-                                      {sh.ownership_pct.toFixed(1)}%
+                {/* Left: Shareholders + Subsidiaries */}
+                <div className="space-y-6">
+                  {/* Shareholders */}
+                  {structure.shareholders.length > 0 && (
+                    <Card>
+                      <CardContent>
+                        <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
+                          Shareholders
+                        </h3>
+                        <div className="space-y-2">
+                          {structure.shareholders.map((sh, i) => {
+                            const shCbe = cleanCbe(sh.identifier);
+                            return (
+                              <div
+                                key={`${sh.name}-${i}`}
+                                className="rounded-md border p-3"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  {shCbe ? (
+                                    <Link
+                                      href={`/company/${shCbe}`}
+                                      className="font-semibold text-sm text-indigo-600 hover:underline"
+                                    >
+                                      {sh.name}
+                                    </Link>
+                                  ) : (
+                                    <span className="font-semibold text-sm text-slate-900">
+                                      {sh.name}
                                     </span>
                                   )}
-                                  {sh.shareholder_type && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-[10px]"
-                                    >
-                                      {sh.shareholder_type}
-                                    </Badge>
-                                  )}
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {sh.ownership_pct != null && (
+                                      <span className="font-mono text-xs font-medium text-slate-700">
+                                        {sh.ownership_pct.toFixed(1)}%
+                                      </span>
+                                    )}
+                                    {sh.shareholder_type && (
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-[10px]"
+                                      >
+                                        {sh.shareholder_type}
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
 
-                {/* Subsidiaries */}
-                {structure.participating_interests.length > 0 && (
-                  <Card>
-                    <CardContent>
-                      <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-orange-500 pl-2">
-                        Participating Interests
-                      </h3>
-                      <div className="space-y-2">
-                        {structure.participating_interests.map((pi, i) => {
-                          const piCbe = cleanCbe(pi.identifier);
-                          return (
-                            <div
-                              key={`${pi.name}-${i}`}
-                              className="rounded-md border p-3"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                {piCbe ? (
-                                  <Link
-                                    href={`/company/${piCbe}`}
-                                    className="font-semibold text-sm text-indigo-600 hover:underline"
-                                  >
-                                    {pi.name}
-                                  </Link>
-                                ) : (
-                                  <span className="font-semibold text-sm text-slate-900">
-                                    {pi.name}
-                                  </span>
-                                )}
-                                <div className="flex items-center gap-2 shrink-0">
-                                  {pi.ownership_pct != null && (
-                                    <span className="font-mono text-xs font-medium text-slate-700">
-                                      {pi.ownership_pct.toFixed(1)}%
+                  {/* Participating Interests */}
+                  {structure.participating_interests.length > 0 && (
+                    <Card>
+                      <CardContent>
+                        <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-orange-500 pl-2">
+                          Participating Interests
+                        </h3>
+                        <div className="space-y-2">
+                          {structure.participating_interests.map((pi, i) => {
+                            const piCbe = cleanCbe(pi.identifier);
+                            return (
+                              <div
+                                key={`${pi.name}-${i}`}
+                                className="rounded-md border p-3"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  {piCbe ? (
+                                    <Link
+                                      href={`/company/${piCbe}`}
+                                      className="font-semibold text-sm text-indigo-600 hover:underline"
+                                    >
+                                      {pi.name}
+                                    </Link>
+                                  ) : (
+                                    <span className="font-semibold text-sm text-slate-900">
+                                      {pi.name}
                                     </span>
                                   )}
-                                  {pi.country && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-[10px]"
-                                    >
-                                      {pi.country}
-                                    </Badge>
-                                  )}
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    {pi.ownership_pct != null && (
+                                      <span className="font-mono text-xs font-medium text-slate-700">
+                                        {pi.ownership_pct.toFixed(1)}%
+                                      </span>
+                                    )}
+                                    {pi.country && (
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-[10px]"
+                                      >
+                                        {pi.country}
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+
+                {/* Right: Network Graph */}
+                <div>
+                  <NetworkGraph cbe={cbe} companyName={detail?.name || cbe} />
+                </div>
               </div>
 
-              {/* Network graph */}
-              <NetworkGraph cbe={cbe} companyName={detail?.name || cbe} />
+              {/* Ownership Timeline */}
+              {(structure.participating_interests.length > 0 || structure.shareholders.length > 0) && (
+                <Card className="mt-6">
+                  <CardContent className="pt-4">
+                    <h3 className="text-sm font-semibold text-slate-700 mb-3">Ownership Timeline</h3>
+                    <div className="space-y-2">
+                      {[
+                        ...structure.participating_interests.map(pi => ({
+                          name: pi.name,
+                          type: "subsidiary" as const,
+                          pct: pi.ownership_pct,
+                          year: pi.fiscal_year || "\u2014",
+                        })),
+                        ...structure.shareholders.map(sh => ({
+                          name: sh.name,
+                          type: "shareholder" as const,
+                          pct: sh.ownership_pct,
+                          year: sh.fiscal_year || "\u2014",
+                        })),
+                      ]
+                        .sort((a, b) => String(b.year).localeCompare(String(a.year)))
+                        .map((item, i) => (
+                          <div key={i} className="flex items-center gap-3 text-sm border-l-2 border-slate-200 pl-3 py-1">
+                            <span className="text-xs text-slate-400 font-mono w-10">{item.year}</span>
+                            <Badge variant={item.type === "shareholder" ? "default" : "secondary"} className="text-[10px]">
+                              {item.type === "shareholder" ? "SH" : "SUB"}
+                            </Badge>
+                            <span className="text-slate-700">{item.name}</span>
+                            {item.pct != null && (
+                              <span className="text-slate-400 text-xs">{item.pct}%</span>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </>
           )}
         </TabsContent>

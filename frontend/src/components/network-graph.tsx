@@ -31,8 +31,10 @@ interface Props {
 export default function NetworkGraph({ cbe, companyName }: Props) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
+  const graphRef = useRef<any>(null);
   const [data, setData] = useState<NetworkData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [depth, setDepth] = useState(2);
   const [ForceGraph, setForceGraph] = useState<typeof import("react-force-graph-2d").default | null>(null);
 
   // Dynamic import of react-force-graph-2d (it uses canvas, SSR-incompatible)
@@ -44,11 +46,11 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    getCompanyNetwork(cbe, 2)
+    getCompanyNetwork(cbe, depth)
       .then(setData)
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [cbe]);
+  }, [cbe, depth]);
 
   const handleNodeClick = useCallback(
     (node: { id?: string }) => {
@@ -61,7 +63,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   if (loading) {
     return (
-      <Card className="mt-4">
+      <Card>
         <CardContent className="py-12 text-center text-sm text-slate-400">
           Loading network graph...
         </CardContent>
@@ -75,7 +77,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   if (!ForceGraph) {
     return (
-      <Card className="mt-4">
+      <Card>
         <CardContent className="py-12 text-center text-sm text-slate-400">
           Loading graph renderer...
         </CardContent>
@@ -110,7 +112,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
   };
 
   return (
-    <Card className="mt-4">
+    <Card>
       <CardContent className="pt-4 pb-2">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-semibold text-slate-700">
@@ -131,12 +133,39 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
             </span>
           </div>
         </div>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-xs text-slate-500 font-medium">Depth:</span>
+          {[1, 2, 3].map(d => (
+            <button
+              key={d}
+              onClick={() => setDepth(d)}
+              className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
+                depth === d
+                  ? "bg-indigo-600 text-white"
+                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+              }`}
+            >
+              {d === 1 ? "1st" : d === 2 ? "2nd" : "3rd"} degree
+            </button>
+          ))}
+          <button
+            onClick={() => {
+              if (graphRef.current) {
+                graphRef.current.zoomToFit(400);
+              }
+            }}
+            className="ml-auto px-2.5 py-1 text-xs rounded-md font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+          >
+            Reset view
+          </button>
+        </div>
         <div
           ref={containerRef}
           className="border border-slate-200 rounded-lg overflow-hidden bg-white"
           style={{ height: 400 }}
         >
           <ForceGraph
+            ref={graphRef}
             graphData={graphData}
             width={containerRef.current?.clientWidth || 800}
             height={400}
