@@ -32,6 +32,7 @@ import {
   Star,
   ArrowLeft,
   ExternalLink,
+  ChevronDown,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -396,6 +397,7 @@ export default function CompanyDetailPage(props: {
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="financials">Financials</TabsTrigger>
+          <TabsTrigger value="administrators">Administrators</TabsTrigger>
           <TabsTrigger value="structure">Structure</TabsTrigger>
           <TabsTrigger value="publications">Publications</TabsTrigger>
         </TabsList>
@@ -512,171 +514,275 @@ export default function CompanyDetailPage(props: {
           )}
         </TabsContent>
 
+        {/* ===== Administrators tab ===== */}
+        <TabsContent value="administrators" className="mt-4">
+          {(() => {
+            const currentAdmins = (structure?.administrators || []).filter(
+              (a) => !a.mandate_end || a.mandate_end === "" || new Date(a.mandate_end) > new Date()
+            );
+            const pastAdmins = (structure?.administrators || []).filter(
+              (a) => a.mandate_end && a.mandate_end !== "" && new Date(a.mandate_end) <= new Date()
+            );
+
+            if (currentAdmins.length === 0 && pastAdmins.length === 0) {
+              return (
+                <p className="py-8 text-center text-sm text-slate-500">
+                  No administrator data available for this company.
+                </p>
+              );
+            }
+
+            return (
+              <div className="space-y-6">
+                {/* Current Administrators */}
+                {currentAdmins.length > 0 && (
+                  <div>
+                    <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
+                      Current Administrators ({currentAdmins.length})
+                    </h3>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {currentAdmins.map((admin, i) => {
+                        const adminCbe = cleanCbe(admin.identifier);
+                        return (
+                          <Card key={`current-${admin.name}-${admin.role}-${i}`}>
+                            <CardContent className="p-4">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-green-500" />
+                                    {adminCbe ? (
+                                      <Link
+                                        href={`/company/${adminCbe}`}
+                                        className="font-bold text-sm text-indigo-600 hover:underline truncate"
+                                      >
+                                        {admin.name}
+                                      </Link>
+                                    ) : (
+                                      <span className="font-bold text-sm text-slate-900 truncate">
+                                        {admin.name}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="mt-1 text-sm font-medium text-slate-700">
+                                    {admin.role_label}
+                                  </p>
+                                  {admin.mandate_start && (
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      Since {admin.mandate_start}
+                                    </p>
+                                  )}
+                                  {adminCbe && (
+                                    <p className="mt-1 text-xs text-slate-400 font-mono">
+                                      {fmtCbe(adminCbe)}
+                                    </p>
+                                  )}
+                                </div>
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px] shrink-0 bg-green-50 text-green-700 border-green-200"
+                                >
+                                  Active
+                                </Badge>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Past Administrators */}
+                {pastAdmins.length > 0 && (
+                  <div>
+                    <button
+                      type="button"
+                      className="mb-3 flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-slate-400 border-l-[3px] border-slate-300 pl-2 hover:text-slate-600 transition-colors"
+                      onClick={(e) => {
+                        const content = (e.currentTarget as HTMLElement).nextElementSibling;
+                        const chevron = (e.currentTarget as HTMLElement).querySelector('[data-chevron]');
+                        if (content) {
+                          content.classList.toggle("hidden");
+                        }
+                        if (chevron) {
+                          chevron.classList.toggle("rotate-180");
+                        }
+                      }}
+                    >
+                      Past Administrators ({pastAdmins.length})
+                      <ChevronDown data-chevron className="h-3.5 w-3.5 transition-transform" />
+                    </button>
+                    <div className="hidden">
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {pastAdmins.map((admin, i) => {
+                          const adminCbe = cleanCbe(admin.identifier);
+                          return (
+                            <Card key={`past-${admin.name}-${admin.role}-${i}`} className="opacity-75">
+                              <CardContent className="p-4">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-slate-300" />
+                                      {adminCbe ? (
+                                        <Link
+                                          href={`/company/${adminCbe}`}
+                                          className="font-bold text-sm text-slate-500 hover:underline truncate"
+                                        >
+                                          {admin.name}
+                                        </Link>
+                                      ) : (
+                                        <span className="font-bold text-sm text-slate-500 truncate">
+                                          {admin.name}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="mt-1 text-sm text-slate-500">
+                                      {admin.role_label}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-400">
+                                      {admin.mandate_start ?? "?"} - {admin.mandate_end}
+                                    </p>
+                                    {adminCbe && (
+                                      <p className="mt-1 text-xs text-slate-400 font-mono">
+                                        {fmtCbe(adminCbe)}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px] shrink-0 bg-slate-50 text-slate-400 border-slate-200"
+                                  >
+                                    Ended
+                                  </Badge>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </TabsContent>
+
         {/* ===== Structure tab ===== */}
         <TabsContent value="structure" className="mt-4">
           {!structure ||
-          (structure.administrators.length === 0 &&
-            structure.shareholders.length === 0 &&
+          (structure.shareholders.length === 0 &&
             structure.participating_interests.length === 0) ? (
             <p className="py-8 text-center text-sm text-slate-500">
               No structure data available for this company.
             </p>
           ) : (
             <>
-            <div className="grid gap-6 lg:grid-cols-3">
-              {/* Administrators */}
-              {structure.administrators.length > 0 && (
-                <Card>
-                  <CardContent>
-                    <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
-                      Administrators
-                    </h3>
-                    <div className="space-y-2">
-                      {structure.administrators.map((admin, i) => {
-                        const adminCbe = cleanCbe(admin.identifier);
-                        return (
-                          <div
-                            key={`${admin.name}-${admin.role}-${i}`}
-                            className="rounded-md border p-3"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              {adminCbe ? (
-                                <Link
-                                  href={`/company/${adminCbe}`}
-                                  className="font-semibold text-sm text-indigo-600 hover:underline"
-                                >
-                                  {admin.name}
-                                </Link>
-                              ) : (
-                                <span className="font-semibold text-sm text-slate-900">
-                                  {admin.name}
-                                </span>
-                              )}
-                              <Badge
-                                variant="secondary"
-                                className="text-[10px] shrink-0"
-                              >
-                                {admin.role_label}
-                              </Badge>
-                            </div>
-                            {(admin.mandate_start || admin.mandate_end) && (
-                              <p className="mt-1 text-xs text-slate-500">
-                                {admin.mandate_start ?? "?"} -{" "}
-                                {admin.mandate_end ?? "present"}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Shareholders */}
-              {structure.shareholders.length > 0 && (
-                <Card>
-                  <CardContent>
-                    <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
-                      Shareholders
-                    </h3>
-                    <div className="space-y-2">
-                      {structure.shareholders.map((sh, i) => {
-                        const shCbe = cleanCbe(sh.identifier);
-                        return (
-                          <div
-                            key={`${sh.name}-${i}`}
-                            className="rounded-md border p-3"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              {shCbe ? (
-                                <Link
-                                  href={`/company/${shCbe}`}
-                                  className="font-semibold text-sm text-indigo-600 hover:underline"
-                                >
-                                  {sh.name}
-                                </Link>
-                              ) : (
-                                <span className="font-semibold text-sm text-slate-900">
-                                  {sh.name}
-                                </span>
-                              )}
-                              <div className="flex items-center gap-2 shrink-0">
-                                {sh.ownership_pct != null && (
-                                  <span className="font-mono text-xs font-medium text-slate-700">
-                                    {sh.ownership_pct.toFixed(1)}%
+              <div className="grid gap-6 lg:grid-cols-2">
+                {/* Shareholders */}
+                {structure.shareholders.length > 0 && (
+                  <Card>
+                    <CardContent>
+                      <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
+                        Shareholders
+                      </h3>
+                      <div className="space-y-2">
+                        {structure.shareholders.map((sh, i) => {
+                          const shCbe = cleanCbe(sh.identifier);
+                          return (
+                            <div
+                              key={`${sh.name}-${i}`}
+                              className="rounded-md border p-3"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                {shCbe ? (
+                                  <Link
+                                    href={`/company/${shCbe}`}
+                                    className="font-semibold text-sm text-indigo-600 hover:underline"
+                                  >
+                                    {sh.name}
+                                  </Link>
+                                ) : (
+                                  <span className="font-semibold text-sm text-slate-900">
+                                    {sh.name}
                                   </span>
                                 )}
-                                {sh.shareholder_type && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[10px]"
-                                  >
-                                    {sh.shareholder_type}
-                                  </Badge>
-                                )}
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {sh.ownership_pct != null && (
+                                    <span className="font-mono text-xs font-medium text-slate-700">
+                                      {sh.ownership_pct.toFixed(1)}%
+                                    </span>
+                                  )}
+                                  {sh.shareholder_type && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px]"
+                                    >
+                                      {sh.shareholder_type}
+                                    </Badge>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
-              {/* Subsidiaries */}
-              {structure.participating_interests.length > 0 && (
-                <Card>
-                  <CardContent>
-                    <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-orange-500 pl-2">
-                      Participating Interests
-                    </h3>
-                    <div className="space-y-2">
-                      {structure.participating_interests.map((pi, i) => {
-                        const piCbe = cleanCbe(pi.identifier);
-                        return (
-                          <div
-                            key={`${pi.name}-${i}`}
-                            className="rounded-md border p-3"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              {piCbe ? (
-                                <Link
-                                  href={`/company/${piCbe}`}
-                                  className="font-semibold text-sm text-indigo-600 hover:underline"
-                                >
-                                  {pi.name}
-                                </Link>
-                              ) : (
-                                <span className="font-semibold text-sm text-slate-900">
-                                  {pi.name}
-                                </span>
-                              )}
-                              <div className="flex items-center gap-2 shrink-0">
-                                {pi.ownership_pct != null && (
-                                  <span className="font-mono text-xs font-medium text-slate-700">
-                                    {pi.ownership_pct.toFixed(1)}%
+                {/* Subsidiaries */}
+                {structure.participating_interests.length > 0 && (
+                  <Card>
+                    <CardContent>
+                      <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-orange-500 pl-2">
+                        Participating Interests
+                      </h3>
+                      <div className="space-y-2">
+                        {structure.participating_interests.map((pi, i) => {
+                          const piCbe = cleanCbe(pi.identifier);
+                          return (
+                            <div
+                              key={`${pi.name}-${i}`}
+                              className="rounded-md border p-3"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                {piCbe ? (
+                                  <Link
+                                    href={`/company/${piCbe}`}
+                                    className="font-semibold text-sm text-indigo-600 hover:underline"
+                                  >
+                                    {pi.name}
+                                  </Link>
+                                ) : (
+                                  <span className="font-semibold text-sm text-slate-900">
+                                    {pi.name}
                                   </span>
                                 )}
-                                {pi.country && (
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[10px]"
-                                  >
-                                    {pi.country}
-                                  </Badge>
-                                )}
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {pi.ownership_pct != null && (
+                                    <span className="font-mono text-xs font-medium text-slate-700">
+                                      {pi.ownership_pct.toFixed(1)}%
+                                    </span>
+                                  )}
+                                  {pi.country && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px]"
+                                    >
+                                      {pi.country}
+                                    </Badge>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
 
               {/* Network graph */}
               <NetworkGraph cbe={cbe} companyName={detail?.name || cbe} />

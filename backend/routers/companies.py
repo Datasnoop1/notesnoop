@@ -120,6 +120,45 @@ async def search_companies(q: str = Query(..., min_length=1)):
                         existing_cbes.add(r["enterprise_number"])
                         if len(rows) >= 20:
                             break
+
+            # If no results, try alternative/fuzzy matches
+            if not rows:
+                words = query.split()
+                if len(words) > 1:
+                    # Try matching any word
+                    conditions = " OR ".join(["ci.name ILIKE %s"] * len(words))
+                    params = tuple(f"%{w}%" for w in words)
+                    rows = fetch_all(f"""
+                        SELECT ci.enterprise_number, ci.name,
+                               e.status, e.juridical_form AS "jf_label", ci.city,
+                               COALESCE(nl.description, ci.nace_code) AS "sector", e.start_date,
+                               fl.revenue, fl.ebitda,
+                               CASE WHEN fl.revenue > 0 THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1) END AS "ebitda_margin_pct",
+                               fl.fte_total, fl.fiscal_year
+                        FROM company_info ci
+                        JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
+                        LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+                        LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+                        WHERE {conditions}
+                        ORDER BY ci.name LIMIT 20
+                    """, params)
+                elif len(query) >= 3:
+                    # Try prefix match
+                    rows = fetch_all("""
+                        SELECT ci.enterprise_number, ci.name,
+                               e.status, e.juridical_form AS "jf_label", ci.city,
+                               COALESCE(nl.description, ci.nace_code) AS "sector", e.start_date,
+                               fl.revenue, fl.ebitda,
+                               CASE WHEN fl.revenue > 0 THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1) END AS "ebitda_margin_pct",
+                               fl.fte_total, fl.fiscal_year
+                        FROM company_info ci
+                        JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
+                        LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+                        LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+                        WHERE ci.name ILIKE %s
+                        ORDER BY ci.name LIMIT 20
+                    """, (f"{query}%",))
+
         return [_serialize_row(r) for r in rows]
     except Exception as e:
         logger.exception("Company search failed")
@@ -139,23 +178,21 @@ async def get_company_detail(cbe: str):
     cbe = cbe.strip().replace(".", "")
 
     try:
+        # Fast path: try company_info first (170K rows, indexed)
         header = fetch_one("""
             SELECT e.enterprise_number, e.status, e.start_date,
-                   COALESCE(c_jf.description, e.juridical_form) AS "jf_label",
-                   d.denomination AS "name",
-                   a.zipcode, a.municipality_nl AS "city",
-                   a.street_nl AS "street", a.house_number,
-                   act.nace_code,
-                   COALESCE(c_n.description, act.nace_code) AS "nace_label"
+                   e.juridical_form AS "jf_label",
+                   COALESCE(ci.name, d.denomination, e.enterprise_number) AS "name",
+                   COALESCE(ci.city, a.municipality_nl) AS "city",
+                   a.zipcode, a.street_nl AS "street", a.house_number,
+                   ci.nace_code,
+                   COALESCE(nl.description, ci.nace_code) AS "nace_label"
             FROM enterprise e
+            LEFT JOIN company_info ci ON ci.enterprise_number = e.enterprise_number
             LEFT JOIN denomination d ON d.entity_number = e.enterprise_number
                  AND d.type_of_denomination = '001' AND d.language IN ('2','1')
             LEFT JOIN address a ON a.entity_number = e.enterprise_number AND a.type_of_address = 'REGO'
-            LEFT JOIN activity act ON act.entity_number = e.enterprise_number AND act.classification = 'MAIN'
-            LEFT JOIN code c_jf ON c_jf.category = 'JuridicalForm'
-                 AND c_jf.code = e.juridical_form AND c_jf.language = 'NL'
-            LEFT JOIN code c_n ON c_n.category IN ('Nace2025','Nace2008')
-                 AND c_n.code = act.nace_code AND c_n.language = 'NL'
+            LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
             WHERE e.enterprise_number = %s LIMIT 1
         """, (cbe,))
 
