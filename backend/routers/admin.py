@@ -13,11 +13,19 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 def _require_admin(user=Depends(get_current_user)):
     """Dependency: require admin role."""
     email = user.get("email", "")
+    user_id = user.get("id", "")
+    logger.info("Admin check: email=%s id=%s", email, user_id)
+
+    # Check by email or user_id
     role_row = fetch_one(
-        "SELECT role FROM user_roles WHERE email = %s", (email,)
+        "SELECT role FROM user_roles WHERE email = %s OR email = %s",
+        (email, user_id),
     )
     if not role_row or role_row["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise HTTPException(
+            status_code=403,
+            detail=f"Admin access required. Your email: {email}"
+        )
     return user
 
 
