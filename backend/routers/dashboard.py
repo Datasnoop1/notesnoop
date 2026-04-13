@@ -13,29 +13,22 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 async def get_dashboard():
     """Return KPI stats using fast pre-computed tables (not slow COUNT on raw data)."""
     try:
-        enterprise_count = fetch_one(
-            "SELECT COUNT(*) AS cnt FROM enterprise WHERE status='AC'"
-        )
-        # Use financial_latest (170K rows) instead of financial_data (60M+ rows)
-        financial_count = fetch_one(
-            "SELECT COUNT(*) AS cnt FROM financial_latest"
-        )
-        filing_count = fetch_one(
-            "SELECT COUNT(*) AS cnt FROM financial_by_year"
-        )
-        admin_count = fetch_one(
-            "SELECT COUNT(*) AS cnt FROM administrator"
-        )
-        snapshot_date = fetch_one(
-            "SELECT value FROM meta WHERE variable='SnapshotDate'"
-        )
+        # Use pg_stat estimated counts (instant) instead of COUNT(*) (slow full scan)
+        stats = fetch_one("""
+            SELECT
+                (SELECT reltuples::bigint FROM pg_class WHERE relname = 'enterprise') AS enterprise_count,
+                (SELECT reltuples::bigint FROM pg_class WHERE relname = 'financial_latest') AS financial_count,
+                (SELECT reltuples::bigint FROM pg_class WHERE relname = 'financial_by_year') AS filing_count,
+                (SELECT reltuples::bigint FROM pg_class WHERE relname = 'administrator') AS admin_count,
+                (SELECT value FROM meta WHERE variable = 'SnapshotDate') AS snapshot_date
+        """)
 
         return {
-            "enterprise_count": enterprise_count["cnt"] if enterprise_count else 0,
-            "financial_count": financial_count["cnt"] if financial_count else 0,
-            "filing_count": filing_count["cnt"] if filing_count else 0,
-            "admin_count": admin_count["cnt"] if admin_count else 0,
-            "snapshot_date": snapshot_date["value"] if snapshot_date else None,
+            "enterprise_count": stats["enterprise_count"] or 0,
+            "financial_count": stats["financial_count"] or 0,
+            "filing_count": stats["filing_count"] or 0,
+            "admin_count": stats["admin_count"] or 0,
+            "snapshot_date": stats["snapshot_date"],
         }
     except Exception as e:
         logger.exception("Dashboard query failed")
