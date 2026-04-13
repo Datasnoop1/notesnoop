@@ -39,9 +39,18 @@ interface AdminStats {
   target_enterprises: number;
   target_financial_rows: number;
   target_activity_rows: number;
+  target_companies: number;
   daily_active_users: number;
   most_visited_page: string | null;
   companies_with_staatsblad: number;
+  // Dataset coverage KPIs
+  companies_with_latest_financials: number;
+  companies_with_history: number;
+  companies_with_publications: number;
+  companies_with_admins: number;
+  companies_with_shareholders: number;
+  companies_with_subsidiaries: number;
+  fully_loaded_companies: number;
 }
 
 interface UserRow {
@@ -117,15 +126,23 @@ function Skeleton({ className = "" }: { className?: string }) {
 function ProgressBar({
   value,
   target,
+  colorCoded,
 }: {
   value: number;
   target: number;
+  colorCoded?: boolean;
 }) {
   const pct = Math.min((value / target) * 100, 100);
+  let barColor = "bg-indigo-600";
+  if (colorCoded) {
+    if (pct >= 80) barColor = "bg-emerald-500";
+    else if (pct >= 40) barColor = "bg-amber-500";
+    else barColor = "bg-red-500";
+  }
   return (
     <div className="mt-2 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
       <div
-        className="h-full rounded-full bg-indigo-600 transition-all duration-500"
+        className={`h-full rounded-full ${barColor} transition-all duration-500`}
         style={{ width: `${pct}%` }}
       />
     </div>
@@ -622,6 +639,147 @@ export default function AdminPanel() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ======== 1b. Dataset Coverage ======== */}
+      {!loading && stats && (
+        <div>
+          <SectionHeading>Dataset Coverage</SectionHeading>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Fully loaded — key metric */}
+            <Card className="bg-white border-2 border-indigo-200 sm:col-span-2 lg:col-span-3">
+              <CardContent className="pt-5 pb-4">
+                <div className="flex items-center justify-between mb-1">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-wide text-indigo-600 font-bold">
+                      Fully Loaded Companies
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      Companies with financials + administrators + publications
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-indigo-600">
+                      {fmt(stats.fully_loaded_companies)}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {((stats.fully_loaded_companies / stats.target_companies) * 100).toFixed(1)}% of {fmt(stats.target_companies)}
+                    </div>
+                  </div>
+                </div>
+                <ProgressBar value={stats.fully_loaded_companies} target={stats.target_companies} colorCoded />
+              </CardContent>
+            </Card>
+
+            {/* Latest financials */}
+            <Card className="bg-white">
+              <CardContent className="pt-5 pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                    Latest Financials
+                  </div>
+                  <div className="text-lg font-bold text-slate-900">
+                    {fmt(stats.companies_with_latest_financials)}
+                  </div>
+                </div>
+                <ProgressBar value={stats.companies_with_latest_financials} target={stats.target_companies} colorCoded />
+                <div className="text-[10px] text-slate-400 mt-1 text-right">
+                  {((stats.companies_with_latest_financials / stats.target_companies) * 100).toFixed(1)}%
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Financial history */}
+            <Card className="bg-white">
+              <CardContent className="pt-5 pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                    Financial History
+                  </div>
+                  <div className="text-lg font-bold text-slate-900">
+                    {fmt(stats.companies_with_history)}
+                  </div>
+                </div>
+                <ProgressBar value={stats.companies_with_history} target={stats.target_companies} colorCoded />
+                <div className="text-[10px] text-slate-400 mt-1 text-right">
+                  {((stats.companies_with_history / stats.target_companies) * 100).toFixed(1)}%
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Publications (Staatsblad) */}
+            <Card className="bg-white">
+              <CardContent className="pt-5 pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                    Publications
+                  </div>
+                  <div className="text-lg font-bold text-slate-900">
+                    {fmt(stats.companies_with_publications)}
+                  </div>
+                </div>
+                <ProgressBar value={stats.companies_with_publications} target={stats.target_companies} colorCoded />
+                <div className="text-[10px] text-slate-400 mt-1 text-right">
+                  {((stats.companies_with_publications / stats.target_companies) * 100).toFixed(1)}%
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Administrators */}
+            <Card className="bg-white">
+              <CardContent className="pt-5 pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                    Administrators
+                  </div>
+                  <div className="text-lg font-bold text-slate-900">
+                    {fmt(stats.companies_with_admins)}
+                  </div>
+                </div>
+                <ProgressBar value={stats.companies_with_admins} target={stats.target_companies} colorCoded />
+                <div className="text-[10px] text-slate-400 mt-1 text-right">
+                  {((stats.companies_with_admins / stats.target_companies) * 100).toFixed(1)}%
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Shareholders */}
+            <Card className="bg-white">
+              <CardContent className="pt-5 pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                    Shareholders
+                  </div>
+                  <div className="text-lg font-bold text-slate-900">
+                    {fmt(stats.companies_with_shareholders)}
+                  </div>
+                </div>
+                <ProgressBar value={stats.companies_with_shareholders} target={stats.target_companies} colorCoded />
+                <div className="text-[10px] text-slate-400 mt-1 text-right">
+                  {((stats.companies_with_shareholders / stats.target_companies) * 100).toFixed(1)}%
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Subsidiaries */}
+            <Card className="bg-white">
+              <CardContent className="pt-5 pb-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                    Subsidiaries
+                  </div>
+                  <div className="text-lg font-bold text-slate-900">
+                    {fmt(stats.companies_with_subsidiaries)}
+                  </div>
+                </div>
+                <ProgressBar value={stats.companies_with_subsidiaries} target={stats.target_companies} colorCoded />
+                <div className="text-[10px] text-slate-400 mt-1 text-right">
+                  {((stats.companies_with_subsidiaries / stats.target_companies) * 100).toFixed(1)}%
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
 
       {/* ======== 2. Users Table ======== */}
       <div>

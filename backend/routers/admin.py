@@ -76,12 +76,30 @@ async def admin_stats(user=Depends(_require_admin)):
                  WHERE created_at > NOW() - INTERVAL '7 days'
                    AND endpoint != '/api/health'
                  GROUP BY endpoint ORDER BY COUNT(*) DESC LIMIT 1) AS most_visited_page,
-                (SELECT COUNT(DISTINCT enterprise_number) FROM staatsblad_publication) AS companies_with_staatsblad
+                (SELECT COUNT(DISTINCT enterprise_number) FROM staatsblad_publication) AS companies_with_staatsblad,
+
+                -- Dataset coverage KPIs
+                (SELECT COUNT(DISTINCT fl.enterprise_number) FROM financial_latest fl) AS companies_with_latest_financials,
+                (SELECT COUNT(DISTINCT fby.enterprise_number) FROM financial_by_year fby) AS companies_with_history,
+                (SELECT COUNT(DISTINCT sp.enterprise_number) FROM staatsblad_publication sp WHERE sp.reference != 'NO_DATA') AS companies_with_publications,
+                (SELECT COUNT(DISTINCT a.enterprise_number) FROM administrator a) AS companies_with_admins,
+                (SELECT COUNT(DISTINCT sh.enterprise_number) FROM shareholder sh) AS companies_with_shareholders,
+                (SELECT COUNT(DISTINCT pi.enterprise_number) FROM participating_interest pi) AS companies_with_subsidiaries,
+
+                -- Data completeness: companies with ALL data types loaded
+                (SELECT COUNT(*) FROM (
+                    SELECT ci.enterprise_number
+                    FROM company_info ci
+                    JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+                    JOIN (SELECT DISTINCT enterprise_number FROM administrator) a ON a.enterprise_number = ci.enterprise_number
+                    JOIN (SELECT DISTINCT enterprise_number FROM staatsblad_publication WHERE reference != 'NO_DATA') sp ON sp.enterprise_number = ci.enterprise_number
+                ) complete) AS fully_loaded_companies
         """)
         # Add target totals for progress bars
         stats["target_enterprises"] = 1941155
         stats["target_financial_rows"] = 61714163
         stats["target_activity_rows"] = 34874572
+        stats["target_companies"] = 170000  # ~170K companies in company_info
         return stats
     except Exception as e:
         logger.exception("Admin stats failed")
