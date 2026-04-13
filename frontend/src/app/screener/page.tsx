@@ -58,6 +58,7 @@ interface ScreenerRow {
 interface Filters {
   nace: string;
   zipcode: string;
+  province: string;
   rev_min: string;
   rev_max: string;
   ebit_min: string;
@@ -72,6 +73,7 @@ interface Filters {
 const DEFAULT_FILTERS: Filters = {
   nace: "",
   zipcode: "",
+  province: "",
   rev_min: "",
   rev_max: "",
   ebit_min: "",
@@ -82,6 +84,22 @@ const DEFAULT_FILTERS: Filters = {
   sort: "ebit_desc",
   limit: "100",
 };
+
+const PROVINCES = [
+  { label: "Antwerpen", prefix: "2" },
+  { label: "Brabant Wallon", prefix: "13" },
+  { label: "Brussel", prefix: "1" },
+  { label: "Hainaut", prefix: "7" },
+  { label: "Li\u00e8ge", prefix: "4" },
+  { label: "Limburg", prefix: "35" },
+  { label: "Luxembourg", prefix: "6" },
+  { label: "Namur", prefix: "5" },
+  { label: "Oost-Vlaanderen", prefix: "9" },
+  { label: "Vlaams-Brabant", prefix: "3" },
+  { label: "West-Vlaanderen", prefix: "8" },
+];
+
+type FinancialUnit = "raw" | "K" | "M";
 
 const SORT_OPTIONS = [
   { value: "revenue_desc", label: "Revenue high-low" },
@@ -161,6 +179,7 @@ export default function ScreenerPage() {
   const [results, setResults] = useState<ScreenerRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [unit, setUnit] = useState<FinancialUnit>("raw");
 
   const updateFilter = useCallback(
     (key: keyof Filters, value: string) => {
@@ -173,19 +192,21 @@ export default function ScreenerPage() {
     setFilters(DEFAULT_FILTERS);
     setResults([]);
     setHasSearched(false);
+    setUnit("raw");
   }, []);
 
   const applyFilters = useCallback(async () => {
     setLoading(true);
     setHasSearched(true);
     try {
+      const multiplier = unit === "M" ? 1_000_000 : unit === "K" ? 1_000 : 1;
       const params: Record<string, string> = {};
       if (filters.nace) params.nace = filters.nace;
       if (filters.zipcode) params.zipcode = filters.zipcode;
-      if (filters.rev_min) params.rev_min = filters.rev_min;
-      if (filters.rev_max) params.rev_max = filters.rev_max;
-      if (filters.ebit_min) params.ebit_min = filters.ebit_min;
-      if (filters.ebit_max) params.ebit_max = filters.ebit_max;
+      if (filters.rev_min) params.rev_min = String(Number(filters.rev_min) * multiplier);
+      if (filters.rev_max) params.rev_max = String(Number(filters.rev_max) * multiplier);
+      if (filters.ebit_min) params.ebit_min = String(Number(filters.ebit_min) * multiplier);
+      if (filters.ebit_max) params.ebit_max = String(Number(filters.ebit_max) * multiplier);
       if (filters.fte_min) params.fte_min = filters.fte_min;
       if (filters.fte_max) params.fte_max = filters.fte_max;
       if (filters.margin_min) params.margin_min = filters.margin_min;
@@ -200,7 +221,7 @@ export default function ScreenerPage() {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, unit]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -289,24 +310,88 @@ export default function ScreenerPage() {
               <p className="mt-1 text-[11px] text-slate-400">
                 NACE code or prefix (e.g. 28, 461, 6920)
               </p>
+
+              {/* Province */}
+              <div className="mt-3 space-y-1.5">
+                <Label className="text-xs text-slate-500">
+                  <MapPin className="w-3.5 h-3.5 inline mr-1" />
+                  Province
+                </Label>
+                <Select
+                  value={filters.province}
+                  onValueChange={(v) => {
+                    if (v === "all") {
+                      setFilters((prev) => ({ ...prev, province: "", zipcode: "" }));
+                      return;
+                    }
+                    const prov = PROVINCES.find((p) => p.label === v);
+                    setFilters((prev) => ({
+                      ...prev,
+                      province: v ?? "",
+                      zipcode: prov ? prov.prefix : prev.zipcode,
+                    }));
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="All provinces" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All provinces</SelectItem>
+                    {PROVINCES.map((p) => (
+                      <SelectItem key={p.label} value={p.label}>
+                        {p.label} ({p.prefix})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* --- K/M unit toggle --- */}
+            <div className="border-t border-slate-200 pt-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-500">Financial unit</span>
+                <div className="flex rounded-md border border-slate-200 overflow-hidden">
+                  {(["raw", "K", "M"] as FinancialUnit[]).map((u) => (
+                    <button
+                      key={u}
+                      onClick={() => setUnit(u)}
+                      className={`px-2.5 py-0.5 text-xs font-medium transition-colors ${
+                        unit === u
+                          ? "bg-indigo-600 text-white"
+                          : "bg-white text-slate-500 hover:bg-slate-50"
+                      }`}
+                    >
+                      {u === "raw" ? "1" : u}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* --- Revenue --- */}
             <div className="border-t border-slate-200 pt-3">
-              <Label className="text-xs text-slate-500">
-                <CircleDollarSign className="w-3.5 h-3.5 inline mr-1" />
-                Revenue
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-slate-500">
+                  <CircleDollarSign className="w-3.5 h-3.5 inline mr-1" />
+                  Revenue
+                </Label>
+                {unit !== "raw" && (
+                  <span className="text-[10px] text-indigo-500 font-medium">
+                    x {unit === "K" ? "1,000" : "1,000,000"}
+                  </span>
+                )}
+              </div>
               <div className="mt-1.5 grid grid-cols-2 gap-3">
                 <Input
                   type="number"
-                  placeholder="Min"
+                  placeholder={`Min${unit !== "raw" ? ` (${unit})` : ""}`}
                   value={filters.rev_min}
                   onChange={(e) => updateFilter("rev_min", e.target.value)}
                 />
                 <Input
                   type="number"
-                  placeholder="Max"
+                  placeholder={`Max${unit !== "raw" ? ` (${unit})` : ""}`}
                   value={filters.rev_max}
                   onChange={(e) => updateFilter("rev_max", e.target.value)}
                 />
@@ -315,20 +400,27 @@ export default function ScreenerPage() {
 
             {/* --- EBIT --- */}
             <div className="border-t border-slate-200 pt-3">
-              <Label className="text-xs text-slate-500">
-                <TrendingUp className="w-3.5 h-3.5 inline mr-1" />
-                EBIT
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs text-slate-500">
+                  <TrendingUp className="w-3.5 h-3.5 inline mr-1" />
+                  EBIT
+                </Label>
+                {unit !== "raw" && (
+                  <span className="text-[10px] text-indigo-500 font-medium">
+                    x {unit === "K" ? "1,000" : "1,000,000"}
+                  </span>
+                )}
+              </div>
               <div className="mt-1.5 grid grid-cols-2 gap-3">
                 <Input
                   type="number"
-                  placeholder="Min"
+                  placeholder={`Min${unit !== "raw" ? ` (${unit})` : ""}`}
                   value={filters.ebit_min}
                   onChange={(e) => updateFilter("ebit_min", e.target.value)}
                 />
                 <Input
                   type="number"
-                  placeholder="Max"
+                  placeholder={`Max${unit !== "raw" ? ` (${unit})` : ""}`}
                   value={filters.ebit_max}
                   onChange={(e) => updateFilter("ebit_max", e.target.value)}
                 />

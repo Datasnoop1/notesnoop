@@ -64,6 +64,18 @@ interface ActivitySummary {
   last_active: string;
 }
 
+interface Poll {
+  id: number;
+  title: string;
+  question: string;
+  options: string[];
+  status: string;
+  created_at: string;
+  archived_at: string | null;
+  total_votes: number;
+  votes: Record<string, number>;
+}
+
 /* ---------- API helper ---------- */
 
 async function adminFetch<T>(
@@ -142,6 +154,12 @@ export default function AdminPanel() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [userSearch, setUserSearch] = useState("");
   const [activity, setActivity] = useState<ActivitySummary[]>([]);
+  const [polls, setPolls] = useState<Poll[]>([]);
+  const [pollTitle, setPollTitle] = useState("");
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState("");
+  const [pollCreating, setPollCreating] = useState(false);
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -149,16 +167,18 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a] = await Promise.all([
+      const [s, u, f, a, p] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
         adminFetch<ActivitySummary[]>("/api/admin/activity/summary").catch(() => [] as ActivitySummary[]),
+        adminFetch<Poll[]>("/api/polls").catch(() => [] as Poll[]),
       ]);
       setStats(s);
       setUsers(u);
       setFeedback(f);
       setActivity(a);
+      setPolls(p);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -233,6 +253,60 @@ export default function AdminPanel() {
     }
   }
 
+  /* ---- Poll actions ---- */
+
+  async function createPoll() {
+    const opts = pollOptions.split(",").map((o) => o.trim()).filter(Boolean);
+    if (!pollTitle.trim() || !pollQuestion.trim() || opts.length < 2) return;
+    setPollCreating(true);
+    try {
+      const created = await adminFetch<Poll>("/api/polls", {
+        method: "POST",
+        body: JSON.stringify({ title: pollTitle.trim(), question: pollQuestion.trim(), options: opts }),
+      });
+      setPolls((prev) => [created, ...prev]);
+      setPollTitle("");
+      setPollQuestion("");
+      setPollOptions("");
+    } catch {
+      /* ignore */
+    } finally {
+      setPollCreating(false);
+    }
+  }
+
+  async function archivePoll(id: number) {
+    setActionLoading(`poll-archive-${id}`);
+    try {
+      await adminFetch(`/api/polls/${id}/archive`, { method: "POST" });
+      setPolls((prev) =>
+        prev.map((p) =>
+          p.id === id ? { ...p, status: "archived", archived_at: new Date().toISOString() } : p
+        )
+      );
+    } catch {
+      /* ignore */
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function activatePoll(id: number) {
+    setActionLoading(`poll-activate-${id}`);
+    try {
+      await adminFetch(`/api/polls/${id}/activate`, { method: "POST" });
+      setPolls((prev) =>
+        prev.map((p) =>
+          p.id === id ? { ...p, status: "active", archived_at: null } : p
+        )
+      );
+    } catch {
+      /* ignore */
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   /* ---- Derived data ---- */
 
   const filteredUsers = users.filter(u =>
@@ -249,6 +323,9 @@ export default function AdminPanel() {
     surveyResults[s.description] = (surveyResults[s.description] || 0) + 1;
   });
   const surveyMax = Math.max(...Object.values(surveyResults), 1);
+
+  const activePolls = polls.filter((p) => p.status === "active");
+  const archivedPolls = polls.filter((p) => p.status === "archived");
 
   /* ---- Error state ---- */
 
@@ -864,6 +941,193 @@ export default function AdminPanel() {
             </TableBody>
           </Table>
         </Card>
+      </div>
+
+      {/* ======== 5. Polls & Campaigns ======== */}
+      <div>
+        <SectionHeading>Polls &amp; Campaigns</SectionHeading>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Create Poll form */}
+          <Card className="bg-white">
+            <CardContent>
+              <h3 className="text-sm font-semibold text-slate-700 mb-3">
+                Create Poll
+              </h3>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Title</label>
+                  <Input
+                    placeholder="e.g. Feature Priority Q2"
+                    value={pollTitle}
+                    onChange={(e) => setPollTitle(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Question</label>
+                  <Input
+                    placeholder="e.g. Which feature should we build next?"
+                    value={pollQuestion}
+                    onChange={(e) => setPollQuestion(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-500 mb-1 block">Options (comma-separated)</label>
+                  <Input
+                    placeholder="e.g. Dark mode, API access, Mobile app"
+                    value={pollOptions}
+                    onChange={(e) => setPollOptions(e.target.value)}
+                  />
+                </div>
+                <Button
+                  onClick={createPoll}
+                  disabled={pollCreating || !pollTitle.trim() || !pollQuestion.trim() || pollOptions.split(",").filter((o) => o.trim()).length < 2}
+                  className="w-full bg-indigo-600 text-white hover:bg-indigo-700"
+                >
+                  {pollCreating ? "Creating..." : "Create"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Active poll */}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700 mb-3">
+              Active Poll
+            </h3>
+            {activePolls.length === 0 ? (
+              <Card className="bg-white">
+                <div className="py-6 text-center text-sm text-slate-400">
+                  No active poll
+                </div>
+              </Card>
+            ) : (
+              activePolls.map((poll) => (
+                <Card key={poll.id} className="bg-white mb-3">
+                  <CardContent>
+                    <div className="flex items-start justify-between mb-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-800">{poll.title}</h4>
+                        <p className="text-sm text-slate-600 mt-0.5">{poll.question}</p>
+                      </div>
+                      <Badge className="bg-green-100 text-green-700 shrink-0 ml-2">active</Badge>
+                    </div>
+
+                    {/* Vote bars */}
+                    <div className="mb-3">
+                      {poll.options.map((opt) => {
+                        const count = poll.votes[opt] || 0;
+                        const pct = poll.total_votes > 0 ? (count / poll.total_votes * 100) : 0;
+                        return (
+                          <div key={opt} className="mb-2">
+                            <div className="flex justify-between text-sm mb-1">
+                              <span className="text-slate-700">{opt}</span>
+                              <span className="text-slate-500">{count} ({pct.toFixed(0)}%)</span>
+                            </div>
+                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-indigo-500 rounded-full" style={{width: `${pct}%`}} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400">
+                        {poll.total_votes} total vote{poll.total_votes !== 1 ? "s" : ""}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        className="border-amber-300 text-amber-600 hover:bg-amber-50"
+                        disabled={actionLoading === `poll-archive-${poll.id}`}
+                        onClick={() => archivePoll(poll.id)}
+                      >
+                        Archive
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Archived polls */}
+        {archivedPolls.length > 0 && (
+          <div className="mt-6">
+            <button
+              className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3 hover:text-slate-900"
+              onClick={() => setArchivedExpanded(!archivedExpanded)}
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                className={`transition-transform ${archivedExpanded ? "rotate-90" : ""}`}
+                fill="currentColor"
+              >
+                <path d="M4 2l4 4-4 4" />
+              </svg>
+              Archived Polls ({archivedPolls.length})
+            </button>
+            {archivedExpanded && (
+              <div className="space-y-3">
+                {archivedPolls.map((poll) => (
+                  <Card key={poll.id} className="bg-white">
+                    <CardContent>
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h4 className="text-sm font-semibold text-slate-800">{poll.title}</h4>
+                          <p className="text-sm text-slate-600 mt-0.5">{poll.question}</p>
+                        </div>
+                        <Badge className="bg-slate-100 text-slate-500 shrink-0 ml-2">archived</Badge>
+                      </div>
+
+                      {/* Vote bars */}
+                      <div className="mb-3">
+                        {poll.options.map((opt) => {
+                          const count = poll.votes[opt] || 0;
+                          const pct = poll.total_votes > 0 ? (count / poll.total_votes * 100) : 0;
+                          return (
+                            <div key={opt} className="mb-2">
+                              <div className="flex justify-between text-sm mb-1">
+                                <span className="text-slate-700">{opt}</span>
+                                <span className="text-slate-500">{count} ({pct.toFixed(0)}%)</span>
+                              </div>
+                              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div className="h-full bg-slate-400 rounded-full" style={{width: `${pct}%`}} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs text-slate-400 space-x-3">
+                          <span>{poll.total_votes} vote{poll.total_votes !== 1 ? "s" : ""}</span>
+                          <span>Created {new Date(poll.created_at).toLocaleDateString()}</span>
+                          {poll.archived_at && (
+                            <span>Archived {new Date(poll.archived_at).toLocaleDateString()}</span>
+                          )}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="border-indigo-300 text-indigo-600 hover:bg-indigo-50"
+                          disabled={actionLoading === `poll-activate-${poll.id}`}
+                          onClick={() => activatePoll(poll.id)}
+                        >
+                          Re-activate
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
