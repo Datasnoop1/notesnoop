@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Nav from "@/components/nav";
+import BrandSurvey from "@/components/brand-survey";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -23,6 +24,7 @@ export default function RootLayout({
             {children}
           </div>
         </main>
+        <BrandSurvey />
         <footer className="border-t border-slate-200 bg-white py-4 mt-auto">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-xs text-slate-400">
             Data sources: KBO/BCE (Kruispuntbank van Ondernemingen) · NBB/BNB (Nationale Bank van België) · Belgisch Staatsblad

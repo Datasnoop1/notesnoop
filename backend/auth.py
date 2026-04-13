@@ -14,7 +14,7 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
-ALGORITHM = "HS256"
+ALGORITHMS = ["HS256", "RS256"]
 
 security = HTTPBearer(auto_error=True)
 security_optional = HTTPBearer(auto_error=False)
@@ -31,7 +31,7 @@ def _decode_token(token: str) -> dict:
         payload = jwt.decode(
             token,
             SUPABASE_JWT_SECRET,
-            algorithms=[ALGORITHM],
+            algorithms=ALGORITHMS,
             options={"verify_aud": False},
         )
         return payload
