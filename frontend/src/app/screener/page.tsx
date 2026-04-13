@@ -29,6 +29,14 @@ import {
   RotateCcw,
   Loader2,
   Filter,
+  Tag,
+  MapPin,
+  CircleDollarSign,
+  TrendingUp,
+  Users,
+  Percent,
+  ArrowUpDown,
+  List,
 } from "lucide-react";
 
 /* ---------- types ---------- */
@@ -222,154 +230,19 @@ export default function ScreenerPage() {
 
       <div className="flex gap-6">
         {/* Left sidebar — filters */}
-        <div className="w-72 shrink-0" onKeyDown={handleKeyDown}>
+        <div className="w-80 shrink-0" onKeyDown={handleKeyDown}>
           <div className="space-y-4">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
               <Filter className="w-3.5 h-3.5 inline mr-1.5" />
               Filters
             </h2>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="nace" className="text-xs text-slate-500">
-                NACE sector
-              </Label>
-              <Input
-                id="nace"
-                placeholder="e.g. 45 — Construction"
-                value={filters.nace}
-                onChange={(e) => updateFilter("nace", e.target.value)}
-              />
-              <p className="text-[11px] text-slate-400">
-                Enter a NACE code or prefix (e.g. 28, 461, 6920)
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="zipcode" className="text-xs text-slate-500">
-                Zipcode / Province
-              </Label>
-              <Input
-                id="zipcode"
-                placeholder="2000, 9..."
-                value={filters.zipcode}
-                onChange={(e) => updateFilter("zipcode", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-500">Revenue min</Label>
-              <Input
-                type="number"
-                placeholder="0"
-                value={filters.rev_min}
-                onChange={(e) => updateFilter("rev_min", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-500">Revenue max</Label>
-              <Input
-                type="number"
-                placeholder="No limit"
-                value={filters.rev_max}
-                onChange={(e) => updateFilter("rev_max", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-500">EBIT min</Label>
-              <Input
-                type="number"
-                placeholder="0"
-                value={filters.ebit_min}
-                onChange={(e) => updateFilter("ebit_min", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-500">EBIT max</Label>
-              <Input
-                type="number"
-                placeholder="No limit"
-                value={filters.ebit_max}
-                onChange={(e) => updateFilter("ebit_max", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-500">EBITDA margin min %</Label>
-              <Input
-                type="number"
-                placeholder="0"
-                value={filters.margin_min}
-                onChange={(e) => updateFilter("margin_min", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-500">FTE min</Label>
-              <Input
-                type="number"
-                placeholder="0"
-                value={filters.fte_min}
-                onChange={(e) => updateFilter("fte_min", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-500">FTE max</Label>
-              <Input
-                type="number"
-                placeholder="No limit"
-                value={filters.fte_max}
-                onChange={(e) => updateFilter("fte_max", e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-500">Sort by</Label>
-              <Select
-                value={filters.sort}
-                onValueChange={(v) => updateFilter("sort", v ?? "")}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SORT_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-slate-500">Limit</Label>
-              <Select
-                value={filters.limit}
-                onValueChange={(v) => updateFilter("limit", v ?? "")}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {LIMIT_OPTIONS.map((opt) => (
-                    <SelectItem key={opt} value={opt}>
-                      {opt}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Action buttons */}
-            <div className="flex flex-col gap-2 pt-2">
+            {/* Action buttons — top */}
+            <div className="flex gap-2">
               <Button
                 onClick={applyFilters}
                 disabled={loading}
-                className="w-full bg-indigo-600 text-white hover:bg-indigo-700"
+                className="flex-1 bg-indigo-600 text-white hover:bg-indigo-700"
               >
                 {loading ? (
                   <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -378,10 +251,175 @@ export default function ScreenerPage() {
                 )}
                 Apply Filters
               </Button>
-              <Button variant="outline" onClick={resetFilters} className="w-full">
+              <Button variant="outline" onClick={resetFilters}>
                 <RotateCcw className="mr-1.5 h-4 w-4" />
                 Reset
               </Button>
+            </div>
+
+            {/* --- Identification --- */}
+            <div className="border-t border-slate-200 pt-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="nace" className="text-xs text-slate-500">
+                    <Tag className="w-3.5 h-3.5 inline mr-1" />
+                    NACE sector
+                  </Label>
+                  <Input
+                    id="nace"
+                    placeholder="e.g. 45"
+                    value={filters.nace}
+                    onChange={(e) => updateFilter("nace", e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="zipcode" className="text-xs text-slate-500">
+                    <MapPin className="w-3.5 h-3.5 inline mr-1" />
+                    Zipcode
+                  </Label>
+                  <Input
+                    id="zipcode"
+                    placeholder="2000, 9..."
+                    value={filters.zipcode}
+                    onChange={(e) => updateFilter("zipcode", e.target.value)}
+                  />
+                </div>
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                NACE code or prefix (e.g. 28, 461, 6920)
+              </p>
+            </div>
+
+            {/* --- Revenue --- */}
+            <div className="border-t border-slate-200 pt-3">
+              <Label className="text-xs text-slate-500">
+                <CircleDollarSign className="w-3.5 h-3.5 inline mr-1" />
+                Revenue
+              </Label>
+              <div className="mt-1.5 grid grid-cols-2 gap-3">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={filters.rev_min}
+                  onChange={(e) => updateFilter("rev_min", e.target.value)}
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filters.rev_max}
+                  onChange={(e) => updateFilter("rev_max", e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* --- EBIT --- */}
+            <div className="border-t border-slate-200 pt-3">
+              <Label className="text-xs text-slate-500">
+                <TrendingUp className="w-3.5 h-3.5 inline mr-1" />
+                EBIT
+              </Label>
+              <div className="mt-1.5 grid grid-cols-2 gap-3">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={filters.ebit_min}
+                  onChange={(e) => updateFilter("ebit_min", e.target.value)}
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filters.ebit_max}
+                  onChange={(e) => updateFilter("ebit_max", e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* --- FTE --- */}
+            <div className="border-t border-slate-200 pt-3">
+              <Label className="text-xs text-slate-500">
+                <Users className="w-3.5 h-3.5 inline mr-1" />
+                FTE
+              </Label>
+              <div className="mt-1.5 grid grid-cols-2 gap-3">
+                <Input
+                  type="number"
+                  placeholder="Min"
+                  value={filters.fte_min}
+                  onChange={(e) => updateFilter("fte_min", e.target.value)}
+                />
+                <Input
+                  type="number"
+                  placeholder="Max"
+                  value={filters.fte_max}
+                  onChange={(e) => updateFilter("fte_max", e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* --- Margin --- */}
+            <div className="border-t border-slate-200 pt-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-slate-500">
+                  <Percent className="w-3.5 h-3.5 inline mr-1" />
+                  EBITDA margin min %
+                </Label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={filters.margin_min}
+                  onChange={(e) => updateFilter("margin_min", e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* --- Sort & Limit --- */}
+            <div className="border-t border-slate-200 pt-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-500">
+                    <ArrowUpDown className="w-3.5 h-3.5 inline mr-1" />
+                    Sort by
+                  </Label>
+                  <Select
+                    value={filters.sort}
+                    onValueChange={(v) => updateFilter("sort", v ?? "")}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {SORT_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-500">
+                    <List className="w-3.5 h-3.5 inline mr-1" />
+                    Limit
+                  </Label>
+                  <Select
+                    value={filters.limit}
+                    onValueChange={(v) => updateFilter("limit", v ?? "")}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {LIMIT_OPTIONS.map((opt) => (
+                        <SelectItem key={opt} value={opt}>
+                          {opt}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
           </div>
         </div>
