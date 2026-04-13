@@ -2,6 +2,8 @@
 
 import logging
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
+from typing import Optional
 
 from db import fetch_all, fetch_one, execute
 from auth import get_current_user
@@ -16,7 +18,6 @@ def _require_admin(user=Depends(get_current_user)):
     user_id = user.get("id", "")
     logger.info("Admin check: email=%s id=%s", email, user_id)
 
-    # Check by email or user_id
     role_row = fetch_one(
         "SELECT role FROM user_roles WHERE email = %s OR email = %s",
         (email, user_id),
@@ -31,7 +32,7 @@ def _require_admin(user=Depends(get_current_user)):
 
 @router.get("/stats")
 async def admin_stats(user=Depends(_require_admin)):
-    """Platform stats for admin dashboard."""
+    """Platform stats including data loading progress."""
     try:
         stats = fetch_one("""
             SELECT
@@ -39,12 +40,21 @@ async def admin_stats(user=Depends(_require_admin)):
                 (SELECT reltuples::bigint FROM pg_class WHERE relname = 'financial_latest') AS companies_with_financials,
                 (SELECT reltuples::bigint FROM pg_class WHERE relname = 'administrator') AS admin_records,
                 (SELECT reltuples::bigint FROM pg_class WHERE relname = 'financial_data') AS financial_rows,
+                (SELECT reltuples::bigint FROM pg_class WHERE relname = 'activity') AS activity_rows,
                 (SELECT COUNT(*) FROM user_roles) AS total_users,
                 (SELECT COUNT(*) FROM user_roles WHERE role = 'admin') AS admin_users,
+                (SELECT COUNT(*) FROM user_roles WHERE role = 'blocked') AS blocked_users,
                 (SELECT COUNT(*) FROM favourite) AS total_favourites,
                 (SELECT COUNT(*) FROM feedback) AS total_feedback,
+                (SELECT COUNT(*) FROM feedback WHERE type = 'bug') AS bug_count,
+                (SELECT COUNT(*) FROM feedback WHERE type = 'suggestion') AS suggestion_count,
+                (SELECT COUNT(*) FROM feedback WHERE type = 'survey') AS survey_count,
                 (SELECT pg_size_pretty(pg_database_size(current_database()))) AS db_size
         """)
+        # Add target totals for progress bars
+        stats["target_enterprises"] = 1941155
+        stats["target_financial_rows"] = 61714163
+        stats["target_activity_rows"] = 34874572
         return stats
     except Exception as e:
         logger.exception("Admin stats failed")
@@ -53,7 +63,7 @@ async def admin_stats(user=Depends(_require_admin)):
 
 @router.get("/users")
 async def list_users(user=Depends(_require_admin)):
-    """List all known users (from user_roles + favourites + feedback)."""
+    """List all known users."""
     try:
         users = fetch_all("""
             SELECT ur.email, ur.role, ur.created_at,
@@ -73,11 +83,11 @@ async def list_users(user=Depends(_require_admin)):
 
 @router.get("/feedback")
 async def list_feedback(user=Depends(_require_admin)):
-    """List all feedback for admin review."""
+    """List all feedback."""
     try:
         rows = fetch_all("""
             SELECT id, type, page, description, user_email, created_at
-            FROM feedback ORDER BY created_at DESC LIMIT 100
+            FROM feedback ORDER BY created_at DESC LIMIT 200
         """)
         for r in rows:
             if r.get("created_at"):
@@ -88,18 +98,58 @@ async def list_feedback(user=Depends(_require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class RoleUpdate(BaseModel):
+    role: str
+
+
 @router.post("/users/{email}/role")
-async def set_user_role(email: str, role: str = "user", user=Depends(_require_admin)):
-    """Set a user's role (admin/user)."""
-    if role not in ("admin", "user"):
-        raise HTTPException(status_code=400, detail="Role must be 'admin' or 'user'")
+async def set_user_role(email: str, body: RoleUpdate, user=Depends(_require_admin)):
+    """Set a user's role (admin/user/blocked)."""
+    if body.role not in ("admin", "user", "blocked"):
+        raise HTTPException(status_code=400, detail="Role must be admin, user, or blocked")
     try:
         execute(
             """INSERT INTO user_roles (email, role) VALUES (%s, %s)
                ON CONFLICT (email) DO UPDATE SET role = %s""",
-            (email, role, role),
+            (email, body.role, body.role),
         )
-        return {"email": email, "role": role}
+        return {"email": email, "role": body.role}
     except Exception as e:
         logger.exception("Set role failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/users/{email}")
+async def delete_user(email: str, user=Depends(_require_admin)):
+    """Remove a user entirely."""
+    if email == user.get("email"):
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    try:
+        execute("DELETE FROM user_roles WHERE email = %s", (email,))
+        execute("DELETE FROM favourite WHERE user_id = %s", (email,))
+        return {"email": email, "status": "deleted"}
+    except Exception as e:
+        logger.exception("Delete user failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/feedback/{feedback_id}")
+async def delete_feedback(feedback_id: int, user=Depends(_require_admin)):
+    """Delete a single feedback entry."""
+    try:
+        execute("DELETE FROM feedback WHERE id = %s", (feedback_id,))
+        return {"id": feedback_id, "status": "deleted"}
+    except Exception as e:
+        logger.exception("Delete feedback failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/feedback")
+async def clear_feedback(user=Depends(_require_admin)):
+    """Clear all feedback."""
+    try:
+        execute("DELETE FROM feedback")
+        return {"status": "cleared"}
+    except Exception as e:
+        logger.exception("Clear feedback failed")
         raise HTTPException(status_code=500, detail=str(e))
