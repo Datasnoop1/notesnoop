@@ -40,6 +40,7 @@ import {
   Network,
   GitBranch,
   FileText,
+  Download,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -414,9 +415,23 @@ export default function CompanyDetailPage(props: {
         {/* ===== Financials tab ===== */}
         <TabsContent value="financials" className="mt-4">
           {!financials || financials.summary.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-500">
-              No financial data available for this company.
-            </p>
+            <div className="py-8 text-center">
+              <p className="text-sm text-slate-500 mb-4">No financial data available for this company.</p>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await fetch(`/api/companies/${cbe}/load`, { method: "POST" });
+                    // Reload after a delay
+                    setTimeout(() => window.location.reload(), 2000);
+                  } catch {}
+                }}
+                className="text-indigo-600 border-indigo-300 hover:bg-indigo-50"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Load from NBB
+              </Button>
+            </div>
           ) : (
             <>
               {/* Financial summary table */}

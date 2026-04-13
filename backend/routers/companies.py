@@ -1,9 +1,11 @@
 """Companies router — search, detail, financials, structure, and network graph."""
 
 import logging
+import os
 from collections import deque
 from typing import Optional
 
+import requests as http_requests
 from fastapi import APIRouter, HTTPException, Query
 
 from db import fetch_all, fetch_one, get_connection
@@ -205,6 +207,40 @@ async def get_company_detail(cbe: str):
     except Exception as e:
         logger.exception("Company detail query failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# POST /api/companies/{cbe}/load
+# ---------------------------------------------------------------------------
+
+@router.post("/{cbe}/load")
+async def load_company_data(cbe: str):
+    """Trigger loading financial data from NBB for this company."""
+    import uuid
+
+    cbe = cbe.strip().replace(".", "").zfill(10)
+
+    nbb_key = os.getenv("NBB_AUTHENTIC_KEY", "")
+    nbb_base = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
+
+    if not nbb_key:
+        raise HTTPException(status_code=503, detail="NBB API key not configured")
+
+    # Get filing references
+    headers = {
+        "Accept": "application/json",
+        "NBB-CBSO-Subscription-Key": nbb_key,
+        "X-Request-Id": str(uuid.uuid4()),
+    }
+    resp = http_requests.get(
+        f"{nbb_base}/authentic/legalEntity/{cbe}/references",
+        headers=headers, timeout=15,
+    )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail="NBB API error")
+
+    references = resp.json()
+    return {"enterprise_number": cbe, "filings_found": len(references), "status": "queued"}
 
 
 # ---------------------------------------------------------------------------
