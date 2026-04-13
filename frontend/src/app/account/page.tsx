@@ -93,6 +93,33 @@ export default function AccountPage() {
         </CardContent>
       </Card>
 
+      {/* Subscription tier */}
+      <Card className="bg-white">
+        <CardContent className="pt-6 space-y-4">
+          <h2 className="font-semibold text-slate-900">Subscription</h2>
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+              Free
+            </span>
+            <span className="text-sm text-slate-500">
+              Limited searches and exports
+            </span>
+          </div>
+          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+            <h3 className="font-semibold text-indigo-900 text-sm">Power User</h3>
+            <p className="text-sm text-indigo-700 mt-1">
+              Unlimited searches, full financial data, CSV exports, and priority support.
+            </p>
+            <button
+              disabled
+              className="mt-3 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md opacity-50 cursor-not-allowed"
+            >
+              Coming soon
+            </button>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Change password */}
       <Card className="bg-white">
         <CardContent className="pt-6">

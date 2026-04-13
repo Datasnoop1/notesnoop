@@ -293,3 +293,15 @@ export const addFavourite = (enterprise_number: string, notes?: string) =>
 
 export const removeFavourite = (cbe: string) =>
   apiFetch<{ status: string }>(`/api/favourites/${cbe}`, { method: "DELETE" });
+
+// ── Feedback ───────────────────────────────────────────────
+export const submitFeedback = (
+  type: "bug" | "suggestion",
+  description: string,
+  page?: string,
+  userEmail?: string
+) =>
+  apiFetch<{ status: string }>("/api/feedback", {
+    method: "POST",
+    body: JSON.stringify({ type, description, page, user_email: userEmail }),
+  });
