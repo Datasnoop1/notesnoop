@@ -58,52 +58,40 @@ async def search_companies(q: str = Query(..., min_length=1)):
     query = q.strip()
     cbe_clean = query.replace(".", "").replace(" ", "")
 
-    base_sql = """
-        SELECT
-            e.enterprise_number,
-            COALESCE(d.denomination, e.enterprise_number) AS "name",
-            e.status,
-            COALESCE(c_jf.description, e.juridical_form)  AS "jf_label",
-            a.municipality_nl AS "city",
-            COALESCE(c_n.description, act.nace_code)       AS "sector",
-            e.start_date,
-            fl.revenue,
-            fl.ebitda,
-            CASE WHEN fl.revenue > 0
-                 THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1)
-            END AS "ebitda_margin_pct",
-            fl.fte_total,
-            fl.fiscal_year
-        FROM enterprise e
-        LEFT JOIN denomination d  ON d.entity_number   = e.enterprise_number
-             AND d.type_of_denomination = '001' AND d.language IN ('2','1')
-        LEFT JOIN address a       ON a.entity_number   = e.enterprise_number AND a.type_of_address = 'REGO'
-        LEFT JOIN activity act    ON act.entity_number = e.enterprise_number AND act.classification = 'MAIN'
-        LEFT JOIN code c_jf       ON c_jf.category = 'JuridicalForm'
-             AND c_jf.code = e.juridical_form AND c_jf.language = 'NL'
-        LEFT JOIN code c_n        ON c_n.category IN ('Nace2025','Nace2008')
-             AND c_n.code = act.nace_code AND c_n.language = 'NL'
-        LEFT JOIN financial_latest fl ON fl.enterprise_number = e.enterprise_number
-    """
-    group_by = """GROUP BY e.enterprise_number, d.denomination, e.status,
-            c_jf.description, e.juridical_form, a.municipality_nl,
-            c_n.description, act.nace_code, e.start_date,
-            fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year"""
-
     try:
         if cbe_clean.isdigit():
-            rows = fetch_all(
-                base_sql + f" WHERE e.enterprise_number LIKE %s {group_by} LIMIT 20",
-                (f"{cbe_clean}%",),
-            )
+            # CBE prefix search on enterprise (fast, indexed)
+            rows = fetch_all("""
+                SELECT e.enterprise_number, COALESCE(ci.name, e.enterprise_number) AS "name",
+                       e.status, e.juridical_form AS "jf_label", ci.city,
+                       COALESCE(nl.description, ci.nace_code) AS "sector", e.start_date,
+                       fl.revenue, fl.ebitda,
+                       CASE WHEN fl.revenue > 0 THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1) END AS "ebitda_margin_pct",
+                       fl.fte_total, fl.fiscal_year
+                FROM enterprise e
+                LEFT JOIN company_info ci ON ci.enterprise_number = e.enterprise_number
+                LEFT JOIN financial_latest fl ON fl.enterprise_number = e.enterprise_number
+                LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+                WHERE e.enterprise_number LIKE %s
+                LIMIT 20
+            """, (f"{cbe_clean}%",))
         else:
-            rows = fetch_all(
-                base_sql + f"""
-                WHERE d.denomination ILIKE %s AND d.type_of_denomination = '001'
-                {group_by} ORDER BY d.denomination LIMIT 20
-                """,
-                (f"%{query}%",),
-            )
+            # Name search on company_info (170K rows, fast) instead of denomination (3.3M)
+            rows = fetch_all("""
+                SELECT ci.enterprise_number, ci.name,
+                       e.status, e.juridical_form AS "jf_label", ci.city,
+                       COALESCE(nl.description, ci.nace_code) AS "sector", e.start_date,
+                       fl.revenue, fl.ebitda,
+                       CASE WHEN fl.revenue > 0 THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1) END AS "ebitda_margin_pct",
+                       fl.fte_total, fl.fiscal_year
+                FROM company_info ci
+                JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
+                LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+                LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+                WHERE ci.name ILIKE %s
+                ORDER BY ci.name
+                LIMIT 20
+            """, (f"%{query}%",))
         return [_serialize_row(r) for r in rows]
     except Exception as e:
         logger.exception("Company search failed")
