@@ -68,6 +68,7 @@ export default function Nav() {
           <Link href="/" className="flex flex-col justify-center">
             <span className="text-lg font-bold text-indigo-600 leading-tight">
               LeadPeek
+              <span className="ml-1.5 text-[9px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider align-top">Beta</span>
             </span>
             <span className="text-[10px] uppercase tracking-wider text-slate-400 leading-tight">
               Belgian Company Intelligence

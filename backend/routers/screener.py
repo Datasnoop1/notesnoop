@@ -11,12 +11,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/screener", tags=["screener"])
 
 SORT_OPTIONS = {
-    "ebit_desc": "fl.ebit DESC",
-    "ebit_asc": "fl.ebit ASC",
-    "revenue_desc": "fl.revenue DESC",
-    "ebitda_desc": "fl.ebitda DESC",
-    "fte_desc": "fl.fte_total DESC",
-    "name_asc": "ci.name ASC",
+    "ebit_desc": "fl.ebit DESC NULLS LAST",
+    "ebit_asc": "fl.ebit ASC NULLS LAST",
+    "revenue_desc": "fl.revenue DESC NULLS LAST",
+    "ebitda_desc": "fl.ebitda DESC NULLS LAST",
+    "fte_desc": "fl.fte_total DESC NULLS LAST",
+    "name_asc": "ci.name ASC NULLS LAST",
 }
 
 
