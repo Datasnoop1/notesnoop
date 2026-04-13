@@ -401,6 +401,7 @@ export default function CompanyDetailPage(props: {
           <TabsTrigger value="financials">Financials</TabsTrigger>
           <TabsTrigger value="administrators">Administrators</TabsTrigger>
           <TabsTrigger value="structure">Structure</TabsTrigger>
+          <TabsTrigger value="network">Network</TabsTrigger>
           <TabsTrigger value="publications">Publications</TabsTrigger>
         </TabsList>
 
@@ -680,16 +681,26 @@ export default function CompanyDetailPage(props: {
             </p>
           ) : (
             <>
-              <div className="grid gap-6 lg:grid-cols-2">
-                {/* Left: Shareholders + Subsidiaries */}
-                <div className="space-y-6">
-                  {/* Shareholders */}
+              <div className="space-y-4">
+                  {/* Shareholders (collapsible) */}
                   {structure.shareholders.length > 0 && (
                     <Card>
                       <CardContent>
-                        <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
-                          Shareholders
-                        </h3>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            const content = (e.currentTarget as HTMLElement).nextElementSibling;
+                            const chevron = (e.currentTarget as HTMLElement).querySelector('[data-chevron]');
+                            if (content) content.classList.toggle("hidden");
+                            if (chevron) chevron.classList.toggle("rotate-180");
+                          }}
+                          className="w-full flex items-center justify-between mb-3"
+                        >
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
+                            Shareholders ({structure.shareholders.length})
+                          </h3>
+                          <ChevronDown data-chevron className="h-4 w-4 text-slate-400 transition-transform" />
+                        </button>
                         <div className="space-y-2">
                           {structure.shareholders.map((sh, i) => {
                             const shCbe = cleanCbe(sh.identifier);
@@ -735,13 +746,25 @@ export default function CompanyDetailPage(props: {
                     </Card>
                   )}
 
-                  {/* Participating Interests */}
+                  {/* Participating Interests (collapsible) */}
                   {structure.participating_interests.length > 0 && (
                     <Card>
                       <CardContent>
-                        <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-orange-500 pl-2">
-                          Participating Interests
-                        </h3>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            const content = (e.currentTarget as HTMLElement).nextElementSibling;
+                            const chevron = (e.currentTarget as HTMLElement).querySelector('[data-chevron]');
+                            if (content) content.classList.toggle("hidden");
+                            if (chevron) chevron.classList.toggle("rotate-180");
+                          }}
+                          className="w-full flex items-center justify-between mb-3"
+                        >
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-orange-500 pl-2">
+                            Participating Interests ({structure.participating_interests.length})
+                          </h3>
+                          <ChevronDown data-chevron className="h-4 w-4 text-slate-400 transition-transform" />
+                        </button>
                         <div className="space-y-2">
                           {structure.participating_interests.map((pi, i) => {
                             const piCbe = cleanCbe(pi.identifier);
@@ -786,12 +809,6 @@ export default function CompanyDetailPage(props: {
                       </CardContent>
                     </Card>
                   )}
-                </div>
-
-                {/* Right: Network Graph */}
-                <div>
-                  <NetworkGraph cbe={cbe} companyName={detail?.name || cbe} />
-                </div>
               </div>
 
               {/* Ownership Timeline */}
@@ -833,6 +850,11 @@ export default function CompanyDetailPage(props: {
               )}
             </>
           )}
+        </TabsContent>
+
+        {/* ===== Network tab ===== */}
+        <TabsContent value="network" className="mt-4">
+          <NetworkGraph cbe={cbe} companyName={detail?.name || cbe} />
         </TabsContent>
 
         {/* ===== Publications tab ===== */}
