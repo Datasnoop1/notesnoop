@@ -84,14 +84,7 @@ function FeedbackDialog({
             </p>
           </div>
 
-          {!user ? (
-            <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-md px-4 py-3">
-              <a href="/login" className="text-indigo-600 hover:underline font-medium">
-                Sign in
-              </a>{" "}
-              to submit {type === "bug" ? "bug reports" : "suggestions"}.
-            </div>
-          ) : submitted ? (
+          {submitted ? (
             <div className="text-sm text-green-600 bg-green-50 border border-green-200 rounded-md px-4 py-3">
               Thank you! Your {type === "bug" ? "bug report" : "suggestion"} has been submitted.
             </div>
@@ -110,7 +103,9 @@ function FeedbackDialog({
               </div>
 
               <div className="text-xs text-slate-400">
-                Submitting as {user.email} from page: {pathname}
+                {user
+                  ? `Submitting as ${user.email} from page: ${pathname}`
+                  : `Submitting anonymously from page: ${pathname}`}
               </div>
 
               {error && (

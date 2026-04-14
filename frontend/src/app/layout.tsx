@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Link from "next/link";
 import Nav from "@/components/nav";
+import AdBanner from "@/components/ad-banner";
 import BrandSurvey from "@/components/brand-survey";
 import CookieBanner from "@/components/cookie-banner";
 import "./globals.css";
@@ -26,6 +27,7 @@ export default function RootLayout({
             {children}
           </div>
         </main>
+        <AdBanner />
         <BrandSurvey />
         <CookieBanner />
         <footer className="border-t border-slate-200 bg-white py-4 mt-auto">

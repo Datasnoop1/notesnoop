@@ -8,6 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@/components/ui/tabs";
+import {
   Table,
   TableBody,
   TableCell,
@@ -35,6 +41,8 @@ import {
   UserCheck,
   CircleCheck,
   CircleAlert,
+  Settings,
+  Vote,
 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -657,15 +665,13 @@ export default function AdminPanel() {
   /* ---- Render ---- */
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            Launch Readiness
-          </h1>
+          <h1 className="text-2xl font-bold text-slate-900">Admin Panel</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            How will a user experience the platform right now?
+            Manage platform readiness, users, feedback, and polls
           </p>
         </div>
         <Button
@@ -683,779 +689,845 @@ export default function AdminPanel() {
         </Button>
       </div>
 
-      {/* ================================================================
-          SECTION 1: Platform Readiness — Hero metric
-          ================================================================ */}
-      <Card className={`bg-white ${!loading && readiness ? bgReadiness(readiness.score) : ""}`}>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Skeleton className="h-32 w-32 rounded-full" />
-            </div>
-          ) : readiness && stats ? (
-            <div className="flex flex-col sm:flex-row items-center gap-6 py-2">
-              <ReadinessGauge score={readiness.score} />
-              <div className="flex-1 min-w-0">
-                <h2 className="text-lg font-semibold text-slate-800 mb-1">
-                  Platform Readiness Score
-                </h2>
-                <p className="text-sm text-slate-500 mb-4">
-                  {fmt(stats.fully_loaded_companies)} out of{" "}
-                  <span className="font-mono">{fmt(TARGET)}</span> companies have
-                  a complete profile
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs text-slate-500">
-                  <div className="flex justify-between">
-                    <span>Financials (40%)</span>
-                    <span className="font-mono font-semibold">{readiness.financials.toFixed(1)}%</span>
+      <Tabs defaultValue="readiness">
+        <TabsList>
+          <TabsTrigger value="readiness">
+            <Gauge className="size-3.5 mr-1.5" />
+            Readiness
+          </TabsTrigger>
+          <TabsTrigger value="users">
+            <Users className="size-3.5 mr-1.5" />
+            Users
+          </TabsTrigger>
+          <TabsTrigger value="feedback">
+            <MessageSquare className="size-3.5 mr-1.5" />
+            Feedback
+            {feedback.length > 0 && (
+              <Badge variant="secondary" className="ml-1.5 font-mono text-[10px] px-1.5 py-0">
+                {feedback.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="polls">
+            <Vote className="size-3.5 mr-1.5" />
+            Polls
+          </TabsTrigger>
+          <TabsTrigger value="settings">
+            <Settings className="size-3.5 mr-1.5" />
+            Settings
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ================================================================
+            TAB 1: Readiness
+            ================================================================ */}
+        <TabsContent value="readiness">
+          <div className="space-y-8 pt-2">
+            {/* Platform Readiness — Hero metric */}
+            <Card className={`bg-white ${!loading && readiness ? bgReadiness(readiness.score) : ""}`}>
+              <CardContent>
+                {loading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Skeleton className="h-32 w-32 rounded-full" />
                   </div>
-                  <div className="flex justify-between">
-                    <span>Administrators (20%)</span>
-                    <span className="font-mono font-semibold">{readiness.admins.toFixed(1)}%</span>
+                ) : readiness && stats ? (
+                  <div className="flex flex-col sm:flex-row items-center gap-6 py-2">
+                    <ReadinessGauge score={readiness.score} />
+                    <div className="flex-1 min-w-0">
+                      <h2 className="text-lg font-semibold text-slate-800 mb-1">
+                        Platform Readiness Score
+                      </h2>
+                      <p className="text-sm text-slate-500 mb-4">
+                        {fmt(stats.fully_loaded_companies)} out of{" "}
+                        <span className="font-mono">{fmt(TARGET)}</span> companies have
+                        a complete profile
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs text-slate-500">
+                        <div className="flex justify-between">
+                          <span>Financials (40%)</span>
+                          <span className="font-mono font-semibold">{readiness.financials.toFixed(1)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Administrators (20%)</span>
+                          <span className="font-mono font-semibold">{readiness.admins.toFixed(1)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Publications (20%)</span>
+                          <span className="font-mono font-semibold">{readiness.publications.toFixed(1)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Shareholders (10%)</span>
+                          <span className="font-mono font-semibold">{readiness.shareholders.toFixed(1)}%</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Subsidiaries (10%)</span>
+                          <span className="font-mono font-semibold">{readiness.subsidiaries.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>Publications (20%)</span>
-                    <span className="font-mono font-semibold">{readiness.publications.toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Shareholders (10%)</span>
-                    <span className="font-mono font-semibold">{readiness.shareholders.toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Subsidiaries (10%)</span>
-                    <span className="font-mono font-semibold">{readiness.subsidiaries.toFixed(1)}%</span>
-                  </div>
+                ) : null}
+              </CardContent>
+            </Card>
+
+            {/* User Experience Simulator */}
+            {!loading && stats && (
+              <div>
+                <SectionHeading icon={TrendingUp}>
+                  User Experience Simulator
+                </SectionHeading>
+                <Card className="bg-white">
+                  <CardContent>
+                    <p className="text-sm text-slate-500 mb-4">
+                      If a user searches for a random company...
+                    </p>
+                    <div className="space-y-3">
+                      <HorizontalBar
+                        label="Find financial data"
+                        value={stats.companies_with_latest_financials}
+                        total={TARGET}
+                      />
+                      <HorizontalBar
+                        label="Find administrator info"
+                        value={stats.companies_with_admins}
+                        total={TARGET}
+                      />
+                      <HorizontalBar
+                        label="Find publications"
+                        value={stats.companies_with_publications}
+                        total={TARGET}
+                      />
+                      <HorizontalBar
+                        label="Find shareholders"
+                        value={stats.companies_with_shareholders}
+                        total={TARGET}
+                      />
+                      <div className="pt-2 border-t border-slate-100">
+                        <HorizontalBar
+                          label="Complete profile (all data types)"
+                          value={stats.fully_loaded_companies}
+                          total={TARGET}
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Data Pipeline Status */}
+            {!loading && stats && (
+              <div>
+                <SectionHeading icon={Database}>Data Pipeline Status</SectionHeading>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Financial rows */}
+                  <Card className="bg-white">
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                          Financial Data
+                        </span>
+                        <TrendingUp className="size-3.5 text-slate-300" />
+                      </div>
+                      <div className="text-xl font-bold font-mono text-slate-900">
+                        {fmt(stats.financial_rows)}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mb-2">
+                        rows loaded
+                      </div>
+                      <ProgressBar
+                        value={stats.financial_rows}
+                        target={stats.target_financial_rows}
+                        colorCoded
+                      />
+                      <div className="text-[10px] text-slate-400 mt-1 text-right">
+                        {pctStr(stats.financial_rows, stats.target_financial_rows)}% of{" "}
+                        {fmt(stats.target_financial_rows)}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Staatsblad */}
+                  <Card className="bg-white">
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                          Staatsblad
+                        </span>
+                        <Activity className="size-3.5 text-slate-300" />
+                      </div>
+                      <div className="text-xl font-bold font-mono text-slate-900">
+                        {fmt(stats.companies_with_publications)}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mb-2">
+                        companies scraped
+                      </div>
+                      <ProgressBar
+                        value={stats.companies_with_publications}
+                        target={TARGET}
+                        colorCoded
+                      />
+                      <div className="text-[10px] text-slate-400 mt-1 text-right">
+                        {pctStr(stats.companies_with_publications, TARGET)}% of{" "}
+                        {fmt(TARGET)}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Enterprises */}
+                  <Card className="bg-white">
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                          Enterprises
+                        </span>
+                        <Gauge className="size-3.5 text-slate-300" />
+                      </div>
+                      <div className="text-xl font-bold font-mono text-slate-900">
+                        {fmt(stats.total_enterprises)}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mb-2">
+                        KBO records
+                      </div>
+                      <ProgressBar
+                        value={stats.total_enterprises}
+                        target={stats.target_enterprises}
+                        colorCoded
+                      />
+                      <div className="text-[10px] text-slate-400 mt-1 text-right">
+                        {pctStr(stats.total_enterprises, stats.target_enterprises)}% of{" "}
+                        {fmt(stats.target_enterprises)}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* DB Size */}
+                  <Card className="bg-white">
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                          Database Size
+                        </span>
+                        <HardDrive className="size-3.5 text-slate-300" />
+                      </div>
+                      <div className="text-xl font-bold font-mono text-slate-900">
+                        {stats.db_size || "--"}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-1">
+                        PostgreSQL
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
               </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ================================================================
+            TAB 2: Users
+            ================================================================ */}
+        <TabsContent value="users">
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center justify-between">
+              <SectionHeading icon={Users}>
+                All Users
+                {!loading && (
+                  <Badge variant="secondary" className="ml-2 font-mono text-[10px]">
+                    {users.length} total &middot; {stats?.daily_active_users ?? 0} active today
+                  </Badge>
+                )}
+              </SectionHeading>
             </div>
-          ) : null}
-        </CardContent>
-      </Card>
 
-      {/* ================================================================
-          SECTION 2: User Experience Simulator
-          ================================================================ */}
-      {!loading && stats && (
-        <div>
-          <SectionHeading icon={TrendingUp}>
-            User Experience Simulator
-          </SectionHeading>
-          <Card className="bg-white">
-            <CardContent>
-              <p className="text-sm text-slate-500 mb-4">
-                If a user searches for a random company...
-              </p>
-              <div className="space-y-3">
-                <HorizontalBar
-                  label="Find financial data"
-                  value={stats.companies_with_latest_financials}
-                  total={TARGET}
+            <div className="mb-3">
+              <div className="relative max-w-sm">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-slate-400" />
+                <Input
+                  placeholder="Filter users..."
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  className="pl-8"
                 />
-                <HorizontalBar
-                  label="Find administrator info"
-                  value={stats.companies_with_admins}
-                  total={TARGET}
-                />
-                <HorizontalBar
-                  label="Find publications"
-                  value={stats.companies_with_publications}
-                  total={TARGET}
-                />
-                <HorizontalBar
-                  label="Find shareholders"
-                  value={stats.companies_with_shareholders}
-                  total={TARGET}
-                />
-                <div className="pt-2 border-t border-slate-100">
-                  <HorizontalBar
-                    label="Complete profile (all data types)"
-                    value={stats.fully_loaded_companies}
-                    total={TARGET}
-                  />
-                </div>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            </div>
 
-      {/* ================================================================
-          SECTION 3: Data Pipeline Status
-          ================================================================ */}
-      {!loading && stats && (
-        <div>
-          <SectionHeading icon={Database}>Data Pipeline Status</SectionHeading>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Financial rows */}
-            <Card className="bg-white">
-              <CardContent>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
-                    Financial Data
-                  </span>
-                  <TrendingUp className="size-3.5 text-slate-300" />
-                </div>
-                <div className="text-xl font-bold font-mono text-slate-900">
-                  {fmt(stats.financial_rows)}
-                </div>
-                <div className="text-[10px] text-slate-400 mb-2">
-                  rows loaded
-                </div>
-                <ProgressBar
-                  value={stats.financial_rows}
-                  target={stats.target_financial_rows}
-                  colorCoded
-                />
-                <div className="text-[10px] text-slate-400 mt-1 text-right">
-                  {pctStr(stats.financial_rows, stats.target_financial_rows)}% of{" "}
-                  {fmt(stats.target_financial_rows)}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Staatsblad */}
-            <Card className="bg-white">
-              <CardContent>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
-                    Staatsblad
-                  </span>
-                  <Activity className="size-3.5 text-slate-300" />
-                </div>
-                <div className="text-xl font-bold font-mono text-slate-900">
-                  {fmt(stats.companies_with_publications)}
-                </div>
-                <div className="text-[10px] text-slate-400 mb-2">
-                  companies scraped
-                </div>
-                <ProgressBar
-                  value={stats.companies_with_publications}
-                  target={TARGET}
-                  colorCoded
-                />
-                <div className="text-[10px] text-slate-400 mt-1 text-right">
-                  {pctStr(stats.companies_with_publications, TARGET)}% of{" "}
-                  {fmt(TARGET)}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Enterprises */}
-            <Card className="bg-white">
-              <CardContent>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
-                    Enterprises
-                  </span>
-                  <Gauge className="size-3.5 text-slate-300" />
-                </div>
-                <div className="text-xl font-bold font-mono text-slate-900">
-                  {fmt(stats.total_enterprises)}
-                </div>
-                <div className="text-[10px] text-slate-400 mb-2">
-                  KBO records
-                </div>
-                <ProgressBar
-                  value={stats.total_enterprises}
-                  target={stats.target_enterprises}
-                  colorCoded
-                />
-                <div className="text-[10px] text-slate-400 mt-1 text-right">
-                  {pctStr(stats.total_enterprises, stats.target_enterprises)}% of{" "}
-                  {fmt(stats.target_enterprises)}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* DB Size */}
-            <Card className="bg-white">
-              <CardContent>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
-                    Database Size
-                  </span>
-                  <HardDrive className="size-3.5 text-slate-300" />
-                </div>
-                <div className="text-xl font-bold font-mono text-slate-900">
-                  {stats.db_size || "--"}
-                </div>
-                <div className="text-[10px] text-slate-400 mt-1">
-                  PostgreSQL
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* ================================================================
-          SECTION 4: Users & Activity
-          ================================================================ */}
-      <div>
-        <SectionHeading icon={Users}>
-          Users &amp; Activity
-          {!loading && (
-            <Badge variant="secondary" className="ml-2 font-mono text-[10px]">
-              {stats?.daily_active_users ?? 0} active today
-            </Badge>
-          )}
-        </SectionHeading>
-
-        <div className="mb-3">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-slate-400" />
-            <Input
-              placeholder="Filter users..."
-              value={userSearch}
-              onChange={(e) => setUserSearch(e.target.value)}
-              className="pl-8"
-            />
-          </div>
-        </div>
-
-        <Card className="bg-white overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Last Active</TableHead>
-                <TableHead className="text-right">Requests (7d)</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading
-                ? Array.from({ length: 3 }).map((_, i) => (
-                    <TableRow key={i}>
-                      {Array.from({ length: 5 }).map((_, j) => (
-                        <TableCell key={j}>
-                          <Skeleton className="h-4 w-24" />
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                : filteredUsers.length === 0
-                  ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={5}
-                        className="text-center py-8 text-sm text-slate-400"
-                      >
-                        No users found
-                      </TableCell>
-                    </TableRow>
-                  )
-                  : filteredUsers.map((u) => {
-                      const isMe = u.email === myEmail;
-                      const act = activityMap.get(u.email);
-                      return (
-                        <TableRow key={u.email}>
-                          <TableCell className="font-medium">
-                            {u.email}
-                            {isMe && (
-                              <span className="ml-1.5 text-[10px] text-slate-400">
-                                (you)
-                              </span>
-                            )}
+            <Card className="bg-white overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Joined</TableHead>
+                    <TableHead>Last Active</TableHead>
+                    <TableHead className="text-right">Requests (7d)</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading
+                    ? Array.from({ length: 3 }).map((_, i) => (
+                        <TableRow key={i}>
+                          {Array.from({ length: 6 }).map((_, j) => (
+                            <TableCell key={j}>
+                              <Skeleton className="h-4 w-24" />
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      ))
+                    : filteredUsers.length === 0
+                      ? (
+                        <TableRow>
+                          <TableCell
+                            colSpan={6}
+                            className="text-center py-8 text-sm text-slate-400"
+                          >
+                            No users found
                           </TableCell>
-                          <TableCell>
-                            <Badge
-                              variant={
-                                u.role === "admin"
-                                  ? "default"
-                                  : u.role === "blocked"
-                                    ? "destructive"
-                                    : "secondary"
-                              }
-                              className={
-                                u.role === "admin"
-                                  ? "bg-indigo-100 text-indigo-700"
-                                  : u.role === "blocked"
-                                    ? "bg-red-100 text-red-700"
-                                    : ""
-                              }
-                            >
-                              {u.role}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-sm text-slate-500">
-                            {act
-                              ? new Date(act.last_active).toLocaleString()
-                              : "--"}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-sm">
-                            {act ? fmt(act.total_requests) : "--"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {!isMe && u.role !== "blocked" && (
-                                <Button
-                                  variant="outline"
-                                  size="xs"
-                                  className="border-red-300 text-red-600 hover:bg-red-50"
-                                  disabled={
-                                    actionLoading === `role-${u.email}`
+                        </TableRow>
+                      )
+                      : filteredUsers.map((u) => {
+                          const isMe = u.email === myEmail;
+                          const act = activityMap.get(u.email);
+                          return (
+                            <TableRow key={u.email}>
+                              <TableCell className="font-medium">
+                                {u.email}
+                                {isMe && (
+                                  <span className="ml-1.5 text-[10px] text-slate-400">
+                                    (you)
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    u.role === "admin"
+                                      ? "default"
+                                      : u.role === "blocked"
+                                        ? "destructive"
+                                        : "secondary"
                                   }
-                                  onClick={() => setRole(u.email, "blocked")}
-                                >
-                                  <UserX className="size-3 mr-0.5" />
-                                  Block
-                                </Button>
-                              )}
-                              {!isMe && u.role === "blocked" && (
-                                <Button
-                                  variant="outline"
-                                  size="xs"
-                                  className="border-slate-300 text-slate-600 hover:bg-slate-50"
-                                  disabled={
-                                    actionLoading === `role-${u.email}`
+                                  className={
+                                    u.role === "admin"
+                                      ? "bg-indigo-100 text-indigo-700"
+                                      : u.role === "blocked"
+                                        ? "bg-red-100 text-red-700"
+                                        : ""
                                   }
-                                  onClick={() => setRole(u.email, "user")}
                                 >
-                                  <UserCheck className="size-3 mr-0.5" />
-                                  Unblock
-                                </Button>
-                              )}
-                              {!isMe && u.role !== "admin" && u.role !== "blocked" && (
-                                <Button
-                                  variant="outline"
-                                  size="xs"
-                                  className="border-indigo-300 text-indigo-600 hover:bg-indigo-50"
-                                  disabled={
-                                    actionLoading === `role-${u.email}`
-                                  }
-                                  onClick={() => setRole(u.email, "admin")}
-                                >
-                                  <Shield className="size-3 mr-0.5" />
-                                  Admin
-                                </Button>
-                              )}
-                              {!isMe && u.role === "admin" && (
-                                <Button
-                                  variant="outline"
-                                  size="xs"
-                                  className="border-slate-300 text-slate-600 hover:bg-slate-50"
-                                  disabled={
-                                    actionLoading === `role-${u.email}`
-                                  }
-                                  onClick={() => setRole(u.email, "user")}
-                                >
-                                  Revoke
-                                </Button>
-                              )}
-                              {!isMe && (
-                                <>
-                                  {confirmDelete === u.email ? (
-                                    <div className="flex items-center gap-1">
-                                      <Button
-                                        variant="destructive"
-                                        size="xs"
-                                        disabled={
-                                          actionLoading ===
-                                          `delete-${u.email}`
-                                        }
-                                        onClick={() => deleteUser(u.email)}
-                                      >
-                                        Confirm
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="xs"
-                                        onClick={() =>
-                                          setConfirmDelete(null)
-                                        }
-                                      >
-                                        Cancel
-                                      </Button>
-                                    </div>
-                                  ) : (
+                                  {u.role}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-sm text-slate-500">
+                                {u.created_at
+                                  ? new Date(u.created_at).toLocaleDateString()
+                                  : "--"}
+                              </TableCell>
+                              <TableCell className="text-sm text-slate-500">
+                                {act
+                                  ? new Date(act.last_active).toLocaleString()
+                                  : "--"}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-sm">
+                                {act ? fmt(act.total_requests) : "--"}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {!isMe && u.role !== "blocked" && (
                                     <Button
                                       variant="outline"
                                       size="xs"
                                       className="border-red-300 text-red-600 hover:bg-red-50"
-                                      onClick={() =>
-                                        setConfirmDelete(u.email)
+                                      disabled={
+                                        actionLoading === `role-${u.email}`
                                       }
+                                      onClick={() => setRole(u.email, "blocked")}
                                     >
-                                      <Trash2 className="size-3" />
+                                      <UserX className="size-3 mr-0.5" />
+                                      Block
                                     </Button>
                                   )}
-                                </>
+                                  {!isMe && u.role === "blocked" && (
+                                    <Button
+                                      variant="outline"
+                                      size="xs"
+                                      className="border-slate-300 text-slate-600 hover:bg-slate-50"
+                                      disabled={
+                                        actionLoading === `role-${u.email}`
+                                      }
+                                      onClick={() => setRole(u.email, "user")}
+                                    >
+                                      <UserCheck className="size-3 mr-0.5" />
+                                      Unblock
+                                    </Button>
+                                  )}
+                                  {!isMe && u.role !== "admin" && u.role !== "blocked" && (
+                                    <Button
+                                      variant="outline"
+                                      size="xs"
+                                      className="border-indigo-300 text-indigo-600 hover:bg-indigo-50"
+                                      disabled={
+                                        actionLoading === `role-${u.email}`
+                                      }
+                                      onClick={() => setRole(u.email, "admin")}
+                                    >
+                                      <Shield className="size-3 mr-0.5" />
+                                      Admin
+                                    </Button>
+                                  )}
+                                  {!isMe && u.role === "admin" && (
+                                    <Button
+                                      variant="outline"
+                                      size="xs"
+                                      className="border-slate-300 text-slate-600 hover:bg-slate-50"
+                                      disabled={
+                                        actionLoading === `role-${u.email}`
+                                      }
+                                      onClick={() => setRole(u.email, "user")}
+                                    >
+                                      Revoke
+                                    </Button>
+                                  )}
+                                  {!isMe && (
+                                    <>
+                                      {confirmDelete === u.email ? (
+                                        <div className="flex items-center gap-1">
+                                          <Button
+                                            variant="destructive"
+                                            size="xs"
+                                            disabled={
+                                              actionLoading ===
+                                              `delete-${u.email}`
+                                            }
+                                            onClick={() => deleteUser(u.email)}
+                                          >
+                                            Confirm
+                                          </Button>
+                                          <Button
+                                            variant="ghost"
+                                            size="xs"
+                                            onClick={() =>
+                                              setConfirmDelete(null)
+                                            }
+                                          >
+                                            Cancel
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <Button
+                                          variant="outline"
+                                          size="xs"
+                                          className="border-red-300 text-red-600 hover:bg-red-50"
+                                          onClick={() =>
+                                            setConfirmDelete(u.email)
+                                          }
+                                        >
+                                          <Trash2 className="size-3" />
+                                        </Button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                </TableBody>
+              </Table>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* ================================================================
+            TAB 3: Feedback
+            ================================================================ */}
+        <TabsContent value="feedback">
+          <div className="space-y-6 pt-2">
+            <div className="flex items-center justify-between">
+              <SectionHeading icon={MessageSquare}>
+                Feedback ({feedback.length})
+              </SectionHeading>
+              {feedback.length > 0 && !confirmClearFeedback && (
+                <Button
+                  variant="outline"
+                  size="xs"
+                  className="border-red-300 text-red-600 hover:bg-red-50"
+                  onClick={() => setConfirmClearFeedback(true)}
+                >
+                  <Trash2 className="size-3 mr-1" />
+                  Clear all
+                </Button>
+              )}
+              {confirmClearFeedback && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">
+                    Delete all {feedback.length}?
+                  </span>
+                  <Button
+                    variant="destructive"
+                    size="xs"
+                    disabled={actionLoading === "clear-fb"}
+                    onClick={clearAllFeedback}
+                  >
+                    Yes
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => setConfirmClearFeedback(false)}
+                  >
+                    No
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Bugs */}
+              <div>
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
+                  <CircleAlert className="size-3.5 text-red-400" />
+                  Bugs ({bugs.length})
+                </h3>
+                {bugs.length === 0 ? (
+                  <Card className="bg-white">
+                    <div className="py-6 text-center text-sm text-slate-400">
+                      No bugs reported
+                    </div>
+                  </Card>
+                ) : (
+                  <div className="space-y-3">
+                    {bugs.map((f) => (
+                      <FeedbackCard key={f.id} f={f} />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Suggestions */}
+              <div>
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
+                  <CircleCheck className="size-3.5 text-indigo-400" />
+                  Suggestions ({suggestions.length})
+                </h3>
+                {suggestions.length === 0 ? (
+                  <Card className="bg-white">
+                    <div className="py-6 text-center text-sm text-slate-400">
+                      No suggestions yet
+                    </div>
+                  </Card>
+                ) : (
+                  <div className="space-y-3">
+                    {suggestions.map((f) => (
+                      <FeedbackCard key={f.id} f={f} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Survey results bar chart */}
+            {surveys.length > 0 && (
+              <div>
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
+                  <BarChart3 className="size-3.5 text-slate-400" />
+                  Survey Results ({surveys.length} responses)
+                </h3>
+                <Card className="bg-white">
+                  <CardContent>
+                    <div className="space-y-3">
+                      {Object.entries(surveyResults)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([label, count]) => (
+                          <div key={label}>
+                            <div className="flex items-center justify-between text-sm mb-1">
+                              <span className="text-slate-700 truncate mr-3">
+                                {label}
+                              </span>
+                              <span className="text-slate-500 font-medium font-mono shrink-0">
+                                {count}
+                              </span>
+                            </div>
+                            <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                                style={{
+                                  width: `${(count / surveyMax) * 100}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ================================================================
+            TAB 4: Polls
+            ================================================================ */}
+        <TabsContent value="polls">
+          <div className="space-y-6 pt-2">
+            <SectionHeading icon={BarChart3}>Polls</SectionHeading>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Create poll */}
+              <Card className="bg-white">
+                <CardContent>
+                  <h3 className="text-sm font-semibold text-slate-700 mb-3">
+                    Create Poll
+                  </h3>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">
+                        Title
+                      </label>
+                      <Input
+                        placeholder="e.g. Feature Priority Q2"
+                        value={pollTitle}
+                        onChange={(e) => setPollTitle(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">
+                        Question
+                      </label>
+                      <Input
+                        placeholder="e.g. Which feature should we build next?"
+                        value={pollQuestion}
+                        onChange={(e) => setPollQuestion(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500 mb-1 block">
+                        Options (comma-separated)
+                      </label>
+                      <Input
+                        placeholder="e.g. Dark mode, API access, Mobile app"
+                        value={pollOptions}
+                        onChange={(e) => setPollOptions(e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      onClick={createPoll}
+                      disabled={
+                        pollCreating ||
+                        !pollTitle.trim() ||
+                        !pollQuestion.trim() ||
+                        pollOptions
+                          .split(",")
+                          .filter((o) => o.trim()).length < 2
+                      }
+                      className="w-full bg-indigo-600 text-white hover:bg-indigo-700"
+                    >
+                      {pollCreating ? "Creating..." : "Create"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Active polls */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">
+                  Active Poll
+                </h3>
+                {activePolls.length === 0 ? (
+                  <Card className="bg-white">
+                    <div className="py-6 text-center text-sm text-slate-400">
+                      No active poll
+                    </div>
+                  </Card>
+                ) : (
+                  activePolls.map((poll) => (
+                    <Card key={poll.id} className="bg-white mb-3">
+                      <CardContent>
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <h4 className="text-sm font-semibold text-slate-800">
+                              {poll.title}
+                            </h4>
+                            <p className="text-sm text-slate-600 mt-0.5">
+                              {poll.question}
+                            </p>
+                          </div>
+                          <Badge className="bg-green-100 text-green-700 shrink-0 ml-2">
+                            active
+                          </Badge>
+                        </div>
+
+                        <div className="mb-3">
+                          {poll.options.map((opt) => {
+                            const count = poll.votes[opt] || 0;
+                            const votePct =
+                              poll.total_votes > 0
+                                ? (count / poll.total_votes) * 100
+                                : 0;
+                            return (
+                              <div key={opt} className="mb-2">
+                                <div className="flex justify-between text-sm mb-1">
+                                  <span className="text-slate-700">{opt}</span>
+                                  <span className="text-slate-500 font-mono">
+                                    {count} ({votePct.toFixed(0)}%)
+                                  </span>
+                                </div>
+                                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                                    style={{ width: `${votePct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-slate-400">
+                            {poll.total_votes} vote
+                            {poll.total_votes !== 1 ? "s" : ""}
+                          </span>
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            className="border-amber-300 text-amber-600 hover:bg-amber-50"
+                            disabled={
+                              actionLoading === `poll-archive-${poll.id}`
+                            }
+                            onClick={() => archivePoll(poll.id)}
+                          >
+                            Archive
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Archived polls */}
+            {archivedPolls.length > 0 && (
+              <div>
+                <button
+                  className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3 hover:text-slate-900"
+                  onClick={() => setArchivedExpanded(!archivedExpanded)}
+                >
+                  <ChevronRight
+                    className={`size-3.5 transition-transform ${archivedExpanded ? "rotate-90" : ""}`}
+                  />
+                  Archived Polls ({archivedPolls.length})
+                </button>
+                {archivedExpanded && (
+                  <div className="space-y-3">
+                    {archivedPolls.map((poll) => (
+                      <Card key={poll.id} className="bg-white">
+                        <CardContent>
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <h4 className="text-sm font-semibold text-slate-800">
+                                {poll.title}
+                              </h4>
+                              <p className="text-sm text-slate-600 mt-0.5">
+                                {poll.question}
+                              </p>
+                            </div>
+                            <Badge className="bg-slate-100 text-slate-500 shrink-0 ml-2">
+                              archived
+                            </Badge>
+                          </div>
+
+                          <div className="mb-3">
+                            {poll.options.map((opt) => {
+                              const count = poll.votes[opt] || 0;
+                              const votePct =
+                                poll.total_votes > 0
+                                  ? (count / poll.total_votes) * 100
+                                  : 0;
+                              return (
+                                <div key={opt} className="mb-2">
+                                  <div className="flex justify-between text-sm mb-1">
+                                    <span className="text-slate-700">{opt}</span>
+                                    <span className="text-slate-500 font-mono">
+                                      {count} ({votePct.toFixed(0)}%)
+                                    </span>
+                                  </div>
+                                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-slate-400 rounded-full"
+                                      style={{ width: `${votePct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <div className="text-xs text-slate-400 space-x-3">
+                              <span>
+                                {poll.total_votes} vote
+                                {poll.total_votes !== 1 ? "s" : ""}
+                              </span>
+                              <span>
+                                Created{" "}
+                                {new Date(poll.created_at).toLocaleDateString()}
+                              </span>
+                              {poll.archived_at && (
+                                <span>
+                                  Archived{" "}
+                                  {new Date(
+                                    poll.archived_at
+                                  ).toLocaleDateString()}
+                                </span>
                               )}
                             </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-            </TableBody>
-          </Table>
-        </Card>
-      </div>
-
-      {/* ================================================================
-          SECTION 5: Feedback — Two columns
-          ================================================================ */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <SectionHeading icon={MessageSquare}>
-            Feedback ({feedback.length})
-          </SectionHeading>
-          {feedback.length > 0 && !confirmClearFeedback && (
-            <Button
-              variant="outline"
-              size="xs"
-              className="border-red-300 text-red-600 hover:bg-red-50"
-              onClick={() => setConfirmClearFeedback(true)}
-            >
-              <Trash2 className="size-3 mr-1" />
-              Clear all
-            </Button>
-          )}
-          {confirmClearFeedback && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500">
-                Delete all {feedback.length}?
-              </span>
-              <Button
-                variant="destructive"
-                size="xs"
-                disabled={actionLoading === "clear-fb"}
-                onClick={clearAllFeedback}
-              >
-                Yes
-              </Button>
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => setConfirmClearFeedback(false)}
-              >
-                No
-              </Button>
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Bugs */}
-          <div>
-            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
-              <CircleAlert className="size-3.5 text-red-400" />
-              Bugs ({bugs.length})
-            </h3>
-            {bugs.length === 0 ? (
-              <Card className="bg-white">
-                <div className="py-6 text-center text-sm text-slate-400">
-                  No bugs reported
-                </div>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {bugs.map((f) => (
-                  <FeedbackCard key={f.id} f={f} />
-                ))}
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              className="border-indigo-300 text-indigo-600 hover:bg-indigo-50"
+                              disabled={
+                                actionLoading === `poll-activate-${poll.id}`
+                              }
+                              onClick={() => activatePoll(poll.id)}
+                            >
+                              Re-activate
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
+        </TabsContent>
 
-          {/* Suggestions */}
-          <div>
-            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
-              <CircleCheck className="size-3.5 text-indigo-400" />
-              Suggestions ({suggestions.length})
-            </h3>
-            {suggestions.length === 0 ? (
-              <Card className="bg-white">
-                <div className="py-6 text-center text-sm text-slate-400">
-                  No suggestions yet
-                </div>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {suggestions.map((f) => (
-                  <FeedbackCard key={f.id} f={f} />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Survey results bar chart */}
-        {surveys.length > 0 && (
-          <div className="mt-6">
-            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
-              <BarChart3 className="size-3.5 text-slate-400" />
-              Survey Results ({surveys.length} responses)
-            </h3>
+        {/* ================================================================
+            TAB 5: Settings
+            ================================================================ */}
+        <TabsContent value="settings">
+          <div className="pt-2">
             <Card className="bg-white">
               <CardContent>
-                <div className="space-y-3">
-                  {Object.entries(surveyResults)
-                    .sort(([, a], [, b]) => b - a)
-                    .map(([label, count]) => (
-                      <div key={label}>
-                        <div className="flex items-center justify-between text-sm mb-1">
-                          <span className="text-slate-700 truncate mr-3">
-                            {label}
-                          </span>
-                          <span className="text-slate-500 font-medium font-mono shrink-0">
-                            {count}
-                          </span>
-                        </div>
-                        <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-indigo-500 transition-all duration-500"
-                            style={{
-                              width: `${(count / surveyMax) * 100}%`,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ))}
+                <div className="py-12 text-center">
+                  <Settings className="size-8 text-slate-300 mx-auto mb-3" />
+                  <h3 className="text-sm font-semibold text-slate-700 mb-1">
+                    Platform Settings
+                  </h3>
+                  <p className="text-sm text-slate-400">
+                    Configuration options will be available here in a future update.
+                  </p>
                 </div>
               </CardContent>
             </Card>
           </div>
-        )}
-      </div>
-
-      {/* ================================================================
-          SECTION 6: Polls
-          ================================================================ */}
-      <div>
-        <SectionHeading icon={BarChart3}>Polls</SectionHeading>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Create poll */}
-          <Card className="bg-white">
-            <CardContent>
-              <h3 className="text-sm font-semibold text-slate-700 mb-3">
-                Create Poll
-              </h3>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs text-slate-500 mb-1 block">
-                    Title
-                  </label>
-                  <Input
-                    placeholder="e.g. Feature Priority Q2"
-                    value={pollTitle}
-                    onChange={(e) => setPollTitle(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-500 mb-1 block">
-                    Question
-                  </label>
-                  <Input
-                    placeholder="e.g. Which feature should we build next?"
-                    value={pollQuestion}
-                    onChange={(e) => setPollQuestion(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-500 mb-1 block">
-                    Options (comma-separated)
-                  </label>
-                  <Input
-                    placeholder="e.g. Dark mode, API access, Mobile app"
-                    value={pollOptions}
-                    onChange={(e) => setPollOptions(e.target.value)}
-                  />
-                </div>
-                <Button
-                  onClick={createPoll}
-                  disabled={
-                    pollCreating ||
-                    !pollTitle.trim() ||
-                    !pollQuestion.trim() ||
-                    pollOptions
-                      .split(",")
-                      .filter((o) => o.trim()).length < 2
-                  }
-                  className="w-full bg-indigo-600 text-white hover:bg-indigo-700"
-                >
-                  {pollCreating ? "Creating..." : "Create"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Active polls */}
-          <div>
-            <h3 className="text-sm font-semibold text-slate-700 mb-3">
-              Active Poll
-            </h3>
-            {activePolls.length === 0 ? (
-              <Card className="bg-white">
-                <div className="py-6 text-center text-sm text-slate-400">
-                  No active poll
-                </div>
-              </Card>
-            ) : (
-              activePolls.map((poll) => (
-                <Card key={poll.id} className="bg-white mb-3">
-                  <CardContent>
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h4 className="text-sm font-semibold text-slate-800">
-                          {poll.title}
-                        </h4>
-                        <p className="text-sm text-slate-600 mt-0.5">
-                          {poll.question}
-                        </p>
-                      </div>
-                      <Badge className="bg-green-100 text-green-700 shrink-0 ml-2">
-                        active
-                      </Badge>
-                    </div>
-
-                    <div className="mb-3">
-                      {poll.options.map((opt) => {
-                        const count = poll.votes[opt] || 0;
-                        const votePct =
-                          poll.total_votes > 0
-                            ? (count / poll.total_votes) * 100
-                            : 0;
-                        return (
-                          <div key={opt} className="mb-2">
-                            <div className="flex justify-between text-sm mb-1">
-                              <span className="text-slate-700">{opt}</span>
-                              <span className="text-slate-500 font-mono">
-                                {count} ({votePct.toFixed(0)}%)
-                              </span>
-                            </div>
-                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-                                style={{ width: `${votePct}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-400">
-                        {poll.total_votes} vote
-                        {poll.total_votes !== 1 ? "s" : ""}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        className="border-amber-300 text-amber-600 hover:bg-amber-50"
-                        disabled={
-                          actionLoading === `poll-archive-${poll.id}`
-                        }
-                        onClick={() => archivePoll(poll.id)}
-                      >
-                        Archive
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Archived polls */}
-        {archivedPolls.length > 0 && (
-          <div className="mt-6">
-            <button
-              className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3 hover:text-slate-900"
-              onClick={() => setArchivedExpanded(!archivedExpanded)}
-            >
-              <ChevronRight
-                className={`size-3.5 transition-transform ${archivedExpanded ? "rotate-90" : ""}`}
-              />
-              Archived Polls ({archivedPolls.length})
-            </button>
-            {archivedExpanded && (
-              <div className="space-y-3">
-                {archivedPolls.map((poll) => (
-                  <Card key={poll.id} className="bg-white">
-                    <CardContent>
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4 className="text-sm font-semibold text-slate-800">
-                            {poll.title}
-                          </h4>
-                          <p className="text-sm text-slate-600 mt-0.5">
-                            {poll.question}
-                          </p>
-                        </div>
-                        <Badge className="bg-slate-100 text-slate-500 shrink-0 ml-2">
-                          archived
-                        </Badge>
-                      </div>
-
-                      <div className="mb-3">
-                        {poll.options.map((opt) => {
-                          const count = poll.votes[opt] || 0;
-                          const votePct =
-                            poll.total_votes > 0
-                              ? (count / poll.total_votes) * 100
-                              : 0;
-                          return (
-                            <div key={opt} className="mb-2">
-                              <div className="flex justify-between text-sm mb-1">
-                                <span className="text-slate-700">{opt}</span>
-                                <span className="text-slate-500 font-mono">
-                                  {count} ({votePct.toFixed(0)}%)
-                                </span>
-                              </div>
-                              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full bg-slate-400 rounded-full"
-                                  style={{ width: `${votePct}%` }}
-                                />
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs text-slate-400 space-x-3">
-                          <span>
-                            {poll.total_votes} vote
-                            {poll.total_votes !== 1 ? "s" : ""}
-                          </span>
-                          <span>
-                            Created{" "}
-                            {new Date(poll.created_at).toLocaleDateString()}
-                          </span>
-                          {poll.archived_at && (
-                            <span>
-                              Archived{" "}
-                              {new Date(
-                                poll.archived_at
-                              ).toLocaleDateString()}
-                            </span>
-                          )}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          className="border-indigo-300 text-indigo-600 hover:bg-indigo-50"
-                          disabled={
-                            actionLoading === `poll-activate-${poll.id}`
-                          }
-                          onClick={() => activatePoll(poll.id)}
-                        >
-                          Re-activate
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
