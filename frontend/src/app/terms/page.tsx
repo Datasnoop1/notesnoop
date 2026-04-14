@@ -159,8 +159,8 @@ export default function TermsOfUsePage() {
           <h2 className="text-lg font-semibold text-slate-800 mb-2">13. Contact</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
             For any questions about these Terms of Use, please contact us at{" "}
-            <a href="mailto:tbthxbye@gmail.com" className="text-indigo-600 hover:underline">
-              tbthxbye@gmail.com
+            <a href="mailto:datapeak@invm.be" className="text-indigo-600 hover:underline">
+              datapeak@invm.be
             </a>.
           </p>
         </section>

@@ -18,8 +18,8 @@ export default function PrivacyPolicyPage() {
           <p className="text-sm text-slate-600 leading-relaxed">
             Data Peak (&quot;we&quot;, &quot;us&quot;, &quot;our&quot;) is the data controller for personal data
             processed through this website. You can contact us at{" "}
-            <a href="mailto:tbthxbye@gmail.com" className="text-indigo-600 hover:underline">
-              tbthxbye@gmail.com
+            <a href="mailto:datapeak@invm.be" className="text-indigo-600 hover:underline">
+              datapeak@invm.be
             </a>.
           </p>
         </section>
@@ -124,8 +124,8 @@ export default function PrivacyPolicyPage() {
           </ul>
           <p className="text-sm text-slate-600 leading-relaxed mt-2">
             To exercise any of these rights, please contact us at{" "}
-            <a href="mailto:tbthxbye@gmail.com" className="text-indigo-600 hover:underline">
-              tbthxbye@gmail.com
+            <a href="mailto:datapeak@invm.be" className="text-indigo-600 hover:underline">
+              datapeak@invm.be
             </a>. We will respond within 30 days.
           </p>
         </section>
@@ -135,8 +135,8 @@ export default function PrivacyPolicyPage() {
           <h2 className="text-lg font-semibold text-slate-800 mb-2">8. Account Deletion</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
             You may request deletion of your account and all associated personal data at any time by emailing{" "}
-            <a href="mailto:tbthxbye@gmail.com" className="text-indigo-600 hover:underline">
-              tbthxbye@gmail.com
+            <a href="mailto:datapeak@invm.be" className="text-indigo-600 hover:underline">
+              datapeak@invm.be
             </a>. Upon receiving your request, we will delete your account data within a reasonable timeframe and confirm
             deletion by email.
           </p>
@@ -167,8 +167,8 @@ export default function PrivacyPolicyPage() {
           <h2 className="text-lg font-semibold text-slate-800 mb-2">11. Contact</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
             For any questions or concerns about this privacy policy or our data practices, please contact us at{" "}
-            <a href="mailto:tbthxbye@gmail.com" className="text-indigo-600 hover:underline">
-              tbthxbye@gmail.com
+            <a href="mailto:datapeak@invm.be" className="text-indigo-600 hover:underline">
+              datapeak@invm.be
             </a>.
           </p>
         </section>
