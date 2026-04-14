@@ -132,6 +132,36 @@ async def create_poll(body: PollCreate, user=Depends(_require_admin)):
     return {"status": "created", "title": body.title}
 
 
+class AddOptionsBody(BaseModel):
+    options: list[str]
+
+
+@router.post("/{poll_id}/add-options")
+async def add_poll_options(poll_id: int, body: AddOptionsBody, user=Depends(_require_admin)):
+    """Add new options to an existing poll."""
+    if not body.options:
+        raise HTTPException(status_code=400, detail="No options provided")
+
+    try:
+        poll = fetch_one("SELECT options FROM poll WHERE id = %s", (poll_id,))
+        if not poll:
+            raise HTTPException(status_code=404, detail="Poll not found")
+
+        existing = json.loads(poll["options"]) if isinstance(poll["options"], str) else poll["options"]
+        new_options = [o for o in body.options if o not in existing]
+        if not new_options:
+            return {"status": "no_change", "message": "All options already exist"}
+
+        updated = existing + new_options
+        execute("UPDATE poll SET options = %s WHERE id = %s", (json.dumps(updated), poll_id))
+        return {"status": "updated", "added": new_options, "total_options": len(updated)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Add poll options failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{poll_id}/archive")
 async def archive_poll(poll_id: int, user=Depends(_require_admin)):
     """Archive a poll (keeps all data, just hides from users)."""

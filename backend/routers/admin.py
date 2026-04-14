@@ -231,20 +231,6 @@ async def delete_feedback(feedback_id: int, user=Depends(_require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/feedback/{feedback_id}/reply")
-async def reply_feedback(feedback_id: int, body: ReplyBody, user=Depends(_require_admin)):
-    """Store a reply to feedback (will be emailed in future)."""
-    try:
-        execute(
-            "UPDATE feedback SET reply = %s, replied_at = NOW() WHERE id = %s",
-            (body.message, feedback_id),
-        )
-        return {"status": "replied"}
-    except Exception as e:
-        logger.exception("Reply feedback failed")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.delete("/feedback")
 async def clear_feedback(user=Depends(_require_admin)):
     """Clear all feedback."""

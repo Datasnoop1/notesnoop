@@ -76,7 +76,7 @@ export default function Dashboard() {
       </Link>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-2">
         {KPI_META.map((kpi) => {
           const Icon = kpi.icon;
           return (

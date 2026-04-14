@@ -966,129 +966,114 @@ async def get_company_network(cbe: str, max_depth: int = Query(1, ge=1, le=3)):
 
 @router.get("/{cbe}/sector-benchmark")
 async def sector_benchmark(cbe: str):
-    """Return percentile rankings for a company within its NACE sector."""
+    """Return percentile rankings for a company within its NACE sector (single batched query)."""
     cbe = cbe.strip().replace(".", "").zfill(10)
 
     try:
-        # Get company's NACE code and latest financials
         info = fetch_one(
-            "SELECT nace_code FROM company_info WHERE enterprise_number = %s",
-            (cbe,),
+            "SELECT nace_code FROM company_info WHERE enterprise_number = %s", (cbe,),
         )
         if not info or not info.get("nace_code"):
             return {"error": "no_nace", "benchmarks": []}
 
         nace = info["nace_code"]
 
-        # Get this company's latest financials
-        company = fetch_one("""
-            SELECT revenue, ebitda, net_profit, equity, total_assets,
-                   fte_total, ebitda_margin_pct,
-                   CASE WHEN revenue > 0 THEN (net_profit / revenue * 100) END AS net_margin_pct,
-                   CASE WHEN total_assets > 0 THEN (equity / total_assets * 100) END AS equity_ratio,
-                   fiscal_year
-            FROM financial_latest
-            WHERE enterprise_number = %s
-        """, (cbe,))
+        # Single query: get company values + all percentiles in one shot
+        row = fetch_one("""
+            WITH company AS (
+                SELECT revenue, ebitda, net_profit, equity, total_assets, fte_total, fiscal_year,
+                       CASE WHEN revenue > 0 THEN ebitda / revenue * 100 END AS ebitda_margin,
+                       CASE WHEN total_assets > 0 THEN equity / total_assets * 100 END AS equity_ratio
+                FROM financial_latest WHERE enterprise_number = %s
+            ),
+            peers AS (
+                SELECT fl.*,
+                       CASE WHEN fl.revenue > 0 THEN fl.ebitda / fl.revenue * 100 END AS ebitda_margin,
+                       CASE WHEN fl.total_assets > 0 THEN fl.equity / fl.total_assets * 100 END AS equity_ratio
+                FROM financial_latest fl
+                JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+                WHERE ci.nace_code = %s
+            )
+            SELECT
+                (SELECT COUNT(*) FROM peers WHERE revenue IS NOT NULL) AS peer_count,
+                c.fiscal_year, c.revenue, c.ebitda, c.net_profit, c.equity, c.total_assets, c.fte_total,
+                c.ebitda_margin, c.equity_ratio,
+                -- Revenue
+                (SELECT COUNT(*) FROM peers WHERE revenue < c.revenue AND revenue IS NOT NULL) AS rev_below,
+                (SELECT COUNT(*) FROM peers WHERE revenue IS NOT NULL) AS rev_total,
+                (SELECT PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY revenue) FROM peers WHERE revenue IS NOT NULL) AS rev_p25,
+                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY revenue) FROM peers WHERE revenue IS NOT NULL) AS rev_med,
+                (SELECT PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY revenue) FROM peers WHERE revenue IS NOT NULL) AS rev_p75,
+                -- EBITDA
+                (SELECT COUNT(*) FROM peers WHERE ebitda < c.ebitda AND ebitda IS NOT NULL) AS ebitda_below,
+                (SELECT COUNT(*) FROM peers WHERE ebitda IS NOT NULL) AS ebitda_total,
+                (SELECT PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ebitda) FROM peers WHERE ebitda IS NOT NULL) AS ebitda_p25,
+                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ebitda) FROM peers WHERE ebitda IS NOT NULL) AS ebitda_med,
+                (SELECT PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ebitda) FROM peers WHERE ebitda IS NOT NULL) AS ebitda_p75,
+                -- Net Profit
+                (SELECT COUNT(*) FROM peers WHERE net_profit < c.net_profit AND net_profit IS NOT NULL) AS np_below,
+                (SELECT COUNT(*) FROM peers WHERE net_profit IS NOT NULL) AS np_total,
+                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY net_profit) FROM peers WHERE net_profit IS NOT NULL) AS np_med,
+                -- FTE
+                (SELECT COUNT(*) FROM peers WHERE fte_total < c.fte_total AND fte_total IS NOT NULL) AS fte_below,
+                (SELECT COUNT(*) FROM peers WHERE fte_total IS NOT NULL) AS fte_total_cnt,
+                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY fte_total) FROM peers WHERE fte_total IS NOT NULL) AS fte_med,
+                -- Total Assets
+                (SELECT COUNT(*) FROM peers WHERE total_assets < c.total_assets AND total_assets IS NOT NULL) AS ta_below,
+                (SELECT COUNT(*) FROM peers WHERE total_assets IS NOT NULL) AS ta_total,
+                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY total_assets) FROM peers WHERE total_assets IS NOT NULL) AS ta_med,
+                -- EBITDA Margin
+                (SELECT COUNT(*) FROM peers WHERE ebitda_margin < c.ebitda_margin AND ebitda_margin IS NOT NULL) AS em_below,
+                (SELECT COUNT(*) FROM peers WHERE ebitda_margin IS NOT NULL) AS em_total,
+                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ebitda_margin) FROM peers WHERE ebitda_margin IS NOT NULL) AS em_med,
+                -- Equity Ratio
+                (SELECT COUNT(*) FROM peers WHERE equity_ratio < c.equity_ratio AND equity_ratio IS NOT NULL) AS er_below,
+                (SELECT COUNT(*) FROM peers WHERE equity_ratio IS NOT NULL) AS er_total,
+                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY equity_ratio) FROM peers WHERE equity_ratio IS NOT NULL) AS er_med
+            FROM company c
+        """, (cbe, nace))
 
-        if not company:
+        if not row or not row.get("fiscal_year"):
             return {"error": "no_financials", "benchmarks": []}
 
-        # Get sector stats using PERCENT_RANK for each metric
-        metrics = [
-            ("revenue", "Revenue", "eur"),
-            ("ebitda", "EBITDA", "eur"),
-            ("net_profit", "Net Profit", "eur"),
-            ("ebitda_margin_pct", "EBITDA Margin", "pct"),
-            ("fte_total", "FTE", "num"),
-            ("equity", "Equity", "eur"),
-            ("total_assets", "Total Assets", "eur"),
-        ]
+        nace_label = fetch_one("SELECT description FROM nace_lookup WHERE nace_code = %s", (nace,))
+
+        def pct(below, total):
+            return round((below / total) * 100, 1) if total and total > 0 else None
+
+        def fv(v):
+            return float(v) if v is not None else None
 
         benchmarks = []
-        sector_count = fetch_one("""
-            SELECT COUNT(*) AS c
-            FROM financial_latest fl
-            JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-            WHERE ci.nace_code = %s AND fl.revenue IS NOT NULL
-        """, (nace,))
-        peer_count = sector_count["c"] if sector_count else 0
-
-        for col, label, fmt in metrics:
-            val = company.get(col)
-            if val is None:
+        defs = [
+            ("Revenue", "eur", "revenue", "rev_below", "rev_total", "rev_p25", "rev_med", "rev_p75"),
+            ("EBITDA", "eur", "ebitda", "ebitda_below", "ebitda_total", "ebitda_p25", "ebitda_med", "ebitda_p75"),
+            ("Net Profit", "eur", "net_profit", "np_below", "np_total", None, "np_med", None),
+            ("FTE", "num", "fte_total", "fte_below", "fte_total_cnt", None, "fte_med", None),
+            ("Total Assets", "eur", "total_assets", "ta_below", "ta_total", None, "ta_med", None),
+            ("EBITDA Margin", "pct", "ebitda_margin", "em_below", "em_total", None, "em_med", None),
+            ("Equity Ratio", "pct", "equity_ratio", "er_below", "er_total", None, "er_med", None),
+        ]
+        for label, fmt, val_key, below_key, total_key, p25_key, med_key, p75_key in defs:
+            val = row.get(val_key)
+            total = row.get(total_key)
+            if val is None or not total:
                 continue
-
-            # Compute percentile rank
-            row = fetch_one(f"""
-                SELECT
-                    COUNT(*) FILTER (WHERE fl.{col} < %s) AS below,
-                    COUNT(*) FILTER (WHERE fl.{col} IS NOT NULL) AS total,
-                    PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY fl.{col}) AS p25,
-                    PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY fl.{col}) AS median,
-                    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY fl.{col}) AS p75
-                FROM financial_latest fl
-                JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-                WHERE ci.nace_code = %s AND fl.{col} IS NOT NULL
-            """, (val, nace))
-
-            if not row or not row["total"]:
-                continue
-
-            percentile = round((row["below"] / row["total"]) * 100, 1) if row["total"] > 0 else None
-
             benchmarks.append({
-                "metric": label,
-                "format": fmt,
-                "value": float(val) if val is not None else None,
-                "percentile": percentile,
-                "p25": float(row["p25"]) if row["p25"] is not None else None,
-                "median": float(row["median"]) if row["median"] is not None else None,
-                "p75": float(row["p75"]) if row["p75"] is not None else None,
-                "peer_count": row["total"],
+                "metric": label, "format": fmt,
+                "value": fv(val),
+                "percentile": pct(row.get(below_key, 0), total),
+                "p25": fv(row.get(p25_key)) if p25_key else None,
+                "median": fv(row.get(med_key)) if med_key else None,
+                "p75": fv(row.get(p75_key)) if p75_key else None,
+                "peer_count": total,
             })
-
-        # Also compute equity ratio and net margin percentiles
-        for col, label, fmt in [
-            ("CASE WHEN total_assets > 0 THEN equity / total_assets * 100 END", "Equity Ratio", "pct"),
-        ]:
-            val = company.get("equity_ratio")
-            if val is None:
-                continue
-            row = fetch_one(f"""
-                SELECT
-                    COUNT(*) FILTER (WHERE ({col}) < %s) AS below,
-                    COUNT(*) FILTER (WHERE ({col}) IS NOT NULL) AS total,
-                    PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ({col})) AS p25,
-                    PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ({col})) AS median,
-                    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ({col})) AS p75
-                FROM financial_latest fl
-                JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-                WHERE ci.nace_code = %s AND ({col}) IS NOT NULL
-            """, (val, nace))
-            if row and row["total"]:
-                benchmarks.append({
-                    "metric": label,
-                    "format": fmt,
-                    "value": float(val),
-                    "percentile": round((row["below"] / row["total"]) * 100, 1),
-                    "p25": float(row["p25"]) if row["p25"] is not None else None,
-                    "median": float(row["median"]) if row["median"] is not None else None,
-                    "p75": float(row["p75"]) if row["p75"] is not None else None,
-                    "peer_count": row["total"],
-                })
-
-        # Get NACE label
-        nace_label = fetch_one(
-            "SELECT description FROM nace_lookup WHERE nace_code = %s",
-            (nace,),
-        )
 
         return {
             "nace_code": nace,
             "nace_label": nace_label["description"] if nace_label else nace,
-            "fiscal_year": company["fiscal_year"],
-            "peer_count": peer_count,
+            "fiscal_year": row["fiscal_year"],
+            "peer_count": row.get("peer_count", 0),
             "benchmarks": benchmarks,
         }
     except Exception as e:

@@ -332,6 +332,8 @@ export default function AdminPanel() {
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const [replyText, setReplyText] = useState("");
+  const [addingOptionTo, setAddingOptionTo] = useState<number | null>(null);
+  const [newOptionText, setNewOptionText] = useState("");
   const [userView, setUserView] = useState<"all" | "active">("all");
   const [finByYear, setFinByYear] = useState<{ fiscal_year: number; companies: number; filings: number }[]>([]);
 
@@ -1494,7 +1496,52 @@ export default function AdminPanel() {
                           >
                             Archive
                           </Button>
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            onClick={() => setAddingOptionTo(addingOptionTo === poll.id ? null : poll.id)}
+                          >
+                            + Option
+                          </Button>
                         </div>
+                        {addingOptionTo === poll.id && (
+                          <div className="flex gap-2 mt-2">
+                            <Input
+                              className="h-7 text-xs flex-1"
+                              placeholder="New option text..."
+                              value={newOptionText}
+                              onChange={(e) => setNewOptionText(e.target.value)}
+                              onKeyDown={async (e) => {
+                                if (e.key === "Enter" && newOptionText.trim()) {
+                                  await adminFetch(`/api/polls/${poll.id}/add-options`, {
+                                    method: "POST",
+                                    body: JSON.stringify({ options: [newOptionText.trim()] }),
+                                  });
+                                  setNewOptionText("");
+                                  setAddingOptionTo(null);
+                                  loadData();
+                                }
+                              }}
+                            />
+                            <Button
+                              size="xs"
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                              onClick={async () => {
+                                if (newOptionText.trim()) {
+                                  await adminFetch(`/api/polls/${poll.id}/add-options`, {
+                                    method: "POST",
+                                    body: JSON.stringify({ options: [newOptionText.trim()] }),
+                                  });
+                                  setNewOptionText("");
+                                  setAddingOptionTo(null);
+                                  loadData();
+                                }
+                              }}
+                            >
+                              Add
+                            </Button>
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   ))
