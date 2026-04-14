@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" fill="none">
+  <!-- Mountain peak icon -->
+  <path d="M160 40L300 340H20L160 40Z" fill="#1e293b"/>
+  <path d="M160 120L240 300H80L160 120Z" fill="#334155"/>
+  <path d="M50 300L110 230L170 255L235 130" stroke="white" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Text -->
+  <text x="360" y="200" font-family="Inter, system-ui, sans-serif" font-size="96" font-weight="700" fill="#1e293b">Data Peak</text>
+  <text x="360" y="250" font-family="Inter, system-ui, sans-serif" font-size="24" font-weight="500" fill="#94a3b8" letter-spacing="4">BELGIAN COMPANY INTELLIGENCE</text>
+</svg>

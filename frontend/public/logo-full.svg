@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" fill="none">
+  <!-- High-res mountain peak -->
+  <path d="M200 40L340 340H60L200 40Z" fill="#1e293b"/>
+  <!-- Inner highlight -->
+  <path d="M200 120L280 300H120L200 120Z" fill="#334155"/>
+  <!-- Chart line ascending the peak -->
+  <path d="M90 300L150 230L210 255L275 130" stroke="white" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
