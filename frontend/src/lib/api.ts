@@ -453,6 +453,30 @@ export const getNotifications = () =>
 export const markNotificationsRead = () =>
   apiFetch<{ status: string }>("/api/favourites/notifications/mark-read", { method: "POST" });
 
+// ── People Favourites ─────────────────────────────────────
+export interface PeopleFavourite {
+  person_name: string;
+  notes: string | null;
+  added_at: string;
+  company_count: number;
+  companies: string | null;
+}
+
+export const getPeopleFavourites = () =>
+  apiFetch<PeopleFavourite[]>("/api/favourites/people");
+
+export const addPeopleFavourite = (personName: string, notes?: string) =>
+  apiFetch<{ person_name: string; status: string }>("/api/favourites/people", {
+    method: "POST",
+    body: JSON.stringify({ person_name: personName, notes }),
+  });
+
+export const removePeopleFavourite = (personName: string) =>
+  apiFetch<{ person_name: string; status: string }>(
+    `/api/favourites/people/${encodeURIComponent(personName)}`,
+    { method: "DELETE" }
+  );
+
 // ── Sector Benchmark ───────────────────────────────────────
 export interface BenchmarkMetric {
   metric: string;

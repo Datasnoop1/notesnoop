@@ -32,6 +32,7 @@ import {
   loadCompanyNBB,
   loadPublications,
   getSectorBenchmark,
+  addPeopleFavourite,
 } from "@/lib/api";
 import type { SectorBenchmark } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
@@ -2025,12 +2026,29 @@ export default function CompanyDetailPage(props: {
                                     </p>
                                   )}
                                 </div>
-                                <Badge
-                                  variant="secondary"
-                                  className="text-[10px] shrink-0 bg-green-50 text-green-700 border-green-200"
-                                >
-                                  Active
-                                </Badge>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        await addPeopleFavourite(admin.name);
+                                        const btn = e.currentTarget;
+                                        btn.classList.add("text-yellow-500");
+                                        btn.title = "Saved!";
+                                      } catch {}
+                                    }}
+                                    title="Save person to favourites"
+                                    className="h-6 w-6 flex items-center justify-center rounded text-slate-300 hover:text-yellow-500 transition-colors"
+                                  >
+                                    <Star className="h-3.5 w-3.5" />
+                                  </button>
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px] bg-green-50 text-green-700 border-green-200"
+                                  >
+                                    Active
+                                  </Badge>
+                                </div>
                               </div>
                             </CardContent>
                           </Card>

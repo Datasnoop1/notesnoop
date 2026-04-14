@@ -25,8 +25,11 @@ import {
   addProjectMember,
   removeProjectMember,
   deleteFavouriteProject,
+  getPeopleFavourites,
+  removePeopleFavourite,
   type FavouriteItem,
   type FavouriteProject,
+  type PeopleFavourite,
 } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
 import {
@@ -38,6 +41,8 @@ import {
   ChevronRight,
   Plus,
   X,
+  Users,
+  Building2,
 } from "lucide-react";
 
 /* ---------- skeleton ---------- */
@@ -216,11 +221,15 @@ function ProjectCard({
 export default function FavouritesPage() {
   const [favourites, setFavourites] = useState<FavouriteItem[]>([]);
   const [projects, setProjects] = useState<FavouriteProject[]>([]);
+  const [peopleFavs, setPeopleFavs] = useState<PeopleFavourite[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingProjects, setLoadingProjects] = useState(true);
+  const [loadingPeople, setLoadingPeople] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [removingPerson, setRemovingPerson] = useState<string | null>(null);
   const [newProjectName, setNewProjectName] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
+  const [activeTab, setActiveTab] = useState<"companies" | "people">("companies");
 
   const loadFavourites = useCallback(async () => {
     try {
@@ -246,10 +255,35 @@ export default function FavouritesPage() {
     }
   }, []);
 
+  const loadPeopleFavourites = useCallback(async () => {
+    try {
+      const data = await getPeopleFavourites();
+      setPeopleFavs(data);
+    } catch (err) {
+      console.error("Failed to load people favourites:", err);
+      setPeopleFavs([]);
+    } finally {
+      setLoadingPeople(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadFavourites();
     loadProjects();
-  }, [loadFavourites, loadProjects]);
+    loadPeopleFavourites();
+  }, [loadFavourites, loadProjects, loadPeopleFavourites]);
+
+  async function handleRemovePerson(name: string) {
+    setRemovingPerson(name);
+    try {
+      await removePeopleFavourite(name);
+      setPeopleFavs((prev) => prev.filter((p) => p.person_name !== name));
+    } catch (err) {
+      console.error("Failed to remove person favourite:", err);
+    } finally {
+      setRemovingPerson(null);
+    }
+  }
 
   async function handleRemove(cbe: string) {
     setRemoving(cbe);
@@ -341,16 +375,43 @@ export default function FavouritesPage() {
             Favourites
           </h1>
           <p className="mt-0.5 text-xs text-slate-500">
-            Companies you are tracking for deal sourcing
+            Track companies and people for deal sourcing
           </p>
         </div>
-        {!loading && favourites.length > 0 && (
-          <Badge variant="secondary" className="text-indigo-700 bg-indigo-50 border-indigo-200">
-            {favourites.length} {favourites.length === 1 ? "company" : "companies"}
-          </Badge>
-        )}
+        <div className="flex items-center gap-2">
+          {!loading && (
+            <Badge variant="secondary" className="text-indigo-700 bg-indigo-50 border-indigo-200">
+              {favourites.length} {favourites.length === 1 ? "company" : "companies"} · {peopleFavs.length} {peopleFavs.length === 1 ? "person" : "people"}
+            </Badge>
+          )}
+        </div>
       </div>
 
+      {/* Tab switcher */}
+      <div className="flex items-center gap-1 border-b border-slate-100 pb-0">
+        <button
+          onClick={() => setActiveTab("companies")}
+          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+            activeTab === "companies"
+              ? "border-indigo-500 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          <Building2 className="h-3.5 w-3.5" /> Companies
+        </button>
+        <button
+          onClick={() => setActiveTab("people")}
+          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+            activeTab === "people"
+              ? "border-indigo-500 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          <Users className="h-3.5 w-3.5" /> People
+        </button>
+      </div>
+
+      {activeTab === "companies" && (<>
       {/* ── Projects section ──────────────────────────────── */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -530,6 +591,94 @@ export default function FavouritesPage() {
           </Card>
         )}
       </div>
+      </>)}
+
+      {/* ── People Favourites ──────────────────────────────── */}
+      {activeTab === "people" && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+            <Users className="w-4 h-4" />
+            Saved People
+          </h2>
+
+          {loadingPeople && (
+            <div className="flex items-center gap-2 py-8">
+              <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+              <span className="text-sm text-slate-400">Loading people favourites...</span>
+            </div>
+          )}
+
+          {!loadingPeople && peopleFavs.length === 0 && (
+            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10">
+              <Users className="h-6 w-6 text-slate-300 mb-2" />
+              <p className="text-sm font-medium text-slate-500">
+                No people saved yet.
+              </p>
+              <p className="mt-2 text-xs text-slate-400">
+                Visit a company profile → Administrators tab and click the star next to a person to save them here.
+              </p>
+            </div>
+          )}
+
+          {!loadingPeople && peopleFavs.length > 0 && (
+            <Card className="bg-white overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50">
+                    <TableHead className="min-w-[200px]">Name</TableHead>
+                    <TableHead className="text-right">Companies</TableHead>
+                    <TableHead>Current Roles</TableHead>
+                    <TableHead>Added</TableHead>
+                    <TableHead>Notes</TableHead>
+                    <TableHead className="w-12" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {peopleFavs.map((pf) => (
+                    <TableRow key={pf.person_name} className="hover:bg-indigo-50/40">
+                      <TableCell className="font-medium py-1.5 text-sm">
+                        <Link
+                          href={`/people?q=${encodeURIComponent(pf.person_name)}`}
+                          className="text-indigo-600 hover:text-indigo-800 hover:underline"
+                        >
+                          {pf.person_name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-xs py-1.5">
+                        {pf.company_count ?? 0}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-500 py-1.5 max-w-[300px] truncate" title={pf.companies ?? ""}>
+                        {pf.companies ?? "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-500 whitespace-nowrap py-1.5">
+                        {formatDate(pf.added_at)}
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate text-xs text-slate-500 py-1.5" title={pf.notes ?? ""}>
+                        {pf.notes ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
+                          onClick={() => handleRemovePerson(pf.person_name)}
+                          disabled={removingPerson === pf.person_name}
+                        >
+                          {removingPerson === pf.person_name ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   );
 }

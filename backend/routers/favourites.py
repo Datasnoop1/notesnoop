@@ -330,3 +330,90 @@ async def mark_notifications_read(user=Depends(get_current_user)):
     except Exception as e:
         logger.exception("Mark read failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── People Favourites ─────────────────────────────────────────────
+
+
+class PeopleFavouriteCreate(BaseModel):
+    person_name: str
+    notes: Optional[str] = None
+
+
+def _ensure_people_fav_table():
+    """Create people_favourite table if it does not exist."""
+    execute("""
+        CREATE TABLE IF NOT EXISTS people_favourite (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            person_name TEXT NOT NULL,
+            notes TEXT,
+            added_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_id, person_name)
+        )
+    """)
+
+
+@router.get("/people")
+async def list_people_favourites(user=Depends(get_current_user)):
+    """List favourite people for the logged-in user."""
+    try:
+        _ensure_people_fav_table()
+        rows = fetch_all("""
+            SELECT pf.person_name, pf.notes, pf.added_at,
+                   COUNT(DISTINCT a.enterprise_number) AS company_count,
+                   STRING_AGG(DISTINCT COALESCE(ci.name, a.enterprise_number), ', ' ORDER BY COALESCE(ci.name, a.enterprise_number)) AS companies
+            FROM people_favourite pf
+            LEFT JOIN administrator a ON UPPER(a.name) = UPPER(pf.person_name)
+                AND (a.mandate_end IS NULL OR a.mandate_end = '' OR a.mandate_end::date > CURRENT_DATE)
+            LEFT JOIN company_info ci ON ci.enterprise_number = a.enterprise_number
+            WHERE pf.user_id = %s
+            GROUP BY pf.person_name, pf.notes, pf.added_at
+            ORDER BY pf.added_at DESC
+        """, (user["id"],))
+        return [_serialize_row(r) for r in rows]
+    except Exception as e:
+        logger.exception("List people favourites failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/people", status_code=201)
+async def add_people_favourite(body: PeopleFavouriteCreate, user=Depends(get_current_user)):
+    """Add a person to the user's favourites."""
+    try:
+        _ensure_people_fav_table()
+        execute(
+            """INSERT INTO people_favourite (user_id, person_name, notes)
+               VALUES (%s, %s, %s) ON CONFLICT DO NOTHING""",
+            (user["id"], body.person_name.strip(), body.notes),
+        )
+        return {"person_name": body.person_name.strip(), "status": "added"}
+    except Exception as e:
+        logger.exception("Add people favourite failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/people/{person_name}")
+async def remove_people_favourite(person_name: str, user=Depends(get_current_user)):
+    """Remove a person from the user's favourites."""
+    try:
+        _ensure_people_fav_table()
+        import urllib.parse
+        name = urllib.parse.unquote(person_name).strip()
+        existing = fetch_one(
+            "SELECT 1 FROM people_favourite WHERE user_id = %s AND person_name = %s",
+            (user["id"], name),
+        )
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Person '{name}' not found in favourites")
+
+        execute(
+            "DELETE FROM people_favourite WHERE user_id = %s AND person_name = %s",
+            (user["id"], name),
+        )
+        return {"person_name": name, "status": "removed"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Remove people favourite failed")
+        raise HTTPException(status_code=500, detail=str(e))
