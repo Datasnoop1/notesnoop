@@ -43,6 +43,9 @@ import {
   CircleAlert,
   Settings,
   Vote,
+  Clock,
+  Globe,
+  Eye,
 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -104,6 +107,13 @@ interface ActivitySummary {
   total_requests: number;
   unique_pages: number;
   last_active: string;
+}
+
+interface ActivityEntry {
+  user_email: string;
+  endpoint: string;
+  method: string;
+  created_at: string;
 }
 
 interface Poll {
@@ -318,6 +328,7 @@ export default function AdminPanel() {
   const [pollQuestion, setPollQuestion] = useState("");
   const [pollOptions, setPollOptions] = useState("");
   const [pollCreating, setPollCreating] = useState(false);
+  const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const [replyText, setReplyText] = useState("");
@@ -330,7 +341,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby] = await Promise.all([
+      const [s, u, f, a, p, fby, alog] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -339,6 +350,7 @@ export default function AdminPanel() {
         ),
         adminFetch<Poll[]>("/api/polls").catch(() => [] as Poll[]),
         adminFetch<{ fiscal_year: number; companies: number; filings: number }[]>("/api/admin/financials-by-year").catch(() => []),
+        adminFetch<ActivityEntry[]>("/api/admin/activity").catch(() => [] as ActivityEntry[]),
       ]);
       setStats(s);
       setUsers(u);
@@ -346,6 +358,7 @@ export default function AdminPanel() {
       setActivity(a);
       setPolls(p);
       setFinByYear(fby);
+      setActivityLog(alog);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -727,6 +740,10 @@ export default function AdminPanel() {
           <TabsTrigger value="polls">
             <Vote className="size-3.5 mr-1.5" />
             Polls
+          </TabsTrigger>
+          <TabsTrigger value="activity">
+            <Clock className="size-3.5 mr-1.5" />
+            Activity
           </TabsTrigger>
           <TabsTrigger value="settings">
             <Settings className="size-3.5 mr-1.5" />
@@ -1577,7 +1594,130 @@ export default function AdminPanel() {
         </TabsContent>
 
         {/* ================================================================
-            TAB 5: Settings
+            TAB 5: Activity Timeline
+            ================================================================ */}
+        <TabsContent value="activity">
+          <div className="space-y-4 pt-2">
+            <SectionHeading icon={Clock}>Activity Timeline</SectionHeading>
+
+            {activityLog.length === 0 ? (
+              <Card className="bg-white">
+                <CardContent>
+                  <p className="py-8 text-center text-sm text-slate-400">No activity recorded yet.</p>
+                </CardContent>
+              </Card>
+            ) : (() => {
+              // Group by date
+              const grouped: Record<string, ActivityEntry[]> = {};
+              activityLog.forEach((entry) => {
+                const date = entry.created_at?.slice(0, 10) || "Unknown";
+                if (!grouped[date]) grouped[date] = [];
+                grouped[date].push(entry);
+              });
+              const dates = Object.keys(grouped).sort().reverse();
+
+              // Friendly endpoint label
+              function endpointLabel(ep: string): { label: string; icon: React.ReactNode; color: string } {
+                if (ep.includes("/company/") && ep.includes("/financials")) return { label: "Viewed financials", icon: <BarChart3 className="size-3.5" />, color: "text-indigo-600 bg-indigo-50" };
+                if (ep.includes("/company/") && ep.includes("/structure")) return { label: "Viewed structure", icon: <Users className="size-3.5" />, color: "text-purple-600 bg-purple-50" };
+                if (ep.includes("/company/")) return { label: "Viewed company", icon: <Eye className="size-3.5" />, color: "text-blue-600 bg-blue-50" };
+                if (ep.includes("/screener")) return { label: "Used screener", icon: <Search className="size-3.5" />, color: "text-emerald-600 bg-emerald-50" };
+                if (ep.includes("/people")) return { label: "Searched people", icon: <Users className="size-3.5" />, color: "text-amber-600 bg-amber-50" };
+                if (ep.includes("/favourites")) return { label: "Managed favourites", icon: <CircleCheck className="size-3.5" />, color: "text-pink-600 bg-pink-50" };
+                if (ep.includes("/dashboard")) return { label: "Viewed dashboard", icon: <Globe className="size-3.5" />, color: "text-slate-600 bg-slate-50" };
+                if (ep.includes("/feedback")) return { label: "Sent feedback", icon: <MessageSquare className="size-3.5" />, color: "text-orange-600 bg-orange-50" };
+                if (ep.includes("/stats")) return { label: "Viewed stats", icon: <TrendingUp className="size-3.5" />, color: "text-cyan-600 bg-cyan-50" };
+                if (ep.includes("/staatsblad")) return { label: "Loaded publications", icon: <Database className="size-3.5" />, color: "text-teal-600 bg-teal-50" };
+                if (ep.includes("/nbb")) return { label: "Loaded NBB data", icon: <Database className="size-3.5" />, color: "text-violet-600 bg-violet-50" };
+                return { label: ep.replace("/api/", ""), icon: <Globe className="size-3.5" />, color: "text-slate-500 bg-slate-50" };
+              }
+
+              function formatTime(ts: string): string {
+                try { return new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
+              }
+
+              function formatDate(d: string): string {
+                try {
+                  const dt = new Date(d + "T00:00:00");
+                  const today = new Date(); today.setHours(0,0,0,0);
+                  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+                  if (dt.getTime() === today.getTime()) return "Today";
+                  if (dt.getTime() === yesterday.getTime()) return "Yesterday";
+                  return dt.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+                } catch { return d; }
+              }
+
+              return (
+                <div className="space-y-6">
+                  {dates.map((date) => (
+                    <div key={date}>
+                      {/* Date header */}
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                          {formatDate(date)}
+                        </div>
+                        <div className="h-px flex-1 bg-slate-200" />
+                        <span className="text-[10px] text-slate-400 font-mono">{grouped[date].length} events</span>
+                      </div>
+
+                      {/* Timeline entries */}
+                      <div className="relative pl-6">
+                        {/* Vertical line */}
+                        <div className="absolute left-[9px] top-2 bottom-2 w-px bg-slate-200" />
+
+                        <div className="space-y-1">
+                          {grouped[date].map((entry, i) => {
+                            const info = endpointLabel(entry.endpoint);
+                            return (
+                              <div key={`${date}-${i}`} className="relative flex items-start gap-3 py-1.5 group">
+                                {/* Dot */}
+                                <div className={`absolute -left-6 top-2.5 w-[7px] h-[7px] rounded-full border-2 border-white ${
+                                  i === 0 && date === dates[0] ? "bg-indigo-500" : "bg-slate-300"
+                                }`} />
+
+                                {/* Icon */}
+                                <div className={`shrink-0 p-1 rounded-md ${info.color}`}>
+                                  {info.icon}
+                                </div>
+
+                                {/* Content */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-medium text-slate-800">{info.label}</span>
+                                    <span className="text-[10px] text-slate-400 font-mono truncate max-w-[200px]">
+                                      {entry.endpoint.replace("/api/", "")}
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-400 mt-0.5">
+                                    {entry.user_email?.split("@")[0] || "anonymous"}
+                                    <span className="mx-1.5 text-slate-300">·</span>
+                                    {formatTime(entry.created_at)}
+                                  </div>
+                                </div>
+
+                                {/* Method badge */}
+                                <span className={`shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                  entry.method === "POST" ? "bg-amber-50 text-amber-600" :
+                                  entry.method === "DELETE" ? "bg-rose-50 text-rose-500" :
+                                  "bg-slate-50 text-slate-400"
+                                }`}>
+                                  {entry.method}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </TabsContent>
+
+        {/* ================================================================
+            TAB 6: Settings
             ================================================================ */}
         <TabsContent value="settings">
           <div className="pt-2">
