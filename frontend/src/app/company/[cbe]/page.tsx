@@ -30,6 +30,7 @@ import {
   addFavourite,
   removeFavourite,
   loadCompanyNBB,
+  loadPublications,
   getSectorBenchmark,
 } from "@/lib/api";
 import type { SectorBenchmark } from "@/lib/api";
@@ -390,6 +391,25 @@ export default function CompanyDetailPage(props: {
   const nbbAutoTriggered = React.useRef(false);
   const router = useRouter();
 
+  /* ── Auto-load overlay state ── */
+  type LoadStage = { label: string; status: "pending" | "active" | "done" | "error" };
+  const [loadOverlay, setLoadOverlay] = useState(false);
+  const [loadStages, setLoadStages] = useState<LoadStage[]>([]);
+  const [loadStartTime, setLoadStartTime] = useState<number | null>(null);
+  const [loadElapsed, setLoadElapsed] = useState(0);
+
+  /* ── Collapsible section state ── */
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const toggleSection = (key: string) =>
+    setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  /* Elapsed timer for load overlay */
+  useEffect(() => {
+    if (!loadStartTime) return;
+    const interval = setInterval(() => setLoadElapsed(Math.floor((Date.now() - loadStartTime) / 1000)), 1000);
+    return () => clearInterval(interval);
+  }, [loadStartTime]);
+
   useEffect(() => {
     setLoading(true);
     nbbAutoTriggered.current = false;
@@ -398,34 +418,99 @@ export default function CompanyDetailPage(props: {
       getCompanyFinancials(cbe),
       getCompanyStructure(cbe),
     ])
-      .then(([d, f, s]) => {
+      .then(async ([d, f, s]) => {
         setDetail(d as unknown as CompanyDetail);
         setFinancials(f as unknown as FinancialsData);
         setStructure(s as unknown as StructureData);
+        setLoading(false);
 
-        // Auto-load from NBB if no financials
         const fin = f as unknown as FinancialsData;
-        if (fin && fin.summary && fin.summary.length === 0 && !nbbAutoTriggered.current) {
+        const str = s as unknown as StructureData;
+        const needsFinancials = fin && fin.summary && fin.summary.length === 0;
+        const needsPublications = !str?.staatsblad_publications?.length;
+
+        if ((needsFinancials || needsPublications) && !nbbAutoTriggered.current) {
           nbbAutoTriggered.current = true;
+
+          // Build loading stages
+          const stages: LoadStage[] = [];
+          if (needsFinancials) {
+            stages.push({ label: "Fetching financial filings from NBB", status: "pending" });
+            stages.push({ label: "Processing and storing financials", status: "pending" });
+          }
+          if (needsPublications) {
+            stages.push({ label: "Loading publications from Staatsblad", status: "pending" });
+          }
+          stages.push({ label: "Done", status: "pending" });
+
+          setLoadStages(stages);
+          setLoadOverlay(true);
+          setLoadStartTime(Date.now());
           setNbbLoading(true);
-          loadCompanyNBB(cbe)
-            .then(data => {
+
+          let stageIdx = 0;
+          const advance = (status: "done" | "error" = "done") => {
+            setLoadStages((prev) => {
+              const next = [...prev];
+              next[stageIdx] = { ...next[stageIdx], status };
+              if (stageIdx + 1 < next.length) next[stageIdx + 1] = { ...next[stageIdx + 1], status: "active" };
+              return next;
+            });
+            stageIdx++;
+          };
+
+          // Start first stage
+          setLoadStages((prev) => { const n = [...prev]; n[0] = { ...n[0], status: "active" }; return n; });
+
+          // Load financials
+          if (needsFinancials) {
+            try {
+              const data = await loadCompanyNBB(cbe);
+              advance();
               if (data.rubrics_loaded > 0) {
-                // Refetch financials
-                getCompanyFinancials(cbe).then(newF => setFinancials(newF as unknown as FinancialsData));
+                const newF = await getCompanyFinancials(cbe);
+                setFinancials(newF as unknown as FinancialsData);
                 setNbbResult("success");
               } else {
                 setNbbResult("no-data");
               }
-            })
-            .catch(() => setNbbResult("error"))
-            .finally(() => setNbbLoading(false));
+              advance();
+            } catch {
+              advance("error");
+              advance("error");
+              setNbbResult("error");
+            }
+          }
+
+          // Load publications
+          if (needsPublications) {
+            try {
+              await loadPublications(cbe);
+              const newS = await getCompanyStructure(cbe);
+              setStructure(newS as unknown as StructureData);
+              advance();
+            } catch {
+              advance("error");
+            }
+          }
+
+          // Mark done
+          setLoadStages((prev) => {
+            const n = [...prev];
+            n[n.length - 1] = { ...n[n.length - 1], status: "done" };
+            return n;
+          });
+          setNbbLoading(false);
+          setLoadStartTime(null);
+
+          // Auto-dismiss overlay after 3 seconds
+          setTimeout(() => setLoadOverlay(false), 3000);
         }
       })
       .catch((err) => {
         console.error("Failed to load company data:", err);
-      })
-      .finally(() => setLoading(false));
+        setLoading(false);
+      });
   }, [cbe]);
 
   const toggleFavourite = useCallback(async () => {
@@ -591,6 +676,57 @@ export default function CompanyDetailPage(props: {
 
         {/* KPI cards */}
       </div>
+
+      {/* ━━━ Auto-load overlay ━━━ */}
+      {loadOverlay && (
+        <div className="fixed bottom-6 right-6 z-50 w-[340px] rounded-xl border border-slate-200 bg-white shadow-lg p-5 animate-in slide-in-from-bottom-4 duration-300">
+          <div className="flex items-center gap-2 mb-3">
+            {loadStages.some((s) => s.status === "active") ? (
+              <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+            )}
+            <span className="text-sm font-semibold text-slate-800">
+              {loadStages.every((s) => s.status === "done") ? "Data loaded successfully" : "Loading company data..."}
+            </span>
+            <button onClick={() => setLoadOverlay(false)} className="ml-auto text-slate-400 hover:text-slate-600 text-xs">✕</button>
+          </div>
+          <p className="text-[10px] text-slate-400 mb-3">
+            {loadStages.every((s) => s.status === "done")
+              ? "All data is now available."
+              : `This data was not yet in our database. Estimated time: 30–60 seconds.`}
+          </p>
+          <div className="space-y-2">
+            {loadStages.map((stage, i) => (
+              <div key={i} className="flex items-center gap-2">
+                {stage.status === "done" ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+                ) : stage.status === "active" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500 shrink-0" />
+                ) : stage.status === "error" ? (
+                  <XCircle className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+                ) : (
+                  <div className="h-3.5 w-3.5 rounded-full border border-slate-200 shrink-0" />
+                )}
+                <span className={`text-xs ${stage.status === "active" ? "text-indigo-600 font-medium" : stage.status === "done" ? "text-slate-500" : stage.status === "error" ? "text-rose-400" : "text-slate-400"}`}>
+                  {stage.label}
+                </span>
+              </div>
+            ))}
+          </div>
+          {loadStartTime && (
+            <div className="mt-3 pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between text-[10px] text-slate-400">
+                <span>Elapsed: {loadElapsed}s</span>
+                <span className="flex items-center gap-1">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                  Working...
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
@@ -1242,6 +1378,7 @@ export default function CompanyDetailPage(props: {
                 section?: string;
                 indent?: boolean;
                 isPct?: boolean;
+                group?: string;
               };
 
               const chronologicalPnl = [...pnlData].reverse();
@@ -1250,9 +1387,9 @@ export default function CompanyDetailPage(props: {
                 { label: "Revenue", key: "revenue", section: "REVENUE" },
                 { label: "Cost of Sales", key: "costOfSales", isCost: true, indent: true },
                 { label: "Gross Profit", key: "grossMargin", bold: true, topBorder: true },
-                { label: "Personnel Costs", key: "personnel", isCost: true, section: "OPERATING COSTS", indent: true },
-                { label: "Depreciation & Amortization", key: "da", isCost: true, indent: true },
-                { label: "Other Operating Costs", key: "otherOpCosts", isCost: true, indent: true },
+                { label: "Personnel Costs", key: "personnel", isCost: true, section: "OPERATING COSTS", indent: true, group: "pnl_opex" },
+                { label: "Depreciation & Amortization", key: "da", isCost: true, indent: true, group: "pnl_opex" },
+                { label: "Other Operating Costs", key: "otherOpCosts", isCost: true, indent: true, group: "pnl_opex" },
                 { label: "EBIT (Operating Profit)", key: "ebit", bold: true, topBorder: true, isKeyMetric: true },
                 { label: "Financial Charges", key: "finCharges", isCost: true, section: "FINANCIAL", indent: true },
                 { label: "Profit Before Tax", key: "pbt", bold: true, topBorder: true, isKeyMetric: true },
@@ -1284,16 +1421,80 @@ export default function CompanyDetailPage(props: {
                 URL.revokeObjectURL(url);
               }
 
+              // Core metrics summary
+              const latestPnl = pnlData.find((_, i) => i === 0); // newest
+              const prevPnl = pnlData.length > 1 ? pnlData[1] : null;
+
+              const revGrowth = latestPnl?.revenue != null && prevPnl?.revenue != null && prevPnl.revenue !== 0
+                ? ((latestPnl.revenue - prevPnl.revenue) / Math.abs(prevPnl.revenue)) * 100 : null;
+              const grossMarginPct = latestPnl?.revenue != null && latestPnl?.grossMargin != null && latestPnl.revenue !== 0
+                ? (latestPnl.grossMargin / latestPnl.revenue) * 100 : null;
+              const ebitdaPct = latestPnl?.ebitdaMarginPct ?? null;
+              const ebitdaGrowth = latestPnl?.ebitda != null && prevPnl?.ebitda != null && prevPnl.ebitda !== 0
+                ? ((latestPnl.ebitda - prevPnl.ebitda) / Math.abs(prevPnl.ebitda)) * 100 : null;
+              const ebitPct = latestPnl?.revenue != null && latestPnl?.ebit != null && latestPnl.revenue !== 0
+                ? (latestPnl.ebit / latestPnl.revenue) * 100 : null;
+              const ebitGrowth = latestPnl?.ebit != null && prevPnl?.ebit != null && prevPnl.ebit !== 0
+                ? ((latestPnl.ebit - prevPnl.ebit) / Math.abs(prevPnl.ebit)) * 100 : null;
+
+              const growthPill = (v: number | null) => {
+                if (v == null) return null;
+                const color = v > 2 ? "text-emerald-600" : v < -2 ? "text-rose-400" : "text-slate-500";
+                const arrow = v > 0.5 ? "↑" : v < -0.5 ? "↓" : "→";
+                return <span className={`text-[10px] font-medium ${color}`}>{arrow} {Math.abs(v).toFixed(1)}%</span>;
+              };
+
+              const marginPill = (v: number | null) => {
+                if (v == null) return <span className="text-slate-300 text-xs font-mono">—</span>;
+                const color = v >= 15 ? "text-emerald-600" : v >= 5 ? "text-amber-600" : "text-rose-400";
+                return <span className={`text-xs font-mono font-semibold ${color}`}>{v.toFixed(1)}%</span>;
+              };
+
               return (
-                <div>
+                <div className="space-y-4">
+                  {/* ── Core Metrics Summary ── */}
+                  {latestPnl && (
+                    <div className="grid grid-cols-3 lg:grid-cols-9 gap-2">
+                      {[
+                        { label: "Revenue", value: fmtEur(latestPnl.revenue), sub: growthPill(revGrowth), icon: <DollarSign className="h-3 w-3" /> },
+                        { label: "Rev. Growth", value: revGrowth != null ? `${revGrowth > 0 ? "+" : ""}${revGrowth.toFixed(1)}%` : "—", sub: null, icon: <TrendingUp className="h-3 w-3" /> },
+                        { label: "Gross Margin", value: marginPill(grossMarginPct), sub: null, icon: <Percent className="h-3 w-3" /> },
+                        { label: "EBITDA", value: fmtEur(latestPnl.ebitda), sub: growthPill(ebitdaGrowth), icon: <BarChart3 className="h-3 w-3" /> },
+                        { label: "EBITDA %", value: marginPill(ebitdaPct), sub: null, icon: <Percent className="h-3 w-3" /> },
+                        { label: "EBITDA Growth", value: ebitdaGrowth != null ? `${ebitdaGrowth > 0 ? "+" : ""}${ebitdaGrowth.toFixed(1)}%` : "—", sub: null, icon: <TrendingUp className="h-3 w-3" /> },
+                        { label: "EBIT", value: fmtEur(latestPnl.ebit), sub: growthPill(ebitGrowth), icon: <Activity className="h-3 w-3" /> },
+                        { label: "EBIT %", value: marginPill(ebitPct), sub: null, icon: <Percent className="h-3 w-3" /> },
+                        { label: "EBIT Growth", value: ebitGrowth != null ? `${ebitGrowth > 0 ? "+" : ""}${ebitGrowth.toFixed(1)}%` : "—", sub: null, icon: <TrendingUp className="h-3 w-3" /> },
+                      ].map((m, i) => (
+                        <div key={i} className="rounded-lg border border-slate-100 bg-white p-2.5 text-center">
+                          <div className="flex items-center justify-center gap-1 text-[9px] text-slate-400 uppercase tracking-wider mb-1">
+                            {m.icon} {m.label}
+                          </div>
+                          <div className="text-sm font-semibold text-slate-800 font-mono">{m.value}</div>
+                          {m.sub && <div className="mt-0.5">{m.sub}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* ── Income Statement ── */}
+                  <div>
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
                       Income Statement
                     </h3>
-                    <ExportButtons
-                      onExportCSV={exportPnlCsv}
-                      onPrint={() => window.print()}
-                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => toggleSection("pnl_opex")}
+                        className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.pnl_opex ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}
+                      >
+                        {collapsedSections.pnl_opex ? "▸ OpEx grouped" : "▾ OpEx expanded"}
+                      </button>
+                      <ExportButtons
+                        onExportCSV={exportPnlCsv}
+                        onPrint={() => window.print()}
+                      />
+                    </div>
                   </div>
                   <div className="rounded-lg border overflow-x-auto bg-white">
                     <table className="w-full">
@@ -1305,6 +1506,9 @@ export default function CompanyDetailPage(props: {
                       </thead>
                       <tbody>
                         {lines.map((line) => {
+                          // Skip lines in collapsed groups
+                          if (line.group && collapsedSections[line.group]) return null;
+
                           const showSection = line.section && line.section !== lastSection;
                           if (line.section) lastSection = line.section;
                           return (
@@ -1351,6 +1555,7 @@ export default function CompanyDetailPage(props: {
                   <p className="mt-1 text-[10px] text-slate-400 italic">
                     Gross Profit = rubric 9900. EBIT = rubric 9901. Net Profit = rubric 9904. Cost of Sales = Revenue - Gross Profit. Other Op. Costs = Gross Profit - Personnel - D&A - EBIT.
                   </p>
+                  </div>
 
                   {/* Revenue & EBITDA Chart */}
                   {chartData.length >= 2 && (
@@ -1453,20 +1658,21 @@ export default function CompanyDetailPage(props: {
               topBorder?: boolean;
               doubleBorder?: boolean;
               section?: string;
+              group?: string;
             };
 
             const lines: CFLine[] = [
               { label: "EBITDA", key: "ebitda", section: "OPERATING ACTIVITIES" },
-              { label: "\u0394 Inventories", key: "deltaInv", indent: true },
-              { label: "\u0394 Trade Receivables", key: "deltaRec", indent: true },
-              { label: "\u0394 Trade Payables", key: "deltaPay", indent: true },
+              { label: "Δ Inventories", key: "deltaInv", indent: true, group: "cf_wc" },
+              { label: "Δ Trade Receivables", key: "deltaRec", indent: true, group: "cf_wc" },
+              { label: "Δ Trade Payables", key: "deltaPay", indent: true, group: "cf_wc" },
               { label: "Change in Working Capital", key: "wcChange", bold: true, topBorder: true },
               { label: "Cash from Operations", key: "cashFromOps", bold: true, topBorder: true },
-              { label: "CapEx (est.: \u0394 Fixed Assets + D&A)", key: "capex", indent: true, section: "INVESTING ACTIVITIES" },
+              { label: "CapEx (est.: Δ Fixed Assets + D&A)", key: "capex", indent: true, section: "INVESTING ACTIVITIES" },
               { label: "Cash from Investing", key: "cashFromInvesting", bold: true, topBorder: true },
-              { label: "\u0394 Long-term Debt", key: "deltaLtDebt", indent: true, section: "FINANCING ACTIVITIES" },
-              { label: "\u0394 Short-term Debt", key: "deltaStDebt", indent: true },
-              { label: "\u0394 Equity", key: "deltaEquity", indent: true },
+              { label: "Δ Long-term Debt", key: "deltaLtDebt", indent: true, section: "FINANCING ACTIVITIES", group: "cf_fin" },
+              { label: "Δ Short-term Debt", key: "deltaStDebt", indent: true, group: "cf_fin" },
+              { label: "Δ Equity", key: "deltaEquity", indent: true, group: "cf_fin" },
               { label: "Cash from Financing", key: "cashFromFinancing", bold: true, topBorder: true },
               { label: "NET CASH CHANGE", key: "netCashChange", bold: true, doubleBorder: true },
               { label: "Cash at Start of Year", key: "cashStart", indent: true },
@@ -1477,9 +1683,19 @@ export default function CompanyDetailPage(props: {
 
             return (
               <div>
-                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-cyan-500 pl-2">
-                  Derived Cash Flow Statement
-                </h3>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-cyan-500 pl-2">
+                    Derived Cash Flow Statement
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => toggleSection("cf_wc")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.cf_wc ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                      {collapsedSections.cf_wc ? "▸ WC grouped" : "▾ WC expanded"}
+                    </button>
+                    <button onClick={() => toggleSection("cf_fin")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.cf_fin ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                      {collapsedSections.cf_fin ? "▸ Financing grouped" : "▾ Financing expanded"}
+                    </button>
+                  </div>
+                </div>
                 <div className="rounded-lg border overflow-x-auto bg-white">
                   <table className="w-full">
                     <thead>
@@ -1490,6 +1706,8 @@ export default function CompanyDetailPage(props: {
                     </thead>
                     <tbody>
                       {lines.map((line) => {
+                        if (line.group && collapsedSections[line.group]) return null;
+
                         const showSection = line.section && line.section !== lastSection;
                         if (line.section) lastSection = line.section;
                         return (
@@ -1616,17 +1834,18 @@ export default function CompanyDetailPage(props: {
               doubleBorder?: boolean;
               section?: string;
               subIndent?: boolean;
+              group?: string;
             };
 
             const lines: BSLine[] = [
               // ASSETS
               { label: "Tangible Fixed Assets", key: "fixedAssets", indent: true, section: "NON-CURRENT ASSETS" },
               { label: "Total Non-Current Assets (20/28)", key: "totalNonCurrentAssets", bold: true, topBorder: true },
-              { label: "Inventories (3)", key: "inventories", indent: true, section: "CURRENT ASSETS" },
-              { label: "Trade Receivables (40/41)", key: "tradeReceivables", indent: true },
-              { label: "Cash & Cash Equivalents (54/58)", key: "cash", indent: true },
-              { label: "Short-term Investments (50/53)", key: "currentInvestments", indent: true },
-              { label: "Other Current Assets", key: "otherCurrentAssets", indent: true },
+              { label: "Inventories (3)", key: "inventories", indent: true, section: "CURRENT ASSETS", group: "bs_ca" },
+              { label: "Trade Receivables (40/41)", key: "tradeReceivables", indent: true, group: "bs_ca" },
+              { label: "Cash & Cash Equivalents (54/58)", key: "cash", indent: true, group: "bs_ca" },
+              { label: "Short-term Investments (50/53)", key: "currentInvestments", indent: true, group: "bs_ca" },
+              { label: "Other Current Assets", key: "otherCurrentAssets", indent: true, group: "bs_ca" },
               { label: "Total Current Assets", key: "totalCurrentAssets", bold: true, topBorder: true },
               { label: "TOTAL ASSETS (20/58)", key: "totalAssets", bold: true, doubleBorder: true },
               // EQUITY & LIABILITIES
@@ -1634,9 +1853,9 @@ export default function CompanyDetailPage(props: {
               { label: "Long-term Debt (17)", key: "ltDebt", indent: true, section: "NON-CURRENT LIABILITIES" },
               { label: "of which: Financial Debt (170/4)", key: "ltFinDebt", subIndent: true },
               { label: "Total Non-Current Liabilities", key: "totalNonCurrentLiab", bold: true, topBorder: true },
-              { label: "Trade Payables (44)", key: "tradePayables", indent: true, section: "CURRENT LIABILITIES" },
-              { label: "Short-term Financial Debt (43)", key: "stFinDebt", indent: true },
-              { label: "Other Current Liabilities", key: "otherCurrentLiab", indent: true },
+              { label: "Trade Payables (44)", key: "tradePayables", indent: true, section: "CURRENT LIABILITIES", group: "bs_cl" },
+              { label: "Short-term Financial Debt (43)", key: "stFinDebt", indent: true, group: "bs_cl" },
+              { label: "Other Current Liabilities", key: "otherCurrentLiab", indent: true, group: "bs_cl" },
               { label: "Total Current Liabilities", key: "totalCurrentLiab", bold: true, topBorder: true },
               { label: "TOTAL EQUITY + LIABILITIES", key: "totalLE", bold: true, doubleBorder: true },
             ];
@@ -1668,10 +1887,18 @@ export default function CompanyDetailPage(props: {
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
                     Balance Sheet
                   </h3>
-                  <ExportButtons
-                    onExportCSV={exportBsCsv}
-                    onPrint={() => window.print()}
-                  />
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => toggleSection("bs_ca")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_ca ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                      {collapsedSections.bs_ca ? "▸ Current Assets grouped" : "▾ Current Assets expanded"}
+                    </button>
+                    <button onClick={() => toggleSection("bs_cl")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_cl ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                      {collapsedSections.bs_cl ? "▸ Current Liab. grouped" : "▾ Current Liab. expanded"}
+                    </button>
+                    <ExportButtons
+                      onExportCSV={exportBsCsv}
+                      onPrint={() => window.print()}
+                    />
+                  </div>
                 </div>
                 <div className="rounded-lg border overflow-x-auto bg-white">
                   <table className="w-full">
@@ -1683,6 +1910,8 @@ export default function CompanyDetailPage(props: {
                     </thead>
                     <tbody>
                       {lines.map((line) => {
+                        if (line.group && collapsedSections[line.group]) return null;
+
                         const showSection = line.section && line.section !== lastSection;
                         if (line.section) lastSection = line.section;
                         return (
@@ -2563,62 +2792,116 @@ export default function CompanyDetailPage(props: {
             <p className="py-8 text-center text-sm text-slate-500">
               {benchmark.error === "no_nace" ? "No NACE code assigned to this company." : "No financial data available for benchmarking."}
             </p>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-amber-500 pl-2">
-                  Sector Benchmarking — {benchmark.nace_label}
-                </h3>
-                <span className="text-[10px] text-slate-400">
-                  {benchmark.peer_count.toLocaleString()} peers · FY{benchmark.fiscal_year}
-                </span>
-              </div>
+          ) : (() => {
+            const fmtBenchVal = (v: number | null, format: string) => {
+              if (v == null) return "—";
+              if (format === "pct") return `${v.toFixed(1)}%`;
+              if (format === "num") return v.toLocaleString("en-GB", { maximumFractionDigits: 0 });
+              if (Math.abs(v) >= 1_000_000) return `€${(v / 1_000_000).toFixed(1)}M`;
+              if (Math.abs(v) >= 1_000) return `€${(v / 1_000).toFixed(0)}K`;
+              return `€${v.toFixed(0)}`;
+            };
 
-              <div className="space-y-2">
-                {benchmark.benchmarks.map((b) => {
-                  const pct = b.percentile ?? 0;
-                  const color = pct >= 75 ? "text-emerald-600" : pct >= 50 ? "text-indigo-600" : pct >= 25 ? "text-amber-600" : "text-rose-500";
-                  const barColor = pct >= 75 ? "bg-emerald-500" : pct >= 50 ? "bg-indigo-500" : pct >= 25 ? "bg-amber-500" : "bg-rose-400";
+            const getQuartileLabel = (pct: number) => {
+              if (pct >= 75) return { label: "Top quartile", color: "text-emerald-600 bg-emerald-50 border-emerald-200", dot: "bg-emerald-500" };
+              if (pct >= 50) return { label: "Above median", color: "text-indigo-600 bg-indigo-50 border-indigo-200", dot: "bg-indigo-500" };
+              if (pct >= 25) return { label: "Below median", color: "text-amber-600 bg-amber-50 border-amber-200", dot: "bg-amber-500" };
+              return { label: "Bottom quartile", color: "text-rose-500 bg-rose-50 border-rose-200", dot: "bg-rose-400" };
+            };
 
-                  const fmtVal = (v: number | null) => {
-                    if (v == null) return "\u2014";
-                    if (b.format === "pct") return `${v.toFixed(1)}%`;
-                    if (b.format === "num") return v.toLocaleString("en-GB", { maximumFractionDigits: 0 });
-                    if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-                    if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(0)}K`;
-                    return v.toFixed(0);
-                  };
+            // Score: average percentile across all metrics
+            const avgPercentile = benchmark.benchmarks.length > 0
+              ? benchmark.benchmarks.reduce((sum, b) => sum + (b.percentile ?? 0), 0) / benchmark.benchmarks.length
+              : 0;
+            const overallQuartile = getQuartileLabel(avgPercentile);
 
-                  return (
-                    <div key={b.metric} className="rounded-lg border bg-white p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold text-slate-700">{b.metric}</span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono text-slate-800">{fmtVal(b.value)}</span>
-                          <span className={`text-xs font-bold ${color}`}>P{pct.toFixed(0)}</span>
+            return (
+              <div className="space-y-5">
+                {/* Header card */}
+                <div className="rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <BarChart3 className="h-4 w-4 text-amber-500" />
+                        <h3 className="text-sm font-semibold text-slate-800">Sector Performance</h3>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        vs. <span className="font-medium text-slate-700">{benchmark.peer_count.toLocaleString()}</span> companies in{" "}
+                        <span className="font-medium text-slate-700">{benchmark.nace_label}</span>
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">NACE {benchmark.nace_code} · FY{benchmark.fiscal_year}</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-slate-800 font-mono">P{avgPercentile.toFixed(0)}</div>
+                      <span className={`inline-flex items-center gap-1.5 text-[10px] font-medium rounded-full border px-2 py-0.5 mt-1 ${overallQuartile.color}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${overallQuartile.dot}`} />
+                        {overallQuartile.label} overall
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Metric cards — 2-column grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {benchmark.benchmarks.map((b) => {
+                    const pct = b.percentile ?? 0;
+                    const q = getQuartileLabel(pct);
+                    const barColor = pct >= 75 ? "bg-emerald-500" : pct >= 50 ? "bg-indigo-500" : pct >= 25 ? "bg-amber-500" : "bg-rose-400";
+
+                    return (
+                      <div key={b.metric} className="rounded-xl border border-slate-100 bg-white p-4 hover:shadow-sm transition-shadow">
+                        {/* Metric header */}
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-xs font-semibold text-slate-700">{b.metric}</span>
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-semibold rounded-full border px-2 py-0.5 ${q.color}`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${q.dot}`} />
+                            P{pct.toFixed(0)}
+                          </span>
+                        </div>
+
+                        {/* Company value — prominent */}
+                        <div className="text-lg font-bold text-slate-900 font-mono mb-3">
+                          {fmtBenchVal(b.value, b.format)}
+                        </div>
+
+                        {/* Percentile bar */}
+                        <div className="relative h-2.5 bg-slate-100 rounded-full overflow-hidden mb-2">
+                          <div className={`absolute inset-y-0 left-0 rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
+                          {/* Quartile markers */}
+                          <div className="absolute top-0 bottom-0 left-1/4 w-px bg-slate-200" />
+                          <div className="absolute top-0 bottom-0 left-1/2 w-px bg-slate-300" />
+                          <div className="absolute top-0 bottom-0 left-3/4 w-px bg-slate-200" />
+                          {/* Company marker */}
+                          <div className="absolute top-[-3px] bottom-[-3px] w-0.5 bg-slate-800 rounded-full" style={{ left: `${pct}%` }} />
+                        </div>
+
+                        {/* Peer distribution */}
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div className="rounded-md bg-slate-50 py-1.5 px-1">
+                            <div className="text-[9px] text-slate-400 uppercase tracking-wider">P25</div>
+                            <div className="text-[11px] font-mono font-medium text-slate-600">{fmtBenchVal(b.p25, b.format)}</div>
+                          </div>
+                          <div className="rounded-md bg-slate-50 py-1.5 px-1">
+                            <div className="text-[9px] text-slate-400 uppercase tracking-wider">Median</div>
+                            <div className="text-[11px] font-mono font-medium text-slate-600">{fmtBenchVal(b.median, b.format)}</div>
+                          </div>
+                          <div className="rounded-md bg-slate-50 py-1.5 px-1">
+                            <div className="text-[9px] text-slate-400 uppercase tracking-wider">P75</div>
+                            <div className="text-[11px] font-mono font-medium text-slate-600">{fmtBenchVal(b.p75, b.format)}</div>
+                          </div>
                         </div>
                       </div>
-                      <div className="relative h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className={`absolute inset-y-0 left-0 rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
-                        <div className="absolute top-0 bottom-0 left-1/4 w-px bg-slate-300" />
-                        <div className="absolute top-0 bottom-0 left-1/2 w-px bg-slate-400" />
-                        <div className="absolute top-0 bottom-0 left-3/4 w-px bg-slate-300" />
-                      </div>
-                      <div className="flex justify-between mt-1.5 text-[9px] text-slate-400 font-mono">
-                        <span>P25: {fmtVal(b.p25)}</span>
-                        <span>Median: {fmtVal(b.median)}</span>
-                        <span>P75: {fmtVal(b.p75)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
 
-              <p className="text-[10px] text-slate-400 italic">
-                Percentile rank within NACE {benchmark.nace_code} ({benchmark.peer_count.toLocaleString()} companies with data). P75 = top 25% of sector.
-              </p>
-            </div>
-          )}
+                <p className="text-[10px] text-slate-400 italic flex items-center gap-1.5">
+                  <Shield className="h-3 w-3" />
+                  Percentile rankings within NACE {benchmark.nace_code}. P75 means outperforming 75% of peers. Overall score is the average percentile across all metrics.
+                </p>
+              </div>
+            );
+          })()}
         </TabsContent>
       </Tabs>
     </div>

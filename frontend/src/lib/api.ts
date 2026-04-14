@@ -417,6 +417,16 @@ export interface NbbLoadResult {
 export const loadCompanyNBB = (cbe: string) =>
   apiFetch<NbbLoadResult>(`/api/companies/${cbe}/load`, { method: "POST" });
 
+// ── Staatsblad Publications On-Demand ─────────────────────
+export interface StaatsbladLoadResult {
+  enterprise_number: string;
+  publications_found: number;
+  publications_stored: number;
+}
+
+export const loadPublications = (cbe: string) =>
+  apiFetch<StaatsbladLoadResult>(`/api/staatsblad/${cbe}/load`, { method: "POST" });
+
 // ── Feedback ───────────────────────────────────────────────
 export const submitFeedback = (
   type: "bug" | "suggestion",
