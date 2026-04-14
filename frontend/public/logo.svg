@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none">
+  <!-- Mountain peak shape -->
+  <path d="M20 4L36 32H4L20 4Z" fill="#4f46e5" opacity="0.9"/>
+  <path d="M20 4L28 20H12L20 4Z" fill="#6366f1"/>
+  <!-- Data dots on the peak -->
+  <circle cx="20" cy="12" r="2" fill="white"/>
+  <circle cx="16" cy="20" r="1.5" fill="white" opacity="0.7"/>
+  <circle cx="24" cy="20" r="1.5" fill="white" opacity="0.7"/>
+  <circle cx="14" cy="26" r="1.2" fill="white" opacity="0.5"/>
+  <circle cx="20" cy="26" r="1.2" fill="white" opacity="0.5"/>
+  <circle cx="26" cy="26" r="1.2" fill="white" opacity="0.5"/>
+</svg>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { createClient } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -93,8 +94,8 @@ export default function LoginPage() {
         <CardContent className="pt-6 pb-5 px-6">
           {/* Header */}
           <div className="text-center mb-5">
+            <Image src="/logo.svg" alt="Data Peak" width={40} height={40} className="mx-auto mb-3" />
             <h1 className="text-xl font-bold text-slate-900">
-              <Lock className="w-4 h-4 inline mr-1.5" />
               {titles[mode]}
             </h1>
             <p className="text-xs text-slate-500 mt-1">
