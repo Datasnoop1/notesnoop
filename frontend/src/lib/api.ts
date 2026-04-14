@@ -428,3 +428,17 @@ export const submitFeedback = (
     method: "POST",
     body: JSON.stringify({ type, description, page, user_email: userEmail }),
   });
+
+// ── Notifications ──────────────────────────────────────────
+export interface FavNotification {
+  enterprise_number: string;
+  name: string;
+  loaded_at: string;
+  fiscal_year: number;
+}
+
+export const getNotifications = () =>
+  apiFetch<{ notifications: FavNotification[]; count: number }>("/api/favourites/notifications");
+
+export const markNotificationsRead = () =>
+  apiFetch<{ status: string }>("/api/favourites/notifications/mark-read", { method: "POST" });

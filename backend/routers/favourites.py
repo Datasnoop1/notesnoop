@@ -267,3 +267,66 @@ async def delete_project(project_id: int, user=Depends(get_current_user)):
     except Exception as e:
         logger.exception("Delete project failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Notifications: new data for favourited companies ──────────────
+
+@router.get("/notifications")
+async def get_notifications(user=Depends(get_current_user)):
+    """Check for new financial data loaded for user's favourited companies since they last checked."""
+    try:
+        # Ensure the user has a last_checked timestamp
+        execute("""
+            CREATE TABLE IF NOT EXISTS favourite_last_checked (
+                user_id TEXT PRIMARY KEY,
+                checked_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        last = fetch_one(
+            "SELECT checked_at FROM favourite_last_checked WHERE user_id = %s",
+            (user["id"],),
+        )
+        since = last["checked_at"] if last else None
+
+        # Find favourited companies that got new NBB data since last check
+        if since:
+            rows = fetch_all("""
+                SELECT DISTINCT f.enterprise_number,
+                       COALESCE(ci.name, f.enterprise_number) AS name,
+                       nll.loaded_at,
+                       nll.fiscal_year
+                FROM favourite f
+                JOIN nbb_load_log nll ON nll.enterprise_number = f.enterprise_number
+                LEFT JOIN company_info ci ON ci.enterprise_number = f.enterprise_number
+                WHERE f.user_id = %s
+                  AND nll.loaded_at > %s
+                  AND nll.deposit_key != 'NO_FILINGS'
+                ORDER BY nll.loaded_at DESC
+                LIMIT 50
+            """, (user["id"], since))
+        else:
+            rows = []
+
+        for r in rows:
+            if r.get("loaded_at"):
+                r["loaded_at"] = str(r["loaded_at"])
+
+        return {"notifications": [_serialize_row(r) for r in rows], "count": len(rows)}
+    except Exception as e:
+        logger.exception("Notifications check failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/notifications/mark-read")
+async def mark_notifications_read(user=Depends(get_current_user)):
+    """Mark all notifications as read by updating the last_checked timestamp."""
+    try:
+        execute("""
+            INSERT INTO favourite_last_checked (user_id, checked_at)
+            VALUES (%s, NOW())
+            ON CONFLICT (user_id) DO UPDATE SET checked_at = NOW()
+        """, (user["id"],))
+        return {"status": "ok"}
+    except Exception as e:
+        logger.exception("Mark read failed")
+        raise HTTPException(status_code=500, detail=str(e))
