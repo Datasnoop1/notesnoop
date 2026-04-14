@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { Menu, LogOut, User, Bug, Lightbulb } from "lucide-react";
@@ -75,17 +74,12 @@ export default function Nav() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
           {/* Brand */}
-          <Link href="/" className="flex items-center gap-2">
-            <Image src="/logo.svg" alt="Data Peak" width={28} height={28} className="shrink-0" />
-            <div className="flex flex-col justify-center">
-              <span className="text-lg font-bold text-indigo-600 leading-tight">
-                Data Peak
-                <span className="ml-1.5 text-[9px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full uppercase tracking-wider align-top">Beta</span>
-              </span>
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 leading-tight">
-                Belgian Company Intelligence
-              </span>
-            </div>
+          <Link href="/" className="flex items-center gap-2.5">
+            <img src="/logo.svg" alt="Data Peak" width={24} height={24} className="shrink-0" />
+            <span className="text-[15px] font-semibold text-slate-900 tracking-tight">
+              Data Peak
+            </span>
+            <span className="text-[8px] font-semibold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded uppercase tracking-wider">Beta</span>
           </Link>
 
           {/* Desktop nav */}
@@ -148,8 +142,8 @@ export default function Nav() {
                 </span>
               </SheetTrigger>
               <SheetContent side="left" className="w-64">
-                <SheetTitle className="flex items-center gap-2 text-lg font-bold text-indigo-600">
-                  <Image src="/logo.svg" alt="Data Peak" width={24} height={24} />
+                <SheetTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
+                  <img src="/logo.svg" alt="Data Peak" width={20} height={20} />
                   Data Peak
                 </SheetTitle>
                 <nav className="mt-6 flex flex-col gap-1">
