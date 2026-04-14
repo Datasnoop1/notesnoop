@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import fetch_all, get_connection
+from db import fetch_all, get_conn
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/people", tags=["people"])
@@ -40,8 +40,7 @@ async def search_people(q: str = Query(..., min_length=1)):
     query = f"%{q.strip()}%"
 
     try:
-        conn = get_connection()
-        try:
+        with get_conn() as conn:
             import psycopg2.extras
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute("""
@@ -59,8 +58,7 @@ async def search_people(q: str = Query(..., min_length=1)):
             """, (query, query))
             rows = [dict(r) for r in cur.fetchall()]
             cur.close()
-        finally:
-            conn.close()
+            conn.commit()
 
         # Aggregate by name (union may produce duplicates for same name in both tables)
         agg = {}

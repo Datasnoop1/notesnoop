@@ -24,8 +24,7 @@ PRODUCT_NAME = "Data Peak Pro"
 
 
 class CheckoutRequest(BaseModel):
-    success_url: Optional[str] = None
-    cancel_url: Optional[str] = None
+    pass
 
 
 class DonationRequest(BaseModel):
@@ -51,8 +50,8 @@ async def create_checkout(body: CheckoutRequest, user=Depends(get_current_user))
                 "quantity": 1,
             }],
             mode="subscription",
-            success_url=body.success_url or "http://62.238.14.150/account?payment=success",
-            cancel_url=body.cancel_url or "http://62.238.14.150/account?payment=cancelled",
+            success_url="https://datapeak.invm.be/account?payment=success",
+            cancel_url="https://datapeak.invm.be/account?payment=cancelled",
             customer_email=user.get("email"),
             metadata={"user_id": user.get("id"), "email": user.get("email")},
         )
@@ -82,8 +81,8 @@ async def create_donation(body: DonationRequest, user=Depends(optional_user)):
                 "quantity": 1,
             }],
             mode="payment",
-            success_url="http://62.238.14.150/?donated=true",
-            cancel_url="http://62.238.14.150/",
+            success_url="https://datapeak.invm.be/?donated=true",
+            cancel_url="https://datapeak.invm.be/",
             customer_email=user.get("email") if user else None,
         )
         return {"checkout_url": session.url, "session_id": session.id}
@@ -98,15 +97,14 @@ async def stripe_webhook(request: Request):
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
 
-    if STRIPE_WEBHOOK_SECRET:
-        try:
-            event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
-        except Exception as e:
-            logger.warning("Webhook signature failed: %s", e)
-            raise HTTPException(status_code=400, detail="Invalid signature")
-    else:
-        import json
-        event = json.loads(payload)
+    if not STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook secret not configured")
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+    except Exception as e:
+        logger.warning("Webhook signature failed: %s", e)
+        raise HTTPException(status_code=400, detail="Invalid signature")
 
     event_type = event.get("type", "")
     data = event.get("data", {}).get("object", {})

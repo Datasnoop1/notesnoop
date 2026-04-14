@@ -6,9 +6,10 @@ from collections import deque
 from typing import Optional
 
 import requests as http_requests
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from db import fetch_all, fetch_one, get_connection
+from db import fetch_all, fetch_one, get_connection, put_connection, get_conn
+from auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/companies", tags=["companies"])
@@ -215,7 +216,7 @@ async def get_company_detail(cbe: str):
 # ---------------------------------------------------------------------------
 
 @router.post("/{cbe}/load")
-async def load_company_data(cbe: str):
+async def load_company_data(cbe: str, user=Depends(get_current_user)):
     """Load financial data from NBB for this company.
 
     1. Fetch filing references
@@ -604,8 +605,7 @@ def _fetch_connections(cbes: list) -> tuple:
     """
     if not cbes:
         return [], []
-    conn = get_connection()
-    try:
+    with get_conn() as conn:
         import psycopg2.extras
         ph = ",".join(["%s"] * len(cbes))
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -625,9 +625,8 @@ def _fetch_connections(cbes: list) -> tuple:
         shs = [dict(r) for r in cur.fetchall()]
 
         cur.close()
+        conn.commit()
         return subs, shs
-    finally:
-        conn.close()
 
 
 def _fetch_entity_names(cbes: list) -> dict:
@@ -637,8 +636,7 @@ def _fetch_entity_names(cbes: list) -> dict:
     """
     if not cbes:
         return {}
-    conn = get_connection()
-    try:
+    with get_conn() as conn:
         ph = ",".join(["%s"] * len(cbes))
         cur = conn.cursor()
         cur.execute(
@@ -649,9 +647,8 @@ def _fetch_entity_names(cbes: list) -> dict:
         )
         rows = cur.fetchall()
         cur.close()
+        conn.commit()
         return {r[0]: r[1] for r in rows}
-    finally:
-        conn.close()
 
 
 @router.get("/{cbe}/network")

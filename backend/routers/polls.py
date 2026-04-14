@@ -14,6 +14,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/polls", tags=["polls"])
 
 
+def _require_admin(user=Depends(get_current_user)):
+    """Dependency: require admin role."""
+    email = user.get("email", "")
+    role_row = fetch_one(
+        "SELECT role FROM user_roles WHERE email = %s",
+        (email,),
+    )
+    if not role_row or role_row["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 class PollCreate(BaseModel):
     title: str
     question: str
@@ -105,7 +117,7 @@ async def list_polls(user=Depends(get_current_user)):
 
 
 @router.post("")
-async def create_poll(body: PollCreate, user=Depends(get_current_user)):
+async def create_poll(body: PollCreate, user=Depends(_require_admin)):
     """Create a new poll. Automatically archives any currently active poll."""
     if len(body.options) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 options")
@@ -121,7 +133,7 @@ async def create_poll(body: PollCreate, user=Depends(get_current_user)):
 
 
 @router.post("/{poll_id}/archive")
-async def archive_poll(poll_id: int, user=Depends(get_current_user)):
+async def archive_poll(poll_id: int, user=Depends(_require_admin)):
     """Archive a poll (keeps all data, just hides from users)."""
     execute(
         "UPDATE poll SET status = 'archived', archived_at = NOW() WHERE id = %s",
@@ -131,7 +143,7 @@ async def archive_poll(poll_id: int, user=Depends(get_current_user)):
 
 
 @router.post("/{poll_id}/activate")
-async def activate_poll(poll_id: int, user=Depends(get_current_user)):
+async def activate_poll(poll_id: int, user=Depends(_require_admin)):
     """Re-activate an archived poll. Archives any currently active poll first."""
     execute("UPDATE poll SET status = 'archived', archived_at = NOW() WHERE status = 'active'")
     execute(
