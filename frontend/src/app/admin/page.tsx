@@ -963,28 +963,35 @@ export default function AdminPanel() {
                   <CardContent>
                     <p className="text-xs text-slate-500 mb-3">Companies with financial data per fiscal year — focus on 2024/2025 coverage.</p>
                     <div className="space-y-2">
-                      {finByYear.map((fy) => {
-                        const isFocus = fy.fiscal_year >= 2024;
-                        return (
-                          <div key={fy.fiscal_year} className={`flex items-center gap-3 ${isFocus ? "bg-indigo-50/50 rounded px-2 py-1 -mx-2" : ""}`}>
-                            <span className={`text-xs font-mono w-10 ${isFocus ? "font-bold text-indigo-700" : "text-slate-500"}`}>
-                              {fy.fiscal_year}
-                            </span>
-                            <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${isFocus ? "bg-indigo-500" : "bg-slate-300"}`}
-                                style={{ width: `${Math.min(100, (fy.companies / (finByYear[0]?.companies || 1)) * 100)}%` }}
-                              />
+                      {(() => {
+                        const maxCompanies = Math.max(...finByYear.map(f => f.companies));
+                        return finByYear.map((fy) => {
+                          const isFocus = fy.fiscal_year >= 2024;
+                          const pctOfMax = maxCompanies > 0 ? (fy.companies / maxCompanies) * 100 : 0;
+                          return (
+                            <div key={fy.fiscal_year} className={`flex items-center gap-3 ${isFocus ? "bg-indigo-50/50 rounded px-2 py-1.5 -mx-2" : ""}`}>
+                              <span className={`text-xs font-mono w-10 ${isFocus ? "font-bold text-indigo-700" : "text-slate-500"}`}>
+                                {fy.fiscal_year}
+                              </span>
+                              <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${isFocus ? "bg-indigo-500" : "bg-slate-300"}`}
+                                  style={{ width: `${Math.min(100, pctOfMax)}%` }}
+                                />
+                              </div>
+                              <span className={`text-xs font-mono w-12 text-right ${isFocus ? "font-bold text-indigo-700" : "text-slate-500"}`}>
+                                {pctOfMax.toFixed(0)}%
+                              </span>
+                              <span className={`text-xs font-mono w-20 text-right ${isFocus ? "font-bold text-indigo-700" : "text-slate-600"}`}>
+                                {fy.companies.toLocaleString()}
+                              </span>
+                              <span className="text-[10px] text-slate-400 w-16 text-right">
+                                {fy.filings.toLocaleString()}
+                              </span>
                             </div>
-                            <span className={`text-xs font-mono w-20 text-right ${isFocus ? "font-bold text-indigo-700" : "text-slate-600"}`}>
-                              {fy.companies.toLocaleString()}
-                            </span>
-                            <span className="text-[10px] text-slate-400 w-16 text-right">
-                              {fy.filings.toLocaleString()} filings
-                            </span>
-                          </div>
-                        );
-                      })}
+                          );
+                        });
+                      })()}
                     </div>
                   </CardContent>
                 </Card>
