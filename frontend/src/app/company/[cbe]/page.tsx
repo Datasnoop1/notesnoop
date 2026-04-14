@@ -37,23 +37,12 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronRight,
-  TrendingUp,
   Users,
   Network,
   GitBranch,
   FileText,
   Download,
   Shield,
-  Building2,
-  MapPin,
-  Factory,
-  Globe,
-  Calendar,
-  LayoutDashboard,
-  DollarSign,
-  Wallet,
-  ArrowDownUp,
-  Landmark,
   Scale,
 } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -393,50 +382,57 @@ export default function CompanyDetailPage(props: {
         <ArrowLeft className="h-3 w-3" /> Back to search
       </Link>
 
-      {/* ━━━ Company Header (clean light design) ━━━ */}
-      <div className="mb-5">
-        {/* Name row */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+      {/* ━━━ Company Header ━━━ */}
+      <div className="mb-8">
+        {/* Top row: name + actions */}
+        <div className="flex items-start justify-between gap-6">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold text-slate-900">
               {detail.name || fmtCbe(cbe)}
             </h1>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-slate-500">
-              <span className="font-mono text-slate-600">{fmtCbe(cbe)}</span>
-              {detail.status === "AC" ? (
-                <Badge className="bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50 text-[11px]">
-                  Active
-                </Badge>
-              ) : (
-                <Badge className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-50 text-[11px]">
-                  Ceased
-                </Badge>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-400">
+              <span className="font-mono text-xs text-slate-500">{fmtCbe(cbe)}</span>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${detail.status === "AC" ? "bg-emerald-500" : "bg-red-400"}`} />
+              <span className="text-xs">{detail.status === "AC" ? "Active" : "Ceased"}</span>
+              {detail.start_date && (
+                <span className="text-xs">Est. {detail.start_date.slice(0, 4)}</span>
+              )}
+            </div>
+            {/* Single subtle info line */}
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 text-xs text-slate-400">
+              {address && (
+                <span>{address}</span>
+              )}
+              {detail.nace_code && (
+                <span>
+                  NACE {detail.nace_code}{detail.nace_label && detail.nace_label !== detail.nace_code ? ` \u2014 ${detail.nace_label}` : ""}
+                </span>
               )}
               {detail.jf_label && (
-                <>
-                  <span className="text-slate-300">|</span>
-                  <span>{detail.jf_label}</span>
-                </>
+                <span>{detail.jf_label}</span>
               )}
-              {detail.start_date && (
-                <>
-                  <span className="text-slate-300">|</span>
-                  <Calendar className="h-3.5 w-3.5 inline -mt-0.5 text-slate-400" />
-                  <span>Founded {detail.start_date.slice(0, 4)}</span>
-                </>
+              {detail.website && (
+                <a
+                  href={detail.website.startsWith("http") ? detail.website : `https://${detail.website}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-indigo-500 hover:text-indigo-700 transition-colors"
+                >
+                  {detail.website.replace(/^https?:\/\//, "")}
+                </a>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 pt-1">
             <Button
-              variant="ghost"
-              size="icon"
+              variant="outline"
+              size="sm"
               onClick={toggleFavourite}
               title={isFavourite ? "Remove from favourites" : "Add to favourites"}
-              className="h-8 w-8 text-slate-400 hover:text-yellow-500 hover:bg-slate-100"
+              className="h-8 px-2.5 text-slate-400 hover:text-yellow-500 border-slate-200"
             >
               <Star
-                className={`h-4.5 w-4.5 ${
+                className={`h-3.5 w-3.5 ${
                   isFavourite
                     ? "fill-yellow-400 text-yellow-500"
                     : ""
@@ -454,47 +450,15 @@ export default function CompanyDetailPage(props: {
                 }
                 router.push("/compare");
               }}
-              className="text-xs"
+              className="h-8 text-xs text-slate-500 border-slate-200 hover:border-slate-300"
             >
-              <Scale className="w-3.5 h-3.5 mr-1" />
+              <Scale className="w-3 h-3 mr-1.5" />
               Compare
             </Button>
           </div>
         </div>
 
-        {/* Detail rows */}
-        <div className="mt-3 space-y-1">
-          {address && (
-            <div className="flex items-center gap-2 text-sm text-slate-600">
-              <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <span>{address}</span>
-            </div>
-          )}
-          {detail.nace_code && (
-            <div className="flex items-center gap-2 text-sm text-slate-600">
-              <Factory className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <span>
-                NACE {detail.nace_code}
-                {detail.nace_label && detail.nace_label !== detail.nace_code && ` \u2014 ${detail.nace_label}`}
-              </span>
-            </div>
-          )}
-          {detail.website && (
-            <div className="flex items-center gap-2 text-sm">
-              <Globe className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <a
-                href={detail.website.startsWith("http") ? detail.website : `https://${detail.website}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-indigo-600 hover:text-indigo-800 hover:underline"
-              >
-                {detail.website.replace(/^https?:\/\//, "")}
-              </a>
-            </div>
-          )}
-        </div>
-
-        {/* KPI summary bar */}
+        {/* KPI cards */}
         {(() => {
           const latest = financials?.summary?.length
             ? [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year)[0]
@@ -502,48 +466,34 @@ export default function CompanyDetailPage(props: {
           if (!latest) return null;
 
           const marginVal = latest.ebitda_margin_pct;
-          const marginColorClass =
+          const marginColor =
             marginVal == null
-              ? "text-slate-500"
-              : marginVal >= 10
+              ? "text-slate-900"
+              : marginVal >= 15
                 ? "text-emerald-600"
                 : marginVal >= 5
                   ? "text-amber-600"
                   : marginVal < 0
                     ? "text-red-600"
-                    : "text-slate-600";
+                    : "text-slate-900";
 
           return (
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-5 divide-x divide-slate-200 rounded-lg border border-slate-200 bg-white">
-              <div className="px-5 py-3 text-center">
-                <div className="text-lg font-bold text-slate-900 tracking-tight">
-                  {fmtEur(latest.revenue)}
-                </div>
-                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium mt-0.5">Revenue</div>
+            <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-xl border border-slate-100 bg-white px-5 py-4">
+                <div className="text-xs text-slate-400 mb-1">Revenue <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
+                <div className="text-lg font-semibold text-slate-900 font-mono tracking-tight">{fmtEur(latest.revenue)}</div>
               </div>
-              <div className="px-5 py-3 text-center">
-                <div className="text-lg font-bold text-slate-900 tracking-tight">
-                  {fmtEur(latest.ebitda)}
-                </div>
-                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium mt-0.5">EBITDA</div>
+              <div className="rounded-xl border border-slate-100 bg-white px-5 py-4">
+                <div className="text-xs text-slate-400 mb-1">EBITDA <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
+                <div className="text-lg font-semibold text-slate-900 font-mono tracking-tight">{fmtEur(latest.ebitda)}</div>
               </div>
-              <div className="px-5 py-3 text-center">
-                <div className={`text-lg font-bold tracking-tight ${marginColorClass}`}>
-                  {fmtPct(latest.ebitda_margin_pct)}
-                </div>
-                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium mt-0.5">Margin</div>
+              <div className="rounded-xl border border-slate-100 bg-white px-5 py-4">
+                <div className="text-xs text-slate-400 mb-1">Margin <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
+                <div className={`text-lg font-semibold font-mono tracking-tight ${marginColor}`}>{fmtPct(latest.ebitda_margin_pct)}</div>
               </div>
-              <div className="px-5 py-3 text-center">
-                <div className="text-lg font-bold text-slate-900 tracking-tight">
-                  {latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}
-                </div>
-                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium mt-0.5">FTE</div>
-              </div>
-              <div className="px-5 py-3 text-center col-span-2 sm:col-span-1">
-                <div className="text-lg font-bold text-indigo-600 tracking-tight">
-                  FY{latest.fiscal_year}
-                </div>
-                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium mt-0.5">Latest</div>
+              <div className="rounded-xl border border-slate-100 bg-white px-5 py-4">
+                <div className="text-xs text-slate-400 mb-1">FTE <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
+                <div className="text-lg font-semibold text-slate-900 font-mono tracking-tight">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</div>
               </div>
             </div>
           );
@@ -552,289 +502,316 @@ export default function CompanyDetailPage(props: {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList>
-          <TabsTrigger value="summary">
-            <LayoutDashboard className="w-4 h-4 mr-1.5" />
+        <TabsList variant="line" className="border-b border-slate-100 gap-0 overflow-x-auto">
+          <TabsTrigger value="summary" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Summary
           </TabsTrigger>
-          <TabsTrigger value="pnl">
-            <TrendingUp className="w-4 h-4 mr-1.5" />
+          <TabsTrigger value="pnl" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
             P&L
           </TabsTrigger>
-          <TabsTrigger value="cashflow">
-            <ArrowDownUp className="w-4 h-4 mr-1.5" />
+          <TabsTrigger value="cashflow" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Cash Flow
           </TabsTrigger>
-          <TabsTrigger value="balancesheet">
-            <Landmark className="w-4 h-4 mr-1.5" />
+          <TabsTrigger value="balancesheet" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Balance Sheet
           </TabsTrigger>
-          <TabsTrigger value="credit">
-            <Shield className="w-4 h-4 mr-1.5" />
+          <TabsTrigger value="credit" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Credit
           </TabsTrigger>
-          <TabsTrigger value="administrators">
-            <Users className="w-4 h-4 mr-1.5" />
+          <TabsTrigger value="administrators" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Administrators
           </TabsTrigger>
-          <TabsTrigger value="structure">
-            <Network className="w-4 h-4 mr-1.5" />
+          <TabsTrigger value="structure" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Structure
           </TabsTrigger>
-          <TabsTrigger value="network">
-            <GitBranch className="w-4 h-4 mr-1.5" />
+          <TabsTrigger value="network" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Network
           </TabsTrigger>
-          <TabsTrigger value="publications">
-            <FileText className="w-4 h-4 mr-1.5" />
+          <TabsTrigger value="publications" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Publications
           </TabsTrigger>
         </TabsList>
 
         {/* ===== Summary tab ===== */}
-        <TabsContent value="summary" className="mt-3">
+        <TabsContent value="summary" className="mt-6">
           {(() => {
-            const latest = financials?.summary?.length
-              ? [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year)[0]
-              : null;
+            const sorted = [...(financials?.summary ?? [])].sort((a, b) => b.fiscal_year - a.fiscal_year);
+            const latest = sorted[0] ?? null;
+            const prev = sorted[1] ?? null;
 
             const currentAdmins = (structure?.administrators || []).filter(
               (a) => !a.mandate_end || a.mandate_end === "" || new Date(a.mandate_end) > new Date()
             );
 
-            const hasFinancials = !!latest;
-            const hasCredit = hasFinancials;
-            const hasAdmins = currentAdmins.length > 0;
-            const hasShareholders = (structure?.shareholders?.length ?? 0) > 0;
-            const hasSubsidiaries = (structure?.participating_interests?.length ?? 0) > 0;
-            const hasStructure = hasShareholders || hasSubsidiaries;
-            const hasPubs = (structure?.staatsblad_publications?.length ?? 0) > 0;
+            // YoY change helper
+            function yoyChange(curr: number | null, previous: number | null): { pct: number; direction: "up" | "down" | "flat" } | null {
+              if (curr == null || previous == null || previous === 0) return null;
+              const pct = ((curr - previous) / Math.abs(previous)) * 100;
+              return { pct, direction: pct > 0.5 ? "up" : pct < -0.5 ? "down" : "flat" };
+            }
 
-            // Credit ratios for summary
+            function changeArrow(change: { pct: number; direction: "up" | "down" | "flat" } | null, goodIfUp = true) {
+              if (!change) return null;
+              const isGood = (change.direction === "up" && goodIfUp) || (change.direction === "down" && !goodIfUp);
+              const color = change.direction === "flat" ? "text-slate-400" : isGood ? "text-emerald-500" : "text-red-500";
+              const arrow = change.direction === "up" ? "\u2191" : change.direction === "down" ? "\u2193" : "\u2192";
+              return (
+                <span className={`text-xs font-medium ${color}`}>
+                  {arrow} {Math.abs(change.pct).toFixed(1)}%
+                </span>
+              );
+            }
+
+            // Credit ratios
             let netDebtEbitda: number | null = null;
-            let interestCoverage: number | null = null;
-            let roe: number | null = null;
             if (latest) {
               const grossDebt = (latest.lt_financial_debt ?? 0) + (latest.st_financial_debt ?? 0);
               const netDebt = grossDebt - (latest.cash ?? 0) - (latest.current_investments ?? 0);
               netDebtEbitda = latest.ebitda && latest.ebitda !== 0 ? netDebt / latest.ebitda : null;
-              interestCoverage = latest.financial_charges && latest.financial_charges !== 0 ? (latest.ebit ?? 0) / Math.abs(latest.financial_charges) : null;
-              roe = latest.equity && latest.equity !== 0 ? ((latest.net_profit ?? 0) / latest.equity) * 100 : null;
             }
 
-            function dotColor(available: boolean) {
-              return available ? "bg-emerald-500" : "bg-slate-300";
+            // Margin color
+            function marginColorClass(v: number | null): string {
+              if (v == null) return "text-slate-900";
+              if (v >= 15) return "text-emerald-600";
+              if (v >= 5) return "text-amber-600";
+              if (v < 0) return "text-red-600";
+              return "text-slate-900";
             }
 
-            function fmtRatioSummary(v: number | null, suffix = "x"): string {
-              if (v == null || !isFinite(v)) return "\u2014";
-              return `${v.toFixed(1)}${suffix}`;
+            // Health pill color
+            function pillColor(type: "leverage" | "margin" | "growth", value: number | null): string {
+              if (value == null) return "bg-slate-50 text-slate-400 border-slate-100";
+              if (type === "leverage") {
+                if (value < 3) return "bg-emerald-50 text-emerald-700 border-emerald-100";
+                if (value <= 5) return "bg-amber-50 text-amber-700 border-amber-100";
+                return "bg-red-50 text-red-700 border-red-100";
+              }
+              if (type === "margin") {
+                if (value >= 15) return "bg-emerald-50 text-emerald-700 border-emerald-100";
+                if (value >= 5) return "bg-amber-50 text-amber-700 border-amber-100";
+                return "bg-red-50 text-red-700 border-red-100";
+              }
+              // growth
+              if (value > 2) return "bg-emerald-50 text-emerald-700 border-emerald-100";
+              if (value >= -2) return "bg-slate-50 text-slate-500 border-slate-100";
+              return "bg-red-50 text-red-700 border-red-100";
             }
+
+            const revenueYoy = yoyChange(latest?.revenue ?? null, prev?.revenue ?? null);
+            const ebitdaYoy = yoyChange(latest?.ebitda ?? null, prev?.ebitda ?? null);
+            const fteYoy = yoyChange(latest?.fte_total ?? null, prev?.fte_total ?? null);
+
+            // Sparkline data (last 5 years)
+            const sparkData = sorted.slice(0, 5).reverse().map((r) => ({
+              fy: String(r.fiscal_year),
+              Revenue: r.revenue,
+              EBITDA: r.ebitda,
+            }));
 
             return (
-              <div className="space-y-3">
-                {/* Financial Health */}
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className={`inline-block h-2 w-2 rounded-full ${dotColor(hasFinancials)}`} />
-                      <DollarSign className="h-4 w-4 text-indigo-500" />
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">Financial Health</h3>
-                      {latest && <span className="text-[10px] text-slate-400 ml-auto">FY{latest.fiscal_year}</span>}
+              <div className="space-y-8">
+                {/* 1. Key Financials - 4 metric cards */}
+                {latest && (
+                  <div>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div className="rounded-xl border border-slate-100 bg-white p-5">
+                        <div className="text-xs text-slate-400 mb-2">Revenue</div>
+                        <div className="text-xl font-semibold text-slate-900 font-mono tracking-tight">{fmtEur(latest.revenue)}</div>
+                        {changeArrow(revenueYoy) && (
+                          <div className="mt-1.5">{changeArrow(revenueYoy)}</div>
+                        )}
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-white p-5">
+                        <div className="text-xs text-slate-400 mb-2">EBITDA</div>
+                        <div className="text-xl font-semibold text-slate-900 font-mono tracking-tight">{fmtEur(latest.ebitda)}</div>
+                        {changeArrow(ebitdaYoy) && (
+                          <div className="mt-1.5">{changeArrow(ebitdaYoy)}</div>
+                        )}
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-white p-5">
+                        <div className="text-xs text-slate-400 mb-2">Margin</div>
+                        <div className={`text-xl font-semibold font-mono tracking-tight ${marginColorClass(latest.ebitda_margin_pct)}`}>{fmtPct(latest.ebitda_margin_pct)}</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-100 bg-white p-5">
+                        <div className="text-xs text-slate-400 mb-2">FTE</div>
+                        <div className="text-xl font-semibold text-slate-900 font-mono tracking-tight">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</div>
+                        {changeArrow(fteYoy) && (
+                          <div className="mt-1.5">{changeArrow(fteYoy)}</div>
+                        )}
+                      </div>
                     </div>
-                    {hasFinancials && latest ? (
-                      <>
-                        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-700">
-                          <span>Revenue: <span className="font-semibold">{fmtEur(latest.revenue)}</span></span>
-                          <span>EBITDA: <span className="font-semibold">{fmtEur(latest.ebitda)}</span></span>
-                          <span>Margin: <span className="font-semibold">{fmtPct(latest.ebitda_margin_pct)}</span></span>
-                          <span>Net Profit: <span className="font-semibold">{fmtEur(latest.net_profit)}</span></span>
-                          <span>FTE: <span className="font-semibold">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</span></span>
-                        </div>
-                        <div className="mt-3 flex gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab("pnl")}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
-                          >
-                            View P&L <ChevronRight className="h-3 w-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab("balancesheet")}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
-                          >
-                            View Balance Sheet <ChevronRight className="h-3 w-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab("cashflow")}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
-                          >
-                            View Cash Flow <ChevronRight className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-sm text-slate-400">No financial data available.</p>
-                    )}
-                  </CardContent>
-                </Card>
+                  </div>
+                )}
 
-                {/* Credit Quality */}
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className={`inline-block h-2 w-2 rounded-full ${dotColor(hasCredit)}`} />
-                      <Shield className="h-4 w-4 text-purple-500" />
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">Credit Quality</h3>
+                {/* 2. Mini Chart - sparkline */}
+                {sparkData.length >= 2 && (
+                  <div className="rounded-xl border border-slate-100 bg-white p-5">
+                    <div className="flex items-baseline justify-between mb-3">
+                      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Revenue & EBITDA trend</h3>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab("pnl")}
+                        className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors"
+                      >
+                        Full P&L
+                      </button>
                     </div>
-                    {hasCredit && latest ? (
-                      <>
-                        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-700">
-                          <span>Net Debt/EBITDA: <span className="font-semibold">{fmtRatioSummary(netDebtEbitda)}</span></span>
-                          <span>Interest Coverage: <span className="font-semibold">{fmtRatioSummary(interestCoverage)}</span></span>
-                          <span>ROE: <span className="font-semibold">{fmtRatioSummary(roe, "%")}</span></span>
-                        </div>
-                        <div className="mt-3">
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab("credit")}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
-                          >
-                            View Credit Analysis <ChevronRight className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-sm text-slate-400">No credit data available.</p>
-                    )}
-                  </CardContent>
-                </Card>
+                    <ResponsiveContainer width="100%" height={150}>
+                      <LineChart data={sparkData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                        <XAxis
+                          dataKey="fy"
+                          tick={{ fontSize: 10, fill: "#94a3b8" }}
+                          axisLine={false}
+                          tickLine={false}
+                        />
+                        <YAxis hide />
+                        <Tooltip content={<ChartTooltip />} />
+                        <Line
+                          type="monotone"
+                          dataKey="Revenue"
+                          stroke="#6366f1"
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="EBITDA"
+                          stroke="#06b6d4"
+                          strokeWidth={2}
+                          dot={false}
+                          strokeDasharray="4 2"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                    <div className="flex items-center gap-4 mt-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-block h-0.5 w-4 rounded bg-indigo-500" />
+                        <span className="text-[10px] text-slate-400">Revenue</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="inline-block h-0.5 w-4 rounded bg-cyan-500 opacity-60" style={{ backgroundImage: "repeating-linear-gradient(90deg, rgb(6 182 212) 0 3px, transparent 3px 5px)" }} />
+                        <span className="text-[10px] text-slate-400">EBITDA</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
-                {/* Management */}
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className={`inline-block h-2 w-2 rounded-full ${dotColor(hasAdmins)}`} />
-                      <Users className="h-4 w-4 text-blue-500" />
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                        Management {hasAdmins && `(${currentAdmins.length} current administrator${currentAdmins.length !== 1 ? "s" : ""})`}
-                      </h3>
-                    </div>
-                    {hasAdmins ? (
-                      <>
-                        <div className="space-y-1">
-                          {currentAdmins.slice(0, 3).map((admin, i) => (
-                            <div key={i} className="text-sm text-slate-700">
-                              <span className="font-semibold">{admin.name}</span>
-                              <span className="text-slate-400"> -- {admin.role_label}</span>
-                            </div>
-                          ))}
-                          {currentAdmins.length > 3 && (
-                            <p className="text-xs text-slate-400">+{currentAdmins.length - 3} more</p>
-                          )}
+                {/* 3. Quick Facts - two-column grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Company Info</h3>
+                    <dl className="space-y-2">
+                      {detail.jf_label && (
+                        <div className="flex justify-between">
+                          <dt className="text-xs text-slate-400">Legal form</dt>
+                          <dd className="text-sm text-slate-700">{detail.jf_label}</dd>
                         </div>
-                        <div className="mt-3">
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab("administrators")}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
-                          >
-                            View all Administrators <ChevronRight className="h-3 w-3" />
-                          </button>
+                      )}
+                      {detail.start_date && (
+                        <div className="flex justify-between">
+                          <dt className="text-xs text-slate-400">Founded</dt>
+                          <dd className="text-sm text-slate-700 font-mono">{detail.start_date}</dd>
                         </div>
-                      </>
-                    ) : (
-                      <p className="text-sm text-slate-400">No administrator data available.</p>
-                    )}
-                  </CardContent>
-                </Card>
+                      )}
+                      {detail.nace_code && (
+                        <div className="flex justify-between">
+                          <dt className="text-xs text-slate-400">NACE</dt>
+                          <dd className="text-sm text-slate-700">{detail.nace_code}{detail.nace_label && detail.nace_label !== detail.nace_code ? ` \u2014 ${detail.nace_label}` : ""}</dd>
+                        </div>
+                      )}
+                      {address && (
+                        <div className="flex justify-between">
+                          <dt className="text-xs text-slate-400">Address</dt>
+                          <dd className="text-sm text-slate-700 text-right">{address}</dd>
+                        </div>
+                      )}
+                    </dl>
+                  </div>
+                  <div className="space-y-3">
+                    <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Data Coverage</h3>
+                    <dl className="space-y-2">
+                      {latest && (
+                        <div className="flex justify-between">
+                          <dt className="text-xs text-slate-400">Latest filing</dt>
+                          <dd className="text-sm text-slate-700 font-mono">FY{latest.fiscal_year}</dd>
+                        </div>
+                      )}
+                      {latest?.filing_model && (
+                        <div className="flex justify-between">
+                          <dt className="text-xs text-slate-400">Filing model</dt>
+                          <dd className="text-sm text-slate-700">{latest.filing_model}</dd>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <dt className="text-xs text-slate-400">Administrators</dt>
+                        <dd className="text-sm text-slate-700 font-mono">{currentAdmins.length} current</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-xs text-slate-400">Shareholders</dt>
+                        <dd className="text-sm text-slate-700 font-mono">{structure?.shareholders?.length ?? 0}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                </div>
 
-                {/* Corporate Structure */}
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className={`inline-block h-2 w-2 rounded-full ${dotColor(hasStructure)}`} />
-                      <Network className="h-4 w-4 text-orange-500" />
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">Corporate Structure</h3>
+                {/* 4. Health Indicators - colored pills */}
+                {latest && (
+                  <div>
+                    <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Health Indicators</h3>
+                    <div className="flex flex-wrap gap-2">
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${pillColor("leverage", netDebtEbitda)}`}>
+                        Leverage: {netDebtEbitda != null && isFinite(netDebtEbitda) ? `${netDebtEbitda.toFixed(1)}x` : "\u2014"}
+                      </span>
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${pillColor("margin", latest.ebitda_margin_pct)}`}>
+                        Profitability: {latest.ebitda_margin_pct != null ? `${latest.ebitda_margin_pct.toFixed(1)}%` : "\u2014"}
+                      </span>
+                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${pillColor("growth", revenueYoy?.pct ?? null)}`}>
+                        Growth: {revenueYoy ? `${revenueYoy.pct > 0 ? "+" : ""}${revenueYoy.pct.toFixed(1)}%` : "\u2014"}
+                      </span>
                     </div>
-                    {hasStructure ? (
-                      <>
-                        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-700">
-                          {hasShareholders && (
-                            <span>{structure!.shareholders.length} shareholder{structure!.shareholders.length !== 1 ? "s" : ""}</span>
-                          )}
-                          {hasSubsidiaries && (
-                            <span>{structure!.participating_interests.length} subsidiar{structure!.participating_interests.length !== 1 ? "ies" : "y"}</span>
-                          )}
-                        </div>
-                        <div className="mt-3 flex gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab("structure")}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
-                          >
-                            View Structure <ChevronRight className="h-3 w-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab("network")}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
-                          >
-                            View Network <ChevronRight className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-sm text-slate-400">No structure data available.</p>
-                    )}
-                  </CardContent>
-                </Card>
+                  </div>
+                )}
 
-                {/* Publications */}
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className={`inline-block h-2 w-2 rounded-full ${dotColor(hasPubs)}`} />
-                      <FileText className="h-4 w-4 text-slate-500" />
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                        Publications {hasPubs && `(${structure!.staatsblad_publications.length} staatsblad entr${structure!.staatsblad_publications.length !== 1 ? "ies" : "y"})`}
-                      </h3>
-                    </div>
-                    {hasPubs ? (
-                      <>
-                        {(() => {
-                          const latestPub = structure!.staatsblad_publications[0];
-                          const typeInfo = latestPub.pub_type
-                            ? PUB_TYPE_MAP[latestPub.pub_type.toUpperCase()] ??
-                              Object.entries(PUB_TYPE_MAP).find(([key]) =>
-                                latestPub.pub_type!.toUpperCase().includes(key)
-                              )?.[1] ??
-                              null
-                            : null;
-                          return (
-                            <p className="text-sm text-slate-700">
-                              Latest: <span className="font-semibold">{latestPub.pub_date}</span>
-                              {typeInfo && <span className="text-slate-400"> -- {typeInfo.summary}</span>}
-                            </p>
-                          );
-                        })()}
-                        <div className="mt-3">
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab("publications")}
-                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
-                          >
-                            View all Publications <ChevronRight className="h-3 w-3" />
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-sm text-slate-400">No publications available.</p>
-                    )}
-                  </CardContent>
-                </Card>
+                {/* Quick navigation links */}
+                <div className="flex flex-wrap gap-3 pt-2">
+                  {sorted.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("pnl")}
+                      className="text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
+                    >
+                      P&L details <ChevronRight className="h-3 w-3" />
+                    </button>
+                  )}
+                  {sorted.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("credit")}
+                      className="text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
+                    >
+                      Credit analysis <ChevronRight className="h-3 w-3" />
+                    </button>
+                  )}
+                  {currentAdmins.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("administrators")}
+                      className="text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
+                    >
+                      {currentAdmins.length} administrator{currentAdmins.length !== 1 ? "s" : ""} <ChevronRight className="h-3 w-3" />
+                    </button>
+                  )}
+                  {(structure?.shareholders?.length ?? 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("structure")}
+                      className="text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
+                    >
+                      Structure <ChevronRight className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })()}
