@@ -5,4 +5,6 @@
   <path d="M20 14L27 28H13L20 14Z" fill="#334155"/>
   <!-- Chart line ascending the peak -->
   <path d="M10 28L16 22L22 24L28 14" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Beta badge -->
+  <text x="32" y="8" font-family="system-ui, sans-serif" font-size="5" font-weight="700" fill="#6366f1" letter-spacing="0.5">BETA</text>
 </svg>

@@ -142,18 +142,26 @@ export interface CompanyDetail {
 export interface FinancialYear {
   fiscal_year: number;
   revenue: number | null;
+  gross_margin: number | null;
   ebit: number | null;
+  da: number | null;
   ebitda: number | null;
   ebitda_margin_pct: number | null;
   net_profit: number | null;
   equity: number | null;
-  total_assets: number | null;
-  fte_total: number | null;
-  personnel_costs: number | null;
-  da: number | null;
+  lt_debt: number | null;
   lt_financial_debt: number | null;
   st_financial_debt: number | null;
   cash: number | null;
+  total_assets: number | null;
+  fixed_assets: number | null;
+  inventories: number | null;
+  trade_receivables: number | null;
+  trade_payables: number | null;
+  financial_charges: number | null;
+  current_investments: number | null;
+  fte_total: number | null;
+  personnel_costs: number | null;
 }
 
 export interface CompanyFinancials {
@@ -396,6 +404,18 @@ export const deleteFavouriteProject = (projectId: number) =>
   apiFetch<{ status: string }>(`/api/favourites/projects/${projectId}`, {
     method: "DELETE",
   });
+
+// ── NBB Load ──────────────────────────────────────────────
+export interface NbbLoadResult {
+  enterprise_number: string;
+  filings_found: number;
+  filings_loaded: number;
+  rubrics_loaded: number;
+  status?: string;
+}
+
+export const loadCompanyNBB = (cbe: string) =>
+  apiFetch<NbbLoadResult>(`/api/companies/${cbe}/load`, { method: "POST" });
 
 // ── Feedback ───────────────────────────────────────────────
 export const submitFeedback = (

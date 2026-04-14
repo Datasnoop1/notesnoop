@@ -29,6 +29,7 @@ import {
   getCompanyStructure,
   addFavourite,
   removeFavourite,
+  loadCompanyNBB,
 } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
 import { useRouter } from "next/navigation";
@@ -299,11 +300,11 @@ function renderDelta(current: number | null, previous: number | null): React.Rea
   const abs = current - previous;
   const pct = (abs / Math.abs(previous)) * 100;
   const sign = abs >= 0 ? "+" : "";
-  const color = abs >= 0 ? "text-emerald-400" : "text-rose-400";
+  const color = abs >= 0 ? "text-emerald-300/80" : "text-rose-300/80";
   return (
-    <div className={`text-[8px] ${color} leading-tight`}>
-      <div>{sign}{fmtEur(abs)}</div>
-      <div>{sign}{pct.toFixed(1)}%</div>
+    <div className={`${color} leading-snug`}>
+      <div className="text-[9px] font-mono">{sign}{fmtEur(abs)}</div>
+      <div className="text-[8px]">{sign}{pct.toFixed(1)}%</div>
     </div>
   );
 }
@@ -388,8 +389,7 @@ export default function CompanyDetailPage(props: {
         if (fin && fin.summary && fin.summary.length === 0 && !nbbAutoTriggered.current) {
           nbbAutoTriggered.current = true;
           setNbbLoading(true);
-          fetch(`/api/companies/${cbe}/load`, { method: "POST" })
-            .then(r => r.json())
+          loadCompanyNBB(cbe)
             .then(data => {
               if (data.rubrics_loaded > 0) {
                 // Refetch financials
@@ -1154,9 +1154,7 @@ export default function CompanyDetailPage(props: {
                       setNbbLoading(true);
                       setNbbResult(null);
                       try {
-                        const res = await fetch(`/api/companies/${cbe}/load`, { method: "POST" });
-                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                        const data = await res.json();
+                        const data = await loadCompanyNBB(cbe);
                         if (data.rubrics_loaded > 0) {
                           setNbbResult("success");
                           getCompanyFinancials(cbe).then(f => setFinancials(f as unknown as FinancialsData));
