@@ -188,7 +188,8 @@ async def get_company_detail(cbe: str):
                    COALESCE(ci.city, a.municipality_nl) AS "city",
                    a.zipcode, a.street_nl AS "street", a.house_number,
                    ci.nace_code,
-                   COALESCE(nl.description, ci.nace_code) AS "nace_label"
+                   COALESCE(nl.description, ci.nace_code) AS "nace_label",
+                   (SELECT value FROM contact WHERE entity_number = e.enterprise_number AND contact_type = 'WEB' LIMIT 1) AS "website"
             FROM enterprise e
             LEFT JOIN company_info ci ON ci.enterprise_number = e.enterprise_number
             LEFT JOIN denomination d ON d.entity_number = e.enterprise_number

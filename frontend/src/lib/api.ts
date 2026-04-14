@@ -136,6 +136,7 @@ export interface CompanyDetail {
   house_number: string | null;
   nace_code: string | null;
   nace_label: string | null;
+  website: string | null;
 }
 
 export interface FinancialYear {

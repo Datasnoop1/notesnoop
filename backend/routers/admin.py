@@ -93,13 +93,16 @@ async def admin_stats(user=Depends(_require_admin)):
                     JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
                     JOIN (SELECT DISTINCT enterprise_number FROM administrator) a ON a.enterprise_number = ci.enterprise_number
                     JOIN (SELECT DISTINCT enterprise_number FROM staatsblad_publication WHERE reference != 'NO_DATA') sp ON sp.enterprise_number = ci.enterprise_number
-                ) complete) AS fully_loaded_companies
+                ) complete) AS fully_loaded_companies,
+
+                -- Conservative target: all active legal-person enterprises
+                (SELECT COUNT(*) FROM enterprise WHERE type_of_enterprise = '1' AND status = 'AC') AS target_universe
         """)
         # Add target totals for progress bars
         stats["target_enterprises"] = 1941155
         stats["target_financial_rows"] = 61714163
         stats["target_activity_rows"] = 34874572
-        stats["target_companies"] = 170000  # ~170K companies in company_info
+        stats["target_companies"] = stats.get("target_universe") or 170000  # active legal-person enterprises
         return stats
     except Exception as e:
         logger.exception("Admin stats failed")

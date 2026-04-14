@@ -42,6 +42,11 @@ import {
   FileText,
   Download,
   Shield,
+  Building2,
+  MapPin,
+  Factory,
+  Globe,
+  Calendar,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -75,6 +80,7 @@ interface CompanyDetail {
   house_number: string | null;
   nace_code: string | null;
   nace_label: string | null;
+  website: string | null;
 }
 
 interface FinancialRow {
@@ -378,75 +384,149 @@ export default function CompanyDetailPage(props: {
         <ArrowLeft className="h-3 w-3" /> Back to search
       </Link>
 
-      {/* Company header */}
-      <div className="mb-4 border-b pb-3">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+      {/* ━━━ Company Header (health-dashboard inspired) ━━━ */}
+      <div className="mb-5 rounded-xl overflow-hidden shadow-lg border border-slate-200">
+        {/* Dark header band */}
+        <div className="bg-slate-900 px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold text-slate-900">
+              <Building2 className="h-7 w-7 text-indigo-400 shrink-0" />
+              <h1 className="text-2xl font-bold text-white tracking-tight">
                 {detail.name || fmtCbe(cbe)}
               </h1>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleFavourite}
+                title={isFavourite ? "Remove from favourites" : "Add to favourites"}
+                className="hover:bg-white/10"
+              >
+                <Star
+                  className={`h-5 w-5 ${
+                    isFavourite
+                      ? "fill-yellow-400 text-yellow-500"
+                      : "text-slate-400"
+                  }`}
+                />
+              </Button>
               {detail.status === "AC" ? (
-                <Badge
-                  variant="secondary"
-                  className="bg-green-50 text-green-700 border-green-200"
-                >
+                <Badge className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20">
                   Active
                 </Badge>
               ) : (
-                <Badge
-                  variant="secondary"
-                  className="bg-red-50 text-red-700 border-red-200"
-                >
+                <Badge className="bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/20">
                   Ceased
                 </Badge>
               )}
             </div>
-            <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-600">
-              <span>
-                <span className="font-medium text-slate-500">CBE</span>{" "}
-                {fmtCbe(cbe)}
-              </span>
-              {detail.jf_label && (
-                <span>
-                  <span className="font-medium text-slate-500">Legal form</span>{" "}
-                  {detail.jf_label}
-                </span>
-              )}
-              {detail.start_date && (
-                <span>
-                  <span className="font-medium text-slate-500">Founded</span>{" "}
-                  {detail.start_date}
-                </span>
-              )}
-            </div>
-            {address && (
-              <p className="mt-1 text-sm text-slate-500">{address}</p>
+          </div>
+          {/* Info pills */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-400">
+            <span className="font-mono text-slate-300">{fmtCbe(cbe)}</span>
+            {detail.jf_label && (
+              <>
+                <span className="text-slate-600">·</span>
+                <span>{detail.jf_label}</span>
+              </>
             )}
-            {detail.nace_code && (
-              <p className="mt-1 text-sm text-slate-500">
-                <span className="font-medium">NACE</span> {detail.nace_code}
-                {detail.nace_label &&
-                  detail.nace_label !== detail.nace_code &&
-                  ` - ${detail.nace_label}`}
-              </p>
+            {detail.start_date && (
+              <>
+                <span className="text-slate-600">·</span>
+                <Calendar className="h-3.5 w-3.5 inline -mt-0.5" />
+                <span>Founded {detail.start_date.slice(0, 4)}</span>
+              </>
             )}
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleFavourite}
-            title={isFavourite ? "Remove from favourites" : "Add to favourites"}
-          >
-            <Star
-              className={`h-5 w-5 ${
-                isFavourite
-                  ? "fill-yellow-400 text-yellow-500"
-                  : "text-slate-300"
-              }`}
-            />
-          </Button>
         </div>
+
+        {/* Detail rows */}
+        <div className="bg-slate-50 px-6 py-3 space-y-1 border-b border-slate-200">
+          {address && (
+            <div className="flex items-center gap-2 text-sm text-slate-600">
+              <MapPin className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+              <span>{address}</span>
+            </div>
+          )}
+          {detail.nace_code && (
+            <div className="flex items-center gap-2 text-sm text-slate-600">
+              <Factory className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+              <span>
+                NACE {detail.nace_code}
+                {detail.nace_label && detail.nace_label !== detail.nace_code && ` \u2014 ${detail.nace_label}`}
+              </span>
+            </div>
+          )}
+          {detail.website && (
+            <div className="flex items-center gap-2 text-sm">
+              <Globe className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+              <a
+                href={detail.website.startsWith("http") ? detail.website : `https://${detail.website}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-indigo-600 hover:text-indigo-800 hover:underline"
+              >
+                {detail.website.replace(/^https?:\/\//, "")}
+              </a>
+            </div>
+          )}
+        </div>
+
+        {/* KPI summary bar */}
+        {(() => {
+          const latest = financials?.summary?.length
+            ? [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year)[0]
+            : null;
+          if (!latest) return null;
+
+          const marginVal = latest.ebitda_margin_pct;
+          const marginColorClass =
+            marginVal == null
+              ? "text-slate-500"
+              : marginVal >= 10
+                ? "text-emerald-600"
+                : marginVal >= 5
+                  ? "text-amber-600"
+                  : marginVal < 0
+                    ? "text-red-600"
+                    : "text-slate-600";
+
+          return (
+            <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-slate-200 bg-white">
+              <div className="px-5 py-3 text-center">
+                <div className="text-lg font-bold text-slate-900 tracking-tight">
+                  {fmtEur(latest.revenue)}
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium mt-0.5">Revenue</div>
+              </div>
+              <div className="px-5 py-3 text-center">
+                <div className="text-lg font-bold text-slate-900 tracking-tight">
+                  {fmtEur(latest.ebitda)}
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium mt-0.5">EBITDA</div>
+              </div>
+              <div className="px-5 py-3 text-center">
+                <div className={`text-lg font-bold tracking-tight ${marginColorClass}`}>
+                  {fmtPct(latest.ebitda_margin_pct)}
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium mt-0.5">Margin</div>
+              </div>
+              <div className="px-5 py-3 text-center">
+                <div className="text-lg font-bold text-slate-900 tracking-tight">
+                  {latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium mt-0.5">FTE</div>
+              </div>
+              <div className="px-5 py-3 text-center col-span-2 sm:col-span-1">
+                <div className="text-lg font-bold text-indigo-600 tracking-tight">
+                  FY{latest.fiscal_year}
+                </div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-400 font-medium mt-0.5">Latest</div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Tabs */}

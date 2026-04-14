@@ -169,10 +169,12 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
 function SectorBarTooltip({ active, payload }: any) {
   if (!active || !payload?.[0]) return null;
   const d = payload[0].payload;
+  const naceLabel = d.sector && d.sector !== d.nace2
+    ? `${d.nace2} \u2014 ${d.sector}`
+    : d.nace2;
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-lg text-sm">
-      <p className="font-semibold text-slate-800 mb-1">{d.sector}</p>
-      <p className="text-slate-600">NACE: <span className="font-mono">{d.nace2}</span></p>
+      <p className="font-semibold text-slate-800 mb-1">{naceLabel}</p>
       <p className="text-slate-600">Companies: <span className="font-semibold">{fmtNumber(d.companies)}</span></p>
       <p className="text-slate-600">Revenue: <span className="font-semibold">{fmtEur(d.revenue_m * 1e6)}</span></p>
       <p className="text-slate-600">EBITDA: <span className="font-semibold">{fmtEur(d.ebitda_m * 1e6)}</span></p>
@@ -333,7 +335,13 @@ export default function StatsPage() {
     const top = [...sectors]
       .sort((a, b) => b.companies - a.companies)
       .slice(0, 20)
-      .reverse(); // reverse so largest is at top of horizontal bar
+      .reverse() // reverse so largest is at top of horizontal bar
+      .map((s) => ({
+        ...s,
+        naceDisplay: s.sector && s.sector !== s.nace2
+          ? `${s.nace2} \u2014 ${s.sector}`
+          : s.nace2,
+      }));
     return top;
   }, [sectors]);
 
@@ -341,11 +349,16 @@ export default function StatsPage() {
   const revenuePerSector = useMemo(() => {
     return [...sectors]
       .filter((s) => s.companies > 0 && s.revenue_m > 0)
-      .map((s) => ({
-        ...s,
-        avg_revenue_k: Math.round((s.revenue_m * 1000) / s.companies),
-        label: s.sector.length > 30 ? s.sector.slice(0, 28) + "..." : s.sector,
-      }))
+      .map((s) => {
+        const fullLabel = s.sector && s.sector !== s.nace2
+          ? `${s.nace2} \u2014 ${s.sector}`
+          : s.nace2;
+        return {
+          ...s,
+          avg_revenue_k: Math.round((s.revenue_m * 1000) / s.companies),
+          label: fullLabel.length > 36 ? fullLabel.slice(0, 34) + "..." : fullLabel,
+        };
+      })
       .sort((a, b) => b.avg_revenue_k - a.avg_revenue_k)
       .slice(0, 15)
       .reverse();
@@ -460,12 +473,12 @@ export default function StatsPage() {
                 />
                 <YAxis
                   type="category"
-                  dataKey="sector"
-                  width={220}
+                  dataKey="naceDisplay"
+                  width={260}
                   tick={{ fontSize: 11, fill: "#475569" }}
                   axisLine={false}
                   tickLine={false}
-                  tickFormatter={(v: string) => v.length > 32 ? v.slice(0, 30) + "..." : v}
+                  tickFormatter={(v: string) => v.length > 38 ? v.slice(0, 36) + "..." : v}
                 />
                 <Tooltip content={<SectorBarTooltip />} cursor={{ fill: "rgba(99,102,241,0.06)" }} />
                 <Bar
@@ -762,7 +775,11 @@ export default function StatsPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  sorted.map((row) => (
+                  sorted.map((row) => {
+                    const sectorDisplay = row.sector && row.sector !== row.nace2
+                      ? `${row.nace2} \u2014 ${row.sector}`
+                      : row.nace2;
+                    return (
                     <TableRow key={row.nace2} className="hover:bg-indigo-50/30 text-[13px]">
                       <TableCell className="font-medium py-2">
                         <Link
@@ -772,8 +789,8 @@ export default function StatsPage() {
                           {row.nace2}
                         </Link>
                       </TableCell>
-                      <TableCell className="text-slate-700 max-w-[240px] truncate py-2" title={row.sector}>
-                        {row.sector}
+                      <TableCell className="text-slate-700 max-w-[280px] truncate py-2" title={sectorDisplay}>
+                        {row.sector && row.sector !== row.nace2 ? row.sector : <span className="text-slate-400 italic">No description</span>}
                       </TableCell>
                       <TableCell className="text-right font-mono text-[12px] py-2">
                         {fmtNumber(row.companies)}
@@ -793,7 +810,7 @@ export default function StatsPage() {
                         {fmtNumber(row.med_fte)}
                       </TableCell>
                     </TableRow>
-                  ))
+                  );})
                 )}
               </TableBody>
             </Table>
