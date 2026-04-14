@@ -875,6 +875,16 @@ export default function ScreenerPage() {
                             &middot; {row.jf_label}
                           </span>
                         )}
+                        {row.nace && (
+                          <Link
+                            href={`/stats?nace=${row.nace.split(" ")[0]}`}
+                            className="text-indigo-400 hover:text-indigo-600 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {" "}
+                            &middot; {row.nace.split(" ")[0]}
+                          </Link>
+                        )}
                       </div>
                     </div>
                     {/* Hover card */}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
+import ExportButtons from "@/components/export-buttons";
 import {
   Card,
   CardContent,
@@ -747,7 +748,31 @@ export default function StatsPage() {
 
       {/* ━━━━━━━━━━ SECTION 6: FULL SORTABLE SECTOR TABLE ━━━━━━━━━━ */}
       <div>
-        <SectionHeader>All Sectors -- Detailed Breakdown</SectionHeader>
+        <div className="flex items-center justify-between">
+          <SectionHeader>All Sectors -- Detailed Breakdown</SectionHeader>
+          <ExportButtons
+            onExportCSV={() => {
+              const headers = ["NACE", "Sector", "Companies", "Revenue (M)", "EBITDA (M)", "Median Margin", "Median FTE"];
+              const csvLines = sorted.map(row => [
+                row.nace2,
+                `"${(row.sector || "").replace(/"/g, '""')}"`,
+                row.companies,
+                row.revenue_m != null ? row.revenue_m.toFixed(2) : "",
+                row.ebitda_m != null ? row.ebitda_m.toFixed(2) : "",
+                row.med_margin != null ? row.med_margin.toFixed(1) : "",
+                row.med_fte != null ? String(row.med_fte) : "",
+              ].join(","));
+              const blob = new Blob([headers.join(",") + "\n" + csvLines.join("\n")], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "sector_stats.csv";
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            onPrint={() => window.print()}
+          />
+        </div>
         <Card className="bg-white overflow-hidden">
           <div className="overflow-x-auto">
             <Table>
@@ -789,8 +814,17 @@ export default function StatsPage() {
                           {row.nace2}
                         </Link>
                       </TableCell>
-                      <TableCell className="text-slate-700 max-w-[280px] truncate py-2" title={sectorDisplay}>
-                        {row.sector && row.sector !== row.nace2 ? row.sector : <span className="text-slate-400 italic">No description</span>}
+                      <TableCell className="max-w-[280px] truncate py-2" title={sectorDisplay}>
+                        {row.sector && row.sector !== row.nace2 ? (
+                          <Link
+                            href={`/screener?nace=${row.nace2}`}
+                            className="text-indigo-600 hover:text-indigo-800 hover:underline"
+                          >
+                            {row.sector}
+                          </Link>
+                        ) : (
+                          <span className="text-slate-400 italic">No description</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right font-mono text-[12px] py-2">
                         {fmtNumber(row.companies)}

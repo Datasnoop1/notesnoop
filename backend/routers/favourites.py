@@ -1,7 +1,7 @@
-"""Favourites router — per-user company tracking."""
+"""Favourites router — per-user company tracking + projects (grouping)."""
 
 import logging
-from typing import Optional
+from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -13,9 +13,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/favourites", tags=["favourites"])
 
 
+# ── Models ─────────────────────────────────────────────────────
+
 class FavouriteCreate(BaseModel):
     enterprise_number: str
     notes: Optional[str] = None
+
+
+class ProjectCreate(BaseModel):
+    name: str
+
+
+class ProjectMemberAdd(BaseModel):
+    enterprise_number: str
 
 
 def _serialize_row(row: dict) -> dict:
@@ -95,4 +105,165 @@ async def remove_favourite(cbe: str, user=Depends(get_current_user)):
         raise
     except Exception as e:
         logger.exception("Remove favourite failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Favourite Projects (grouping) ──────────────────────────────
+
+
+def _ensure_project_tables():
+    """Create project tables if they do not exist (idempotent)."""
+    execute("""
+        CREATE TABLE IF NOT EXISTS favourite_project (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    execute("""
+        CREATE TABLE IF NOT EXISTS favourite_project_member (
+            project_id INTEGER REFERENCES favourite_project(id) ON DELETE CASCADE,
+            enterprise_number TEXT NOT NULL,
+            PRIMARY KEY (project_id, enterprise_number)
+        )
+    """)
+
+
+_tables_ensured = False
+
+
+def _ensure_tables_once():
+    global _tables_ensured
+    if not _tables_ensured:
+        try:
+            _ensure_project_tables()
+            _tables_ensured = True
+        except Exception:
+            logger.warning("Could not auto-create project tables — may already exist")
+            _tables_ensured = True
+
+
+@router.get("/projects")
+async def list_projects(user=Depends(get_current_user)):
+    """List all projects for the logged-in user, with member companies."""
+    _ensure_tables_once()
+    try:
+        projects = fetch_all("""
+            SELECT id, name, created_at
+            FROM favourite_project
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        """, (user["id"],))
+
+        result = []
+        for proj in projects:
+            members = fetch_all("""
+                SELECT fpm.enterprise_number,
+                       COALESCE(ci.name, d.denomination) AS "name",
+                       ci.city, ci.nace_code,
+                       fl.revenue, fl.ebitda, fl.fte_total
+                FROM favourite_project_member fpm
+                LEFT JOIN company_info ci ON ci.enterprise_number = fpm.enterprise_number
+                LEFT JOIN denomination d ON d.entity_number = fpm.enterprise_number
+                     AND d.type_of_denomination = '001' AND d.language IN ('2','1')
+                LEFT JOIN financial_latest fl ON fl.enterprise_number = fpm.enterprise_number
+                WHERE fpm.project_id = %s
+            """, (proj["id"],))
+            result.append({
+                **_serialize_row(proj),
+                "members": [_serialize_row(m) for m in members],
+            })
+        return result
+    except Exception as e:
+        logger.exception("List projects failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/projects", status_code=201)
+async def create_project(body: ProjectCreate, user=Depends(get_current_user)):
+    """Create a new project."""
+    _ensure_tables_once()
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="Project name cannot be empty")
+    try:
+        row = fetch_one(
+            "INSERT INTO favourite_project (user_id, name) VALUES (%s, %s) RETURNING id, name, created_at",
+            (user["id"], body.name.strip()),
+        )
+        return {**_serialize_row(row), "members": []}
+    except Exception as e:
+        logger.exception("Create project failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/projects/{project_id}/add", status_code=201)
+async def add_project_member(project_id: int, body: ProjectMemberAdd, user=Depends(get_current_user)):
+    """Add a company to a project."""
+    _ensure_tables_once()
+    cbe = str(body.enterprise_number).replace(".", "").zfill(10)
+    try:
+        # Verify project belongs to user
+        proj = fetch_one(
+            "SELECT id FROM favourite_project WHERE id = %s AND user_id = %s",
+            (project_id, user["id"]),
+        )
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        execute(
+            "INSERT INTO favourite_project_member (project_id, enterprise_number) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (project_id, cbe),
+        )
+        return {"project_id": project_id, "enterprise_number": cbe, "status": "added"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Add project member failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/projects/{project_id}/remove/{cbe}")
+async def remove_project_member(project_id: int, cbe: str, user=Depends(get_current_user)):
+    """Remove a company from a project."""
+    _ensure_tables_once()
+    cbe = cbe.strip().replace(".", "").zfill(10)
+    try:
+        proj = fetch_one(
+            "SELECT id FROM favourite_project WHERE id = %s AND user_id = %s",
+            (project_id, user["id"]),
+        )
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        execute(
+            "DELETE FROM favourite_project_member WHERE project_id = %s AND enterprise_number = %s",
+            (project_id, cbe),
+        )
+        return {"project_id": project_id, "enterprise_number": cbe, "status": "removed"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Remove project member failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/projects/{project_id}")
+async def delete_project(project_id: int, user=Depends(get_current_user)):
+    """Delete an entire project and its members."""
+    _ensure_tables_once()
+    try:
+        proj = fetch_one(
+            "SELECT id FROM favourite_project WHERE id = %s AND user_id = %s",
+            (project_id, user["id"]),
+        )
+        if not proj:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        execute("DELETE FROM favourite_project WHERE id = %s", (project_id,))
+        return {"project_id": project_id, "status": "deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Delete project failed")
         raise HTTPException(status_code=500, detail=str(e))

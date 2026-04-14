@@ -25,6 +25,7 @@ const NAV_ITEMS = [
   { label: "Screener", href: "/screener" },
   { label: "Company", href: "/company" },
   { label: "Compare", href: "/compare" },
+  { label: "Aggregate", href: "/aggregate" },
   { label: "Stats", href: "/stats" },
   { label: "People", href: "/people" },
   { label: "Favourites", href: "/favourites" },

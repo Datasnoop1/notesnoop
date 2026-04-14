@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
 import type { SearchResult, CompanyDetail, FinancialYear } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
 import { Search, X, Plus, Download, ArrowUpDown, Loader2 } from "lucide-react";
+import FavouritesDialog from "@/components/favourites-dialog";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -233,6 +234,11 @@ export default function ComparePage() {
     URL.revokeObjectURL(url);
   }, [companies]);
 
+  const existingCbes = useMemo(
+    () => new Set(companies.map((c) => c.cbe)),
+    [companies]
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -246,9 +252,9 @@ export default function ComparePage() {
       </div>
 
       {/* Search bar */}
-      <div className="relative" ref={searchRef}>
-        <div className="flex gap-2 items-center">
-          <div className="relative flex-1 max-w-md">
+      <div className="flex flex-wrap gap-2 items-start">
+        <div className="relative flex-1 min-w-[280px] max-w-md" ref={searchRef}>
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
               placeholder="Search by company name or CBE number..."
@@ -263,12 +269,6 @@ export default function ComparePage() {
               <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 animate-spin" />
             )}
           </div>
-          {companies.length >= MAX_COMPANIES && (
-            <span className="text-xs text-slate-400">
-              Maximum {MAX_COMPANIES} companies reached
-            </span>
-          )}
-        </div>
 
         {/* Search dropdown */}
         {showDropdown && results.length > 0 && (
@@ -307,12 +307,26 @@ export default function ComparePage() {
           </div>
         )}
 
-        {showDropdown && query.trim().length >= 2 && results.length === 0 && !searching && (
-          <div className="absolute z-50 mt-1 w-full max-w-md bg-white border border-slate-200 rounded-lg shadow-lg p-4">
-            <p className="text-sm text-slate-400 text-center">
-              No companies found
-            </p>
-          </div>
+          {showDropdown && query.trim().length >= 2 && results.length === 0 && !searching && (
+            <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg p-4">
+              <p className="text-sm text-slate-400 text-center">
+                No companies found
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Load from Favourites */}
+        <FavouritesDialog
+          existingCbes={existingCbes}
+          onAdd={addCompany}
+          max={MAX_COMPANIES}
+        />
+
+        {companies.length >= MAX_COMPANIES && (
+          <span className="text-xs text-slate-400 self-center">
+            Maximum {MAX_COMPANIES} companies reached
+          </span>
         )}
       </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Card,
@@ -85,6 +86,15 @@ function SkeletonRows({ cols, count }: { cols: number; count: number }) {
 /* ---------- main component ---------- */
 
 export default function PeoplePage() {
+  return (
+    <Suspense fallback={<div className="py-8 text-center text-sm text-slate-400">Loading...</div>}>
+      <PeoplePageInner />
+    </Suspense>
+  );
+}
+
+function PeoplePageInner() {
+  const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PersonRow[]>([]);
   const [searching, setSearching] = useState(false);
@@ -93,6 +103,7 @@ export default function PeoplePage() {
   const [connections, setConnections] = useState<ConnectionData | null>(null);
   const [loadingConnections, setLoadingConnections] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialLoadRef = useRef(false);
 
   /* debounced search */
   const doSearch = useCallback((q: string) => {
@@ -116,6 +127,17 @@ export default function PeoplePage() {
       }
     }, 300);
   }, []);
+
+  /* Pre-fill from URL ?q= parameter */
+  useEffect(() => {
+    if (initialLoadRef.current) return;
+    const qParam = searchParams.get("q");
+    if (qParam && qParam.trim().length >= 2) {
+      initialLoadRef.current = true;
+      setQuery(qParam);
+      doSearch(qParam);
+    }
+  }, [searchParams, doSearch]);
 
   useEffect(() => {
     return () => {

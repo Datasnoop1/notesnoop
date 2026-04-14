@@ -354,6 +354,49 @@ export const addFavourite = (enterprise_number: string, notes?: string) =>
 export const removeFavourite = (cbe: string) =>
   apiFetch<{ status: string }>(`/api/favourites/${cbe}`, { method: "DELETE" });
 
+// ── Favourite Projects ────────────────────────────────────────
+export interface ProjectMember {
+  enterprise_number: string;
+  name: string | null;
+  city: string | null;
+  nace_code: string | null;
+  revenue: number | null;
+  ebitda: number | null;
+  fte_total: number | null;
+}
+
+export interface FavouriteProject {
+  id: number;
+  name: string;
+  created_at: string;
+  members: ProjectMember[];
+}
+
+export const getFavouriteProjects = () =>
+  apiFetch<FavouriteProject[]>("/api/favourites/projects");
+
+export const createFavouriteProject = (name: string) =>
+  apiFetch<FavouriteProject>("/api/favourites/projects", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+
+export const addProjectMember = (projectId: number, enterprise_number: string) =>
+  apiFetch<{ status: string }>(`/api/favourites/projects/${projectId}/add`, {
+    method: "POST",
+    body: JSON.stringify({ enterprise_number }),
+  });
+
+export const removeProjectMember = (projectId: number, cbe: string) =>
+  apiFetch<{ status: string }>(`/api/favourites/projects/${projectId}/remove/${cbe}`, {
+    method: "DELETE",
+  });
+
+export const deleteFavouriteProject = (projectId: number) =>
+  apiFetch<{ status: string }>(`/api/favourites/projects/${projectId}`, {
+    method: "DELETE",
+  });
+
 // ── Feedback ───────────────────────────────────────────────
 export const submitFeedback = (
   type: "bug" | "suggestion",

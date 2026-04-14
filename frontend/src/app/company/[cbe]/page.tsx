@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, use } from "react";
 import Link from "next/link";
+import ExportButtons from "@/components/export-buttons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -291,6 +292,20 @@ function ChartTooltip({
   );
 }
 
+/* ---------- YoY delta helper ---------- */
+
+function renderDelta(current: number | null, previous: number | null): React.ReactNode {
+  if (current == null || previous == null || previous === 0) return null;
+  const abs = current - previous;
+  const pct = (abs / Math.abs(previous)) * 100;
+  const sign = abs >= 0 ? "+" : "";
+  return (
+    <div className="text-[9px] text-slate-400 mt-0.5">
+      {sign}{fmtEur(abs)} ({sign}{pct.toFixed(1)}%)
+    </div>
+  );
+}
+
 /* ---------- main component ---------- */
 
 export default function CompanyDetailPage(props: {
@@ -305,11 +320,13 @@ export default function CompanyDetailPage(props: {
   const [isFavourite, setIsFavourite] = useState(false);
   const [activeTab, setActiveTab] = useState("summary");
   const [nbbLoading, setNbbLoading] = useState(false);
-  const [nbbResult, setNbbResult] = useState<"success" | "error" | null>(null);
+  const [nbbResult, setNbbResult] = useState<"success" | "error" | "no-data" | null>(null);
+  const nbbAutoTriggered = React.useRef(false);
   const router = useRouter();
 
   useEffect(() => {
     setLoading(true);
+    nbbAutoTriggered.current = false;
     Promise.all([
       getCompanyDetail(cbe),
       getCompanyFinancials(cbe),
@@ -319,6 +336,26 @@ export default function CompanyDetailPage(props: {
         setDetail(d as unknown as CompanyDetail);
         setFinancials(f as unknown as FinancialsData);
         setStructure(s as unknown as StructureData);
+
+        // Auto-load from NBB if no financials
+        const fin = f as unknown as FinancialsData;
+        if (fin && fin.summary && fin.summary.length === 0 && !nbbAutoTriggered.current) {
+          nbbAutoTriggered.current = true;
+          setNbbLoading(true);
+          fetch(`/api/companies/${cbe}/load`, { method: "POST" })
+            .then(r => r.json())
+            .then(data => {
+              if (data.rubrics_loaded > 0) {
+                // Refetch financials
+                getCompanyFinancials(cbe).then(newF => setFinancials(newF as unknown as FinancialsData));
+                setNbbResult("success");
+              } else {
+                setNbbResult("no-data");
+              }
+            })
+            .catch(() => setNbbResult("error"))
+            .finally(() => setNbbLoading(false));
+        }
       })
       .catch((err) => {
         console.error("Failed to load company data:", err);
@@ -757,13 +794,22 @@ export default function CompanyDetailPage(props: {
                             const date = new Date(d);
                             return date.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
                           }
+                          const adminCbe = cleanCbe(a.identifier);
                           return (
                             <div key={`${a.name}-${i}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors">
                               <div className="h-8 w-8 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] font-bold text-indigo-600 shrink-0">
                                 {(a.name || "?").slice(0, 2).toUpperCase()}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className="text-sm text-slate-800 font-medium truncate">{a.name}</div>
+                                {adminCbe ? (
+                                  <Link href={`/company/${adminCbe}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                                    {a.name}
+                                  </Link>
+                                ) : (
+                                  <Link href={`/people?q=${encodeURIComponent(a.name)}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                                    {a.name}
+                                  </Link>
+                                )}
                                 <div className="text-[10px] text-slate-400">
                                   {a.role_label || a.role || "—"}
                                 </div>
@@ -847,13 +893,23 @@ export default function CompanyDetailPage(props: {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {structure.shareholders.slice(0, 5).map((sh, i) => (
+                        {structure.shareholders.slice(0, 5).map((sh, i) => {
+                          const shCbe = cleanCbe(sh.identifier);
+                          return (
                           <div key={`sh-${i}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors">
                             <div className="h-8 w-8 rounded-full bg-amber-50 flex items-center justify-center text-[10px] font-bold text-amber-600 shrink-0">
                               {(sh.name || "?").slice(0, 2).toUpperCase()}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="text-sm text-slate-800 font-medium truncate">{sh.name}</div>
+                              {shCbe ? (
+                                <Link href={`/company/${shCbe}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                                  {sh.name}
+                                </Link>
+                              ) : (
+                                <Link href={`/people?q=${encodeURIComponent(sh.name)}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                                  {sh.name}
+                                </Link>
+                              )}
                               <div className="flex items-center gap-2 text-[10px] text-slate-400">
                                 <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-slate-200">
                                   {sh.shareholder_type === "entity" || sh.shareholder_type === "Entity" ? "Entity" : "Individual"}
@@ -864,7 +920,8 @@ export default function CompanyDetailPage(props: {
                               <span className="text-xs font-semibold font-mono text-indigo-600 shrink-0">{sh.ownership_pct.toFixed(1)}%</span>
                             )}
                           </div>
-                        ))}
+                          );
+                        })}
                         {structure.shareholders.length > 5 && (
                           <button type="button" onClick={() => setActiveTab("structure")} className="w-full text-center text-[10px] text-indigo-500 hover:text-indigo-700 py-1 font-medium">
                             + {structure.shareholders.length - 5} more shareholders →
@@ -893,13 +950,23 @@ export default function CompanyDetailPage(props: {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {structure.participating_interests.slice(0, 5).map((sub, i) => (
+                        {structure.participating_interests.slice(0, 5).map((sub, i) => {
+                          const subCbe = cleanCbe(sub.identifier);
+                          return (
                           <div key={`sub-${i}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors">
                             <div className="h-8 w-8 rounded-full bg-cyan-50 flex items-center justify-center text-[10px] font-bold text-cyan-600 shrink-0">
                               {(sub.name || "?").slice(0, 2).toUpperCase()}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="text-sm text-slate-800 font-medium truncate">{sub.name}</div>
+                              {subCbe ? (
+                                <Link href={`/company/${subCbe}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                                  {sub.name}
+                                </Link>
+                              ) : (
+                                <Link href={`/people?q=${encodeURIComponent(sub.name)}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                                  {sub.name}
+                                </Link>
+                              )}
                               <div className="flex items-center gap-2 text-[10px] text-slate-400">
                                 {sub.country && <span>{sub.country}</span>}
                               </div>
@@ -908,7 +975,8 @@ export default function CompanyDetailPage(props: {
                               <span className="text-xs font-semibold font-mono text-indigo-600 shrink-0">{sub.ownership_pct.toFixed(1)}%</span>
                             )}
                           </div>
-                        ))}
+                          );
+                        })}
                         {structure.participating_interests.length > 5 && (
                           <button type="button" onClick={() => setActiveTab("structure")} className="w-full text-center text-[10px] text-indigo-500 hover:text-indigo-700 py-1 font-medium">
                             + {structure.participating_interests.length - 5} more subsidiaries →
@@ -937,16 +1005,35 @@ export default function CompanyDetailPage(props: {
                         </tr>
                       </thead>
                       <tbody>
-                        {sorted.slice(0, 5).map((r, i) => (
-                          <tr key={r.fiscal_year} className={i === 0 ? "bg-indigo-50/30 font-medium" : "border-t border-slate-50"}>
-                            <td className="px-5 py-2 font-mono text-slate-700">{r.fiscal_year}</td>
-                            <td className="px-3 py-2 text-right font-mono text-slate-700">{fmtEur(r.revenue)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-slate-700">{fmtEur(r.ebitda)}</td>
-                            <td className={`px-3 py-2 text-right font-mono ${marginColorClass(r.ebitda_margin_pct)}`}>{fmtPct(r.ebitda_margin_pct)}</td>
-                            <td className={`px-3 py-2 text-right font-mono ${(r.net_profit ?? 0) < 0 ? "text-rose-400" : "text-slate-700"}`}>{fmtEur(r.net_profit)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-slate-700">{r.fte_total != null ? fmtNumber(r.fte_total) : "—"}</td>
-                          </tr>
-                        ))}
+                        {(() => {
+                          const chronoMini = sorted.slice(0, 5).reverse();
+                          return chronoMini.map((r, i) => {
+                            const prevRow = i > 0 ? chronoMini[i - 1] : null;
+                            const isLatest = i === chronoMini.length - 1;
+                            return (
+                              <tr key={r.fiscal_year} className={isLatest ? "bg-indigo-50/30 font-medium" : "border-t border-slate-50"}>
+                                <td className="px-5 py-2 font-mono text-slate-700">{r.fiscal_year}</td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-700">
+                                  {fmtEur(r.revenue)}
+                                  {renderDelta(r.revenue, prevRow?.revenue ?? null)}
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-700">
+                                  {fmtEur(r.ebitda)}
+                                  {renderDelta(r.ebitda, prevRow?.ebitda ?? null)}
+                                </td>
+                                <td className={`px-3 py-2 text-right font-mono ${marginColorClass(r.ebitda_margin_pct)}`}>{fmtPct(r.ebitda_margin_pct)}</td>
+                                <td className={`px-3 py-2 text-right font-mono ${(r.net_profit ?? 0) < 0 ? "text-rose-400" : "text-slate-700"}`}>
+                                  {fmtEur(r.net_profit)}
+                                  {renderDelta(r.net_profit, prevRow?.net_profit ?? null)}
+                                </td>
+                                <td className="px-3 py-2 text-right font-mono text-slate-700">
+                                  {r.fte_total != null ? fmtNumber(r.fte_total) : "\u2014"}
+                                  {renderDelta(r.fte_total, prevRow?.fte_total ?? null)}
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
                       </tbody>
                     </table>
                   </div>
@@ -1000,54 +1087,66 @@ export default function CompanyDetailPage(props: {
         <TabsContent value="pnl" className="mt-3">
           {!financials || financials.summary.length === 0 ? (
             <div className="py-8 text-center">
-              <p className="text-sm text-slate-500 mb-4">No financial data available for this company.</p>
-              <Button
-                variant="outline"
-                disabled={nbbLoading}
-                onClick={async () => {
-                  setNbbLoading(true);
-                  setNbbResult(null);
-                  try {
-                    const res = await fetch(`/api/companies/${cbe}/load`, { method: "POST" });
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    setNbbResult("success");
-                    setTimeout(() => window.location.reload(), 2000);
-                  } catch {
-                    setNbbResult("error");
-                  } finally {
-                    setNbbLoading(false);
-                  }
-                }}
-                className={`text-indigo-600 border-indigo-300 hover:bg-indigo-50 ${nbbLoading ? "opacity-70 cursor-not-allowed" : ""}`}
-              >
-                {nbbLoading ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Download className="w-4 h-4 mr-2" />
-                )}
-                {nbbLoading ? "Loading..." : "Load from NBB"}
-              </Button>
-              {nbbLoading && (
-                <p className="mt-3 text-xs text-slate-400 animate-pulse">
-                  Loading financial data from NBB... This may take a minute.
-                </p>
-              )}
-              {nbbResult === "success" && (
-                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-emerald-600">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Data loaded successfully. Refreshing...
+              {nbbLoading ? (
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+                  <p className="text-sm text-slate-500 animate-pulse">
+                    Loading financial data from NBB... This may take a minute.
+                  </p>
                 </div>
-              )}
-              {nbbResult === "error" && (
-                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-rose-400">
-                  <XCircle className="w-4 h-4" />
-                  Failed to load data. The company may not have filings available.
-                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-slate-500 mb-4">
+                    {nbbResult === "no-data"
+                      ? "No NBB filings found for this company."
+                      : "No financial data available for this company."}
+                  </p>
+                  <Button
+                    variant="outline"
+                    disabled={nbbLoading}
+                    onClick={async () => {
+                      setNbbLoading(true);
+                      setNbbResult(null);
+                      try {
+                        const res = await fetch(`/api/companies/${cbe}/load`, { method: "POST" });
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        const data = await res.json();
+                        if (data.rubrics_loaded > 0) {
+                          setNbbResult("success");
+                          getCompanyFinancials(cbe).then(f => setFinancials(f as unknown as FinancialsData));
+                        } else {
+                          setNbbResult("no-data");
+                        }
+                      } catch {
+                        setNbbResult("error");
+                      } finally {
+                        setNbbLoading(false);
+                      }
+                    }}
+                    className={`text-indigo-600 border-indigo-300 hover:bg-indigo-50 ${nbbLoading ? "opacity-70 cursor-not-allowed" : ""}`}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    {nbbResult === "no-data" ? "Retry from NBB" : "Load from NBB"}
+                  </Button>
+                  {nbbResult === "success" && (
+                    <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-emerald-600">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Data loaded successfully.
+                    </div>
+                  )}
+                  {nbbResult === "error" && (
+                    <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-rose-400">
+                      <XCircle className="w-4 h-4" />
+                      Failed to load data. The company may not have filings available.
+                    </div>
+                  )}
+                </>
               )}
             </div>
           ) : (
             (() => {
               const sorted = [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year);
+              const chronological = [...sorted].reverse();
 
               // Derive P&L line items per year
               const pnlData = sorted.map((row) => {
@@ -1112,6 +1211,8 @@ export default function CompanyDetailPage(props: {
                 isPct?: boolean;
               };
 
+              const chronologicalPnl = [...pnlData].reverse();
+
               const lines: PnlLine[] = [
                 { label: "Revenue", key: "revenue", section: "REVENUE" },
                 { label: "Cost of Sales", key: "costOfSales", isCost: true, indent: true },
@@ -1130,17 +1231,43 @@ export default function CompanyDetailPage(props: {
 
               let lastSection = "";
 
+              function exportPnlCsv() {
+                const headers = ["Line Item", ...sorted.map(r => `FY${r.fiscal_year}`)];
+                const csvLines = lines.map(line => {
+                  const cells = pnlData.map(r => {
+                    const v = r[line.key];
+                    if (v == null) return "";
+                    if (line.isPct) return `${(v as number).toFixed(1)}%`;
+                    return String(v);
+                  });
+                  return [line.label, ...cells].join(",");
+                });
+                const blob = new Blob([headers.join(",") + "\n" + csvLines.join("\n")], { type: "text/csv" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${detail?.name || cbe}_pnl.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }
+
               return (
                 <div>
-                  <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
-                    Income Statement
-                  </h3>
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
+                      Income Statement
+                    </h3>
+                    <ExportButtons
+                      onExportCSV={exportPnlCsv}
+                      onPrint={() => window.print()}
+                    />
+                  </div>
                   <div className="rounded-lg border overflow-x-auto">
                     <table className="w-full">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
                           <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[240px]">Line Item</th>
-                          {sorted.map((r) => (
+                          {chronological.map((r) => (
                             <th key={r.fiscal_year} className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[100px]">
                               FY{r.fiscal_year}
                             </th>
@@ -1155,7 +1282,7 @@ export default function CompanyDetailPage(props: {
                             <React.Fragment key={line.key}>
                               {showSection && (
                                 <tr>
-                                  <td colSpan={sorted.length + 1} className="px-4 pt-3 pb-1">
+                                  <td colSpan={chronological.length + 1} className="px-4 pt-3 pb-1">
                                     <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
                                   </td>
                                 </tr>
@@ -1164,15 +1291,21 @@ export default function CompanyDetailPage(props: {
                                 <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
                                   {line.label}
                                 </td>
-                                {pnlData.map((r) => (
-                                  <td key={r.fiscal_year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
-                                    {line.isPct
-                                      ? (r[line.key] != null
-                                          ? <span className={`${(r[line.key] as number) >= 15 ? "text-emerald-600" : (r[line.key] as number) >= 5 ? "text-amber-600" : "text-rose-400"}`}>{(r[line.key] as number).toFixed(1)}%</span>
-                                          : <span className="text-slate-300">{"\u2014"}</span>)
-                                      : fmtAcct(r[line.key] as number | null, line.isCost, line.isKeyMetric)}
-                                  </td>
-                                ))}
+                                {chronologicalPnl.map((r, colIdx) => {
+                                  const prevRow = colIdx > 0 ? chronologicalPnl[colIdx - 1] : null;
+                                  const currentVal = r[line.key] as number | null;
+                                  const prevVal = prevRow ? (prevRow[line.key] as number | null) : null;
+                                  return (
+                                    <td key={r.fiscal_year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                      {line.isPct
+                                        ? (currentVal != null
+                                            ? <span className={`${(currentVal as number) >= 15 ? "text-emerald-600" : (currentVal as number) >= 5 ? "text-amber-600" : "text-rose-400"}`}>{(currentVal as number).toFixed(1)}%</span>
+                                            : <span className="text-slate-300">{"\u2014"}</span>)
+                                        : fmtAcct(currentVal, line.isCost, line.isKeyMetric)}
+                                      {!line.isPct && renderDelta(currentVal, prevVal)}
+                                    </td>
+                                  );
+                                })}
                               </tr>
                             </React.Fragment>
                           );
@@ -1227,7 +1360,7 @@ export default function CompanyDetailPage(props: {
               return v < 0 ? <span className="text-rose-400">{formatted}</span> : <>{formatted}</>;
             };
 
-            const cfRows = sorted.slice(0, -1).map((row, idx) => {
+            const cfRowsDesc = sorted.slice(0, -1).map((row, idx) => {
               const prev = sorted[idx + 1];
 
               const ebitda = row.ebitda;
@@ -1275,6 +1408,7 @@ export default function CompanyDetailPage(props: {
                 cashEnd: cashEnd || null,
               };
             });
+            const cfRows = [...cfRowsDesc].reverse();
 
             type CFLine = {
               label: string;
@@ -1369,6 +1503,7 @@ export default function CompanyDetailPage(props: {
             </p>
           ) : (() => {
             const sorted = [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year);
+            const chronological = [...sorted].reverse();
 
             // Helper: format value, red if negative
             const fmtCell = (v: number | null) => {
@@ -1427,6 +1562,7 @@ export default function CompanyDetailPage(props: {
                 totalLE: totalAssets,
               };
             });
+            const chronologicalBs = [...bsRows].reverse();
 
             type BSLine = {
               label: string;
@@ -1464,17 +1600,42 @@ export default function CompanyDetailPage(props: {
 
             let lastSection = "";
 
+            function exportBsCsv() {
+              const headers = ["Line Item", ...sorted.map(r => `FY${r.fiscal_year}`)];
+              const csvLines = lines.map(line => {
+                const cells = bsRows.map(r => {
+                  const v = r[line.key];
+                  if (v == null) return "";
+                  return String(v);
+                });
+                return [line.label, ...cells].join(",");
+              });
+              const blob = new Blob([headers.join(",") + "\n" + csvLines.join("\n")], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `${detail?.name || cbe}_balance_sheet.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }
+
             return (
               <div>
-                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
-                  Balance Sheet
-                </h3>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
+                    Balance Sheet
+                  </h3>
+                  <ExportButtons
+                    onExportCSV={exportBsCsv}
+                    onPrint={() => window.print()}
+                  />
+                </div>
                 <div className="rounded-lg border overflow-x-auto">
                   <table className="w-full">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[260px]">Line Item</th>
-                        {sorted.map((r) => (
+                        {chronological.map((r) => (
                           <th key={r.fiscal_year} className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[100px]">
                             FY{r.fiscal_year}
                           </th>
@@ -1489,7 +1650,7 @@ export default function CompanyDetailPage(props: {
                           <React.Fragment key={line.key + (line.section || "")}>
                             {showSection && (
                               <tr>
-                                <td colSpan={sorted.length + 1} className="px-4 pt-3 pb-1">
+                                <td colSpan={chronological.length + 1} className="px-4 pt-3 pb-1">
                                   <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
                                 </td>
                               </tr>
@@ -1498,7 +1659,7 @@ export default function CompanyDetailPage(props: {
                               <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""} ${line.subIndent ? "pl-12 text-slate-400 italic" : ""}`}>
                                 {line.label}
                               </td>
-                              {bsRows.map((r) => (
+                              {chronologicalBs.map((r) => (
                                 <td key={r.fiscal_year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
                                   {fmtCell(r[line.key] as number | null)}
                                 </td>
@@ -1562,9 +1723,12 @@ export default function CompanyDetailPage(props: {
                                         {admin.name}
                                       </Link>
                                     ) : (
-                                      <span className="font-bold text-sm text-slate-900 truncate">
+                                      <Link
+                                        href={`/people?q=${encodeURIComponent(admin.name)}`}
+                                        className="font-bold text-sm text-indigo-600 hover:underline truncate"
+                                      >
                                         {admin.name}
-                                      </span>
+                                      </Link>
                                     )}
                                   </div>
                                   <p className="mt-1 text-sm font-medium text-slate-700">
@@ -1635,9 +1799,12 @@ export default function CompanyDetailPage(props: {
                                           {admin.name}
                                         </Link>
                                       ) : (
-                                        <span className="font-bold text-sm text-slate-500 truncate">
+                                        <Link
+                                          href={`/people?q=${encodeURIComponent(admin.name)}`}
+                                          className="font-bold text-sm text-slate-500 hover:underline truncate"
+                                        >
                                           {admin.name}
-                                        </span>
+                                        </Link>
                                       )}
                                     </div>
                                     <p className="mt-1 text-sm text-slate-500">
@@ -1720,9 +1887,12 @@ export default function CompanyDetailPage(props: {
                                       {sh.name}
                                     </Link>
                                   ) : (
-                                    <span className="font-semibold text-sm text-slate-900">
+                                    <Link
+                                      href={`/people?q=${encodeURIComponent(sh.name)}`}
+                                      className="font-semibold text-sm text-indigo-600 hover:underline"
+                                    >
                                       {sh.name}
-                                    </span>
+                                    </Link>
                                   )}
                                   <div className="flex items-center gap-2 shrink-0">
                                     {sh.ownership_pct != null && (
@@ -1784,9 +1954,12 @@ export default function CompanyDetailPage(props: {
                                       {pi.name}
                                     </Link>
                                   ) : (
-                                    <span className="font-semibold text-sm text-slate-900">
+                                    <Link
+                                      href={`/people?q=${encodeURIComponent(pi.name)}`}
+                                      className="font-semibold text-sm text-indigo-600 hover:underline"
+                                    >
                                       {pi.name}
-                                    </span>
+                                    </Link>
                                   )}
                                   <div className="flex items-center gap-2 shrink-0">
                                     {pi.ownership_pct != null && (
@@ -1886,6 +2059,7 @@ export default function CompanyDetailPage(props: {
             </p>
           ) : (() => {
             const sorted = [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year);
+            const chronological = [...sorted].reverse();
 
             // Compute ratios for each year
             const ratios = sorted.map((row) => {
@@ -1911,6 +2085,7 @@ export default function CompanyDetailPage(props: {
               const ebitdaMargin = revenue && revenue > 0 ? ((ebitda ?? 0) / revenue) * 100 : null;
               const dso = revenue && revenue > 0 ? ((tradeRec ?? 0) / revenue) * 365 : null;
               const dpo = revenue && revenue > 0 ? ((tradePay ?? 0) / revenue) * 365 : null;
+              const dscr = (finCharges || stDebt) ? (ebitda ?? 0) / (Math.abs(finCharges ?? 0) + (stDebt ?? 0)) : null;
 
               return {
                 fiscal_year: row.fiscal_year,
@@ -1925,8 +2100,10 @@ export default function CompanyDetailPage(props: {
                 dpo,
                 netDebt,
                 grossDebt,
+                dscr,
               };
             });
+            const chronologicalRatios = [...ratios].reverse();
 
             const latest = ratios[0];
 
@@ -1982,6 +2159,12 @@ export default function CompanyDetailPage(props: {
               if (v >= 20) return "bg-amber-50 border-amber-200 text-amber-800";
               return "bg-red-50 border-red-200 text-red-800";
             }
+            function dscrColor(v: number | null): string {
+              if (v == null) return "bg-slate-50 border-slate-200 text-slate-600";
+              if (v >= 2) return "bg-green-50 border-green-200 text-green-800";
+              if (v >= 1.2) return "bg-amber-50 border-amber-200 text-amber-800";
+              return "bg-red-50 border-red-200 text-red-800";
+            }
 
             const metricCards = [
               { label: "Net Debt / EBITDA", value: fmtRatio(latest.netDebtEbitda), colorFn: leverageColor, raw: latest.netDebtEbitda, title: "Net Debt / EBITDA = (LT Financial Debt + ST Financial Debt - Cash - Investments) / EBITDA" },
@@ -1989,7 +2172,7 @@ export default function CompanyDetailPage(props: {
               { label: "Equity Ratio", value: fmtRatio(latest.equityRatio, "%"), colorFn: equityRatioColor, raw: latest.equityRatio, title: "Equity Ratio = Total Equity / Total Assets \u00d7 100%" },
               { label: "Interest Coverage", value: fmtRatio(latest.interestCoverage), colorFn: coverageColor, raw: latest.interestCoverage, title: "Interest Coverage = EBIT / Financial Charges" },
               { label: "Cash / ST Debt", value: fmtRatio(latest.cashStDebt), colorFn: cashRatioColor, raw: latest.cashStDebt, title: "Cash / ST Debt = (Cash + Investments) / Short-term Financial Debt" },
-              { label: "EBITDA Margin", value: fmtRatio(latest.ebitdaMargin, "%"), colorFn: marginColor, raw: latest.ebitdaMargin, title: "EBITDA Margin = EBITDA / Revenue \u00d7 100%" },
+              { label: "Debt Service", value: fmtRatio(latest.dscr), colorFn: dscrColor, raw: latest.dscr, title: "DSCR = EBITDA / (Financial Charges + ST Financial Debt)" },
               { label: "ROE", value: fmtRatio(latest.roe, "%"), colorFn: roeColor, raw: latest.roe, title: "ROE = Net Profit / Total Equity \u00d7 100%" },
             ];
 
@@ -2024,7 +2207,7 @@ export default function CompanyDetailPage(props: {
                       <TableHeader>
                         <TableRow className="bg-slate-50">
                           <TableHead className="text-xs min-w-[160px]">Metric</TableHead>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[90px]">FY{r.fiscal_year}</TableHead>
                           ))}
                         </TableRow>
@@ -2032,32 +2215,38 @@ export default function CompanyDetailPage(props: {
                       <TableBody>
                         <TableRow title="(LT Fin Debt + ST Fin Debt - Cash - Investments) / EBITDA">
                           <TableCell className="text-xs text-slate-600 py-1">Net Debt / EBITDA</TableCell>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.netDebtEbitda)}</TableCell>
                           ))}
                         </TableRow>
                         <TableRow title="(LT Fin Debt + ST Fin Debt) / Equity">
                           <TableCell className="text-xs text-slate-600 py-1">Debt / Equity</TableCell>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.debtEquity)}</TableCell>
                           ))}
                         </TableRow>
                         <TableRow className="bg-slate-50/50" title="Equity / Total Assets × 100">
                           <TableCell className="text-xs text-slate-600 py-1 font-medium">Equity Ratio (Equity / Assets)</TableCell>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableCell key={r.fiscal_year} className={`text-right font-mono text-xs py-1 font-medium ${r.equityRatio != null && r.equityRatio >= 40 ? "text-green-700" : r.equityRatio != null && r.equityRatio >= 20 ? "text-amber-700" : r.equityRatio != null ? "text-rose-500" : ""}`}>{fmtRatio(r.equityRatio, "%")}</TableCell>
                           ))}
                         </TableRow>
                         <TableRow title="EBIT / |Financial Charges|">
                           <TableCell className="text-xs text-slate-600 py-1">Interest Coverage</TableCell>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.interestCoverage)}</TableCell>
                           ))}
                         </TableRow>
                         <TableRow title="LT Fin Debt + ST Fin Debt - Cash - Investments">
                           <TableCell className="text-xs text-slate-600 py-1">Net Debt</TableCell>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(r.netDebt)}</TableCell>
+                          ))}
+                        </TableRow>
+                        <TableRow className="bg-slate-50/50" title="DSCR = EBITDA / (|Financial Charges| + ST Financial Debt)">
+                          <TableCell className="text-xs text-slate-600 py-1 font-medium">Debt Service (DSCR)</TableCell>
+                          {chronologicalRatios.map((r) => (
+                            <TableCell key={r.fiscal_year} className={`text-right font-mono text-xs py-1 font-medium ${r.dscr != null && r.dscr >= 2 ? "text-green-700" : r.dscr != null && r.dscr >= 1.2 ? "text-amber-700" : r.dscr != null ? "text-rose-500" : ""}`}>{fmtRatio(r.dscr)}</TableCell>
                           ))}
                         </TableRow>
                       </TableBody>
@@ -2075,7 +2264,7 @@ export default function CompanyDetailPage(props: {
                       <TableHeader>
                         <TableRow className="bg-slate-50">
                           <TableHead className="text-xs min-w-[160px]">Metric</TableHead>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[90px]">FY{r.fiscal_year}</TableHead>
                           ))}
                         </TableRow>
@@ -2083,13 +2272,13 @@ export default function CompanyDetailPage(props: {
                       <TableBody>
                         <TableRow title="(Cash + Investments) / Short-term Financial Debt">
                           <TableCell className="text-xs text-slate-600 py-1">Cash / ST Debt</TableCell>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.cashStDebt)}</TableCell>
                           ))}
                         </TableRow>
                         <TableRow title="Cash + Current Investments">
                           <TableCell className="text-xs text-slate-600 py-1">Cash & Investments</TableCell>
-                          {sorted.map((row) => (
+                          {chronological.map((row) => (
                             <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">
                               {fmtEur(((row.cash ?? 0) + (row.current_investments ?? 0)) || null)}
                             </TableCell>
@@ -2097,7 +2286,7 @@ export default function CompanyDetailPage(props: {
                         </TableRow>
                         <TableRow>
                           <TableCell className="text-xs text-slate-600 py-1">ST Financial Debt</TableCell>
-                          {sorted.map((row) => (
+                          {chronological.map((row) => (
                             <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.st_financial_debt)}</TableCell>
                           ))}
                         </TableRow>
@@ -2116,7 +2305,7 @@ export default function CompanyDetailPage(props: {
                       <TableHeader>
                         <TableRow className="bg-slate-50">
                           <TableHead className="text-xs min-w-[160px]">Metric</TableHead>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[90px]">FY{r.fiscal_year}</TableHead>
                           ))}
                         </TableRow>
@@ -2124,13 +2313,13 @@ export default function CompanyDetailPage(props: {
                       <TableBody>
                         <TableRow title="EBITDA / Revenue × 100">
                           <TableCell className="text-xs text-slate-600 py-1">EBITDA Margin</TableCell>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.ebitdaMargin, "%")}</TableCell>
                           ))}
                         </TableRow>
                         <TableRow title="Net Profit / Total Equity × 100">
                           <TableCell className="text-xs text-slate-600 py-1">ROE</TableCell>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.roe, "%")}</TableCell>
                           ))}
                         </TableRow>
@@ -2149,7 +2338,7 @@ export default function CompanyDetailPage(props: {
                       <TableHeader>
                         <TableRow className="bg-slate-50">
                           <TableHead className="text-xs min-w-[160px]">Metric</TableHead>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[90px]">FY{r.fiscal_year}</TableHead>
                           ))}
                         </TableRow>
@@ -2157,19 +2346,19 @@ export default function CompanyDetailPage(props: {
                       <TableBody>
                         <TableRow title="Trade Receivables / Revenue × 365">
                           <TableCell className="text-xs text-slate-600 py-1">DSO (days)</TableCell>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtDays(r.dso)}</TableCell>
                           ))}
                         </TableRow>
                         <TableRow title="Trade Payables / Revenue × 365">
                           <TableCell className="text-xs text-slate-600 py-1">DPO (days)</TableCell>
-                          {ratios.map((r) => (
+                          {chronologicalRatios.map((r) => (
                             <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtDays(r.dpo)}</TableCell>
                           ))}
                         </TableRow>
                         <TableRow title="DSO - DPO (lower is better)">
                           <TableCell className="text-xs text-slate-600 py-1">Cash Conversion (DSO - DPO)</TableCell>
-                          {ratios.map((r) => {
+                          {chronologicalRatios.map((r) => {
                             const ccc = r.dso != null && r.dpo != null ? r.dso - r.dpo : null;
                             return (
                               <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtDays(ccc)}</TableCell>
@@ -2182,7 +2371,7 @@ export default function CompanyDetailPage(props: {
                 </div>
 
                 <p className="text-[10px] text-slate-400 italic">
-                  Thresholds: Net Debt/EBITDA &lt;3x green, 3-5x amber, &gt;5x red. Interest Coverage &gt;3x green, 1.5-3x amber, &lt;1.5x red.
+                  Thresholds: Net Debt/EBITDA &lt;3x green, 3-5x amber, &gt;5x red. Interest Coverage &gt;3x green, 1.5-3x amber, &lt;1.5x red. DSCR &ge;2x green, 1.2-2x amber, &lt;1.2x red.
                 </p>
               </div>
             );
