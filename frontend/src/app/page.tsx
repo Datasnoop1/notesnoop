@@ -50,8 +50,13 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-4">
-      {/* Spacer */}
-      <div />
+      {/* Beta notice */}
+      <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-4 py-3">
+        <p className="text-sm text-slate-600">
+          <span className="font-semibold text-indigo-600">Data Peak is in beta.</span>{" "}
+          We are actively building out our database and adding new features. We appreciate your feedback and tips — use the bug report or suggestion buttons anytime.
+        </p>
+      </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -88,18 +93,6 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Platform Status -- subtle beta indicator */}
-      <div className="bg-slate-100 rounded-lg px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="text-xs text-slate-500">
-            <span className="font-semibold text-slate-700">Data Coverage</span>
-            <span className="ml-2">{kpis?.financial_count?.toLocaleString()} companies with financials</span>
-          </div>
-        </div>
-        <Badge variant="secondary" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
-          Beta
-        </Badge>
-      </div>
 
       {/* Quick Access */}
       <div>
