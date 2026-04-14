@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, DM_Sans } from "next/font/google";
+import { Geist } from "next/font/google";
 import Link from "next/link";
 import Nav from "@/components/nav";
 import AdBanner from "@/components/ad-banner";
 import BrandSurvey from "@/components/brand-survey";
 import CookieBanner from "@/components/cookie-banner";
+import FontSwitcher from "@/components/font-switcher";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans" });
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 
 export const metadata: Metadata = {
   title: "Data Peak — Belgian Company Intelligence",
@@ -19,7 +23,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`}>
+    <html lang="en" className={`${inter.variable} ${dmSans.variable} ${geist.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-slate-50 font-sans">
         <Nav />
         <main className="flex-1">
@@ -30,6 +34,7 @@ export default function RootLayout({
         <AdBanner />
         <BrandSurvey />
         <CookieBanner />
+        <FontSwitcher />
         <footer className="border-t border-slate-200 bg-white py-4 mt-auto">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-xs text-slate-400 space-y-1">
             <div>
