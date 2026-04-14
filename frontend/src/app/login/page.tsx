@@ -64,7 +64,7 @@ export default function LoginPage() {
     setLoading(false);
   }
 
-  async function handleOAuth(provider: "google" | "linkedin_oidc" | "azure") {
+  async function handleOAuth(provider: "google" | "linkedin_oidc") {
     setLoading(true);
     setError(null);
     const { error } = await supabase.auth.signInWithOAuth({
@@ -125,20 +125,6 @@ export default function LoginPage() {
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                   </svg>
                   Continue with Google
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => handleOAuth("azure")}
-                  disabled={loading}
-                >
-                  <svg className="w-5 h-5 mr-2" viewBox="0 0 23 23">
-                    <path fill="#f25022" d="M0 0h11v11H0z"/>
-                    <path fill="#7fba00" d="M12 0h11v11H12z"/>
-                    <path fill="#00a4ef" d="M0 12h11v11H0z"/>
-                    <path fill="#ffb900" d="M12 12h11v11H12z"/>
-                  </svg>
-                  Continue with Microsoft
                 </Button>
                 <Button
                   variant="outline"
