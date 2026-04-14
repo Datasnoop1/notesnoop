@@ -321,6 +321,7 @@ export default function AdminPanel() {
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const [replyText, setReplyText] = useState("");
+  const [userView, setUserView] = useState<"all" | "active">("all");
 
   const loadData = useCallback(async () => {
     try {
@@ -534,7 +535,26 @@ export default function AdminPanel() {
 
   /* ---- Derived data ---- */
 
-  const filteredUsers = users.filter((u) =>
+  // Merge users + activity for the users table
+  const activityMap = useMemo(() => {
+    const map = new Map<string, ActivitySummary>();
+    activity.forEach((a) => map.set(a.user_email, a));
+    return map;
+  }, [activity]);
+
+  // Active users = users who appear in activity_log within the last 7 days
+  const activeUsers = useMemo(() => {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    return users.filter((u) => {
+      const act = activityMap.get(u.email);
+      if (!act) return false;
+      return new Date(act.last_active) > sevenDaysAgo;
+    });
+  }, [users, activityMap]);
+
+  const baseUsers = userView === "active" ? activeUsers : users;
+  const filteredUsers = baseUsers.filter((u) =>
     u.email.toLowerCase().includes(userSearch.toLowerCase())
   );
 
@@ -550,13 +570,6 @@ export default function AdminPanel() {
 
   const activePolls = polls.filter((p) => p.status === "active");
   const archivedPolls = polls.filter((p) => p.status === "archived");
-
-  // Merge users + activity for the users table
-  const activityMap = useMemo(() => {
-    const map = new Map<string, ActivitySummary>();
-    activity.forEach((a) => map.set(a.user_email, a));
-    return map;
-  }, [activity]);
 
   /* ---- Error state ---- */
 
@@ -931,17 +944,34 @@ export default function AdminPanel() {
           <div className="space-y-4 pt-2">
             <div className="flex items-center justify-between">
               <SectionHeading icon={Users}>
-                All Users
-                {!loading && (
-                  <Badge variant="secondary" className="ml-2 font-mono text-[10px]">
-                    {users.length} total &middot; {stats?.daily_active_users ?? 0} active today
-                  </Badge>
-                )}
+                Users
               </SectionHeading>
             </div>
 
-            <div className="mb-3">
-              <div className="relative max-w-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setUserView("all")}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    userView === "all"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  All Users ({users.length})
+                </button>
+                <button
+                  onClick={() => setUserView("active")}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    userView === "active"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  Active 7d ({activeUsers.length})
+                </button>
+              </div>
+              <div className="relative max-w-sm flex-1">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-slate-400" />
                 <Input
                   placeholder="Filter users..."

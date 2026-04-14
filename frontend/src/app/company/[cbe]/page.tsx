@@ -52,6 +52,9 @@ import {
   Calendar,
   UserCheck,
   Newspaper,
+  Loader2,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -298,6 +301,8 @@ export default function CompanyDetailPage(props: {
   const [loading, setLoading] = useState(true);
   const [isFavourite, setIsFavourite] = useState(false);
   const [activeTab, setActiveTab] = useState("summary");
+  const [nbbLoading, setNbbLoading] = useState(false);
+  const [nbbResult, setNbbResult] = useState<"success" | "error" | null>(null);
   const router = useRouter();
 
   useEffect(() => {
@@ -893,17 +898,47 @@ export default function CompanyDetailPage(props: {
               <p className="text-sm text-slate-500 mb-4">No financial data available for this company.</p>
               <Button
                 variant="outline"
+                disabled={nbbLoading}
                 onClick={async () => {
+                  setNbbLoading(true);
+                  setNbbResult(null);
                   try {
-                    await fetch(`/api/companies/${cbe}/load`, { method: "POST" });
+                    const res = await fetch(`/api/companies/${cbe}/load`, { method: "POST" });
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    setNbbResult("success");
                     setTimeout(() => window.location.reload(), 2000);
-                  } catch {}
+                  } catch {
+                    setNbbResult("error");
+                  } finally {
+                    setNbbLoading(false);
+                  }
                 }}
-                className="text-indigo-600 border-indigo-300 hover:bg-indigo-50"
+                className={`text-indigo-600 border-indigo-300 hover:bg-indigo-50 ${nbbLoading ? "opacity-70 cursor-not-allowed" : ""}`}
               >
-                <Download className="w-4 h-4 mr-2" />
-                Load from NBB
+                {nbbLoading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 mr-2" />
+                )}
+                {nbbLoading ? "Loading..." : "Load from NBB"}
               </Button>
+              {nbbLoading && (
+                <p className="mt-3 text-xs text-slate-400 animate-pulse">
+                  Loading financial data from NBB... This may take a minute.
+                </p>
+              )}
+              {nbbResult === "success" && (
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-emerald-600">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Data loaded successfully. Refreshing...
+                </div>
+              )}
+              {nbbResult === "error" && (
+                <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-red-500">
+                  <XCircle className="w-4 h-4" />
+                  Failed to load data. The company may not have filings available.
+                </div>
+              )}
             </div>
           ) : (
             <>
