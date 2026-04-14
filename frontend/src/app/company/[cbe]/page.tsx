@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import React, { useState, useEffect, useCallback, use } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -96,11 +96,13 @@ interface FinancialRow {
   deposit_key: string | null;
   filing_model: string | null;
   revenue: number | null;
+  gross_margin: number | null;
   ebit: number | null;
   da: number | null;
   ebitda: number | null;
   net_profit: number | null;
   equity: number | null;
+  lt_debt: number | null;
   lt_financial_debt: number | null;
   st_financial_debt: number | null;
   cash: number | null;
@@ -941,102 +943,162 @@ export default function CompanyDetailPage(props: {
               )}
             </div>
           ) : (
-            <>
-              {/* Income statement table */}
-              <div className="rounded-lg border">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-slate-50">
-                      <TableHead>FY</TableHead>
-                      <TableHead className="text-right">Revenue</TableHead>
-                      <TableHead className="text-right">EBIT</TableHead>
-                      <TableHead className="text-right">EBITDA</TableHead>
-                      <TableHead className="text-right">Margin %</TableHead>
-                      <TableHead className="text-right">Net Profit</TableHead>
-                      <TableHead className="text-right">Personnel Costs</TableHead>
-                      <TableHead className="text-right">FTE</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {[...financials.summary]
-                      .sort((a, b) => b.fiscal_year - a.fiscal_year)
-                      .map((row) => (
-                        <TableRow key={row.fiscal_year}>
-                          <TableCell className="font-medium text-xs py-1.5">
-                            {row.fiscal_year}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs py-1.5">
-                            {fmtEur(row.revenue)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs py-1.5">
-                            {fmtEur(row.ebit)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs py-1.5">
-                            {fmtEur(row.ebitda)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs py-1.5">
-                            {fmtPct(row.ebitda_margin_pct)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs py-1.5">
-                            {fmtEur(row.net_profit)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs py-1.5">
-                            {fmtEur(row.personnel_costs)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs py-1.5">
-                            {fmtNumber(row.fte_total)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                  </TableBody>
-                </Table>
-              </div>
+            (() => {
+              const sorted = [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year);
 
-              {/* Revenue & EBITDA Chart */}
-              {chartData.length >= 2 && (
-                <Card className="mt-4">
-                  <CardContent className="pt-3 pb-3">
-                    <h3 className="mb-3 text-xs font-semibold text-slate-700">
-                      Revenue & EBITDA trend
-                    </h3>
-                    <ResponsiveContainer width="100%" height={320}>
-                      <LineChart data={chartData}>
-                        <CartesianGrid
-                          strokeDasharray="3 3"
-                          stroke="#e2e8f0"
-                        />
-                        <XAxis
-                          dataKey="fy"
-                          tick={{ fontSize: 12, fill: "#64748b" }}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12, fill: "#64748b" }}
-                          tickFormatter={(v: number) => fmtEur(v)}
-                        />
-                        <Tooltip content={<ChartTooltip />} />
-                        <Legend
-                          wrapperStyle={{ fontSize: "12px" }}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="Revenue"
-                          stroke="#4f46e5"
-                          strokeWidth={2}
-                          dot={{ r: 4, fill: "#4f46e5" }}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="EBITDA"
-                          stroke="#06b6d4"
-                          strokeWidth={2}
-                          dot={{ r: 4, fill: "#06b6d4" }}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-              )}
-            </>
+              // Derive P&L line items per year
+              const pnlData = sorted.map((row) => {
+                const revenue = row.revenue;
+                const grossMargin = row.gross_margin;
+                const costOfSales = revenue != null && grossMargin != null ? -(revenue - grossMargin) : null;
+                const personnel = row.personnel_costs != null ? -Math.abs(row.personnel_costs) : null;
+                const da = row.da != null ? -Math.abs(row.da) : null;
+                const ebit = row.ebit;
+                const otherOpCosts = grossMargin != null && ebit != null
+                  ? -(grossMargin - (ebit) - Math.abs(row.personnel_costs ?? 0) - Math.abs(row.da ?? 0))
+                  : null;
+                const finCharges = row.financial_charges != null ? -Math.abs(row.financial_charges) : null;
+                const pbt = ebit != null && row.financial_charges != null ? ebit - Math.abs(row.financial_charges) : null;
+                const netProfit = row.net_profit;
+                const tax = pbt != null && netProfit != null ? -(pbt - netProfit) : null;
+                return {
+                  fiscal_year: row.fiscal_year,
+                  revenue,
+                  costOfSales,
+                  grossMargin,
+                  personnel,
+                  da,
+                  otherOpCosts: otherOpCosts != null && Math.abs(otherOpCosts) > 0.5 ? otherOpCosts : null,
+                  ebit,
+                  finCharges,
+                  pbt,
+                  tax,
+                  netProfit,
+                  ebitda: row.ebitda,
+                  ebitdaMarginPct: row.ebitda_margin_pct,
+                };
+              });
+
+              // Helper: format accounting cell (costs in parentheses + red)
+              const fmtAcct = (v: number | null, isCost = false) => {
+                if (v == null) return <span className="text-slate-300">{"\u2014"}</span>;
+                if (isCost && v < 0) {
+                  return <span className="text-red-600">({fmtEur(Math.abs(v))})</span>;
+                }
+                if (v < 0) {
+                  return <span className="text-red-600">({fmtEur(Math.abs(v))})</span>;
+                }
+                return <>{fmtEur(v)}</>;
+              };
+
+              type PnlLine = {
+                label: string;
+                key: keyof (typeof pnlData)[0];
+                isCost?: boolean;
+                bold?: boolean;
+                topBorder?: boolean;
+                doubleBorder?: boolean;
+                section?: string;
+                indent?: boolean;
+                isPct?: boolean;
+              };
+
+              const lines: PnlLine[] = [
+                { label: "Revenue", key: "revenue", section: "REVENUE" },
+                { label: "Cost of Sales", key: "costOfSales", isCost: true, indent: true },
+                { label: "Gross Profit", key: "grossMargin", bold: true, topBorder: true },
+                { label: "Personnel Costs", key: "personnel", isCost: true, section: "OPERATING COSTS", indent: true },
+                { label: "Depreciation & Amortization", key: "da", isCost: true, indent: true },
+                { label: "Other Operating Costs", key: "otherOpCosts", isCost: true, indent: true },
+                { label: "EBIT (Operating Profit)", key: "ebit", bold: true, topBorder: true },
+                { label: "Financial Charges", key: "finCharges", isCost: true, section: "FINANCIAL", indent: true },
+                { label: "Profit Before Tax", key: "pbt", bold: true, topBorder: true },
+                { label: "Tax", key: "tax", isCost: true, indent: true },
+                { label: "Net Profit", key: "netProfit", bold: true, doubleBorder: true },
+                { label: "EBITDA", key: "ebitda", bold: true, section: "EBITDA", topBorder: true },
+                { label: "EBITDA Margin", key: "ebitdaMarginPct", isPct: true },
+              ];
+
+              let lastSection = "";
+
+              return (
+                <div>
+                  <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
+                    Income Statement
+                  </h3>
+                  <div className="rounded-lg border overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[240px]">Line Item</th>
+                          {sorted.map((r) => (
+                            <th key={r.fiscal_year} className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[100px]">
+                              FY{r.fiscal_year}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lines.map((line) => {
+                          const showSection = line.section && line.section !== lastSection;
+                          if (line.section) lastSection = line.section;
+                          return (
+                            <React.Fragment key={line.key}>
+                              {showSection && (
+                                <tr>
+                                  <td colSpan={sorted.length + 1} className="px-4 pt-3 pb-1">
+                                    <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
+                                  </td>
+                                </tr>
+                              )}
+                              <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
+                                <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
+                                  {line.label}
+                                </td>
+                                {pnlData.map((r) => (
+                                  <td key={r.fiscal_year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                    {line.isPct
+                                      ? (r[line.key] != null
+                                          ? <span className={`${(r[line.key] as number) >= 15 ? "text-emerald-600" : (r[line.key] as number) >= 5 ? "text-amber-600" : "text-red-600"}`}>{(r[line.key] as number).toFixed(1)}%</span>
+                                          : <span className="text-slate-300">{"\u2014"}</span>)
+                                      : fmtAcct(r[line.key] as number | null, line.isCost)}
+                                  </td>
+                                ))}
+                              </tr>
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-1 text-[10px] text-slate-400 italic">
+                    Gross Profit = rubric 9900. EBIT = rubric 9901. Net Profit = rubric 9904. Cost of Sales = Revenue - Gross Profit. Other Op. Costs = Gross Profit - Personnel - D&A - EBIT.
+                  </p>
+
+                  {/* Revenue & EBITDA Chart */}
+                  {chartData.length >= 2 && (
+                    <Card className="mt-4">
+                      <CardContent className="pt-3 pb-3">
+                        <h3 className="mb-3 text-xs font-semibold text-slate-700">
+                          Revenue & EBITDA trend
+                        </h3>
+                        <ResponsiveContainer width="100%" height={320}>
+                          <LineChart data={chartData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                            <XAxis dataKey="fy" tick={{ fontSize: 12, fill: "#64748b" }} />
+                            <YAxis tick={{ fontSize: 12, fill: "#64748b" }} tickFormatter={(v: number) => fmtEur(v)} />
+                            <Tooltip content={<ChartTooltip />} />
+                            <Legend wrapperStyle={{ fontSize: "12px" }} />
+                            <Line type="monotone" dataKey="Revenue" stroke="#4f46e5" strokeWidth={2} dot={{ r: 4, fill: "#4f46e5" }} />
+                            <Line type="monotone" dataKey="EBITDA" stroke="#06b6d4" strokeWidth={2} dot={{ r: 4, fill: "#06b6d4" }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              );
+            })()
           )}
         </TabsContent>
 
@@ -1061,42 +1123,47 @@ export default function CompanyDetailPage(props: {
 
               const ebitda = row.ebitda;
 
-              // Working capital components
-              const invCurr = row.inventories ?? 0;
-              const invPrev = prev.inventories ?? 0;
-              const recCurr = row.trade_receivables ?? 0;
-              const recPrev = prev.trade_receivables ?? 0;
-              const payCurr = row.trade_payables ?? 0;
-              const payPrev = prev.trade_payables ?? 0;
+              // Working capital deltas (increase in asset = cash outflow = negative)
+              const deltaInv = -((row.inventories ?? 0) - (prev.inventories ?? 0));
+              const deltaRec = -((row.trade_receivables ?? 0) - (prev.trade_receivables ?? 0));
+              const deltaPay = (row.trade_payables ?? 0) - (prev.trade_payables ?? 0);
+              const wcChange = deltaInv + deltaRec + deltaPay;
 
-              const deltaInv = invCurr - invPrev;
-              const deltaRec = recCurr - recPrev;
-              const deltaPay = payCurr - payPrev;
-              // WC change = delta(inv + rec) - delta(pay) -- increase in assets is cash outflow (negative)
-              const wcChange = -((deltaInv + deltaRec) - deltaPay);
+              // Cash from Operations
+              const cashFromOps = ebitda != null ? ebitda + wcChange : null;
 
-              // Operating Cash Flow
-              const ocf = ebitda != null ? ebitda + wcChange : null;
-
-              // CapEx = delta fixed assets + D&A (always negative outflow)
+              // Investing: CapEx estimated as delta fixed assets + D&A
               const capex = -Math.abs((row.fixed_assets ?? 0) - (prev.fixed_assets ?? 0) + Math.abs(row.da ?? 0));
+              const cashFromInvesting = capex;
 
-              // Free Cash Flow
-              const fcf = ocf != null ? ocf + capex : null;
+              // Financing
+              const deltaLtDebt = (row.lt_financial_debt ?? 0) - (prev.lt_financial_debt ?? 0);
+              const deltaStDebt = (row.st_financial_debt ?? 0) - (prev.st_financial_debt ?? 0);
+              const deltaEquity = (row.equity ?? 0) - (prev.equity ?? 0);
+              const cashFromFinancing = deltaLtDebt + deltaStDebt + deltaEquity;
 
-              // Net Debt Change
-              const grossDebtCurr = (row.lt_financial_debt ?? 0) + (row.st_financial_debt ?? 0);
-              const grossDebtPrev = (prev.lt_financial_debt ?? 0) + (prev.st_financial_debt ?? 0);
-              const netDebtChange = grossDebtCurr - grossDebtPrev;
+              // Net cash change
+              const netCashChange = cashFromOps != null ? cashFromOps + cashFromInvesting + cashFromFinancing : null;
+              const cashStart = (prev.cash ?? 0) + (prev.current_investments ?? 0);
+              const cashEnd = (row.cash ?? 0) + (row.current_investments ?? 0);
 
               return {
                 fiscal_year: row.fiscal_year,
                 ebitda,
+                deltaInv: deltaInv !== 0 ? deltaInv : null,
+                deltaRec: deltaRec !== 0 ? deltaRec : null,
+                deltaPay: deltaPay !== 0 ? deltaPay : null,
                 wcChange: wcChange !== 0 ? wcChange : null,
-                ocf,
+                cashFromOps,
                 capex: capex !== 0 ? capex : null,
-                fcf,
-                netDebtChange: netDebtChange !== 0 ? netDebtChange : null,
+                cashFromInvesting,
+                deltaLtDebt: deltaLtDebt !== 0 ? deltaLtDebt : null,
+                deltaStDebt: deltaStDebt !== 0 ? deltaStDebt : null,
+                deltaEquity: deltaEquity !== 0 ? deltaEquity : null,
+                cashFromFinancing: cashFromFinancing !== 0 ? cashFromFinancing : null,
+                netCashChange,
+                cashStart: cashStart || null,
+                cashEnd: cashEnd || null,
               };
             });
 
@@ -1106,57 +1173,79 @@ export default function CompanyDetailPage(props: {
               bold?: boolean;
               indent?: boolean;
               topBorder?: boolean;
+              doubleBorder?: boolean;
+              section?: string;
             };
 
             const lines: CFLine[] = [
-              { label: "EBITDA", key: "ebitda", bold: true },
-              { label: "Change in Working Capital", key: "wcChange", indent: true },
-              { label: "Operating Cash Flow", key: "ocf", bold: true, topBorder: true },
-              { label: "CapEx (est.)", key: "capex", indent: true },
-              { label: "Free Cash Flow", key: "fcf", bold: true, topBorder: true },
-              { label: "Net Debt Change", key: "netDebtChange", indent: true },
+              { label: "EBITDA", key: "ebitda", section: "OPERATING ACTIVITIES" },
+              { label: "\u0394 Inventories", key: "deltaInv", indent: true },
+              { label: "\u0394 Trade Receivables", key: "deltaRec", indent: true },
+              { label: "\u0394 Trade Payables", key: "deltaPay", indent: true },
+              { label: "Change in Working Capital", key: "wcChange", bold: true, topBorder: true },
+              { label: "Cash from Operations", key: "cashFromOps", bold: true, topBorder: true },
+              { label: "CapEx (est.: \u0394 Fixed Assets + D&A)", key: "capex", indent: true, section: "INVESTING ACTIVITIES" },
+              { label: "Cash from Investing", key: "cashFromInvesting", bold: true, topBorder: true },
+              { label: "\u0394 Long-term Debt", key: "deltaLtDebt", indent: true, section: "FINANCING ACTIVITIES" },
+              { label: "\u0394 Short-term Debt", key: "deltaStDebt", indent: true },
+              { label: "\u0394 Equity", key: "deltaEquity", indent: true },
+              { label: "Cash from Financing", key: "cashFromFinancing", bold: true, topBorder: true },
+              { label: "NET CASH CHANGE", key: "netCashChange", bold: true, doubleBorder: true },
+              { label: "Cash at Start of Year", key: "cashStart", indent: true },
+              { label: "Cash at End of Year", key: "cashEnd", indent: true },
             ];
+
+            let lastSection = "";
 
             return (
               <div>
                 <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-cyan-500 pl-2">
-                  Derived Cash Flow
+                  Derived Cash Flow Statement
                 </h3>
                 <div className="rounded-lg border overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs min-w-[220px]">Line Item</TableHead>
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[260px]">Line Item</th>
                         {cfRows.map((r) => (
-                          <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[100px]">
+                          <th key={r.fiscal_year} className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[100px]">
                             FY{r.fiscal_year}
-                          </TableHead>
+                          </th>
                         ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {lines.map((line) => (
-                        <TableRow key={line.key} className={line.topBorder ? "border-t-2 border-slate-300" : ""}>
-                          <TableCell className={`text-xs py-1 ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
-                            {line.indent ? <span className="text-slate-300 mr-1">{line.key === "netDebtChange" ? "\u2514" : "\u2514"}</span> : null}
-                            {line.label}
-                          </TableCell>
-                          {cfRows.map((r) => (
-                            <TableCell
-                              key={r.fiscal_year}
-                              className={`text-right font-mono text-xs py-1 ${line.bold ? "font-bold" : ""}`}
-                            >
-                              {fmtCell(r[line.key] as number | null)}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lines.map((line) => {
+                        const showSection = line.section && line.section !== lastSection;
+                        if (line.section) lastSection = line.section;
+                        return (
+                          <React.Fragment key={line.key}>
+                            {showSection && (
+                              <tr>
+                                <td colSpan={cfRows.length + 1} className="px-4 pt-3 pb-1">
+                                  <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
+                                </td>
+                              </tr>
+                            )}
+                            <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
+                              <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
+                                {line.label}
+                              </td>
+                              {cfRows.map((r) => (
+                                <td key={r.fiscal_year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                  {fmtCell(r[line.key] as number | null)}
+                                </td>
+                              ))}
+                            </tr>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
                 <p className="mt-1 text-[10px] text-slate-400 italic">
-                  Working capital = inventories + trade receivables - trade payables. Increase in WC is a cash outflow (shown negative).
-                  CapEx estimated as delta fixed assets + D&A. Free Cash Flow = Operating Cash Flow + CapEx.
+                  All values derived. WC: increase in assets = cash outflow (negative), increase in payables = cash inflow (positive).
+                  CapEx estimated as |delta fixed assets + D&A|. Cash = cash + short-term investments.
                 </p>
               </div>
             );
@@ -1188,68 +1277,83 @@ export default function CompanyDetailPage(props: {
               const tradeReceivables = row.trade_receivables ?? null;
               const cash = row.cash ?? null;
               const currentInvestments = row.current_investments ?? null;
-              const cashAndInv = cash != null || currentInvestments != null ? (cash ?? 0) + (currentInvestments ?? 0) : null;
-              const knownCurrentItems = (inventories ?? 0) + (tradeReceivables ?? 0) + (cashAndInv ?? 0);
-              const otherCurrentAssets = currentAssets != null ? currentAssets - knownCurrentItems : null;
+              const otherCurrentAssets = currentAssets != null
+                ? currentAssets - (inventories ?? 0) - (tradeReceivables ?? 0) - (cash ?? 0) - (currentInvestments ?? 0)
+                : null;
 
               const equity = row.equity ?? null;
-              const ltDebt = row.lt_financial_debt ?? null;
+              const ltDebt = row.lt_debt ?? null;
+              const ltFinDebt = row.lt_financial_debt ?? null;
+              const totalLE = totalAssets; // must balance
+              const totalNonCurrentLiab = ltDebt;
+              const totalCurrentLiab = totalLE != null && equity != null && ltDebt != null
+                ? totalLE - equity - ltDebt
+                : null;
               const stFinDebt = row.st_financial_debt ?? null;
               const tradePayables = row.trade_payables ?? null;
-              // Short-term debt (total) = Total L&E - Equity - LT Debt
-              const totalLE = totalAssets; // must balance
-              const stDebtTotal = totalLE != null && equity != null && ltDebt != null
-                ? totalLE - equity - ltDebt
+              const otherCurrentLiab = totalCurrentLiab != null
+                ? totalCurrentLiab - (stFinDebt ?? 0) - (tradePayables ?? 0)
                 : null;
 
               return {
                 fiscal_year: row.fiscal_year,
                 fixedAssets,
+                totalNonCurrentAssets: fixedAssets,
                 currentAssets,
                 inventories,
                 tradeReceivables,
-                cashAndInv,
+                cash,
+                currentInvestments,
                 otherCurrentAssets: otherCurrentAssets != null && Math.abs(otherCurrentAssets) > 0.5 ? otherCurrentAssets : null,
+                totalCurrentAssets: currentAssets,
                 totalAssets,
                 equity,
                 ltDebt,
-                ltFinDebt: ltDebt, // rubric 170/4
-                stDebtTotal,
-                stFinDebt,
+                ltFinDebt,
+                totalNonCurrentLiab,
                 tradePayables,
+                stFinDebt,
+                otherCurrentLiab: otherCurrentLiab != null && Math.abs(otherCurrentLiab) > 0.5 ? otherCurrentLiab : null,
+                totalCurrentLiab,
                 totalLE: totalAssets,
               };
             });
 
-            // Row definition: { label, key, bold?, indent?, separator? }
             type BSLine = {
               label: string;
               key: keyof (typeof bsRows)[0];
               bold?: boolean;
               indent?: boolean;
               topBorder?: boolean;
-              sectionHeader?: boolean;
+              doubleBorder?: boolean;
+              section?: string;
+              subIndent?: boolean;
             };
 
-            const assetLines: BSLine[] = [
-              { label: "Fixed Assets (20/28)", key: "fixedAssets", indent: false },
-              { label: "Current Assets", key: "currentAssets", indent: false },
-              { label: "Inventories (3)", key: "inventories", indent: true },
+            const lines: BSLine[] = [
+              // ASSETS
+              { label: "Tangible Fixed Assets", key: "fixedAssets", indent: true, section: "NON-CURRENT ASSETS" },
+              { label: "Total Non-Current Assets (20/28)", key: "totalNonCurrentAssets", bold: true, topBorder: true },
+              { label: "Inventories (3)", key: "inventories", indent: true, section: "CURRENT ASSETS" },
               { label: "Trade Receivables (40/41)", key: "tradeReceivables", indent: true },
-              { label: "Cash & Short-term Inv. (50/58)", key: "cashAndInv", indent: true },
+              { label: "Cash & Cash Equivalents (54/58)", key: "cash", indent: true },
+              { label: "Short-term Investments (50/53)", key: "currentInvestments", indent: true },
               { label: "Other Current Assets", key: "otherCurrentAssets", indent: true },
-              { label: "Total Assets (20/58)", key: "totalAssets", bold: true, topBorder: true },
+              { label: "Total Current Assets", key: "totalCurrentAssets", bold: true, topBorder: true },
+              { label: "TOTAL ASSETS (20/58)", key: "totalAssets", bold: true, doubleBorder: true },
+              // EQUITY & LIABILITIES
+              { label: "Total Equity (10/15)", key: "equity", bold: true, section: "EQUITY" },
+              { label: "Long-term Debt (17)", key: "ltDebt", indent: true, section: "NON-CURRENT LIABILITIES" },
+              { label: "of which: Financial Debt (170/4)", key: "ltFinDebt", subIndent: true },
+              { label: "Total Non-Current Liabilities", key: "totalNonCurrentLiab", bold: true, topBorder: true },
+              { label: "Trade Payables (44)", key: "tradePayables", indent: true, section: "CURRENT LIABILITIES" },
+              { label: "Short-term Financial Debt (43)", key: "stFinDebt", indent: true },
+              { label: "Other Current Liabilities", key: "otherCurrentLiab", indent: true },
+              { label: "Total Current Liabilities", key: "totalCurrentLiab", bold: true, topBorder: true },
+              { label: "TOTAL EQUITY + LIABILITIES", key: "totalLE", bold: true, doubleBorder: true },
             ];
 
-            const liabLines: BSLine[] = [
-              { label: "Equity (10/15)", key: "equity", indent: false },
-              { label: "Long-term Debt (17)", key: "ltDebt", indent: false },
-              { label: "of which: Financial Debt (170/4)", key: "ltFinDebt", indent: true },
-              { label: "Short-term Debt", key: "stDebtTotal", indent: false },
-              { label: "of which: Financial Debt (43)", key: "stFinDebt", indent: true },
-              { label: "Trade Payables (44)", key: "tradePayables", indent: true },
-              { label: "Total Liabilities + Equity", key: "totalLE", bold: true, topBorder: true },
-            ];
+            let lastSection = "";
 
             return (
               <div>
@@ -1257,67 +1361,48 @@ export default function CompanyDetailPage(props: {
                   Balance Sheet
                 </h3>
                 <div className="rounded-lg border overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-slate-50">
-                        <TableHead className="text-xs min-w-[220px]">Line Item</TableHead>
-                        {bsRows.map((r) => (
-                          <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[100px]">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[260px]">Line Item</th>
+                        {sorted.map((r) => (
+                          <th key={r.fiscal_year} className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[100px]">
                             FY{r.fiscal_year}
-                          </TableHead>
+                          </th>
                         ))}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {/* Assets section header */}
-                      <TableRow className="bg-slate-50/50">
-                        <TableCell className="text-xs font-bold text-slate-700 py-1" colSpan={bsRows.length + 1}>
-                          Assets
-                        </TableCell>
-                      </TableRow>
-                      {assetLines.map((line) => (
-                        <TableRow key={line.key} className={line.topBorder ? "border-t-2 border-slate-300" : ""}>
-                          <TableCell className={`text-xs py-1 ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
-                            {line.indent && !line.bold ? <span className="text-slate-300 mr-1">{"\u2514"}</span> : null}
-                            {line.label}
-                          </TableCell>
-                          {bsRows.map((r) => (
-                            <TableCell
-                              key={r.fiscal_year}
-                              className={`text-right font-mono text-xs py-1 ${line.bold ? "font-bold" : ""}`}
-                            >
-                              {fmtCell(r[line.key] as number | null)}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))}
-                      {/* Liabilities & Equity section header */}
-                      <TableRow className="bg-slate-50/50">
-                        <TableCell className="text-xs font-bold text-slate-700 py-1 pt-3" colSpan={bsRows.length + 1}>
-                          Liabilities & Equity
-                        </TableCell>
-                      </TableRow>
-                      {liabLines.map((line) => (
-                        <TableRow key={line.key + "_liab"} className={line.topBorder ? "border-t-2 border-slate-300" : ""}>
-                          <TableCell className={`text-xs py-1 ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
-                            {line.indent && !line.bold ? <span className="text-slate-300 mr-1">{"\u2514"}</span> : null}
-                            {line.label}
-                          </TableCell>
-                          {bsRows.map((r) => (
-                            <TableCell
-                              key={r.fiscal_year}
-                              className={`text-right font-mono text-xs py-1 ${line.bold ? "font-bold" : ""}`}
-                            >
-                              {fmtCell(r[line.key] as number | null)}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lines.map((line) => {
+                        const showSection = line.section && line.section !== lastSection;
+                        if (line.section) lastSection = line.section;
+                        return (
+                          <React.Fragment key={line.key + (line.section || "")}>
+                            {showSection && (
+                              <tr>
+                                <td colSpan={sorted.length + 1} className="px-4 pt-3 pb-1">
+                                  <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
+                                </td>
+                              </tr>
+                            )}
+                            <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
+                              <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""} ${line.subIndent ? "pl-12 text-slate-400 italic" : ""}`}>
+                                {line.label}
+                              </td>
+                              {bsRows.map((r) => (
+                                <td key={r.fiscal_year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                  {fmtCell(r[line.key] as number | null)}
+                                </td>
+                              ))}
+                            </tr>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
                 <p className="mt-1 text-[10px] text-slate-400 italic">
-                  Rubric references in parentheses per Belgian GAAP. Short-term debt = Total L&E - Equity - LT Debt. Other Current Assets = Current Assets - Inventories - Receivables - Cash.
+                  Rubric references in parentheses per Belgian GAAP. Current Liabilities = Total - Equity - LT Debt. Other items are residual calculations.
                 </p>
               </div>
             );
@@ -1985,68 +2070,83 @@ export default function CompanyDetailPage(props: {
               No Staatsblad publications available.
             </p>
           ) : (
-            <div className="space-y-2">
-              {structure.staatsblad_publications.map((pub, i) => {
-                const typeInfo = pub.pub_type
-                  ? PUB_TYPE_MAP[pub.pub_type.toUpperCase()] ??
-                    Object.entries(PUB_TYPE_MAP).find(([key]) =>
-                      pub.pub_type!.toUpperCase().includes(key)
-                    )?.[1] ??
-                    null
-                  : null;
+            <div>
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-slate-400 pl-2">
+                Staatsblad Publications ({structure.staatsblad_publications.length})
+              </h3>
+              <div className="rounded-lg border overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[90px]">Date</th>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[90px]">Type</th>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider">Summary</th>
+                      <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[100px]">Reference</th>
+                      <th className="px-3 py-1.5 text-center text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[40px]">PDF</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {structure.staatsblad_publications.slice(0, 50).map((pub, i) => {
+                      const typeInfo = pub.pub_type
+                        ? PUB_TYPE_MAP[pub.pub_type.toUpperCase()] ??
+                          Object.entries(PUB_TYPE_MAP).find(([key]) =>
+                            pub.pub_type!.toUpperCase().includes(key)
+                          )?.[1] ??
+                          null
+                        : null;
 
-                return (
-                  <Card key={`${pub.pub_date}-${i}`}>
-                    <CardContent className="p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-semibold text-slate-900">
-                              {pub.pub_date}
-                            </span>
+                      return (
+                        <tr key={`${pub.pub_date}-${i}`} className="border-t border-slate-100 hover:bg-slate-50/50">
+                          <td className="px-3 py-1 text-xs font-mono text-slate-600">{pub.pub_date}</td>
+                          <td className="px-3 py-1">
                             {typeInfo ? (
-                              <span
-                                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${typeInfo.color}`}
-                              >
+                              <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${typeInfo.color}`}>
                                 {typeInfo.label}
                               </span>
                             ) : pub.pub_type ? (
-                              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-slate-100 text-slate-600">
-                                {pub.pub_type}
+                              <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold bg-slate-100 text-slate-500">
+                                {pub.pub_type.length > 15 ? pub.pub_type.slice(0, 15) + "..." : pub.pub_type}
                               </span>
                             ) : null}
-                          </div>
-                          <p className="mt-1 text-sm text-slate-600">
+                          </td>
+                          <td className="px-3 py-1 text-xs text-slate-600 truncate max-w-[300px]">
                             {typeInfo
                               ? typeInfo.summary
                               : pub.pub_type ?? "Publication in the Belgian Official Gazette"}
-                          </p>
-                          {pub.reference && (
-                            <p className="mt-0.5 text-xs text-slate-400">
-                              Ref: {pub.reference}
-                            </p>
-                          )}
-                        </div>
-                        {pub.pdf_url && (
-                          <a
-                            href={
-                              pub.pdf_url.startsWith("http")
-                                ? pub.pdf_url
-                                : `https://www.ejustice.just.fgov.be${pub.pdf_url}`
-                            }
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 shrink-0 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-100 transition-colors"
-                          >
-                            View PDF
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              })}
+                          </td>
+                          <td className="px-3 py-1 text-xs font-mono text-slate-400">
+                            {pub.reference ? `#${pub.reference}` : "\u2014"}
+                          </td>
+                          <td className="px-3 py-1 text-center">
+                            {pub.pdf_url ? (
+                              <a
+                                href={
+                                  pub.pdf_url.startsWith("http")
+                                    ? pub.pdf_url
+                                    : `https://www.ejustice.just.fgov.be${pub.pdf_url}`
+                                }
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center justify-center h-6 w-6 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition-colors"
+                                title="View PDF"
+                              >
+                                <FileText className="h-3.5 w-3.5" />
+                              </a>
+                            ) : (
+                              <span className="text-slate-200">{"\u2014"}</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {structure.staatsblad_publications.length > 50 && (
+                <p className="mt-1 text-[10px] text-slate-400 italic">
+                  Showing 50 of {structure.staatsblad_publications.length} publications.
+                </p>
+              )}
             </div>
           )}
         </TabsContent>

@@ -474,8 +474,8 @@ async def get_company_financials(cbe: str):
     try:
         hist = fetch_all("""
             SELECT fiscal_year, deposit_key, filing_model,
-                   revenue, ebit, da, ebitda, net_profit,
-                   equity, lt_financial_debt, st_financial_debt, cash, total_assets,
+                   revenue, gross_margin, ebit, da, ebitda, net_profit,
+                   equity, lt_debt, lt_financial_debt, st_financial_debt, cash, total_assets,
                    fixed_assets, inventories, trade_receivables, trade_payables,
                    financial_charges, fte_total, personnel_costs, current_investments,
                    CASE WHEN revenue > 0
