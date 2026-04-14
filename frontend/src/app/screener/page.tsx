@@ -1014,7 +1014,7 @@ export default function ScreenerPage() {
                     <div className="leading-tight">
                       <Link
                         href={`/company/${row.cbe}`}
-                        className="text-sm font-semibold text-indigo-700 hover:text-indigo-900 hover:underline decoration-indigo-300 underline-offset-2 truncate block max-w-[260px]"
+                        className="text-sm font-semibold text-slate-800 hover:text-indigo-600 hover:underline decoration-indigo-200 underline-offset-2 truncate block max-w-[260px]"
                         title={row.name}
                       >
                         {row.name || fmtCbe(row.cbe)}
