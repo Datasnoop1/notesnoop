@@ -567,45 +567,6 @@ export default function CompanyDetailPage(props: {
         </div>
 
         {/* KPI cards */}
-        {(() => {
-          const latest = financials?.summary?.length
-            ? [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year)[0]
-            : null;
-          if (!latest) return null;
-
-          const marginVal = latest.ebitda_margin_pct;
-          const marginColor =
-            marginVal == null
-              ? "text-slate-900"
-              : marginVal >= 15
-                ? "text-emerald-600"
-                : marginVal >= 5
-                  ? "text-amber-600"
-                  : marginVal < 0
-                    ? "text-rose-400"
-                    : "text-slate-900";
-
-          return (
-            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="rounded-xl border border-slate-100 bg-white p-3">
-                <div className="text-xs text-slate-400 mb-1">Revenue <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
-                <div className="text-lg font-semibold text-slate-900 font-mono tracking-tight">{fmtEur(latest.revenue)}</div>
-              </div>
-              <div className="rounded-xl border border-slate-100 bg-white p-3">
-                <div className="text-xs text-slate-400 mb-1">EBITDA <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
-                <div className="text-lg font-semibold text-slate-900 font-mono tracking-tight">{fmtEur(latest.ebitda)}</div>
-              </div>
-              <div className="rounded-xl border border-slate-100 bg-white p-3">
-                <div className="text-xs text-slate-400 mb-1">Margin <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
-                <div className={`text-lg font-semibold font-mono tracking-tight ${marginColor}`}>{fmtPct(latest.ebitda_margin_pct)}</div>
-              </div>
-              <div className="rounded-xl border border-slate-100 bg-white p-3">
-                <div className="text-xs text-slate-400 mb-1">FTE <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
-                <div className="text-lg font-semibold text-slate-900 font-mono tracking-tight">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</div>
-              </div>
-            </div>
-          );
-        })()}
       </div>
 
       {/* Tabs */}
