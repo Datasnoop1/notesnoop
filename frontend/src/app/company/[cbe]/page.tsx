@@ -847,12 +847,14 @@ export default function CompanyDetailPage(props: {
                             <div className="min-w-0 flex-1">
                               <div className="text-sm text-slate-800 font-medium truncate">{sh.name}</div>
                               <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                                {sh.ownership_pct != null && <span className="font-mono font-medium text-slate-600">{sh.ownership_pct.toFixed(1)}%</span>}
                                 <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-slate-200">
                                   {sh.shareholder_type === "entity" || sh.shareholder_type === "Entity" ? "Entity" : "Individual"}
                                 </Badge>
                               </div>
                             </div>
+                            {sh.ownership_pct != null && (
+                              <span className="text-xs font-semibold font-mono text-indigo-600 shrink-0">{sh.ownership_pct.toFixed(1)}%</span>
+                            )}
                           </div>
                         ))}
                         {structure.shareholders.length > 5 && (
@@ -891,10 +893,12 @@ export default function CompanyDetailPage(props: {
                             <div className="min-w-0 flex-1">
                               <div className="text-sm text-slate-800 font-medium truncate">{sub.name}</div>
                               <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                                {sub.ownership_pct != null && <span className="font-mono font-medium text-slate-600">{sub.ownership_pct.toFixed(1)}%</span>}
                                 {sub.country && <span>{sub.country}</span>}
                               </div>
                             </div>
+                            {sub.ownership_pct != null && (
+                              <span className="text-xs font-semibold font-mono text-indigo-600 shrink-0">{sub.ownership_pct.toFixed(1)}%</span>
+                            )}
                           </div>
                         ))}
                         {structure.participating_interests.length > 5 && (
