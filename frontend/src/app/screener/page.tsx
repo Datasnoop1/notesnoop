@@ -25,6 +25,9 @@ import {
   ChevronUp,
   ChevronDown,
   TrendingUp,
+  Save,
+  FolderOpen,
+  Trash2,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -297,6 +300,23 @@ function HoverCard({ row }: { row: ScreenerRow }) {
 /*  Main component                                                     */
 /* ------------------------------------------------------------------ */
 
+interface FilterPreset {
+  name: string;
+  filters: Filters;
+  unit: string;
+}
+
+const PRESETS_KEY = "datapeak_screener_presets";
+
+function loadPresets(): FilterPreset[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || "[]"); } catch { return []; }
+}
+
+function savePresets(presets: FilterPreset[]) {
+  localStorage.setItem(PRESETS_KEY, JSON.stringify(presets));
+}
+
 export default function ScreenerPage() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [results, setResults] = useState<ScreenerRow[]>([]);
@@ -305,6 +325,12 @@ export default function ScreenerPage() {
   const [unit, setUnit] = useState<FinancialUnit>("M");
   const [hoveredCbe, setHoveredCbe] = useState<string | null>(null);
   const [nameSearch, setNameSearch] = useState("");
+  const [presets, setPresets] = useState<FilterPreset[]>([]);
+  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [presetName, setPresetName] = useState("");
+  const [showPresetMenu, setShowPresetMenu] = useState(false);
+
+  useEffect(() => { setPresets(loadPresets()); }, []);
 
   /* NACE autocomplete */
   const [naceSuggestions, setNaceSuggestions] = useState<NaceSuggestion[]>([]);
@@ -495,14 +521,101 @@ export default function ScreenerPage() {
             )}
           </div>
 
-          {/* Reset */}
-          <button
-            onClick={resetFilters}
-            className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
-          >
-            <RotateCcw className="w-3 h-3" />
-            Reset all
-          </button>
+          {/* Reset + Save/Load */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={resetFilters}
+              className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset
+            </button>
+            <button
+              onClick={() => setShowSaveInput(!showSaveInput)}
+              className="flex items-center gap-1 text-[11px] text-indigo-500 hover:text-indigo-700 transition-colors"
+            >
+              <Save className="w-3 h-3" />
+              Save
+            </button>
+            {presets.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowPresetMenu(!showPresetMenu)}
+                  className="flex items-center gap-1 text-[11px] text-indigo-500 hover:text-indigo-700 transition-colors"
+                >
+                  <FolderOpen className="w-3 h-3" />
+                  Load
+                </button>
+                {showPresetMenu && (
+                  <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg border shadow-lg z-50 py-1">
+                    {presets.map((p, i) => (
+                      <div key={i} className="flex items-center justify-between px-2 py-1 hover:bg-slate-50 group">
+                        <button
+                          className="text-[11px] text-slate-700 truncate flex-1 text-left"
+                          onClick={() => {
+                            setFilters(p.filters);
+                            setUnit(p.unit as FinancialUnit);
+                            doFetch(p.filters);
+                            setShowPresetMenu(false);
+                          }}
+                        >
+                          {p.name}
+                        </button>
+                        <button
+                          className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity ml-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const next = presets.filter((_, j) => j !== i);
+                            setPresets(next);
+                            savePresets(next);
+                            if (next.length === 0) setShowPresetMenu(false);
+                          }}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Save preset input */}
+          {showSaveInput && (
+            <div className="flex gap-1">
+              <Input
+                className="h-6 text-[11px] flex-1"
+                placeholder="Preset name..."
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && presetName.trim()) {
+                    const next = [...presets, { name: presetName.trim(), filters, unit }];
+                    setPresets(next);
+                    savePresets(next);
+                    setPresetName("");
+                    setShowSaveInput(false);
+                  }
+                }}
+                autoFocus
+              />
+              <button
+                onClick={() => {
+                  if (presetName.trim()) {
+                    const next = [...presets, { name: presetName.trim(), filters, unit }];
+                    setPresets(next);
+                    savePresets(next);
+                    setPresetName("");
+                    setShowSaveInput(false);
+                  }
+                }}
+                className="text-[10px] text-indigo-600 font-medium px-2 hover:bg-indigo-50 rounded"
+              >
+                OK
+              </button>
+            </div>
+          )}
 
           {/* NACE */}
           <div className="space-y-1" ref={naceContainerRef}>
