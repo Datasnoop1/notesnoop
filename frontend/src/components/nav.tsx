@@ -22,7 +22,6 @@ import FeedbackButtons from "@/components/feedback-buttons";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 const NAV_ITEMS = [
-  { label: "Home", href: "/" },
   { label: "Screener", href: "/screener" },
   { label: "Company", href: "/company" },
   { label: "Compare", href: "/compare" },
