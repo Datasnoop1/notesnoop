@@ -130,6 +130,15 @@
   }
 }
 
+/* Hide scrollbar for horizontal tab navigation on mobile */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* Copy protection: prevent selection on financial data tables */
 [data-protected] table,
 [data-protected] .font-mono {

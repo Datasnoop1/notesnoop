@@ -646,10 +646,10 @@ export default function CompanyDetailPage(props: {
               size="sm"
               onClick={toggleFavourite}
               title={isFavourite ? "Remove from favourites" : "Add to favourites"}
-              className="h-7 w-7 p-0 text-slate-400 hover:text-yellow-500 border-slate-200"
+              className="h-9 w-9 md:h-7 md:w-7 p-0 text-slate-400 hover:text-yellow-500 border-slate-200"
             >
               <Star
-                className={`h-3.5 w-3.5 ${
+                className={`h-4 w-4 md:h-3.5 md:w-3.5 ${
                   isFavourite
                     ? "fill-yellow-400 text-yellow-500"
                     : ""
@@ -667,9 +667,9 @@ export default function CompanyDetailPage(props: {
                 }
                 router.push("/compare");
               }}
-              className="h-7 text-[11px] text-slate-500 border-slate-200 hover:border-slate-300 px-2"
+              className="h-9 md:h-7 text-[11px] text-slate-500 border-slate-200 hover:border-slate-300 px-2.5 md:px-2"
             >
-              <Scale className="w-3 h-3 mr-1" />
+              <Scale className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
               Compare
             </Button>
           </div>
@@ -731,35 +731,35 @@ export default function CompanyDetailPage(props: {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList variant="line" className="border-b border-slate-100 gap-0 flex-wrap">
-          <TabsTrigger value="summary" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
+        <TabsList variant="line" className="border-b border-slate-100 gap-0 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap">
+          <TabsTrigger value="summary" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Summary
           </TabsTrigger>
-          <TabsTrigger value="pnl" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
+          <TabsTrigger value="pnl" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             P&L
           </TabsTrigger>
-          <TabsTrigger value="cashflow" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
+          <TabsTrigger value="cashflow" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Cash Flow
           </TabsTrigger>
-          <TabsTrigger value="balancesheet" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
+          <TabsTrigger value="balancesheet" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Balance Sheet
           </TabsTrigger>
-          <TabsTrigger value="credit" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
+          <TabsTrigger value="credit" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Credit
           </TabsTrigger>
-          <TabsTrigger value="administrators" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
+          <TabsTrigger value="administrators" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Administrators
           </TabsTrigger>
-          <TabsTrigger value="structure" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
+          <TabsTrigger value="structure" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Structure
           </TabsTrigger>
-          <TabsTrigger value="network" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
+          <TabsTrigger value="network" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Network
           </TabsTrigger>
-          <TabsTrigger value="publications" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
+          <TabsTrigger value="publications" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Publications
           </TabsTrigger>
-          <TabsTrigger value="sector" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2 data-active:text-indigo-600 data-active:after:bg-indigo-600">
+          <TabsTrigger value="sector" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Sector
           </TabsTrigger>
         </TabsList>
@@ -1455,7 +1455,7 @@ export default function CompanyDetailPage(props: {
                 <div className="space-y-4">
                   {/* ── Core Metrics Summary ── */}
                   {latestPnl && (
-                    <div className="grid grid-cols-3 lg:grid-cols-9 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-2">
                       {[
                         { label: "Revenue", value: fmtEur(latestPnl.revenue), sub: growthPill(revGrowth), icon: <DollarSign className="h-3 w-3" /> },
                         { label: "Rev. Growth", value: revGrowth != null ? `${revGrowth > 0 ? "+" : ""}${revGrowth.toFixed(1)}%` : "—", sub: null, icon: <TrendingUp className="h-3 w-3" /> },
@@ -1501,7 +1501,7 @@ export default function CompanyDetailPage(props: {
                     <table className="w-full">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200">
-                          <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[240px]">Line Item</th>
+                          <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[240px]">Line Item</th>
                           {renderDeltaHeaders(chronological.map(r => r.fiscal_year))}
                         </tr>
                       </thead>
@@ -1701,7 +1701,7 @@ export default function CompanyDetailPage(props: {
                   <table className="w-full">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[260px]">Line Item</th>
+                        <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[260px]">Line Item</th>
                         {renderDeltaHeaders(cfRows.map(r => r.fiscal_year))}
                       </tr>
                     </thead>
@@ -1905,7 +1905,7 @@ export default function CompanyDetailPage(props: {
                   <table className="w-full">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[260px]">Line Item</th>
+                        <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[260px]">Line Item</th>
                         {renderDeltaHeaders(chronological.map(r => r.fiscal_year))}
                       </tr>
                     </thead>
