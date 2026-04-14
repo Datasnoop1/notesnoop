@@ -35,6 +35,7 @@ import {
   ArrowLeft,
   ExternalLink,
   ChevronDown,
+  ChevronRight,
   TrendingUp,
   Users,
   Network,
@@ -47,6 +48,11 @@ import {
   Factory,
   Globe,
   Calendar,
+  LayoutDashboard,
+  DollarSign,
+  Wallet,
+  ArrowDownUp,
+  Landmark,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -292,7 +298,7 @@ export default function CompanyDetailPage(props: {
   const [structure, setStructure] = useState<StructureData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isFavourite, setIsFavourite] = useState(false);
-  const [activeTab, setActiveTab] = useState("financials");
+  const [activeTab, setActiveTab] = useState("summary");
 
   useEffect(() => {
     setLoading(true);
@@ -532,9 +538,25 @@ export default function CompanyDetailPage(props: {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
-          <TabsTrigger value="financials">
+          <TabsTrigger value="summary">
+            <LayoutDashboard className="w-4 h-4 mr-1.5" />
+            Summary
+          </TabsTrigger>
+          <TabsTrigger value="pnl">
             <TrendingUp className="w-4 h-4 mr-1.5" />
-            Financials
+            P&L
+          </TabsTrigger>
+          <TabsTrigger value="cashflow">
+            <ArrowDownUp className="w-4 h-4 mr-1.5" />
+            Cash Flow
+          </TabsTrigger>
+          <TabsTrigger value="balancesheet">
+            <Landmark className="w-4 h-4 mr-1.5" />
+            Balance Sheet
+          </TabsTrigger>
+          <TabsTrigger value="credit">
+            <Shield className="w-4 h-4 mr-1.5" />
+            Credit
           </TabsTrigger>
           <TabsTrigger value="administrators">
             <Users className="w-4 h-4 mr-1.5" />
@@ -548,18 +570,263 @@ export default function CompanyDetailPage(props: {
             <GitBranch className="w-4 h-4 mr-1.5" />
             Network
           </TabsTrigger>
-          <TabsTrigger value="credit">
-            <Shield className="w-4 h-4 mr-1.5" />
-            Credit
-          </TabsTrigger>
           <TabsTrigger value="publications">
             <FileText className="w-4 h-4 mr-1.5" />
             Publications
           </TabsTrigger>
         </TabsList>
 
-        {/* ===== Financials tab ===== */}
-        <TabsContent value="financials" className="mt-3">
+        {/* ===== Summary tab ===== */}
+        <TabsContent value="summary" className="mt-3">
+          {(() => {
+            const latest = financials?.summary?.length
+              ? [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year)[0]
+              : null;
+
+            const currentAdmins = (structure?.administrators || []).filter(
+              (a) => !a.mandate_end || a.mandate_end === "" || new Date(a.mandate_end) > new Date()
+            );
+
+            const hasFinancials = !!latest;
+            const hasCredit = hasFinancials;
+            const hasAdmins = currentAdmins.length > 0;
+            const hasShareholders = (structure?.shareholders?.length ?? 0) > 0;
+            const hasSubsidiaries = (structure?.participating_interests?.length ?? 0) > 0;
+            const hasStructure = hasShareholders || hasSubsidiaries;
+            const hasPubs = (structure?.staatsblad_publications?.length ?? 0) > 0;
+
+            // Credit ratios for summary
+            let netDebtEbitda: number | null = null;
+            let interestCoverage: number | null = null;
+            let roe: number | null = null;
+            if (latest) {
+              const grossDebt = (latest.lt_financial_debt ?? 0) + (latest.st_financial_debt ?? 0);
+              const netDebt = grossDebt - (latest.cash ?? 0) - (latest.current_investments ?? 0);
+              netDebtEbitda = latest.ebitda && latest.ebitda !== 0 ? netDebt / latest.ebitda : null;
+              interestCoverage = latest.financial_charges && latest.financial_charges !== 0 ? (latest.ebit ?? 0) / Math.abs(latest.financial_charges) : null;
+              roe = latest.equity && latest.equity !== 0 ? ((latest.net_profit ?? 0) / latest.equity) * 100 : null;
+            }
+
+            function dotColor(available: boolean) {
+              return available ? "bg-emerald-500" : "bg-slate-300";
+            }
+
+            function fmtRatioSummary(v: number | null, suffix = "x"): string {
+              if (v == null || !isFinite(v)) return "\u2014";
+              return `${v.toFixed(1)}${suffix}`;
+            }
+
+            return (
+              <div className="space-y-3">
+                {/* Financial Health */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className={`inline-block h-2 w-2 rounded-full ${dotColor(hasFinancials)}`} />
+                      <DollarSign className="h-4 w-4 text-indigo-500" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">Financial Health</h3>
+                      {latest && <span className="text-[10px] text-slate-400 ml-auto">FY{latest.fiscal_year}</span>}
+                    </div>
+                    {hasFinancials && latest ? (
+                      <>
+                        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-700">
+                          <span>Revenue: <span className="font-semibold">{fmtEur(latest.revenue)}</span></span>
+                          <span>EBITDA: <span className="font-semibold">{fmtEur(latest.ebitda)}</span></span>
+                          <span>Margin: <span className="font-semibold">{fmtPct(latest.ebitda_margin_pct)}</span></span>
+                          <span>Net Profit: <span className="font-semibold">{fmtEur(latest.net_profit)}</span></span>
+                          <span>FTE: <span className="font-semibold">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</span></span>
+                        </div>
+                        <div className="mt-3 flex gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("pnl")}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
+                          >
+                            View P&L <ChevronRight className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("balancesheet")}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
+                          >
+                            View Balance Sheet <ChevronRight className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("cashflow")}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
+                          >
+                            View Cash Flow <ChevronRight className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-sm text-slate-400">No financial data available.</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Credit Quality */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className={`inline-block h-2 w-2 rounded-full ${dotColor(hasCredit)}`} />
+                      <Shield className="h-4 w-4 text-purple-500" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">Credit Quality</h3>
+                    </div>
+                    {hasCredit && latest ? (
+                      <>
+                        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-700">
+                          <span>Net Debt/EBITDA: <span className="font-semibold">{fmtRatioSummary(netDebtEbitda)}</span></span>
+                          <span>Interest Coverage: <span className="font-semibold">{fmtRatioSummary(interestCoverage)}</span></span>
+                          <span>ROE: <span className="font-semibold">{fmtRatioSummary(roe, "%")}</span></span>
+                        </div>
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("credit")}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
+                          >
+                            View Credit Analysis <ChevronRight className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-sm text-slate-400">No credit data available.</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Management */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className={`inline-block h-2 w-2 rounded-full ${dotColor(hasAdmins)}`} />
+                      <Users className="h-4 w-4 text-blue-500" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Management {hasAdmins && `(${currentAdmins.length} current administrator${currentAdmins.length !== 1 ? "s" : ""})`}
+                      </h3>
+                    </div>
+                    {hasAdmins ? (
+                      <>
+                        <div className="space-y-1">
+                          {currentAdmins.slice(0, 3).map((admin, i) => (
+                            <div key={i} className="text-sm text-slate-700">
+                              <span className="font-semibold">{admin.name}</span>
+                              <span className="text-slate-400"> -- {admin.role_label}</span>
+                            </div>
+                          ))}
+                          {currentAdmins.length > 3 && (
+                            <p className="text-xs text-slate-400">+{currentAdmins.length - 3} more</p>
+                          )}
+                        </div>
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("administrators")}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
+                          >
+                            View all Administrators <ChevronRight className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-sm text-slate-400">No administrator data available.</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Corporate Structure */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className={`inline-block h-2 w-2 rounded-full ${dotColor(hasStructure)}`} />
+                      <Network className="h-4 w-4 text-orange-500" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">Corporate Structure</h3>
+                    </div>
+                    {hasStructure ? (
+                      <>
+                        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-slate-700">
+                          {hasShareholders && (
+                            <span>{structure!.shareholders.length} shareholder{structure!.shareholders.length !== 1 ? "s" : ""}</span>
+                          )}
+                          {hasSubsidiaries && (
+                            <span>{structure!.participating_interests.length} subsidiar{structure!.participating_interests.length !== 1 ? "ies" : "y"}</span>
+                          )}
+                        </div>
+                        <div className="mt-3 flex gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("structure")}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
+                          >
+                            View Structure <ChevronRight className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("network")}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
+                          >
+                            View Network <ChevronRight className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-sm text-slate-400">No structure data available.</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Publications */}
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className={`inline-block h-2 w-2 rounded-full ${dotColor(hasPubs)}`} />
+                      <FileText className="h-4 w-4 text-slate-500" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Publications {hasPubs && `(${structure!.staatsblad_publications.length} staatsblad entr${structure!.staatsblad_publications.length !== 1 ? "ies" : "y"})`}
+                      </h3>
+                    </div>
+                    {hasPubs ? (
+                      <>
+                        {(() => {
+                          const latestPub = structure!.staatsblad_publications[0];
+                          const typeInfo = latestPub.pub_type
+                            ? PUB_TYPE_MAP[latestPub.pub_type.toUpperCase()] ??
+                              Object.entries(PUB_TYPE_MAP).find(([key]) =>
+                                latestPub.pub_type!.toUpperCase().includes(key)
+                              )?.[1] ??
+                              null
+                            : null;
+                          return (
+                            <p className="text-sm text-slate-700">
+                              Latest: <span className="font-semibold">{latestPub.pub_date}</span>
+                              {typeInfo && <span className="text-slate-400"> -- {typeInfo.summary}</span>}
+                            </p>
+                          );
+                        })()}
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab("publications")}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-0.5"
+                          >
+                            View all Publications <ChevronRight className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <p className="text-sm text-slate-400">No publications available.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            );
+          })()}
+        </TabsContent>
+
+        {/* ===== P&L tab ===== */}
+        <TabsContent value="pnl" className="mt-3">
           {!financials || financials.summary.length === 0 ? (
             <div className="py-8 text-center">
               <p className="text-sm text-slate-500 mb-4">No financial data available for this company.</p>
@@ -568,7 +835,6 @@ export default function CompanyDetailPage(props: {
                 onClick={async () => {
                   try {
                     await fetch(`/api/companies/${cbe}/load`, { method: "POST" });
-                    // Reload after a delay
                     setTimeout(() => window.location.reload(), 2000);
                   } catch {}
                 }}
@@ -580,7 +846,7 @@ export default function CompanyDetailPage(props: {
             </div>
           ) : (
             <>
-              {/* Financial summary table */}
+              {/* Income statement table */}
               <div className="rounded-lg border">
                 <Table>
                   <TableHeader>
@@ -591,10 +857,7 @@ export default function CompanyDetailPage(props: {
                       <TableHead className="text-right">EBITDA</TableHead>
                       <TableHead className="text-right">Margin %</TableHead>
                       <TableHead className="text-right">Net Profit</TableHead>
-                      <TableHead className="text-right">Equity</TableHead>
-                      <TableHead className="text-right">
-                        Total Assets
-                      </TableHead>
+                      <TableHead className="text-right">Personnel Costs</TableHead>
                       <TableHead className="text-right">FTE</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -622,10 +885,7 @@ export default function CompanyDetailPage(props: {
                             {fmtEur(row.net_profit)}
                           </TableCell>
                           <TableCell className="text-right font-mono text-xs py-1.5">
-                            {fmtEur(row.equity)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono text-xs py-1.5">
-                            {fmtEur(row.total_assets)}
+                            {fmtEur(row.personnel_costs)}
                           </TableCell>
                           <TableCell className="text-right font-mono text-xs py-1.5">
                             {fmtNumber(row.fte_total)}
@@ -636,7 +896,7 @@ export default function CompanyDetailPage(props: {
                 </Table>
               </div>
 
-              {/* Chart */}
+              {/* Revenue & EBITDA Chart */}
               {chartData.length >= 2 && (
                 <Card className="mt-4">
                   <CardContent className="pt-3 pb-3">
@@ -680,171 +940,185 @@ export default function CompanyDetailPage(props: {
                   </CardContent>
                 </Card>
               )}
+            </>
+          )}
+        </TabsContent>
 
-              {/* ===== Balance Sheet ===== */}
-              <div className="mt-6">
-                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
-                  Balance Sheet
+        {/* ===== Cash Flow tab ===== */}
+        <TabsContent value="cashflow" className="mt-3">
+          {!financials || financials.summary.length < 2 ? (
+            <p className="py-8 text-center text-sm text-slate-500">
+              Need at least two years of financial data to derive cash flow.
+            </p>
+          ) : (() => {
+            const sorted = [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year);
+            const cashFlowRows = sorted.slice(0, -1).map((row, idx) => {
+              const prev = sorted[idx + 1];
+              const netDebtCurr = ((row.lt_financial_debt ?? 0) + (row.st_financial_debt ?? 0)) - (row.cash ?? 0);
+              const netDebtPrev = ((prev.lt_financial_debt ?? 0) + (prev.st_financial_debt ?? 0)) - (prev.cash ?? 0);
+              const capex = (row.fixed_assets ?? 0) - (prev.fixed_assets ?? 0) + Math.abs(row.da ?? 0);
+              const wcCurr = (row.inventories ?? 0) + (row.trade_receivables ?? 0) - (row.trade_payables ?? 0);
+              const wcPrev = (prev.inventories ?? 0) + (prev.trade_receivables ?? 0) - (prev.trade_payables ?? 0);
+              const wcChange = wcCurr - wcPrev;
+              return {
+                fiscal_year: row.fiscal_year,
+                ebitda: row.ebitda,
+                wc_change: wcChange !== 0 ? wcChange : null,
+                capex: capex !== 0 ? -Math.abs(capex) : null,
+                net_debt_change: netDebtCurr - netDebtPrev !== 0 ? netDebtCurr - netDebtPrev : null,
+              };
+            });
+            return (
+              <div>
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-cyan-500 pl-2">
+                  Derived Cash Flow
                 </h3>
                 <div className="rounded-lg border overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-slate-50">
                         <TableHead className="text-xs min-w-[160px]">Line Item</TableHead>
-                        {[...financials.summary]
-                          .sort((a, b) => b.fiscal_year - a.fiscal_year)
-                          .map((row) => (
-                            <TableHead key={row.fiscal_year} className="text-right text-xs min-w-[100px]">
-                              FY{row.fiscal_year}
-                            </TableHead>
-                          ))}
+                        {cashFlowRows.map((r) => (
+                          <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[100px]">
+                            FY{r.fiscal_year}
+                          </TableHead>
+                        ))}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {/* Assets header */}
-                      <TableRow className="bg-slate-50/50">
-                        <TableCell className="text-xs font-bold text-slate-700 py-1" colSpan={financials.summary.length + 1}>
-                          Assets
-                        </TableCell>
-                      </TableRow>
                       <TableRow>
-                        <TableCell className="text-xs text-slate-600 py-1">Fixed Assets</TableCell>
-                        {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
-                          <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.fixed_assets)}</TableCell>
+                        <TableCell className="text-xs text-slate-600 py-1">EBITDA</TableCell>
+                        {cashFlowRows.map((r) => (
+                          <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(r.ebitda)}</TableCell>
                         ))}
                       </TableRow>
                       <TableRow>
-                        <TableCell className="text-xs text-slate-600 py-1">Inventories</TableCell>
-                        {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
-                          <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.inventories)}</TableCell>
+                        <TableCell className="text-xs text-slate-600 py-1">Change in Working Capital</TableCell>
+                        {cashFlowRows.map((r) => (
+                          <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(r.wc_change)}</TableCell>
                         ))}
                       </TableRow>
                       <TableRow>
-                        <TableCell className="text-xs text-slate-600 py-1">Trade Receivables</TableCell>
-                        {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
-                          <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.trade_receivables)}</TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow>
-                        <TableCell className="text-xs text-slate-600 py-1">Cash & Investments</TableCell>
-                        {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
-                          <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">
-                            {fmtEur(((row.cash ?? 0) + (row.current_investments ?? 0)) || null)}
-                          </TableCell>
+                        <TableCell className="text-xs text-slate-600 py-1">CapEx (est.)</TableCell>
+                        {cashFlowRows.map((r) => (
+                          <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(r.capex)}</TableCell>
                         ))}
                       </TableRow>
                       <TableRow className="border-t-2 border-slate-300">
-                        <TableCell className="text-xs font-bold text-slate-800 py-1">Total Assets</TableCell>
-                        {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
-                          <TableCell key={row.fiscal_year} className="text-right font-mono text-xs font-bold py-1">{fmtEur(row.total_assets)}</TableCell>
-                        ))}
-                      </TableRow>
-                      {/* Liabilities & Equity header */}
-                      <TableRow className="bg-slate-50/50">
-                        <TableCell className="text-xs font-bold text-slate-700 py-1" colSpan={financials.summary.length + 1}>
-                          Liabilities & Equity
-                        </TableCell>
-                      </TableRow>
-                      <TableRow>
-                        <TableCell className="text-xs text-slate-600 py-1">Equity</TableCell>
-                        {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
-                          <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.equity)}</TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow>
-                        <TableCell className="text-xs text-slate-600 py-1">LT Financial Debt</TableCell>
-                        {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
-                          <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.lt_financial_debt)}</TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow>
-                        <TableCell className="text-xs text-slate-600 py-1">ST Financial Debt</TableCell>
-                        {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
-                          <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.st_financial_debt)}</TableCell>
-                        ))}
-                      </TableRow>
-                      <TableRow>
-                        <TableCell className="text-xs text-slate-600 py-1">Trade Payables</TableCell>
-                        {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
-                          <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.trade_payables)}</TableCell>
+                        <TableCell className="text-xs font-bold text-slate-800 py-1">Net Debt Change</TableCell>
+                        {cashFlowRows.map((r) => (
+                          <TableCell key={r.fiscal_year} className="text-right font-mono text-xs font-bold py-1">{fmtEur(r.net_debt_change)}</TableCell>
                         ))}
                       </TableRow>
                     </TableBody>
                   </Table>
                 </div>
+                <p className="mt-1 text-[10px] text-slate-400 italic">
+                  CapEx estimated as change in fixed assets + D&A. Working capital = inventories + trade receivables - trade payables.
+                </p>
               </div>
+            );
+          })()}
+        </TabsContent>
 
-              {/* ===== Derived Cash Flow ===== */}
-              {financials.summary.length >= 2 && (() => {
-                const sorted = [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year);
-                const cashFlowRows = sorted.slice(0, -1).map((row, idx) => {
-                  const prev = sorted[idx + 1];
-                  const netDebtCurr = ((row.lt_financial_debt ?? 0) + (row.st_financial_debt ?? 0)) - (row.cash ?? 0);
-                  const netDebtPrev = ((prev.lt_financial_debt ?? 0) + (prev.st_financial_debt ?? 0)) - (prev.cash ?? 0);
-                  const capex = (row.fixed_assets ?? 0) - (prev.fixed_assets ?? 0) + Math.abs(row.da ?? 0);
-                  const wcCurr = (row.inventories ?? 0) + (row.trade_receivables ?? 0) - (row.trade_payables ?? 0);
-                  const wcPrev = (prev.inventories ?? 0) + (prev.trade_receivables ?? 0) - (prev.trade_payables ?? 0);
-                  const wcChange = wcCurr - wcPrev;
-                  return {
-                    fiscal_year: row.fiscal_year,
-                    ebitda: row.ebitda,
-                    wc_change: wcChange !== 0 ? wcChange : null,
-                    capex: capex !== 0 ? -Math.abs(capex) : null,
-                    net_debt_change: netDebtCurr - netDebtPrev !== 0 ? netDebtCurr - netDebtPrev : null,
-                  };
-                });
-                return (
-                  <div className="mt-6">
-                    <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-cyan-500 pl-2">
-                      Derived Cash Flow
-                    </h3>
-                    <div className="rounded-lg border overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="bg-slate-50">
-                            <TableHead className="text-xs min-w-[160px]">Line Item</TableHead>
-                            {cashFlowRows.map((r) => (
-                              <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[100px]">
-                                FY{r.fiscal_year}
-                              </TableHead>
-                            ))}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          <TableRow>
-                            <TableCell className="text-xs text-slate-600 py-1">EBITDA</TableCell>
-                            {cashFlowRows.map((r) => (
-                              <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(r.ebitda)}</TableCell>
-                            ))}
-                          </TableRow>
-                          <TableRow>
-                            <TableCell className="text-xs text-slate-600 py-1">Change in Working Capital</TableCell>
-                            {cashFlowRows.map((r) => (
-                              <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(r.wc_change)}</TableCell>
-                            ))}
-                          </TableRow>
-                          <TableRow>
-                            <TableCell className="text-xs text-slate-600 py-1">CapEx (est.)</TableCell>
-                            {cashFlowRows.map((r) => (
-                              <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(r.capex)}</TableCell>
-                            ))}
-                          </TableRow>
-                          <TableRow className="border-t-2 border-slate-300">
-                            <TableCell className="text-xs font-bold text-slate-800 py-1">Net Debt Change</TableCell>
-                            {cashFlowRows.map((r) => (
-                              <TableCell key={r.fiscal_year} className="text-right font-mono text-xs font-bold py-1">{fmtEur(r.net_debt_change)}</TableCell>
-                            ))}
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    </div>
-                    <p className="mt-1 text-[10px] text-slate-400 italic">
-                      CapEx estimated as change in fixed assets + D&A. Working capital = inventories + trade receivables - trade payables.
-                    </p>
-                  </div>
-                );
-              })()}
-            </>
+        {/* ===== Balance Sheet tab ===== */}
+        <TabsContent value="balancesheet" className="mt-3">
+          {!financials || financials.summary.length === 0 ? (
+            <p className="py-8 text-center text-sm text-slate-500">
+              No financial data available for this company.
+            </p>
+          ) : (
+            <div>
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
+                Balance Sheet
+              </h3>
+              <div className="rounded-lg border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="text-xs min-w-[160px]">Line Item</TableHead>
+                      {[...financials.summary]
+                        .sort((a, b) => b.fiscal_year - a.fiscal_year)
+                        .map((row) => (
+                          <TableHead key={row.fiscal_year} className="text-right text-xs min-w-[100px]">
+                            FY{row.fiscal_year}
+                          </TableHead>
+                        ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {/* Assets header */}
+                    <TableRow className="bg-slate-50/50">
+                      <TableCell className="text-xs font-bold text-slate-700 py-1" colSpan={financials.summary.length + 1}>
+                        Assets
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-xs text-slate-600 py-1">Fixed Assets</TableCell>
+                      {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
+                        <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.fixed_assets)}</TableCell>
+                      ))}
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-xs text-slate-600 py-1">Inventories</TableCell>
+                      {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
+                        <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.inventories)}</TableCell>
+                      ))}
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-xs text-slate-600 py-1">Trade Receivables</TableCell>
+                      {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
+                        <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.trade_receivables)}</TableCell>
+                      ))}
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-xs text-slate-600 py-1">Cash & Investments</TableCell>
+                      {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
+                        <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">
+                          {fmtEur(((row.cash ?? 0) + (row.current_investments ?? 0)) || null)}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                    <TableRow className="border-t-2 border-slate-300">
+                      <TableCell className="text-xs font-bold text-slate-800 py-1">Total Assets</TableCell>
+                      {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
+                        <TableCell key={row.fiscal_year} className="text-right font-mono text-xs font-bold py-1">{fmtEur(row.total_assets)}</TableCell>
+                      ))}
+                    </TableRow>
+                    {/* Liabilities & Equity header */}
+                    <TableRow className="bg-slate-50/50">
+                      <TableCell className="text-xs font-bold text-slate-700 py-1" colSpan={financials.summary.length + 1}>
+                        Liabilities & Equity
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-xs text-slate-600 py-1">Equity</TableCell>
+                      {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
+                        <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.equity)}</TableCell>
+                      ))}
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-xs text-slate-600 py-1">LT Financial Debt</TableCell>
+                      {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
+                        <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.lt_financial_debt)}</TableCell>
+                      ))}
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-xs text-slate-600 py-1">ST Financial Debt</TableCell>
+                      {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
+                        <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.st_financial_debt)}</TableCell>
+                      ))}
+                    </TableRow>
+                    <TableRow>
+                      <TableCell className="text-xs text-slate-600 py-1">Trade Payables</TableCell>
+                      {[...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year).map((row) => (
+                        <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.trade_payables)}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
           )}
         </TabsContent>
 

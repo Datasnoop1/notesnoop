@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { getDashboard, type DashboardKPIs } from "@/lib/api";
 import { fmtNumber } from "@/lib/format";
 import {
@@ -85,6 +86,19 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* Platform Status -- subtle beta indicator */}
+      <div className="bg-slate-100 rounded-lg px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-slate-500">
+            <span className="font-semibold text-slate-700">Data Coverage</span>
+            <span className="ml-2">{kpis?.financial_count?.toLocaleString()} companies with financials</span>
+          </div>
+        </div>
+        <Badge variant="secondary" className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">
+          Beta
+        </Badge>
       </div>
 
       {/* Quick Access */}
