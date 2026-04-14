@@ -39,6 +39,7 @@ import {
   ChevronRight,
   Users,
   Network,
+  Briefcase,
   GitBranch,
   FileText,
   Download,
@@ -398,53 +399,54 @@ export default function CompanyDetailPage(props: {
       </Link>
 
       {/* ━━━ Company Header ━━━ */}
-      <div className="mb-8">
+      <div className="mb-6">
         {/* Top row: name + actions */}
-        <div className="flex items-start justify-between gap-6">
+        <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold text-slate-900">
+            <h1 className="text-xl font-semibold text-slate-900">
               {detail.name || fmtCbe(cbe)}
             </h1>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-400">
-              <span className="font-mono text-xs text-slate-500">{fmtCbe(cbe)}</span>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-400">
+              <span className="font-mono text-slate-500">{fmtCbe(cbe)}</span>
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${detail.status === "AC" ? "bg-emerald-500" : "bg-red-400"}`} />
-              <span className="text-xs">{detail.status === "AC" ? "Active" : "Ceased"}</span>
+              <span>{detail.status === "AC" ? "Active" : "Ceased"}</span>
               {detail.start_date && (
-                <span className="text-xs">Est. {detail.start_date.slice(0, 4)}</span>
+                <span>Est. {detail.start_date.slice(0, 4)}</span>
               )}
             </div>
-            {/* Single subtle info line */}
-            <div className="mt-2 flex flex-wrap items-center gap-x-4 text-xs text-slate-400">
-              {address && (
-                <span>{address}</span>
-              )}
-              {detail.nace_code && (
-                <span>
-                  NACE {detail.nace_code}{detail.nace_label && detail.nace_label !== detail.nace_code ? ` \u2014 ${detail.nace_label}` : ""}
+            {/* Single subtle info line: address · NACE · legal form · website */}
+            <div className="mt-1 flex flex-wrap items-center text-xs text-slate-400">
+              {[
+                address,
+                detail.nace_code ? `NACE ${detail.nace_code}${detail.nace_label && detail.nace_label !== detail.nace_code ? ` — ${detail.nace_label}` : ""}` : null,
+                detail.jf_label,
+              ].filter(Boolean).map((item, idx, arr) => (
+                <span key={idx}>
+                  {item}{idx < arr.length - 1 && <span className="mx-1.5 text-slate-300">&middot;</span>}
                 </span>
-              )}
-              {detail.jf_label && (
-                <span>{detail.jf_label}</span>
-              )}
+              ))}
               {detail.website && (
-                <a
-                  href={detail.website.startsWith("http") ? detail.website : `https://${detail.website}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-indigo-500 hover:text-indigo-700 transition-colors"
-                >
-                  {detail.website.replace(/^https?:\/\//, "")}
-                </a>
+                <>
+                  <span className="mx-1.5 text-slate-300">&middot;</span>
+                  <a
+                    href={detail.website.startsWith("http") ? detail.website : `https://${detail.website}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-indigo-500 hover:text-indigo-700 transition-colors"
+                  >
+                    {detail.website.replace(/^https?:\/\//, "")}
+                  </a>
+                </>
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0 pt-1">
+          <div className="flex items-center gap-1.5 shrink-0">
             <Button
               variant="outline"
               size="sm"
               onClick={toggleFavourite}
               title={isFavourite ? "Remove from favourites" : "Add to favourites"}
-              className="h-8 px-2.5 text-slate-400 hover:text-yellow-500 border-slate-200"
+              className="h-7 w-7 p-0 text-slate-400 hover:text-yellow-500 border-slate-200"
             >
               <Star
                 className={`h-3.5 w-3.5 ${
@@ -465,9 +467,9 @@ export default function CompanyDetailPage(props: {
                 }
                 router.push("/compare");
               }}
-              className="h-8 text-xs text-slate-500 border-slate-200 hover:border-slate-300"
+              className="h-7 text-[11px] text-slate-500 border-slate-200 hover:border-slate-300 px-2"
             >
-              <Scale className="w-3 h-3 mr-1.5" />
+              <Scale className="w-3 h-3 mr-1" />
               Compare
             </Button>
           </div>
@@ -493,20 +495,20 @@ export default function CompanyDetailPage(props: {
                     : "text-slate-900";
 
           return (
-            <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="rounded-xl border border-slate-100 bg-white px-5 py-4">
+            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="rounded-xl border border-slate-100 bg-white p-3">
                 <div className="text-xs text-slate-400 mb-1">Revenue <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
                 <div className="text-lg font-semibold text-slate-900 font-mono tracking-tight">{fmtEur(latest.revenue)}</div>
               </div>
-              <div className="rounded-xl border border-slate-100 bg-white px-5 py-4">
+              <div className="rounded-xl border border-slate-100 bg-white p-3">
                 <div className="text-xs text-slate-400 mb-1">EBITDA <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
                 <div className="text-lg font-semibold text-slate-900 font-mono tracking-tight">{fmtEur(latest.ebitda)}</div>
               </div>
-              <div className="rounded-xl border border-slate-100 bg-white px-5 py-4">
+              <div className="rounded-xl border border-slate-100 bg-white p-3">
                 <div className="text-xs text-slate-400 mb-1">Margin <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
                 <div className={`text-lg font-semibold font-mono tracking-tight ${marginColor}`}>{fmtPct(latest.ebitda_margin_pct)}</div>
               </div>
-              <div className="rounded-xl border border-slate-100 bg-white px-5 py-4">
+              <div className="rounded-xl border border-slate-100 bg-white p-3">
                 <div className="text-xs text-slate-400 mb-1">FTE <span className="font-mono text-slate-300">FY{latest.fiscal_year}</span></div>
                 <div className="text-lg font-semibold text-slate-900 font-mono tracking-tight">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</div>
               </div>
@@ -720,40 +722,7 @@ export default function CompanyDetailPage(props: {
                   </div>
                 )}
 
-                {/* 5. Financial History Mini Table (last 5 years) */}
-                {sorted.length > 1 && (
-                  <div className="rounded-xl border border-slate-100 bg-white overflow-hidden">
-                    <div className="px-5 pt-4 pb-2">
-                      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Financial History</h3>
-                    </div>
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-t border-slate-50">
-                          <th className="px-5 py-2 text-left text-slate-400 font-medium">Year</th>
-                          <th className="px-3 py-2 text-right text-slate-400 font-medium">Revenue</th>
-                          <th className="px-3 py-2 text-right text-slate-400 font-medium">EBITDA</th>
-                          <th className="px-3 py-2 text-right text-slate-400 font-medium">Margin</th>
-                          <th className="px-3 py-2 text-right text-slate-400 font-medium">Net Profit</th>
-                          <th className="px-3 py-2 text-right text-slate-400 font-medium">FTE</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sorted.slice(0, 5).map((r, i) => (
-                          <tr key={r.fiscal_year} className={i === 0 ? "bg-indigo-50/30 font-medium" : "border-t border-slate-50"}>
-                            <td className="px-5 py-2 font-mono text-slate-700">{r.fiscal_year}</td>
-                            <td className="px-3 py-2 text-right font-mono text-slate-700">{fmtEur(r.revenue)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-slate-700">{fmtEur(r.ebitda)}</td>
-                            <td className={`px-3 py-2 text-right font-mono ${marginColorClass(r.ebitda_margin_pct)}`}>{fmtPct(r.ebitda_margin_pct)}</td>
-                            <td className={`px-3 py-2 text-right font-mono ${(r.net_profit ?? 0) < 0 ? "text-red-600" : "text-slate-700"}`}>{fmtEur(r.net_profit)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-slate-700">{r.fte_total != null ? fmtNumber(r.fte_total) : "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {/* 6. Key People + Recent Publications side by side */}
+                {/* Key People + Recent Publications side by side */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {/* Key People */}
                   <div className="rounded-xl border border-slate-100 bg-white p-4">
@@ -848,6 +817,128 @@ export default function CompanyDetailPage(props: {
                     )}
                   </div>
                 </div>
+
+                {/* Key Shareholders + Key Subsidiaries side by side */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Key Shareholders */}
+                  <div className="rounded-xl border border-slate-100 bg-white p-4">
+                    <div className="flex items-baseline justify-between mb-3">
+                      <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Briefcase className="h-3 w-3" /> Key Shareholders
+                        {(structure?.shareholders?.length ?? 0) > 0 && <span className="text-slate-300">({structure?.shareholders?.length})</span>}
+                      </h3>
+                      {(structure?.shareholders?.length ?? 0) > 0 && (
+                        <button type="button" onClick={() => setActiveTab("structure")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+                          View all →
+                        </button>
+                      )}
+                    </div>
+                    {!structure?.shareholders?.length ? (
+                      <div className="flex items-center justify-center py-6 text-xs text-slate-300">
+                        <Briefcase className="h-4 w-4 mr-2" /> No shareholder data
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {structure.shareholders.slice(0, 5).map((sh, i) => (
+                          <div key={`sh-${i}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors">
+                            <div className="h-8 w-8 rounded-full bg-amber-50 flex items-center justify-center text-[10px] font-bold text-amber-600 shrink-0">
+                              {(sh.name || "?").slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm text-slate-800 font-medium truncate">{sh.name}</div>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                                {sh.ownership_pct != null && <span className="font-mono font-medium text-slate-600">{sh.ownership_pct.toFixed(1)}%</span>}
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-slate-200">
+                                  {sh.shareholder_type === "entity" || sh.shareholder_type === "Entity" ? "Entity" : "Individual"}
+                                </Badge>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {structure.shareholders.length > 5 && (
+                          <button type="button" onClick={() => setActiveTab("structure")} className="w-full text-center text-[10px] text-indigo-500 hover:text-indigo-700 py-1 font-medium">
+                            + {structure.shareholders.length - 5} more shareholders →
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Key Subsidiaries */}
+                  <div className="rounded-xl border border-slate-100 bg-white p-4">
+                    <div className="flex items-baseline justify-between mb-3">
+                      <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <GitBranch className="h-3 w-3" /> Key Subsidiaries
+                        {(structure?.participating_interests?.length ?? 0) > 0 && <span className="text-slate-300">({structure?.participating_interests?.length})</span>}
+                      </h3>
+                      {(structure?.participating_interests?.length ?? 0) > 0 && (
+                        <button type="button" onClick={() => setActiveTab("structure")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+                          View all →
+                        </button>
+                      )}
+                    </div>
+                    {!structure?.participating_interests?.length ? (
+                      <div className="flex items-center justify-center py-6 text-xs text-slate-300">
+                        <GitBranch className="h-4 w-4 mr-2" /> No subsidiary data
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {structure.participating_interests.slice(0, 5).map((sub, i) => (
+                          <div key={`sub-${i}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors">
+                            <div className="h-8 w-8 rounded-full bg-cyan-50 flex items-center justify-center text-[10px] font-bold text-cyan-600 shrink-0">
+                              {(sub.name || "?").slice(0, 2).toUpperCase()}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm text-slate-800 font-medium truncate">{sub.name}</div>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                                {sub.ownership_pct != null && <span className="font-mono font-medium text-slate-600">{sub.ownership_pct.toFixed(1)}%</span>}
+                                {sub.country && <span>{sub.country}</span>}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {structure.participating_interests.length > 5 && (
+                          <button type="button" onClick={() => setActiveTab("structure")} className="w-full text-center text-[10px] text-indigo-500 hover:text-indigo-700 py-1 font-medium">
+                            + {structure.participating_interests.length - 5} more subsidiaries →
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Financial History Mini Table (last 5 years) */}
+                {sorted.length > 1 && (
+                  <div className="rounded-xl border border-slate-100 bg-white overflow-hidden">
+                    <div className="px-5 pt-4 pb-2">
+                      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Financial History</h3>
+                    </div>
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-t border-slate-50">
+                          <th className="px-5 py-2 text-left text-slate-400 font-medium">Year</th>
+                          <th className="px-3 py-2 text-right text-slate-400 font-medium">Revenue</th>
+                          <th className="px-3 py-2 text-right text-slate-400 font-medium">EBITDA</th>
+                          <th className="px-3 py-2 text-right text-slate-400 font-medium">Margin</th>
+                          <th className="px-3 py-2 text-right text-slate-400 font-medium">Net Profit</th>
+                          <th className="px-3 py-2 text-right text-slate-400 font-medium">FTE</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sorted.slice(0, 5).map((r, i) => (
+                          <tr key={r.fiscal_year} className={i === 0 ? "bg-indigo-50/30 font-medium" : "border-t border-slate-50"}>
+                            <td className="px-5 py-2 font-mono text-slate-700">{r.fiscal_year}</td>
+                            <td className="px-3 py-2 text-right font-mono text-slate-700">{fmtEur(r.revenue)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-slate-700">{fmtEur(r.ebitda)}</td>
+                            <td className={`px-3 py-2 text-right font-mono ${marginColorClass(r.ebitda_margin_pct)}`}>{fmtPct(r.ebitda_margin_pct)}</td>
+                            <td className={`px-3 py-2 text-right font-mono ${(r.net_profit ?? 0) < 0 ? "text-red-600" : "text-slate-700"}`}>{fmtEur(r.net_profit)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-slate-700">{r.fte_total != null ? fmtNumber(r.fte_total) : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
 
                 {/* Quick navigation links */}
                 <div className="flex flex-wrap gap-3 pt-2">
@@ -1792,8 +1883,10 @@ export default function CompanyDetailPage(props: {
               const tradePay = row.trade_payables;
               const stDebt = row.st_financial_debt;
 
+              const totalAssets = row.total_assets;
               const netDebtEbitda = ebitda && ebitda !== 0 ? netDebt / ebitda : null;
               const debtEquity = equity && equity !== 0 ? grossDebt / equity : null;
+              const equityRatio = totalAssets && totalAssets !== 0 ? (equity ?? 0) / totalAssets * 100 : null;
               const interestCoverage = finCharges && finCharges !== 0 ? (ebit ?? 0) / Math.abs(finCharges) : null;
               const cashStDebt = stDebt && stDebt !== 0 ? ((row.cash ?? 0) + (row.current_investments ?? 0)) / stDebt : null;
               const roe = equity && equity !== 0 ? ((netProfit ?? 0) / equity) * 100 : null;
@@ -1805,6 +1898,7 @@ export default function CompanyDetailPage(props: {
                 fiscal_year: row.fiscal_year,
                 netDebtEbitda,
                 debtEquity,
+                equityRatio,
                 interestCoverage,
                 cashStDebt,
                 roe,
@@ -1864,9 +1958,17 @@ export default function CompanyDetailPage(props: {
               return `${Math.round(v)}d`;
             }
 
+            function equityRatioColor(v: number | null): string {
+              if (v == null) return "bg-slate-50 border-slate-200 text-slate-600";
+              if (v >= 40) return "bg-green-50 border-green-200 text-green-800";
+              if (v >= 20) return "bg-amber-50 border-amber-200 text-amber-800";
+              return "bg-red-50 border-red-200 text-red-800";
+            }
+
             const metricCards = [
               { label: "Net Debt / EBITDA", value: fmtRatio(latest.netDebtEbitda), colorFn: leverageColor, raw: latest.netDebtEbitda },
               { label: "Debt / Equity", value: fmtRatio(latest.debtEquity), colorFn: debtEquityColor, raw: latest.debtEquity },
+              { label: "Equity Ratio", value: fmtRatio(latest.equityRatio, "%"), colorFn: equityRatioColor, raw: latest.equityRatio },
               { label: "Interest Coverage", value: fmtRatio(latest.interestCoverage), colorFn: coverageColor, raw: latest.interestCoverage },
               { label: "Cash / ST Debt", value: fmtRatio(latest.cashStDebt), colorFn: cashRatioColor, raw: latest.cashStDebt },
               { label: "EBITDA Margin", value: fmtRatio(latest.ebitdaMargin, "%"), colorFn: marginColor, raw: latest.ebitdaMargin },
@@ -1919,6 +2021,12 @@ export default function CompanyDetailPage(props: {
                           <TableCell className="text-xs text-slate-600 py-1">Debt / Equity</TableCell>
                           {ratios.map((r) => (
                             <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.debtEquity)}</TableCell>
+                          ))}
+                        </TableRow>
+                        <TableRow className="bg-slate-50/50">
+                          <TableCell className="text-xs text-slate-600 py-1 font-medium">Equity Ratio (Equity / Assets)</TableCell>
+                          {ratios.map((r) => (
+                            <TableCell key={r.fiscal_year} className={`text-right font-mono text-xs py-1 font-medium ${r.equityRatio != null && r.equityRatio >= 40 ? "text-green-700" : r.equityRatio != null && r.equityRatio >= 20 ? "text-amber-700" : r.equityRatio != null ? "text-red-700" : ""}`}>{fmtRatio(r.equityRatio, "%")}</TableCell>
                           ))}
                         </TableRow>
                         <TableRow>
