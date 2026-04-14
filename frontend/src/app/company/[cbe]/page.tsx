@@ -1498,11 +1498,7 @@ export default function CompanyDetailPage(props: {
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[260px]">Line Item</th>
-                        {cfRows.map((r) => (
-                          <th key={r.fiscal_year} className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[100px]">
-                            FY{r.fiscal_year}
-                          </th>
-                        ))}
+                        {renderDeltaHeaders(cfRows.map(r => r.fiscal_year))}
                       </tr>
                     </thead>
                     <tbody>
@@ -1513,7 +1509,7 @@ export default function CompanyDetailPage(props: {
                           <React.Fragment key={line.key}>
                             {showSection && (
                               <tr>
-                                <td colSpan={cfRows.length + 1} className="px-4 pt-3 pb-1">
+                                <td colSpan={cfRows.length * 2} className="px-4 pt-3 pb-1">
                                   <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
                                 </td>
                               </tr>
@@ -1522,11 +1518,23 @@ export default function CompanyDetailPage(props: {
                               <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
                                 {line.label}
                               </td>
-                              {cfRows.map((r) => (
-                                <td key={r.fiscal_year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
-                                  {fmtCell(r[line.key] as number | null)}
-                                </td>
-                              ))}
+                              {cfRows.map((r, colIdx) => {
+                                const prevRow = colIdx > 0 ? cfRows[colIdx - 1] : null;
+                                const currentVal = r[line.key] as number | null;
+                                const prevVal = prevRow ? (prevRow[line.key] as number | null) : null;
+                                return (
+                                  <React.Fragment key={`cf-${r.fiscal_year}-${line.key}`}>
+                                    {colIdx > 0 && (
+                                      <td className="px-1 py-1 text-center align-top">
+                                        {renderDelta(currentVal, prevVal)}
+                                      </td>
+                                    )}
+                                    <td className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                      {fmtCell(r[line.key] as number | null)}
+                                    </td>
+                                  </React.Fragment>
+                                );
+                              })}
                             </tr>
                           </React.Fragment>
                         );
@@ -1683,11 +1691,7 @@ export default function CompanyDetailPage(props: {
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[260px]">Line Item</th>
-                        {chronological.map((r) => (
-                          <th key={r.fiscal_year} className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[100px]">
-                            FY{r.fiscal_year}
-                          </th>
-                        ))}
+                        {renderDeltaHeaders(chronological.map(r => r.fiscal_year))}
                       </tr>
                     </thead>
                     <tbody>
@@ -1698,7 +1702,7 @@ export default function CompanyDetailPage(props: {
                           <React.Fragment key={line.key + (line.section || "")}>
                             {showSection && (
                               <tr>
-                                <td colSpan={chronological.length + 1} className="px-4 pt-3 pb-1">
+                                <td colSpan={chronological.length * 2} className="px-4 pt-3 pb-1">
                                   <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
                                 </td>
                               </tr>
@@ -1707,11 +1711,23 @@ export default function CompanyDetailPage(props: {
                               <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""} ${line.subIndent ? "pl-12 text-slate-400 italic" : ""}`}>
                                 {line.label}
                               </td>
-                              {chronologicalBs.map((r) => (
-                                <td key={r.fiscal_year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
-                                  {fmtCell(r[line.key] as number | null)}
-                                </td>
-                              ))}
+                              {chronologicalBs.map((r, colIdx) => {
+                                const prevRow = colIdx > 0 ? chronologicalBs[colIdx - 1] : null;
+                                const currentVal = r[line.key] as number | null;
+                                const prevVal = prevRow ? (prevRow[line.key] as number | null) : null;
+                                return (
+                                  <React.Fragment key={`bs-${r.fiscal_year}-${line.key}`}>
+                                    {colIdx > 0 && (
+                                      <td className="px-1 py-1 text-center align-top">
+                                        {renderDelta(currentVal, prevVal)}
+                                      </td>
+                                    )}
+                                    <td className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                      {fmtCell(r[line.key] as number | null)}
+                                    </td>
+                                  </React.Fragment>
+                                );
+                              })}
                             </tr>
                           </React.Fragment>
                         );
