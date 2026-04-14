@@ -43,7 +43,15 @@ export default function Nav() {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => setUser(session?.user ?? null)
+      async (event, session) => {
+        setUser(session?.user ?? null);
+        // Ping backend on sign-in to auto-register user in user_roles
+        if (event === "SIGNED_IN" && session?.access_token) {
+          fetch("/api/dashboard", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          }).catch(() => {});
+        }
+      }
     );
     return () => subscription.unsubscribe();
   }, []);
