@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import FontSwitcher from "@/components/font-switcher";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -90,6 +91,13 @@ export default function AccountPage() {
               {new Date(user.created_at).toLocaleDateString()}
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Font preference */}
+      <Card className="bg-white">
+        <CardContent className="pt-6">
+          <FontSwitcher />
         </CardContent>
       </Card>
 
