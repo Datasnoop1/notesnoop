@@ -44,6 +44,14 @@ import {
   Download,
   Shield,
   Scale,
+  BarChart3,
+  DollarSign,
+  TrendingUp,
+  Percent,
+  Activity,
+  Calendar,
+  UserCheck,
+  Newspaper,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 
@@ -610,165 +618,97 @@ export default function CompanyDetailPage(props: {
             }));
 
             return (
-              <div className="space-y-8">
-                {/* 1. Key Financials - 4 metric cards */}
+              <div className="space-y-6">
+                {/* Row 1: KPIs (left) + Trend chart (right) */}
                 {latest && (
-                  <div>
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                      <div className="rounded-xl border border-slate-100 bg-white p-5">
-                        <div className="text-xs text-slate-400 mb-2">Revenue</div>
-                        <div className="text-xl font-semibold text-slate-900 font-mono tracking-tight">{fmtEur(latest.revenue)}</div>
-                        {changeArrow(revenueYoy) && (
-                          <div className="mt-1.5">{changeArrow(revenueYoy)}</div>
-                        )}
+                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                    {/* Left: compact KPI list */}
+                    <div className="lg:col-span-2 rounded-xl border border-slate-100 bg-white p-4">
+                      <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                        <BarChart3 className="h-3 w-3" /> Key Financials
+                        {latest.fiscal_year && <span className="text-slate-300 font-mono">FY{latest.fiscal_year}</span>}
+                      </h3>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <DollarSign className="h-3.5 w-3.5 text-slate-400" /> Revenue
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-900 font-mono">{fmtEur(latest.revenue)}</span>
+                            {changeArrow(revenueYoy)}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <TrendingUp className="h-3.5 w-3.5 text-slate-400" /> EBITDA
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-900 font-mono">{fmtEur(latest.ebitda)}</span>
+                            {changeArrow(ebitdaYoy)}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <Percent className="h-3.5 w-3.5 text-slate-400" /> Margin
+                          </div>
+                          <span className={`text-sm font-semibold font-mono ${marginColorClass(latest.ebitda_margin_pct)}`}>{fmtPct(latest.ebitda_margin_pct)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <Users className="h-3.5 w-3.5 text-slate-400" /> Employees
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-900 font-mono">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</span>
+                            {changeArrow(fteYoy)}
+                          </div>
+                        </div>
                       </div>
-                      <div className="rounded-xl border border-slate-100 bg-white p-5">
-                        <div className="text-xs text-slate-400 mb-2">EBITDA</div>
-                        <div className="text-xl font-semibold text-slate-900 font-mono tracking-tight">{fmtEur(latest.ebitda)}</div>
-                        {changeArrow(ebitdaYoy) && (
-                          <div className="mt-1.5">{changeArrow(ebitdaYoy)}</div>
-                        )}
-                      </div>
-                      <div className="rounded-xl border border-slate-100 bg-white p-5">
-                        <div className="text-xs text-slate-400 mb-2">Margin</div>
-                        <div className={`text-xl font-semibold font-mono tracking-tight ${marginColorClass(latest.ebitda_margin_pct)}`}>{fmtPct(latest.ebitda_margin_pct)}</div>
-                      </div>
-                      <div className="rounded-xl border border-slate-100 bg-white p-5">
-                        <div className="text-xs text-slate-400 mb-2">FTE</div>
-                        <div className="text-xl font-semibold text-slate-900 font-mono tracking-tight">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</div>
-                        {changeArrow(fteYoy) && (
-                          <div className="mt-1.5">{changeArrow(fteYoy)}</div>
-                        )}
+                      {/* Health pills */}
+                      <div className="flex flex-wrap gap-1.5 mt-4 pt-3 border-t border-slate-50">
+                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${pillColor("leverage", netDebtEbitda)}`}>
+                          {netDebtEbitda != null && isFinite(netDebtEbitda) ? `${netDebtEbitda.toFixed(1)}x leverage` : "— leverage"}
+                        </span>
+                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${pillColor("growth", revenueYoy?.pct ?? null)}`}>
+                          {revenueYoy ? `${revenueYoy.pct > 0 ? "+" : ""}${revenueYoy.pct.toFixed(0)}% growth` : "— growth"}
+                        </span>
                       </div>
                     </div>
-                  </div>
-                )}
 
-                {/* 2. Mini Chart - sparkline */}
-                {sparkData.length >= 2 && (
-                  <div className="rounded-xl border border-slate-100 bg-white p-5">
-                    <div className="flex items-baseline justify-between mb-3">
-                      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Revenue & EBITDA trend</h3>
-                      <button
-                        type="button"
-                        onClick={() => setActiveTab("pnl")}
-                        className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors"
-                      >
-                        Full P&L
-                      </button>
-                    </div>
-                    <ResponsiveContainer width="100%" height={150}>
-                      <LineChart data={sparkData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-                        <XAxis
-                          dataKey="fy"
-                          tick={{ fontSize: 10, fill: "#94a3b8" }}
-                          axisLine={false}
-                          tickLine={false}
-                        />
-                        <YAxis hide />
-                        <Tooltip content={<ChartTooltip />} />
-                        <Line
-                          type="monotone"
-                          dataKey="Revenue"
-                          stroke="#6366f1"
-                          strokeWidth={2}
-                          dot={false}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="EBITDA"
-                          stroke="#06b6d4"
-                          strokeWidth={2}
-                          dot={false}
-                          strokeDasharray="4 2"
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                    <div className="flex items-center gap-4 mt-2">
-                      <div className="flex items-center gap-1.5">
-                        <span className="inline-block h-0.5 w-4 rounded bg-indigo-500" />
-                        <span className="text-[10px] text-slate-400">Revenue</span>
+                    {/* Right: sparkline chart */}
+                    <div className="lg:col-span-3 rounded-xl border border-slate-100 bg-white p-4">
+                      <div className="flex items-baseline justify-between mb-2">
+                        <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Activity className="h-3 w-3" /> Trend
+                        </h3>
+                        <button type="button" onClick={() => setActiveTab("pnl")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+                          Full P&L →
+                        </button>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="inline-block h-0.5 w-4 rounded bg-cyan-500 opacity-60" style={{ backgroundImage: "repeating-linear-gradient(90deg, rgb(6 182 212) 0 3px, transparent 3px 5px)" }} />
-                        <span className="text-[10px] text-slate-400">EBITDA</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* 3. Quick Facts - two-column grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Company Info</h3>
-                    <dl className="space-y-2">
-                      {detail.jf_label && (
-                        <div className="flex justify-between">
-                          <dt className="text-xs text-slate-400">Legal form</dt>
-                          <dd className="text-sm text-slate-700">{detail.jf_label}</dd>
-                        </div>
+                      {sparkData.length >= 2 ? (
+                        <>
+                          <ResponsiveContainer width="100%" height={130}>
+                            <LineChart data={sparkData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
+                              <XAxis dataKey="fy" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                              <YAxis hide />
+                              <Tooltip content={<ChartTooltip />} />
+                              <Line type="monotone" dataKey="Revenue" stroke="#6366f1" strokeWidth={2} dot={{ r: 2, fill: "#6366f1" }} />
+                              <Line type="monotone" dataKey="EBITDA" stroke="#06b6d4" strokeWidth={2} dot={{ r: 2, fill: "#06b6d4" }} strokeDasharray="4 2" />
+                            </LineChart>
+                          </ResponsiveContainer>
+                          <div className="flex items-center gap-4 mt-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-block h-0.5 w-4 rounded bg-indigo-500" />
+                              <span className="text-[10px] text-slate-400">Revenue</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-block h-0.5 w-4 rounded bg-cyan-500" />
+                              <span className="text-[10px] text-slate-400">EBITDA</span>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-center h-[130px] text-xs text-slate-300">Not enough years for a trend</div>
                       )}
-                      {detail.start_date && (
-                        <div className="flex justify-between">
-                          <dt className="text-xs text-slate-400">Founded</dt>
-                          <dd className="text-sm text-slate-700 font-mono">{detail.start_date}</dd>
-                        </div>
-                      )}
-                      {detail.nace_code && (
-                        <div className="flex justify-between">
-                          <dt className="text-xs text-slate-400">NACE</dt>
-                          <dd className="text-sm text-slate-700">{detail.nace_code}{detail.nace_label && detail.nace_label !== detail.nace_code ? ` \u2014 ${detail.nace_label}` : ""}</dd>
-                        </div>
-                      )}
-                      {address && (
-                        <div className="flex justify-between">
-                          <dt className="text-xs text-slate-400">Address</dt>
-                          <dd className="text-sm text-slate-700 text-right">{address}</dd>
-                        </div>
-                      )}
-                    </dl>
-                  </div>
-                  <div className="space-y-3">
-                    <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Data Coverage</h3>
-                    <dl className="space-y-2">
-                      {latest && (
-                        <div className="flex justify-between">
-                          <dt className="text-xs text-slate-400">Latest filing</dt>
-                          <dd className="text-sm text-slate-700 font-mono">FY{latest.fiscal_year}</dd>
-                        </div>
-                      )}
-                      {latest?.filing_model && (
-                        <div className="flex justify-between">
-                          <dt className="text-xs text-slate-400">Filing model</dt>
-                          <dd className="text-sm text-slate-700">{latest.filing_model}</dd>
-                        </div>
-                      )}
-                      <div className="flex justify-between">
-                        <dt className="text-xs text-slate-400">Administrators</dt>
-                        <dd className="text-sm text-slate-700 font-mono">{currentAdmins.length} current</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-xs text-slate-400">Shareholders</dt>
-                        <dd className="text-sm text-slate-700 font-mono">{structure?.shareholders?.length ?? 0}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                </div>
-
-                {/* 4. Health Indicators - colored pills */}
-                {latest && (
-                  <div>
-                    <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">Health Indicators</h3>
-                    <div className="flex flex-wrap gap-2">
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${pillColor("leverage", netDebtEbitda)}`}>
-                        Leverage: {netDebtEbitda != null && isFinite(netDebtEbitda) ? `${netDebtEbitda.toFixed(1)}x` : "\u2014"}
-                      </span>
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${pillColor("margin", latest.ebitda_margin_pct)}`}>
-                        Profitability: {latest.ebitda_margin_pct != null ? `${latest.ebitda_margin_pct.toFixed(1)}%` : "\u2014"}
-                      </span>
-                      <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${pillColor("growth", revenueYoy?.pct ?? null)}`}>
-                        Growth: {revenueYoy ? `${revenueYoy.pct > 0 ? "+" : ""}${revenueYoy.pct.toFixed(1)}%` : "\u2014"}
-                      </span>
                     </div>
                   </div>
                 )}
@@ -806,62 +746,96 @@ export default function CompanyDetailPage(props: {
                   </div>
                 )}
 
-                {/* 6. Key People + Recent Activity side by side */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Top Administrators */}
-                  <div className="rounded-xl border border-slate-100 bg-white p-5">
+                {/* 6. Key People + Recent Publications side by side */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Key People */}
+                  <div className="rounded-xl border border-slate-100 bg-white p-4">
                     <div className="flex items-baseline justify-between mb-3">
-                      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Key People</h3>
+                      <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <UserCheck className="h-3 w-3" /> Key People
+                        {currentAdmins.length > 0 && <span className="text-slate-300">({currentAdmins.length})</span>}
+                      </h3>
                       {currentAdmins.length > 0 && (
-                        <button type="button" onClick={() => setActiveTab("administrators")} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
-                          View all
+                        <button type="button" onClick={() => setActiveTab("administrators")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+                          View all →
                         </button>
                       )}
                     </div>
                     {currentAdmins.length === 0 ? (
-                      <p className="text-xs text-slate-400">No administrator data available</p>
+                      <div className="flex items-center justify-center py-6 text-xs text-slate-300">
+                        <Users className="h-4 w-4 mr-2" /> No administrator data
+                      </div>
                     ) : (
-                      <div className="space-y-2.5">
-                        {currentAdmins.slice(0, 5).map((a, i) => (
-                          <div key={`${a.name}-${i}`} className="flex items-center gap-2">
-                            <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-semibold text-slate-500 shrink-0">
+                      <div className="space-y-2">
+                        {currentAdmins.slice(0, 6).map((a, i) => (
+                          <div key={`${a.name}-${i}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors">
+                            <div className="h-8 w-8 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] font-bold text-indigo-600 shrink-0">
                               {(a.name || "?").slice(0, 2).toUpperCase()}
                             </div>
-                            <div className="min-w-0">
-                              <div className="text-sm text-slate-700 truncate">{a.name}</div>
-                              <div className="text-[10px] text-slate-400">{a.role_label || a.role || "—"}</div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-sm text-slate-800 font-medium truncate">{a.name}</div>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                                <span>{a.role_label || a.role || "—"}</span>
+                                {a.mandate_start && (
+                                  <>
+                                    <span className="text-slate-200">·</span>
+                                    <span className="flex items-center gap-0.5">
+                                      <Calendar className="h-2.5 w-2.5" /> Since {a.mandate_start}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))}
-                        {currentAdmins.length > 5 && (
-                          <p className="text-[10px] text-slate-400">+ {currentAdmins.length - 5} more</p>
+                        {currentAdmins.length > 6 && (
+                          <button type="button" onClick={() => setActiveTab("administrators")} className="w-full text-center text-[10px] text-indigo-500 hover:text-indigo-700 py-1 font-medium">
+                            + {currentAdmins.length - 6} more people →
+                          </button>
                         )}
                       </div>
                     )}
                   </div>
 
                   {/* Recent Publications */}
-                  <div className="rounded-xl border border-slate-100 bg-white p-5">
+                  <div className="rounded-xl border border-slate-100 bg-white p-4">
                     <div className="flex items-baseline justify-between mb-3">
-                      <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Recent Publications</h3>
+                      <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Newspaper className="h-3 w-3" /> Recent Publications
+                        {(structure?.staatsblad_publications?.length ?? 0) > 0 && (
+                          <span className="text-slate-300">({structure?.staatsblad_publications?.length})</span>
+                        )}
+                      </h3>
                       {(structure?.staatsblad_publications?.length ?? 0) > 0 && (
-                        <button type="button" onClick={() => setActiveTab("publications")} className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
-                          View all
+                        <button type="button" onClick={() => setActiveTab("publications")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+                          View all →
                         </button>
                       )}
                     </div>
                     {!structure?.staatsblad_publications?.length ? (
-                      <p className="text-xs text-slate-400">No publications available</p>
+                      <div className="flex items-center justify-center py-6 text-xs text-slate-300">
+                        <FileText className="h-4 w-4 mr-2" /> No publications yet
+                      </div>
                     ) : (
-                      <div className="space-y-2.5">
-                        {structure.staatsblad_publications.slice(0, 4).map((pub, i) => (
-                          <div key={`pub-${i}`} className="flex items-start gap-2">
-                            <div className="text-[10px] font-mono text-slate-400 shrink-0 w-16 pt-0.5">{pub.pub_date}</div>
-                            <div className="text-xs text-slate-600 truncate">{pub.pub_type || "Publication"}</div>
+                      <div className="space-y-1.5">
+                        {structure.staatsblad_publications.slice(0, 6).map((pub, i) => (
+                          <div key={`pub-${i}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors">
+                            <div className="h-8 w-8 rounded-full bg-slate-50 flex items-center justify-center shrink-0">
+                              <FileText className="h-3.5 w-3.5 text-slate-400" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs text-slate-700 truncate">{pub.pub_type || "Publication"}</div>
+                              <div className="text-[10px] text-slate-400 flex items-center gap-0.5">
+                                <Calendar className="h-2.5 w-2.5" /> {pub.pub_date}
+                                {pub.reference && <span className="text-slate-200 ml-1">· #{pub.reference}</span>}
+                              </div>
+                            </div>
                           </div>
                         ))}
-                        {structure.staatsblad_publications.length > 4 && (
-                          <p className="text-[10px] text-slate-400">+ {structure.staatsblad_publications.length - 4} more</p>
+                        {structure.staatsblad_publications.length > 6 && (
+                          <button type="button" onClick={() => setActiveTab("publications")} className="w-full text-center text-[10px] text-indigo-500 hover:text-indigo-700 py-1 font-medium">
+                            + {structure.staatsblad_publications.length - 6} more →
+                          </button>
                         )}
                       </div>
                     )}
