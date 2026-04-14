@@ -20,8 +20,12 @@ import requests
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://leadpeek:DatasnoopDB2026@localhost:5432/leadpeek")
-NBB_KEY = os.getenv("NBB_AUTHENTIC_KEY", "a1544461cb134035a121cf287b81c25a")
+DB_URL = os.getenv("DATABASE_URL")
+NBB_KEY = os.getenv("NBB_AUTHENTIC_KEY")
+if not DB_URL:
+    raise RuntimeError("DATABASE_URL environment variable not set")
+if not NBB_KEY:
+    raise RuntimeError("NBB_AUTHENTIC_KEY environment variable not set")
 NBB_BASE = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
 
 BATCH_SIZE = 50  # companies per batch

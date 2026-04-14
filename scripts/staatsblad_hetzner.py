@@ -19,7 +19,9 @@ import psycopg2.extras
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://leadpeek:DatasnoopDB2026@localhost:5432/leadpeek")
+DB_URL = os.getenv("DATABASE_URL")
+if not DB_URL:
+    raise RuntimeError("DATABASE_URL environment variable not set")
 BASE_URL = "https://www.ejustice.just.fgov.be"
 LIST_URL = BASE_URL + "/cgi_tsv/list.pl"
 

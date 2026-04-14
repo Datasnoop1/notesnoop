@@ -29,8 +29,12 @@ import psycopg2.extras
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger(__name__)
 
-DB_URL = os.getenv("DATABASE_URL", "postgresql://leadpeek:DatasnoopDB2026@localhost:5432/leadpeek")
-NBB_EXTRACT_KEY = os.getenv("NBB_EXTRACT_KEY", "6ce7a26dd33a4168ac8c271a8b23c71d")
+DB_URL = os.getenv("DATABASE_URL")
+NBB_EXTRACT_KEY = os.getenv("NBB_EXTRACT_KEY")
+if not DB_URL:
+    raise RuntimeError("DATABASE_URL environment variable not set")
+if not NBB_EXTRACT_KEY:
+    raise RuntimeError("NBB_EXTRACT_KEY environment variable not set")
 NBB_BASE = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
 
 BATCH_SIZE = 500  # rows per execute_batch

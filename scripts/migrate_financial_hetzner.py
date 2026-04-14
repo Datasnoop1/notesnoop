@@ -3,7 +3,9 @@ Uses rowid-based pagination to avoid slow OFFSET at large row counts."""
 
 import io, os, csv, time, sqlite3, psycopg2
 
-HETZNER_URL = os.getenv("HETZNER_PG_URL", "postgresql://leadpeek:DatasnoopDB2026@62.238.14.150:5432/leadpeek")
+HETZNER_URL = os.getenv("HETZNER_PG_URL")
+if not HETZNER_URL:
+    raise RuntimeError("HETZNER_PG_URL environment variable not set")
 SQLITE_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "belgian_companies.db")
 CHUNK = 50_000
 MIN_YEAR = 2022
