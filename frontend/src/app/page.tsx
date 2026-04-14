@@ -49,7 +49,7 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Beta notice */}
       <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-4 py-3">
         <p className="text-sm text-slate-600">
