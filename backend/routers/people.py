@@ -47,11 +47,13 @@ async def search_people(q: str = Query(..., min_length=1)):
                 SELECT name, COUNT(DISTINCT enterprise_number) AS n_admin_cos
                 FROM administrator
                 WHERE name ILIKE %s
+                  AND person_type = 'natural'
                 GROUP BY name
                 UNION
                 SELECT name, COUNT(DISTINCT enterprise_number) AS n_sh_cos
                 FROM shareholder
                 WHERE name ILIKE %s
+                  AND shareholder_type = 'individual'
                 GROUP BY name
                 ORDER BY n_admin_cos DESC, name
                 LIMIT 50

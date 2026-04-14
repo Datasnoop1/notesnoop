@@ -68,34 +68,95 @@ export default function UnifiedSearchPage() {
         )}
       </div>
 
-      {/* Results — two columns */}
+      {/* Results */}
       {searched && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Companies column */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <Building className="w-4 h-4 text-indigo-500" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Companies
+        <div className="space-y-8">
+
+          {/* Top Results — best matches from both */}
+          {(companies.length > 0 || people.length > 0) && (
+            <div>
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2 mb-3">
+                Top Results
               </h2>
-              {companies.length > 0 && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                {/* Top companies */}
+                {companies.slice(0, 5).map((c) => (
+                  <Link
+                    key={`top-${c.enterprise_number}`}
+                    href={`/company/${c.enterprise_number}`}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white border border-slate-200 hover:border-indigo-200 hover:shadow-md transition-all group"
+                  >
+                    <div className="p-2 rounded-lg bg-indigo-50 text-indigo-500 shrink-0">
+                      <Building className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 truncate">
+                        {c.name || fmtCbe(c.enterprise_number)}
+                      </div>
+                      <div className="text-[11px] text-slate-400 truncate">
+                        {fmtCbe(c.enterprise_number)}
+                        {c.city && <span> · {c.city}</span>}
+                      </div>
+                    </div>
+                    {c.revenue != null && (
+                      <div className="text-right shrink-0">
+                        <div className="text-xs font-mono text-slate-600">{fmtEur(c.revenue)}</div>
+                        {c.ebitda_margin_pct != null && (
+                          <div className={`text-[10px] font-mono ${c.ebitda_margin_pct >= 15 ? "text-emerald-500" : c.ebitda_margin_pct >= 5 ? "text-amber-500" : "text-rose-400"}`}>
+                            {fmtPct(c.ebitda_margin_pct)}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </Link>
+                ))}
+                {/* Top people */}
+                {people.slice(0, 5).map((p, i) => (
+                  <Link
+                    key={`top-p-${i}`}
+                    href={`/people?q=${encodeURIComponent(p.name)}`}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white border border-slate-200 hover:border-emerald-200 hover:shadow-md transition-all group"
+                  >
+                    <div className="p-2 rounded-lg bg-emerald-50 text-emerald-500 shrink-0">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-slate-800 group-hover:text-emerald-600 truncate">
+                        {p.name}
+                      </div>
+                      <div className="text-[11px] text-slate-400 truncate">
+                        {p.roles > 0 && <span>{p.roles} roles</span>}
+                        {p.roles > 0 && p.holdings > 0 && <span> · </span>}
+                        {p.holdings > 0 && <span>{p.holdings} holdings</span>}
+                      </div>
+                    </div>
+                    <Badge variant="secondary" className="text-[10px] shrink-0">
+                      {p.companies} {p.companies === 1 ? "co." : "cos."}
+                    </Badge>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Full Companies list */}
+          {companies.length > 5 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Building className="w-4 h-4 text-indigo-500" />
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  All Companies
+                </h2>
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                   {companies.length}
                 </Badge>
-              )}
-            </div>
-
-            {companies.length === 0 && !loading ? (
-              <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center">
-                <p className="text-sm text-slate-400">No companies found</p>
               </div>
-            ) : (
-              <div className="space-y-1">
-                {companies.slice(0, 20).map((c) => (
+              <div className="space-y-0.5">
+                {companies.slice(5).map((c) => (
                   <Link
                     key={c.enterprise_number}
                     href={`/company/${c.enterprise_number}`}
-                    className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all group"
+                    className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all group"
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-800 group-hover:text-indigo-600 truncate">
@@ -111,76 +172,57 @@ export default function UnifiedSearchPage() {
                       {c.revenue != null && (
                         <div className="text-xs font-mono text-slate-600">{fmtEur(c.revenue)}</div>
                       )}
-                      {c.ebitda_margin_pct != null && (
-                        <div className={`text-[10px] font-mono ${c.ebitda_margin_pct >= 15 ? "text-emerald-500" : c.ebitda_margin_pct >= 5 ? "text-amber-500" : "text-rose-400"}`}>
-                          {fmtPct(c.ebitda_margin_pct)} margin
-                        </div>
-                      )}
                     </div>
                   </Link>
                 ))}
-                {companies.length > 20 && (
-                  <p className="text-[11px] text-slate-400 text-center py-2">
-                    Showing 20 of {companies.length} results
-                  </p>
-                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* People column */}
-          <div>
-            <div className="flex items-center gap-2 mb-3">
-              <Users className="w-4 h-4 text-emerald-500" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                People
-              </h2>
-              {people.length > 0 && (
+          {/* Full People list */}
+          {people.length > 5 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="w-4 h-4 text-emerald-500" />
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  All People
+                </h2>
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                   {people.length}
                 </Badge>
-              )}
-            </div>
-
-            {people.length === 0 && !loading ? (
-              <div className="rounded-lg border border-dashed border-slate-200 p-6 text-center">
-                <p className="text-sm text-slate-400">No people found</p>
               </div>
-            ) : (
-              <div className="space-y-1">
-                {people.slice(0, 20).map((p, i) => (
+              <div className="space-y-0.5">
+                {people.slice(5).map((p, i) => (
                   <Link
-                    key={`${p.name}-${i}`}
+                    key={`all-p-${i}`}
                     href={`/people?q=${encodeURIComponent(p.name)}`}
-                    className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all group"
+                    className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all group"
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-800 group-hover:text-emerald-600 truncate">
                         {p.name}
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5 truncate">
+                      <div className="text-[11px] text-slate-400 mt-0.5">
                         {p.roles > 0 && <span>{p.roles} roles</span>}
                         {p.roles > 0 && p.holdings > 0 && <span> · </span>}
                         {p.holdings > 0 && <span>{p.holdings} holdings</span>}
-                        {p.roles === 0 && p.holdings === 0 && <span>{p.companies} companies</span>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0 ml-3">
-                      <Badge variant="secondary" className="text-[10px]">
-                        {p.companies} {p.companies === 1 ? "company" : "companies"}
-                      </Badge>
-                      <ArrowRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-500 transition-colors" />
-                    </div>
+                    <Badge variant="secondary" className="text-[10px] shrink-0">
+                      {p.companies} cos.
+                    </Badge>
                   </Link>
                 ))}
-                {people.length > 20 && (
-                  <p className="text-[11px] text-slate-400 text-center py-2">
-                    Showing 20 of {people.length} results
-                  </p>
-                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* No results */}
+          {companies.length === 0 && people.length === 0 && !loading && (
+            <div className="rounded-lg border border-dashed border-slate-200 p-8 text-center">
+              <p className="text-sm text-slate-400">No results found for &ldquo;{query}&rdquo;</p>
+            </div>
+          )}
         </div>
       )}
 
