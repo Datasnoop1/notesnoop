@@ -539,27 +539,41 @@ async def load_company_data(cbe: str, user=Depends(optional_user)):
                     ))
 
             if rows:
-                psycopg2.extras.execute_batch(
-                    cur,
-                    """INSERT INTO financial_data
-                       (enterprise_number, deposit_key, fiscal_year, deposit_date,
-                        filing_model, rubric_code, period, value)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                       ON CONFLICT DO NOTHING""",
-                    rows,
-                )
-                # Log the load
-                cur.execute(
-                    "INSERT INTO nbb_load_log (enterprise_number, deposit_key, rubric_count) "
-                    "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
-                    (cbe, ref_number, len(rows)),
-                )
-                total_rubrics += len(rows)
-                filings_loaded += 1
-                logger.info(
-                    "Loaded filing %s for %s: %d rubrics (FY %s)",
-                    ref_number, cbe, len(rows), fiscal_year,
-                )
+                try:
+                    # Reset connection state if in error
+                    if conn.status != 1:  # STATUS_READY = 1
+                        conn.rollback()
+                        logger.warning("Connection was in bad state for %s, rolled back", cbe)
+
+                    psycopg2.extras.execute_batch(
+                        cur,
+                        """INSERT INTO financial_data
+                           (enterprise_number, deposit_key, fiscal_year, deposit_date,
+                            filing_model, rubric_code, period, value)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                           ON CONFLICT DO NOTHING""",
+                        rows,
+                    )
+                    # Log the load
+                    cur.execute(
+                        "INSERT INTO nbb_load_log (enterprise_number, deposit_key, rubric_count) "
+                        "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                        (cbe, ref_number, len(rows)),
+                    )
+                    conn.commit()  # Commit EACH filing immediately
+                    total_rubrics += len(rows)
+                    filings_loaded += 1
+                    logger.info(
+                        "Loaded filing %s for %s: %d rubrics (FY %s) — committed",
+                        ref_number, cbe, len(rows), fiscal_year,
+                    )
+                except Exception as batch_err:
+                    conn.rollback()
+                    logger.error(
+                        "Failed to insert rubrics for filing %s of %s: %s",
+                        ref_number, cbe, batch_err,
+                    )
+                    errors.append(f"ref {ref_number}: insert failed: {batch_err}")
             else:
                 logger.info("Filing %s for %s had no rubrics", ref_number, cbe)
 
