@@ -408,8 +408,37 @@ function CsTab({
   const [dragOver, setDragOver] = useState(false);
   const [textInput, setTextInput] = useState("");
   const [inputMode, setInputMode] = useState<"file" | "text">("file");
+  const [csSearch, setCsSearch] = useState("");
+  const [csResults, setCsResults] = useState<SearchResult[]>([]);
+  const [csSearching, setCsSearching] = useState(false);
+  const [csAdding, setCsAdding] = useState<string | null>(null);
   const label = listType === "customer" ? "Customers" : "Suppliers";
   const Icon = listType === "customer" ? Building2 : Truck;
+
+  const existingCbes = new Set(items.map((i) => i.enterprise_number));
+
+  // Debounced company search
+  useEffect(() => {
+    if (csSearch.length < 2) { setCsResults([]); return; }
+    const timer = setTimeout(async () => {
+      setCsSearching(true);
+      try {
+        const results = await searchCompanies(csSearch);
+        setCsResults(results.filter((r: SearchResult) => !existingCbes.has(r.enterprise_number)));
+      } catch { setCsResults([]); }
+      finally { setCsSearching(false); }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [csSearch]);
+
+  function handleSearchAdd(cbe: string) {
+    if (!onUploadCbes) return;
+    setCsAdding(cbe);
+    onUploadCbes([cbe]);
+    setCsSearch("");
+    setCsResults([]);
+    setCsAdding(null);
+  }
 
   function handleTextSubmit() {
     const raw = textInput.trim();
@@ -442,6 +471,65 @@ function CsTab({
 
   return (
     <div className="space-y-3">
+      {/* Search to add */}
+      <div className="relative">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+          <Input
+            placeholder={`Search company by name to add as ${listType}...`}
+            value={csSearch}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCsSearch(e.target.value)}
+            className="h-9 pl-8 text-sm"
+          />
+          {csSearch && (
+            <button
+              onClick={() => { setCsSearch(""); setCsResults([]); }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        {csSearch.length >= 2 && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => { setCsSearch(""); setCsResults([]); }} />
+            <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+              {csSearching ? (
+                <div className="flex items-center justify-center gap-2 py-3">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                  <span className="text-xs text-slate-400">Searching...</span>
+                </div>
+              ) : csResults.length === 0 ? (
+                <p className="text-xs text-slate-400 p-3 text-center">No companies found</p>
+              ) : (
+                csResults.map((r) => (
+                  <button
+                    key={r.enterprise_number}
+                    onClick={() => handleSearchAdd(r.enterprise_number)}
+                    disabled={csAdding === r.enterprise_number}
+                    className="w-full text-left px-3 py-2 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium text-slate-800 truncate block">
+                        {r.name || fmtCbe(r.enterprise_number)}
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {fmtCbe(r.enterprise_number)} · {r.city || "\u2014"}
+                      </span>
+                    </div>
+                    {csAdding === r.enterprise_number ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500 shrink-0" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                    )}
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
       {/* Two input methods side by side */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Paste CBE numbers */}
@@ -658,6 +746,10 @@ export default function FavouritesPage() {
   const [newProjectName, setNewProjectName] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
   const [activeTab, setActiveTab] = useState<"companies" | "people" | "customers" | "suppliers">("companies");
+  const [peopleSearch, setPeopleSearch] = useState("");
+  const [peopleSearchResults, setPeopleSearchResults] = useState<PersonResult[]>([]);
+  const [peopleSearching, setPeopleSearching] = useState(false);
+  const [addingPerson, setAddingPerson] = useState<string | null>(null);
 
   const loadFavourites = useCallback(async () => {
     try {
@@ -726,6 +818,35 @@ export default function FavouritesPage() {
     loadCustomers();
     loadSuppliers();
   }, [loadFavourites, loadProjects, loadPeopleFavourites, loadCustomers, loadSuppliers]);
+
+  // Debounced people search
+  useEffect(() => {
+    if (peopleSearch.length < 2) { setPeopleSearchResults([]); return; }
+    const timer = setTimeout(async () => {
+      setPeopleSearching(true);
+      try {
+        const existingNames = new Set(peopleFavs.map((p) => p.person_name));
+        const results = await searchPeople(peopleSearch);
+        setPeopleSearchResults(results.filter((r) => !existingNames.has(r.name)));
+      } catch { setPeopleSearchResults([]); }
+      finally { setPeopleSearching(false); }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [peopleSearch, peopleFavs]);
+
+  async function handleAddPersonFavourite(personName: string) {
+    setAddingPerson(personName);
+    try {
+      await addPeopleFavourite(personName);
+      setPeopleSearch("");
+      setPeopleSearchResults([]);
+      loadPeopleFavourites();
+    } catch (err) {
+      console.error("Failed to add person favourite:", err);
+    } finally {
+      setAddingPerson(null);
+    }
+  }
 
   async function handleRemovePerson(name: string) {
     setRemovingPerson(name);
@@ -1175,6 +1296,65 @@ export default function FavouritesPage() {
             <Users className="w-4 h-4" />
             Saved People
           </h2>
+
+          {/* Search to add a person */}
+          <div className="relative">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <Input
+                placeholder="Search person by name to add..."
+                value={peopleSearch}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPeopleSearch(e.target.value)}
+                className="h-9 pl-8 text-sm"
+              />
+              {peopleSearch && (
+                <button
+                  onClick={() => { setPeopleSearch(""); setPeopleSearchResults([]); }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            {peopleSearch.length >= 2 && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => { setPeopleSearch(""); setPeopleSearchResults([]); }} />
+                <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-white border border-slate-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                  {peopleSearching ? (
+                    <div className="flex items-center justify-center gap-2 py-3">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                      <span className="text-xs text-slate-400">Searching...</span>
+                    </div>
+                  ) : peopleSearchResults.length === 0 ? (
+                    <p className="text-xs text-slate-400 p-3 text-center">No people found</p>
+                  ) : (
+                    peopleSearchResults.map((r) => (
+                      <button
+                        key={r.name}
+                        onClick={() => handleAddPersonFavourite(r.name)}
+                        disabled={addingPerson === r.name}
+                        className="w-full text-left px-3 py-2 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <span className="text-sm font-medium text-slate-800 truncate block">
+                            {r.name}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {r.companies} {r.companies === 1 ? "company" : "companies"}
+                          </span>
+                        </div>
+                        {addingPerson === r.name ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500 shrink-0" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </div>
 
           {loadingPeople && (
             <div className="flex items-center gap-2 py-8">
