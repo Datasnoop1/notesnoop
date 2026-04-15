@@ -6,7 +6,7 @@ import time
 from dotenv import load_dotenv
 load_dotenv()
 
-HOST = os.getenv("HETZNER_IP", "62.238.14.150")
+HOST = os.getenv("HETZNER_IP", "")
 USER = os.getenv("HETZNER_USER", "root")
 PASS = os.getenv("HETZNER_PASS", "")
 
@@ -16,8 +16,11 @@ SSH_KEY = os.path.expanduser("~/.ssh/hetzner_datasnoop")
 
 def run(cmd, timeout=120):
     """Execute a command on the remote server and print output."""
+    if not HOST:
+        raise RuntimeError("HETZNER_IP not set in environment / .env file")
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.load_system_host_keys()
+    ssh.set_missing_host_key_policy(paramiko.RejectPolicy())
     # Try SSH key first, fall back to password
     try:
         ssh.connect(HOST, username=USER, key_filename=SSH_KEY, timeout=10)
