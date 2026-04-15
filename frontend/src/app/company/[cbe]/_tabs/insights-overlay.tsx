@@ -14,6 +14,8 @@ import {
   Loader2,
   CheckCircle2,
   ExternalLink,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import type { AiInsights } from "@/lib/api";
 
@@ -26,6 +28,7 @@ interface InsightsOverlayProps {
   loading: boolean;
   companyName: string;
   onGenerate: () => void;
+  onFeedback?: (feedback: { overall: "up" | "down"; websiteCorrect?: boolean; linkedinCorrect?: boolean; insightCorrect?: boolean; comment?: string }) => void;
 }
 
 /* ---------- Step indicator ---------- */
@@ -93,6 +96,28 @@ function InsightSection({
 
 /* ---------- Main component ---------- */
 
+/* ---------- Feedback toggle ---------- */
+
+function FeedbackToggle({ label, value, onChange }: { label: string; value: boolean | null; onChange: (v: boolean) => void }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-slate-500">{label}:</span>
+      <button
+        onClick={() => onChange(true)}
+        className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${value === true ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-300" : "bg-slate-100 text-slate-400 hover:bg-emerald-50"}`}
+      >
+        Correct
+      </button>
+      <button
+        onClick={() => onChange(false)}
+        className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${value === false ? "bg-rose-100 text-rose-700 ring-1 ring-rose-300" : "bg-slate-100 text-slate-400 hover:bg-rose-50"}`}
+      >
+        Wrong
+      </button>
+    </div>
+  );
+}
+
 export function InsightsOverlay({
   open,
   onClose,
@@ -100,11 +125,16 @@ export function InsightsOverlay({
   loading,
   companyName,
   onGenerate,
+  onFeedback,
 }: InsightsOverlayProps) {
+  const [feedbackGiven, setFeedbackGiven] = useState<"up" | "down" | null>(null);
+  const [websiteOk, setWebsiteOk] = useState<boolean | null>(null);
+  const [linkedinOk, setLinkedinOk] = useState<boolean | null>(null);
+  const [insightOk, setInsightOk] = useState<boolean | null>(null);
   /* Animated pipeline steps while loading */
   const [steps, setSteps] = useState<PipelineStep[]>([
-    { label: "Finding company website & LinkedIn...", status: "pending" },
-    { label: "Scraping & generating insights...", status: "pending" },
+    { label: "Gathering company information...", status: "pending" },
+    { label: "Generating insights...", status: "pending" },
     { label: "Reviewing & validating...", status: "pending" },
   ]);
   const [elapsed, setElapsed] = useState(0);
@@ -124,16 +154,16 @@ export function InsightsOverlay({
 
     // Initial state: step 1 active
     setSteps([
-      { label: "Finding company website & LinkedIn...", status: "active" },
-      { label: "Scraping & generating insights...", status: "pending" },
+      { label: "Gathering company information...", status: "active" },
+      { label: "Generating insights...", status: "pending" },
       { label: "Reviewing & validating...", status: "pending" },
     ]);
 
     // Advance to step 2 after ~5s
     const t1 = setTimeout(() => {
       setSteps([
-        { label: "Finding company website & LinkedIn...", status: "done" },
-        { label: "Scraping & generating insights...", status: "active" },
+        { label: "Gathering company information...", status: "done" },
+        { label: "Generating insights...", status: "active" },
         { label: "Reviewing & validating...", status: "pending" },
       ]);
     }, 5000);
@@ -141,8 +171,8 @@ export function InsightsOverlay({
     // Advance to step 3 after ~20s
     const t2 = setTimeout(() => {
       setSteps([
-        { label: "Finding company website & LinkedIn...", status: "done" },
-        { label: "Scraping & generating insights...", status: "done" },
+        { label: "Gathering company information...", status: "done" },
+        { label: "Generating insights...", status: "done" },
         { label: "Reviewing & validating...", status: "active" },
       ]);
     }, 20000);
@@ -299,6 +329,39 @@ export function InsightsOverlay({
                     )}
                   </div>
                 )}
+
+                {/* ── Feedback section ── */}
+                <div className="mt-4 pt-4 border-t border-slate-100">
+                  {!feedbackGiven ? (
+                    <div className="space-y-3">
+                      <p className="text-xs font-medium text-slate-500">Is this information correct?</p>
+                      <div className="flex flex-wrap gap-3 text-xs">
+                        <FeedbackToggle label="Website URL" value={websiteOk} onChange={setWebsiteOk} />
+                        <FeedbackToggle label="LinkedIn URL" value={linkedinOk} onChange={setLinkedinOk} />
+                        <FeedbackToggle label="Company insight" value={insightOk} onChange={setInsightOk} />
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={() => { setFeedbackGiven("up"); onFeedback?.({ overall: "up", websiteCorrect: websiteOk ?? undefined, linkedinCorrect: linkedinOk ?? undefined, insightCorrect: insightOk ?? undefined }); }}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+                        >
+                          <ThumbsUp className="h-3 w-3" /> Looks good
+                        </button>
+                        <button
+                          onClick={() => { setFeedbackGiven("down"); onFeedback?.({ overall: "down", websiteCorrect: websiteOk ?? undefined, linkedinCorrect: linkedinOk ?? undefined, insightCorrect: insightOk ?? undefined }); }}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 transition-colors"
+                        >
+                          <ThumbsDown className="h-3 w-3" /> Needs improvement
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      Thanks for your feedback!
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
