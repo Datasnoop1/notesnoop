@@ -550,6 +550,18 @@ export const removeCustomer = (cbe: string) =>
 export const removeSupplier = (cbe: string) =>
   apiFetch<{ status: string }>(`/api/favourites/suppliers/${cbe}`, { method: "DELETE" });
 
+export interface SimilarCustomerSuggestion {
+  enterprise_number: string;
+  name: string;
+  city: string;
+  revenue: number | null;
+  nace_code: string;
+  reason: string;
+}
+
+export const suggestSimilarCustomers = () =>
+  apiFetch<SimilarCustomerSuggestion[]>('/api/favourites/customers/suggest-similar', { method: 'POST' });
+
 // ── Sector Benchmark ───────────────────────────────────────
 export interface BenchmarkMetric {
   metric: string;
@@ -582,10 +594,27 @@ export const enrichCompany = (cbe: string) =>
   apiFetch<{ summary: string }>(`/api/companies/${cbe}/enrich`, { method: "POST" });
 
 export const getEnrichment = (cbe: string) =>
-  apiFetch<{ summary: string; generated_at: string } | null>(`/api/companies/${cbe}/enrichment`);
+  apiFetch<{
+    summary: string;
+    generated_at: string;
+    website_summary: string | null;
+    linkedin_summary: string | null;
+    website_url: string | null;
+  } | null>(`/api/companies/${cbe}/enrichment`);
 
 export const enrichPerson = (name: string) =>
   apiFetch<{ summary: string }>(`/api/people/${encodeURIComponent(name)}/enrich`, { method: "POST" });
 
 export const getPersonEnrichment = (name: string) =>
   apiFetch<{ summary: string; generated_at: string } | null>(`/api/people/${encodeURIComponent(name)}/enrichment`);
+
+// ── Website & LinkedIn Scraping ──────────────────────────
+export const scrapeCompanyWebsite = (cbe: string) =>
+  apiFetch<{ summary: string; products: string; employees: string; key_people: string; website_url: string }>(
+    `/api/companies/${cbe}/scrape-website`, { method: "POST" }
+  );
+
+export const scrapeCompanyLinkedIn = (cbe: string) =>
+  apiFetch<{ summary: string; employee_count: string; industry: string; specialties: string; linkedin_url: string }>(
+    `/api/companies/${cbe}/scrape-linkedin`, { method: "POST" }
+  );

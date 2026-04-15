@@ -1635,6 +1635,14 @@ def _ensure_enrichment_table():
             generated_at TIMESTAMP DEFAULT NOW()
         )
     """)
+    # Add website/LinkedIn scraping columns (idempotent)
+    for col in ("website_summary", "linkedin_summary", "website_url"):
+        try:
+            execute(f"""
+                ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS {col} TEXT
+            """)
+        except Exception:
+            pass  # column already exists or DB doesn't support IF NOT EXISTS
     _enrichment_table_ensured = True
 
 
@@ -1724,7 +1732,7 @@ async def get_enrichment(cbe: str, user=Depends(optional_user)):
     cbe = cbe.strip().replace(".", "").zfill(10)
 
     row = fetch_one("""
-        SELECT summary, generated_at
+        SELECT summary, generated_at, website_summary, linkedin_summary, website_url
         FROM company_enrichment
         WHERE enterprise_number = %s
     """, (cbe,))
@@ -1733,3 +1741,205 @@ async def get_enrichment(cbe: str, user=Depends(optional_user)):
         return None
 
     return _serialize_row(row)
+
+
+# ---------------------------------------------------------------------------
+# POST /api/companies/{cbe}/scrape-website
+# ---------------------------------------------------------------------------
+
+@router.post("/{cbe}/scrape-website")
+async def scrape_company_website(cbe: str, user=Depends(get_current_user)):
+    """Scrape company website via Zenrows and extract structured data with AI.
+
+    Looks up the company website from the contact table (contact_type='WEB'),
+    scrapes it, then uses AI to extract a description, products/services,
+    employee mentions, and key people.
+    """
+    from scraper import scrape_url, _strip_html
+
+    _ensure_enrichment_table()
+    cbe = cbe.strip().replace(".", "").zfill(10)
+
+    # 1. Find the company's website
+    row = fetch_one("""
+        SELECT value FROM contact
+        WHERE entity_number = %s AND contact_type = 'WEB'
+        LIMIT 1
+    """, (cbe,))
+
+    if not row or not row.get("value"):
+        raise HTTPException(status_code=404, detail="No website found for this company")
+
+    website_url = row["value"].strip()
+    # Ensure URL has a scheme
+    if not website_url.startswith("http"):
+        website_url = "https://" + website_url
+
+    # 2. Scrape the website
+    html = await scrape_url(website_url)
+    if not html:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not scrape the website — check ZENROWS_API_KEY or try again later",
+        )
+
+    # 3. Extract text from HTML
+    page_text = _strip_html(html)
+    if len(page_text) < 50:
+        raise HTTPException(status_code=422, detail="Website returned too little content to analyse")
+
+    # 4. AI extraction
+    prompt = (
+        "Analyse the following text scraped from a Belgian company's website. "
+        "Extract and return a JSON object with these fields:\n"
+        '- "summary": A concise 2-3 sentence company description\n'
+        '- "products": A comma-separated list of main products or services\n'
+        '- "employees": Any mentioned number of employees, or "unknown"\n'
+        '- "key_people": Names and roles of key people mentioned, or "none found"\n\n'
+        "Return ONLY valid JSON, no markdown fences.\n\n"
+        f"Website text:\n{page_text}"
+    )
+
+    system = (
+        "You are a data extraction assistant. Return only valid JSON. "
+        "Be concise and factual. If information is not available, use sensible defaults."
+    )
+
+    ai_response = await ai_complete(prompt, system=system)
+    if not ai_response:
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+
+    # 5. Try to parse AI response as JSON, fall back to raw text
+    import json
+    try:
+        extracted = json.loads(ai_response.strip())
+    except json.JSONDecodeError:
+        # AI didn't return clean JSON — wrap the raw text
+        extracted = {
+            "summary": ai_response.strip(),
+            "products": "unknown",
+            "employees": "unknown",
+            "key_people": "none found",
+        }
+
+    # 6. Store in company_enrichment
+    website_summary = json.dumps(extracted, ensure_ascii=False)
+    execute("""
+        INSERT INTO company_enrichment (enterprise_number, website_summary, website_url, generated_at)
+        VALUES (%s, %s, %s, NOW())
+        ON CONFLICT (enterprise_number)
+        DO UPDATE SET website_summary = EXCLUDED.website_summary,
+                      website_url = EXCLUDED.website_url,
+                      generated_at = NOW()
+    """, (cbe, website_summary, website_url))
+
+    return {
+        "summary": extracted.get("summary", ""),
+        "products": extracted.get("products", ""),
+        "employees": extracted.get("employees", "unknown"),
+        "key_people": extracted.get("key_people", "none found"),
+        "website_url": website_url,
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /api/companies/{cbe}/scrape-linkedin
+# ---------------------------------------------------------------------------
+
+@router.post("/{cbe}/scrape-linkedin")
+async def scrape_company_linkedin(cbe: str, user=Depends(get_current_user)):
+    """Scrape company LinkedIn profile via Zenrows and extract data with AI.
+
+    Constructs a LinkedIn company URL from the company name, scrapes it
+    with JS rendering and premium proxies, then uses AI to extract
+    description, employee count, industry, and specialties.
+    """
+    from scraper import scrape_url, _strip_html, slugify_company_name
+
+    _ensure_enrichment_table()
+    cbe = cbe.strip().replace(".", "").zfill(10)
+
+    # 1. Get company name to build LinkedIn URL
+    company = fetch_one("""
+        SELECT COALESCE(ci.name, d.denomination) AS name
+        FROM enterprise e
+        LEFT JOIN company_info ci ON ci.enterprise_number = e.enterprise_number
+        LEFT JOIN denomination d ON d.entity_number = e.enterprise_number
+             AND d.type_of_denomination = '001' AND d.language IN ('2','1')
+        WHERE e.enterprise_number = %s
+        LIMIT 1
+    """, (cbe,))
+
+    if not company or not company.get("name"):
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    company_name = company["name"]
+    slug = slugify_company_name(company_name)
+    linkedin_url = f"https://www.linkedin.com/company/{slug}"
+
+    # 2. Scrape LinkedIn (requires JS rendering + premium proxy)
+    html = await scrape_url(linkedin_url, js_render=True, premium_proxy=True)
+    if not html:
+        raise HTTPException(
+            status_code=502,
+            detail="Could not scrape LinkedIn — check ZENROWS_API_KEY or try again later",
+        )
+
+    # 3. Extract text from HTML
+    page_text = _strip_html(html)
+    if len(page_text) < 50:
+        raise HTTPException(
+            status_code=422,
+            detail="LinkedIn page returned too little content — the company page may not exist",
+        )
+
+    # 4. AI extraction
+    prompt = (
+        "Analyse the following text scraped from a LinkedIn company page. "
+        "Extract and return a JSON object with these fields:\n"
+        '- "summary": A concise 2-3 sentence company description\n'
+        '- "employee_count": Number of employees listed, or "unknown"\n'
+        '- "industry": The industry listed on the page, or "unknown"\n'
+        '- "specialties": A comma-separated list of specialties, or "none found"\n\n'
+        "Return ONLY valid JSON, no markdown fences.\n\n"
+        f"LinkedIn page text:\n{page_text}"
+    )
+
+    system = (
+        "You are a data extraction assistant. Return only valid JSON. "
+        "Be concise and factual. If information is not available, use sensible defaults."
+    )
+
+    ai_response = await ai_complete(prompt, system=system)
+    if not ai_response:
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+
+    # 5. Try to parse AI response as JSON
+    import json
+    try:
+        extracted = json.loads(ai_response.strip())
+    except json.JSONDecodeError:
+        extracted = {
+            "summary": ai_response.strip(),
+            "employee_count": "unknown",
+            "industry": "unknown",
+            "specialties": "none found",
+        }
+
+    # 6. Store in company_enrichment
+    linkedin_summary = json.dumps(extracted, ensure_ascii=False)
+    execute("""
+        INSERT INTO company_enrichment (enterprise_number, linkedin_summary, generated_at)
+        VALUES (%s, %s, NOW())
+        ON CONFLICT (enterprise_number)
+        DO UPDATE SET linkedin_summary = EXCLUDED.linkedin_summary,
+                      generated_at = NOW()
+    """, (cbe, linkedin_summary))
+
+    return {
+        "summary": extracted.get("summary", ""),
+        "employee_count": extracted.get("employee_count", "unknown"),
+        "industry": extracted.get("industry", "unknown"),
+        "specialties": extracted.get("specialties", "none found"),
+        "linkedin_url": linkedin_url,
+    }
