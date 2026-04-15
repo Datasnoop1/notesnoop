@@ -3,6 +3,7 @@
 import logging
 import decimal
 import datetime
+import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -11,6 +12,23 @@ from db import fetch_all, fetch_one
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/graveyard", tags=["graveyard"])
+
+# Simple in-memory cache — these queries are heavy but data changes at most daily.
+_cache: dict[str, tuple[float, object]] = {}
+CACHE_TTL = 600  # 10 minutes
+
+
+def _cached(key: str):
+    """Return cached value if fresh, else None."""
+    if key in _cache:
+        ts, val = _cache[key]
+        if time.time() - ts < CACHE_TTL:
+            return val
+    return None
+
+
+def _set_cache(key: str, val: object):
+    _cache[key] = (time.time(), val)
 
 ROLE_LABELS = {
     "fct:m10": "Director",
@@ -56,6 +74,9 @@ def _serialize(rows: list) -> list:
 @router.get("/overview")
 async def graveyard_overview():
     """Aggregate stats on companies with non-normal juridical situation."""
+    cached = _cached("overview")
+    if cached:
+        return cached
     try:
         # Total healthy vs troubled
         totals = fetch_one("""
@@ -127,13 +148,15 @@ async def graveyard_overview():
             ORDER BY decade
         """)
 
-        return {
+        result = {
             "active_count": totals["healthy_count"] if totals else 0,
             "non_active_count": totals["troubled_count"] if totals else 0,
             "by_status": _serialize(by_category),
             "by_situation": _serialize(by_situation),
             "by_decade": _serialize(by_decade),
         }
+        _set_cache("overview", result)
+        return result
     except Exception:
         logger.exception("Graveyard overview query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -152,6 +175,10 @@ async def repeat_offenders(
 
     Returns a ranked list with failed company count and currently-healthy count.
     """
+    cache_key = f"offenders:{min_failed}:{limit}"
+    cached = _cached(cache_key)
+    if cached:
+        return cached
     try:
         # Two-step approach to avoid slow correlated subquery:
         # Step 1: Get all person-company-situation pairs in one scan
@@ -184,10 +211,12 @@ async def repeat_offenders(
             LIMIT %s
         """, (min_failed, limit))
 
-        return {
+        result = {
             "offenders": _serialize(rows),
             "total": len(rows),
         }
+        _set_cache(cache_key, result)
+        return result
     except Exception:
         logger.exception("Repeat offenders query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
