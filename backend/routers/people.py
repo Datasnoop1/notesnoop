@@ -45,18 +45,22 @@ async def search_people(q: str = Query(..., min_length=1)):
         with get_conn() as conn:
             import psycopg2.extras
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            # Group by LOWER(name) to deduplicate case variations
+            # (e.g. "Dries Bertrem" vs "Dries BERTREM"), display as INITCAP
             cur.execute("""
-                SELECT name, COUNT(DISTINCT enterprise_number) AS n_admin_cos
+                SELECT INITCAP(name) AS name,
+                       COUNT(DISTINCT enterprise_number) AS n_admin_cos
                 FROM administrator
                 WHERE name ILIKE %s
                   AND person_type = 'natural'
-                GROUP BY name
+                GROUP BY LOWER(name)
                 UNION
-                SELECT name, COUNT(DISTINCT enterprise_number) AS n_sh_cos
+                SELECT INITCAP(name) AS name,
+                       COUNT(DISTINCT enterprise_number) AS n_sh_cos
                 FROM shareholder
                 WHERE name ILIKE %s
                   AND shareholder_type = 'individual'
-                GROUP BY name
+                GROUP BY LOWER(name)
                 ORDER BY n_admin_cos DESC, name
                 LIMIT 50
             """, (query, query))
@@ -94,7 +98,7 @@ async def get_person_connections(name: str):
     Returns administrator roles and shareholdings.
     """
     try:
-        # Administrator roles
+        # Administrator roles — case-insensitive match since search returns INITCAP names
         admin_rows = fetch_all("""
             SELECT
                 a.enterprise_number,
@@ -111,11 +115,11 @@ async def get_person_connections(name: str):
             LEFT JOIN denomination d ON d.entity_number = a.enterprise_number
                 AND d.type_of_denomination = '001' AND d.language IN ('2','1')
             LEFT JOIN financial_latest fl ON fl.enterprise_number = a.enterprise_number
-            WHERE a.name = %s
+            WHERE LOWER(a.name) = LOWER(%s)
             ORDER BY a.mandate_start DESC
         """, (name,))
 
-        # Shareholdings
+        # Shareholdings — case-insensitive match
         holding_rows = fetch_all("""
             SELECT
                 s.enterprise_number,
@@ -130,7 +134,7 @@ async def get_person_connections(name: str):
             LEFT JOIN denomination d ON d.entity_number = s.enterprise_number
                 AND d.type_of_denomination = '001' AND d.language IN ('2','1')
             LEFT JOIN financial_latest fl ON fl.enterprise_number = s.enterprise_number
-            WHERE s.name = %s
+            WHERE LOWER(s.name) = LOWER(%s)
             ORDER BY s.ownership_pct DESC NULLS LAST
         """, (name,))
 
@@ -218,7 +222,7 @@ async def enrich_person(name: str, user=Depends(get_current_user)):
     """
     _ensure_people_enrichment_table()
 
-    # Gather admin roles
+    # Gather admin roles — case-insensitive match
     admin_rows = fetch_all("""
         SELECT
             COALESCE(d.denomination, a.enterprise_number) AS company_name,
@@ -228,12 +232,12 @@ async def enrich_person(name: str, user=Depends(get_current_user)):
         FROM administrator a
         LEFT JOIN denomination d ON d.entity_number = a.enterprise_number
             AND d.type_of_denomination = '001' AND d.language IN ('2','1')
-        WHERE a.name = %s
+        WHERE LOWER(a.name) = LOWER(%s)
         ORDER BY a.mandate_start DESC NULLS LAST
         LIMIT 20
     """, (name,))
 
-    # Gather holdings
+    # Gather holdings — case-insensitive match
     holding_rows = fetch_all("""
         SELECT
             COALESCE(d.denomination, s.enterprise_number) AS company_name,
@@ -241,7 +245,7 @@ async def enrich_person(name: str, user=Depends(get_current_user)):
         FROM shareholder s
         LEFT JOIN denomination d ON d.entity_number = s.enterprise_number
             AND d.type_of_denomination = '001' AND d.language IN ('2','1')
-        WHERE s.name = %s
+        WHERE LOWER(s.name) = LOWER(%s)
         ORDER BY s.ownership_pct DESC NULLS LAST
         LIMIT 20
     """, (name,))
