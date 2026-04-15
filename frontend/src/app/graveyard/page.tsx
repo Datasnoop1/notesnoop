@@ -255,160 +255,7 @@ export default function GraveyardPage() {
 
       <div className="mx-auto max-w-6xl px-4 py-6 space-y-8">
 
-        {/* ── KPI cards ── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {loadingOverview ? (
-            Array.from({ length: 4 }).map((_, i) => (
-              <Card key={i} className="bg-white">
-                <CardContent className="pt-4 pb-4">
-                  <SkeletonBlock className="h-4 w-20 mb-2" />
-                  <SkeletonBlock className="h-8 w-24" />
-                </CardContent>
-              </Card>
-            ))
-          ) : (
-            <>
-              <Card className="bg-white border-rose-200">
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Non-Active Companies</p>
-                  <p className="text-2xl font-bold text-rose-600 mt-1">
-                    {fmtNumber(overview?.non_active_count)}
-                  </p>
-                </CardContent>
-              </Card>
-              <Card className="bg-white">
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">% of All Companies</p>
-                  <p className="text-2xl font-bold text-slate-800 mt-1">
-                    {pctNonActive.toFixed(1)}%
-                  </p>
-                </CardContent>
-              </Card>
-              <Card className="bg-white">
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Top Status</p>
-                  <p className="text-lg font-bold text-slate-800 mt-1">
-                    {topStatus?.label ?? "—"}
-                  </p>
-                  <p className="text-xs text-slate-400">{fmtNumber(topStatus?.count)} companies</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-white">
-                <CardContent className="pt-4 pb-4">
-                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Top Situation</p>
-                  <p className="text-lg font-bold text-slate-800 mt-1">
-                    {topSituation?.label ?? "—"}
-                  </p>
-                  <p className="text-xs text-slate-400">{fmtNumber(topSituation?.count)} companies</p>
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </div>
-
-        {/* ── Charts row ── */}
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Status breakdown */}
-          <Card className="bg-white">
-            <CardContent className="pt-5 pb-4">
-              <SectionHeader icon={<AlertTriangle className="h-3.5 w-3.5" />}>
-                By Status
-              </SectionHeader>
-              {loadingOverview ? (
-                <ChartSkeleton />
-              ) : (
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart
-                    data={overview?.by_status ?? []}
-                    layout="vertical"
-                    margin={{ left: 10, right: 20, top: 5, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                    <XAxis type="number" tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v) => fmtNumber(v)} />
-                    <YAxis
-                      type="category"
-                      dataKey="label"
-                      tick={{ fontSize: 11, fill: "#334155" }}
-                      width={120}
-                    />
-                    <Tooltip content={<StatusTooltip />} />
-                    <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                      {(overview?.by_status ?? []).map((_, idx) => (
-                        <Cell key={idx} fill={STATUS_COLORS[idx % STATUS_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Juridical situation breakdown */}
-          <Card className="bg-white">
-            <CardContent className="pt-5 pb-4">
-              <SectionHeader icon={<Building2 className="h-3.5 w-3.5" />}>
-                By Juridical Situation
-              </SectionHeader>
-              {loadingOverview ? (
-                <ChartSkeleton />
-              ) : (
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart
-                    data={(overview?.by_situation ?? []).slice(0, 10)}
-                    layout="vertical"
-                    margin={{ left: 10, right: 20, top: 5, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                    <XAxis type="number" tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v) => fmtNumber(v)} />
-                    <YAxis
-                      type="category"
-                      dataKey="label"
-                      tick={{ fontSize: 11, fill: "#334155" }}
-                      width={160}
-                    />
-                    <Tooltip content={<StatusTooltip />} />
-                    <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                      {(overview?.by_situation ?? []).slice(0, 10).map((_, idx) => (
-                        <Cell key={idx} fill={SITUATION_COLORS[idx % SITUATION_COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Decade chart */}
-        <Card className="bg-white">
-          <CardContent className="pt-5 pb-4">
-            <SectionHeader icon={<BarChart3 className="h-3.5 w-3.5" />}>
-              Closed Companies by Founding Decade
-            </SectionHeader>
-            {loadingOverview ? (
-              <ChartSkeleton height="h-48" />
-            ) : (
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart
-                  data={overview?.by_decade ?? []}
-                  margin={{ left: 10, right: 20, top: 5, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                  <XAxis
-                    dataKey="decade"
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    tickFormatter={(v) => `${v}s`}
-                  />
-                  <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v) => fmtNumber(v)} />
-                  <Tooltip content={<DecadeTooltip />} />
-                  <Bar dataKey="count" fill={DECADE_COLORS} radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ── Repeat Offenders ── */}
+        {/* ── Repeat Offenders (primary feature — shown first) ── */}
         <div>
           <SectionHeader icon={<Users className="h-3.5 w-3.5" />}>
             Repeat Offenders — Worst Track Records
@@ -578,16 +425,16 @@ export default function GraveyardPage() {
                                                 </TableCell>
                                                 <TableCell>
                                                   <span className="text-sm text-slate-600">
-                                                    {c.role_label || c.role || "—"}
+                                                    {c.role_label || c.role || "\u2014"}
                                                   </span>
                                                 </TableCell>
                                                 <TableCell>
                                                   <Badge variant="secondary" className="bg-rose-50 text-rose-600 border-rose-200 text-xs">
-                                                    {c.status_label || c.status || "—"}
+                                                    {c.status_label || c.status || "\u2014"}
                                                   </Badge>
                                                 </TableCell>
                                                 <TableCell className="text-sm text-slate-600">
-                                                  {c.situation_label || "—"}
+                                                  {c.situation_label || "\u2014"}
                                                 </TableCell>
                                                 <TableCell className="text-right font-mono text-sm">
                                                   {fmtEur(c.revenue)}
@@ -633,7 +480,7 @@ export default function GraveyardPage() {
                                                   <p className="text-[10px] text-slate-400 font-mono">{fmtCbe(c.enterprise_number)}</p>
                                                 </TableCell>
                                                 <TableCell className="text-sm text-slate-600">
-                                                  {c.role_label || c.role || "—"}
+                                                  {c.role_label || c.role || "\u2014"}
                                                 </TableCell>
                                                 <TableCell className="text-right font-mono text-sm">
                                                   {fmtEur(c.revenue)}
@@ -671,6 +518,159 @@ export default function GraveyardPage() {
             </Table>
           </Card>
         </div>
+
+        {/* ── KPI cards ── */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {loadingOverview ? (
+            Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i} className="bg-white">
+                <CardContent className="pt-4 pb-4">
+                  <SkeletonBlock className="h-4 w-20 mb-2" />
+                  <SkeletonBlock className="h-8 w-24" />
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <>
+              <Card className="bg-white border-rose-200">
+                <CardContent className="pt-4 pb-4">
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Non-Active Companies</p>
+                  <p className="text-2xl font-bold text-rose-600 mt-1">
+                    {fmtNumber(overview?.non_active_count)}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="bg-white">
+                <CardContent className="pt-4 pb-4">
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">% of All Companies</p>
+                  <p className="text-2xl font-bold text-slate-800 mt-1">
+                    {pctNonActive.toFixed(1)}%
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="bg-white">
+                <CardContent className="pt-4 pb-4">
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Top Status</p>
+                  <p className="text-lg font-bold text-slate-800 mt-1">
+                    {topStatus?.label ?? "—"}
+                  </p>
+                  <p className="text-xs text-slate-400">{fmtNumber(topStatus?.count)} companies</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-white">
+                <CardContent className="pt-4 pb-4">
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Top Situation</p>
+                  <p className="text-lg font-bold text-slate-800 mt-1">
+                    {topSituation?.label ?? "—"}
+                  </p>
+                  <p className="text-xs text-slate-400">{fmtNumber(topSituation?.count)} companies</p>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
+
+        {/* ── Charts row ── */}
+        <div className="grid md:grid-cols-2 gap-6">
+          {/* Status breakdown */}
+          <Card className="bg-white">
+            <CardContent className="pt-5 pb-4">
+              <SectionHeader icon={<AlertTriangle className="h-3.5 w-3.5" />}>
+                By Status
+              </SectionHeader>
+              {loadingOverview ? (
+                <ChartSkeleton />
+              ) : (
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart
+                    data={overview?.by_status ?? []}
+                    layout="vertical"
+                    margin={{ left: 10, right: 20, top: 5, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v) => fmtNumber(v)} />
+                    <YAxis
+                      type="category"
+                      dataKey="label"
+                      tick={{ fontSize: 11, fill: "#334155" }}
+                      width={120}
+                    />
+                    <Tooltip content={<StatusTooltip />} />
+                    <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                      {(overview?.by_status ?? []).map((_, idx) => (
+                        <Cell key={idx} fill={STATUS_COLORS[idx % STATUS_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Juridical situation breakdown */}
+          <Card className="bg-white">
+            <CardContent className="pt-5 pb-4">
+              <SectionHeader icon={<Building2 className="h-3.5 w-3.5" />}>
+                By Juridical Situation
+              </SectionHeader>
+              {loadingOverview ? (
+                <ChartSkeleton />
+              ) : (
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart
+                    data={(overview?.by_situation ?? []).slice(0, 10)}
+                    layout="vertical"
+                    margin={{ left: 10, right: 20, top: 5, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v) => fmtNumber(v)} />
+                    <YAxis
+                      type="category"
+                      dataKey="label"
+                      tick={{ fontSize: 11, fill: "#334155" }}
+                      width={160}
+                    />
+                    <Tooltip content={<StatusTooltip />} />
+                    <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                      {(overview?.by_situation ?? []).slice(0, 10).map((_, idx) => (
+                        <Cell key={idx} fill={SITUATION_COLORS[idx % SITUATION_COLORS.length]} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Decade chart */}
+        <Card className="bg-white">
+          <CardContent className="pt-5 pb-4">
+            <SectionHeader icon={<BarChart3 className="h-3.5 w-3.5" />}>
+              Closed Companies by Founding Decade
+            </SectionHeader>
+            {loadingOverview ? (
+              <ChartSkeleton height="h-48" />
+            ) : (
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart
+                  data={overview?.by_decade ?? []}
+                  margin={{ left: 10, right: 20, top: 5, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis
+                    dataKey="decade"
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    tickFormatter={(v) => `${v}s`}
+                  />
+                  <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickFormatter={(v) => fmtNumber(v)} />
+                  <Tooltip content={<DecadeTooltip />} />
+                  <Bar dataKey="count" fill={DECADE_COLORS} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Footer note */}
         <p className="text-xs text-slate-400 text-center pb-4">

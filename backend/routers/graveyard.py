@@ -153,36 +153,35 @@ async def repeat_offenders(
     Returns a ranked list with failed company count and currently-healthy count.
     """
     try:
+        # Two-step approach to avoid slow correlated subquery:
+        # Step 1: Get all person-company-situation pairs in one scan
+        # Step 2: Aggregate failed vs healthy counts per person
         rows = fetch_all("""
-            WITH failed_admins AS (
+            WITH person_companies AS (
                 SELECT
                     UPPER(TRIM(a.name)) AS norm_name,
-                    COUNT(DISTINCT a.enterprise_number) AS failed_count
+                    a.enterprise_number,
+                    CASE WHEN e.juridical_situation IN ('000','001','002','003','090','100')
+                         THEN 'healthy' ELSE 'troubled' END AS bucket
                 FROM administrator a
                 INNER JOIN enterprise e ON e.enterprise_number = a.enterprise_number
                 WHERE a.person_type = 'natural'
                   AND a.name IS NOT NULL
                   AND TRIM(a.name) != ''
-                  AND e.juridical_situation NOT IN ('000','001','002','003','090','100')
-                GROUP BY UPPER(TRIM(a.name))
-                HAVING COUNT(DISTINCT a.enterprise_number) >= %s
-                ORDER BY failed_count DESC
-                LIMIT %s
+            ),
+            person_stats AS (
+                SELECT
+                    norm_name,
+                    COUNT(DISTINCT enterprise_number) FILTER (WHERE bucket = 'troubled') AS failed_count,
+                    COUNT(DISTINCT enterprise_number) FILTER (WHERE bucket = 'healthy') AS active_count
+                FROM person_companies
+                GROUP BY norm_name
+                HAVING COUNT(DISTINCT enterprise_number) FILTER (WHERE bucket = 'troubled') >= %s
             )
-            SELECT
-                fa.norm_name AS name,
-                fa.failed_count,
-                COALESCE(
-                    (SELECT COUNT(DISTINCT a2.enterprise_number)
-                     FROM administrator a2
-                     JOIN enterprise e2 ON e2.enterprise_number = a2.enterprise_number
-                     WHERE UPPER(TRIM(a2.name)) = fa.norm_name
-                       AND a2.person_type = 'natural'
-                       AND e2.juridical_situation IN ('000','001','002','003','090','100')),
-                    0
-                ) AS active_count
-            FROM failed_admins fa
-            ORDER BY fa.failed_count DESC, fa.norm_name
+            SELECT norm_name AS name, failed_count, active_count
+            FROM person_stats
+            ORDER BY failed_count DESC, norm_name
+            LIMIT %s
         """, (min_failed, limit))
 
         return {
