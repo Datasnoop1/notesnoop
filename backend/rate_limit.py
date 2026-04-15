@@ -49,7 +49,12 @@ limiter = RateLimiter()
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract real client IP, respecting X-Forwarded-For behind nginx."""
+    """Extract real client IP, respecting X-Real-IP and X-Forwarded-For behind nginx."""
+    # X-Real-IP is set by nginx to the actual client IP (most reliable)
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    # Fallback to X-Forwarded-For (first entry is original client)
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip()

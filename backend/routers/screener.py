@@ -47,6 +47,12 @@ async def screener(
     fte_max: Optional[float] = Query(None, ge=0),
     margin_min: Optional[float] = Query(None, ge=0),
     nd_ebitda_max: Optional[float] = Query(None, description="Max Net Debt / EBITDA ratio"),
+    rev_growth_min: Optional[float] = Query(None, description="Min revenue growth % YoY"),
+    rev_growth_max: Optional[float] = Query(None, description="Max revenue growth % YoY"),
+    ebitda_growth_min: Optional[float] = Query(None, description="Min EBITDA growth % YoY"),
+    ebitda_growth_max: Optional[float] = Query(None, description="Max EBITDA growth % YoY"),
+    assets_growth_min: Optional[float] = Query(None, description="Min total assets growth % YoY"),
+    assets_growth_max: Optional[float] = Query(None, description="Max total assets growth % YoY"),
     sort: str = Query("ebit_desc", description="Sort order"),
     limit: int = Query(100, ge=1, le=1000),
 ):
@@ -100,7 +106,53 @@ async def screener(
         """)
         params.append(nd_ebitda_max)
 
+    # Growth filters — compare with previous year
+    needs_prev_year = any(v is not None for v in [
+        rev_growth_min, rev_growth_max, ebitda_growth_min, ebitda_growth_max,
+        assets_growth_min, assets_growth_max,
+    ])
+
+    if rev_growth_min is not None:
+        conditions.append("prev.revenue > 0 AND ((fl.revenue - prev.revenue) / ABS(prev.revenue) * 100) >= %s")
+        params.append(rev_growth_min)
+    if rev_growth_max is not None:
+        conditions.append("prev.revenue > 0 AND ((fl.revenue - prev.revenue) / ABS(prev.revenue) * 100) <= %s")
+        params.append(rev_growth_max)
+    if ebitda_growth_min is not None:
+        conditions.append("prev.ebitda IS NOT NULL AND ABS(prev.ebitda) > 0 AND ((fl.ebitda - prev.ebitda) / ABS(prev.ebitda) * 100) >= %s")
+        params.append(ebitda_growth_min)
+    if ebitda_growth_max is not None:
+        conditions.append("prev.ebitda IS NOT NULL AND ABS(prev.ebitda) > 0 AND ((fl.ebitda - prev.ebitda) / ABS(prev.ebitda) * 100) <= %s")
+        params.append(ebitda_growth_max)
+    if assets_growth_min is not None:
+        conditions.append("prev.total_assets > 0 AND ((fl.total_assets - prev.total_assets) / prev.total_assets * 100) >= %s")
+        params.append(assets_growth_min)
+    if assets_growth_max is not None:
+        conditions.append("prev.total_assets > 0 AND ((fl.total_assets - prev.total_assets) / prev.total_assets * 100) <= %s")
+        params.append(assets_growth_max)
+
     where = (" AND " + " AND ".join(conditions)) if conditions else ""
+
+    prev_join = """
+        LEFT JOIN financial_summary prev
+            ON prev.enterprise_number = fl.enterprise_number
+            AND prev.fiscal_year = fl.fiscal_year - 1
+    """ if needs_prev_year else ""
+
+    # Growth select columns
+    growth_cols = ""
+    if needs_prev_year:
+        growth_cols = """,
+               CASE WHEN prev.revenue > 0
+                    THEN ROUND(((fl.revenue - prev.revenue) / ABS(prev.revenue) * 100)::numeric, 1)
+               END AS "rev_growth_pct",
+               CASE WHEN prev.ebitda IS NOT NULL AND ABS(prev.ebitda) > 0
+                    THEN ROUND(((fl.ebitda - prev.ebitda) / ABS(prev.ebitda) * 100)::numeric, 1)
+               END AS "ebitda_growth_pct",
+               CASE WHEN prev.total_assets > 0
+                    THEN ROUND(((fl.total_assets - prev.total_assets) / prev.total_assets * 100)::numeric, 1)
+               END AS "assets_growth_pct"
+        """
 
     sql = f"""
         SELECT fl.enterprise_number AS "cbe",
@@ -118,10 +170,12 @@ async def screener(
                fl.fte_total AS "fte",
                e.juridical_form AS "jf_label",
                e.start_date AS "start_date"
+               {growth_cols}
         FROM financial_latest fl
         JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
         LEFT JOIN enterprise e ON e.enterprise_number = fl.enterprise_number
         LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+        {prev_join}
         WHERE 1=1 {where}
         ORDER BY {sort_sql}
         LIMIT %s
@@ -135,7 +189,8 @@ async def screener(
         import decimal
         import datetime
         for row in rows:
-            for key in ("revenue", "ebit", "ebitda", "margin_pct", "net_profit", "fte"):
+            for key in ("revenue", "ebit", "ebitda", "margin_pct", "net_profit", "fte",
+                        "rev_growth_pct", "ebitda_growth_pct", "assets_growth_pct"):
                 if row.get(key) is not None:
                     row[key] = float(row[key])
             if isinstance(row.get("start_date"), (datetime.date, datetime.datetime)):

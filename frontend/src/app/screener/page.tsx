@@ -64,6 +64,12 @@ interface Filters {
   fte_max: string;
   margin_min: string;
   nd_ebitda_max: string;
+  rev_growth_min: string;
+  rev_growth_max: string;
+  ebitda_growth_min: string;
+  ebitda_growth_max: string;
+  assets_growth_min: string;
+  assets_growth_max: string;
   sort: string;
   limit: string;
 }
@@ -80,6 +86,12 @@ const DEFAULT_FILTERS: Filters = {
   fte_max: "",
   margin_min: "",
   nd_ebitda_max: "",
+  rev_growth_min: "",
+  rev_growth_max: "",
+  ebitda_growth_min: "",
+  ebitda_growth_max: "",
+  assets_growth_min: "",
+  assets_growth_max: "",
   sort: "revenue_desc",
   limit: "100",
 };
@@ -399,6 +411,12 @@ export default function ScreenerPage() {
         if (f.fte_max) params.fte_max = f.fte_max;
         if (f.margin_min) params.margin_min = f.margin_min;
         if (f.nd_ebitda_max) params.nd_ebitda_max = f.nd_ebitda_max;
+        if (f.rev_growth_min) params.rev_growth_min = f.rev_growth_min;
+        if (f.rev_growth_max) params.rev_growth_max = f.rev_growth_max;
+        if (f.ebitda_growth_min) params.ebitda_growth_min = f.ebitda_growth_min;
+        if (f.ebitda_growth_max) params.ebitda_growth_max = f.ebitda_growth_max;
+        if (f.assets_growth_min) params.assets_growth_min = f.assets_growth_min;
+        if (f.assets_growth_max) params.assets_growth_max = f.assets_growth_max;
         params.sort = f.sort;
         params.limit = f.limit;
 
@@ -501,6 +519,9 @@ export default function ScreenerPage() {
     if (filters.fte_min || filters.fte_max) c++;
     if (filters.margin_min) c++;
     if (filters.nd_ebitda_max) c++;
+    if (filters.rev_growth_min || filters.rev_growth_max) c++;
+    if (filters.ebitda_growth_min || filters.ebitda_growth_max) c++;
+    if (filters.assets_growth_min || filters.assets_growth_max) c++;
     return c;
   }, [filters]);
 
@@ -851,6 +872,76 @@ export default function ScreenerPage() {
               value={filters.nd_ebitda_max}
               onChange={(e) => updateFilter("nd_ebitda_max", e.target.value)}
             />
+          </div>
+
+          {/* ── Growth Filters ── */}
+          <div className="space-y-1 border-t border-slate-200 pt-2">
+            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              <TrendingUp className="w-3 h-3 inline mr-1" />
+              Revenue Growth %
+            </Label>
+            <div className="grid grid-cols-2 gap-1">
+              <Input
+                className="h-7 text-xs font-mono"
+                type="number"
+                placeholder="Min"
+                value={filters.rev_growth_min}
+                onChange={(e) => updateFilter("rev_growth_min", e.target.value)}
+              />
+              <Input
+                className="h-7 text-xs font-mono"
+                type="number"
+                placeholder="Max"
+                value={filters.rev_growth_max}
+                onChange={(e) => updateFilter("rev_growth_max", e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              <TrendingUp className="w-3 h-3 inline mr-1" />
+              EBITDA Growth %
+            </Label>
+            <div className="grid grid-cols-2 gap-1">
+              <Input
+                className="h-7 text-xs font-mono"
+                type="number"
+                placeholder="Min"
+                value={filters.ebitda_growth_min}
+                onChange={(e) => updateFilter("ebitda_growth_min", e.target.value)}
+              />
+              <Input
+                className="h-7 text-xs font-mono"
+                type="number"
+                placeholder="Max"
+                value={filters.ebitda_growth_max}
+                onChange={(e) => updateFilter("ebitda_growth_max", e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              <TrendingUp className="w-3 h-3 inline mr-1" />
+              Total Assets Growth %
+            </Label>
+            <div className="grid grid-cols-2 gap-1">
+              <Input
+                className="h-7 text-xs font-mono"
+                type="number"
+                placeholder="Min"
+                value={filters.assets_growth_min}
+                onChange={(e) => updateFilter("assets_growth_min", e.target.value)}
+              />
+              <Input
+                className="h-7 text-xs font-mono"
+                type="number"
+                placeholder="Max"
+                value={filters.assets_growth_max}
+                onChange={(e) => updateFilter("assets_growth_max", e.target.value)}
+              />
+            </div>
           </div>
 
           {/* Limit */}

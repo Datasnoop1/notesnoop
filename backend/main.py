@@ -97,7 +97,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         try:
             # Heavy operations (NBB load, publication scrape)
             if method == "POST" and any(path.startswith(p) for p in self.HEAVY_PREFIXES):
-                limiter.check(ip, max_requests=5, window_seconds=60)
+                limiter.check(ip, max_requests=20, window_seconds=60)
             # Search endpoints
             elif any(path.startswith(p) for p in self.SEARCH_PATHS):
                 limiter.check(ip, max_requests=30, window_seconds=60)
