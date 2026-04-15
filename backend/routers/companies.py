@@ -9,7 +9,7 @@ import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from db import fetch_all, fetch_one, execute, get_connection, put_connection, get_conn
+from db import fetch_all, fetch_one, execute, get_connection, put_connection, get_conn, normalize_name
 from auth import get_current_user, optional_user
 from ai_client import ai_complete, ai_insights_pipeline
 
@@ -164,6 +164,27 @@ async def search_companies(q: str = Query(..., min_length=1)):
                         ORDER BY ci.name LIMIT 20
                     """, (f"{query}%",))
 
+            # Final fallback: trigram similarity on name_normalized
+            if not rows and len(query) >= 3:
+                nq = normalize_name(query)
+                if nq:
+                    rows = fetch_all("""
+                        SELECT ci.enterprise_number, ci.name,
+                               e.status, e.juridical_form AS "jf_label", ci.city,
+                               COALESCE(nl.description, ci.nace_code) AS "sector", e.start_date,
+                               fl.revenue, fl.ebitda,
+                               CASE WHEN fl.revenue > 0 THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1) END AS "ebitda_margin_pct",
+                               fl.fte_total, fl.fiscal_year
+                        FROM company_info ci
+                        JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
+                        LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+                        LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+                        WHERE ci.name_normalized IS NOT NULL
+                          AND similarity(ci.name_normalized, %s) > 0.3
+                        ORDER BY similarity(ci.name_normalized, %s) DESC
+                        LIMIT 20
+                    """, (nq, nq))
+
         return [_serialize_row(r) for r in rows]
     except Exception as e:
         logger.exception("Company search failed")
@@ -184,9 +205,10 @@ async def semantic_search(q: str = Query(..., min_length=1)):
     results will be merged in automatically.
     """
     query = q.strip()
+    nq = normalize_name(query)
 
     try:
-        # --- Phase 1: trigram similarity on company_info.name --------
+        # --- Phase 1: trigram similarity on name_normalized (GIN-indexed) ---
         trgm_rows = fetch_all("""
             SELECT ci.enterprise_number, ci.name,
                    e.status, e.juridical_form AS "jf_label", ci.city,
@@ -197,16 +219,19 @@ async def semantic_search(q: str = Query(..., min_length=1)):
                         THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1)
                    END AS "ebitda_margin_pct",
                    fl.fte_total, fl.fiscal_year,
-                   similarity(ci.name, %s) AS score
+                   GREATEST(
+                       similarity(ci.name_normalized, %s),
+                       similarity(ci.name, %s)
+                   ) AS score
             FROM company_info ci
             JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
             LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
             LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
-            WHERE similarity(ci.name, %s) > 0.15
+            WHERE ci.name_normalized %% %s
                OR ci.name ILIKE %s
-            ORDER BY similarity(ci.name, %s) DESC, ci.name
+            ORDER BY score DESC, ci.name
             LIMIT 25
-        """, (query, query, f"%{query}%", query))
+        """, (nq or query, query, nq or query, f"%{query}%"))
 
         # --- Phase 2: vector cosine search (when embeddings exist) ---
         emb_rows = []
@@ -255,6 +280,47 @@ async def semantic_search(q: str = Query(..., min_length=1)):
 
     except Exception as e:
         logger.exception("Semantic search failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/companies/fuzzy-match?name=...&threshold=0.4&limit=10
+# ---------------------------------------------------------------------------
+
+@router.get("/fuzzy-match")
+async def fuzzy_match(
+    name: str = Query(..., min_length=1),
+    threshold: float = Query(0.3, ge=0.1, le=1.0),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Fuzzy entity matching using pg_trgm on the normalized name column.
+
+    Matches company names after stripping Belgian legal suffixes (NV, SA,
+    BVBA, SRL, etc.) so that "SOLVAY SA", "Solvay", and "SOLVAY NV" all
+    match each other.  Returns companies sorted by similarity score.
+    """
+    normalized_query = normalize_name(name.strip())
+    if not normalized_query:
+        return []
+
+    try:
+        rows = fetch_all("""
+            SELECT ci.enterprise_number, ci.name, ci.city, ci.nace_code,
+                   COALESCE(nl.description, ci.nace_code) AS sector,
+                   fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
+                   similarity(ci.name_normalized, %s) AS score
+            FROM company_info ci
+            LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+            LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+            WHERE ci.name_normalized IS NOT NULL
+              AND similarity(ci.name_normalized, %s) > %s
+            ORDER BY score DESC
+            LIMIT %s
+        """, (normalized_query, normalized_query, threshold, limit))
+
+        return [_serialize_row(r) for r in rows]
+    except Exception as e:
+        logger.exception("Fuzzy match failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1982,6 +2048,7 @@ async def generate_ai_insights(cbe: str, user=Depends(get_current_user)):
 
     conn_helpers = {
         "fetch_one": fetch_one,
+        "fetch_all": fetch_all,
         "execute": execute,
     }
 

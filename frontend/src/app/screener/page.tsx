@@ -354,6 +354,8 @@ export default function ScreenerPage() {
   const [naceOpen, setNaceOpen] = useState(false);
   const naceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const naceContainerRef = useRef<HTMLDivElement>(null);
+  const naceInputRef = useRef<HTMLInputElement>(null);
+  const [naceDropdownStyle, setNaceDropdownStyle] = useState<React.CSSProperties>({});
 
   /* Debounced fetch ref */
   const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -373,6 +375,20 @@ export default function ScreenerPage() {
         setNaceSuggestions([]);
       }
     }, 200);
+  }, []);
+
+  /* Position the NACE dropdown relative to the input */
+  const updateNaceDropdownPosition = useCallback(() => {
+    const el = naceInputRef.current ?? naceContainerRef.current?.querySelector("input");
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setNaceDropdownStyle({
+      position: "fixed" as const,
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: Math.max(rect.width, 400),
+      maxWidth: "min(500px, calc(100vw - 32px))",
+    });
   }, []);
 
   /* Close NACE dropdown on outside click */
@@ -673,17 +689,22 @@ export default function ScreenerPage() {
             </Label>
             <div className="relative">
               <Input
+                ref={naceInputRef}
                 className="h-7 text-xs"
                 placeholder={t("screener.naceCodeOrName")}
                 value={filters.nace}
                 onChange={(e) => {
                   updateFilter("nace", e.target.value);
                   fetchNaceSuggestions(e.target.value);
+                  updateNaceDropdownPosition();
                 }}
-                onFocus={() => setNaceOpen(true)}
+                onFocus={() => {
+                  setNaceOpen(true);
+                  updateNaceDropdownPosition();
+                }}
               />
               {naceOpen && naceSuggestions.length > 0 && (
-                <div className="fixed z-50 top-20 left-4 right-4 sm:left-4 sm:right-auto sm:w-[500px] bg-white border border-slate-200 rounded-lg shadow-2xl max-h-[80vh] overflow-y-auto">
+                <div className="z-[100] bg-white border border-slate-200 rounded-lg shadow-2xl max-h-[60vh] overflow-y-auto" style={naceDropdownStyle}>
                   {naceSuggestions.map((s) => (
                     <button
                       key={s.nace_code}

@@ -1827,9 +1827,11 @@ export default function AdminPanel() {
                                   className={
                                     u.role === "admin"
                                       ? "bg-indigo-100 text-indigo-700"
-                                      : u.role === "blocked"
-                                        ? "bg-red-100 text-red-700"
-                                        : ""
+                                      : u.role === "pro"
+                                        ? "bg-amber-100 text-amber-700"
+                                        : u.role === "blocked"
+                                          ? "bg-red-100 text-red-700"
+                                          : ""
                                   }
                                 >
                                   {u.role}
@@ -1876,6 +1878,33 @@ export default function AdminPanel() {
                                     >
                                       <UserCheck className="size-3 mr-0.5" />
                                       Unblock
+                                    </Button>
+                                  )}
+                                  {!isMe && u.role !== "pro" && u.role !== "admin" && u.role !== "blocked" && (
+                                    <Button
+                                      variant="outline"
+                                      size="xs"
+                                      className="border-amber-300 text-amber-600 hover:bg-amber-50"
+                                      disabled={
+                                        actionLoading === `role-${u.email}`
+                                      }
+                                      onClick={() => setRole(u.email, "pro")}
+                                    >
+                                      <Crown className="size-3 mr-0.5" />
+                                      Pro
+                                    </Button>
+                                  )}
+                                  {!isMe && u.role === "pro" && (
+                                    <Button
+                                      variant="outline"
+                                      size="xs"
+                                      className="border-slate-300 text-slate-600 hover:bg-slate-50"
+                                      disabled={
+                                        actionLoading === `role-${u.email}`
+                                      }
+                                      onClick={() => setRole(u.email, "user")}
+                                    >
+                                      Revoke Pro
                                     </Button>
                                   )}
                                   {!isMe && u.role !== "admin" && u.role !== "blocked" && (

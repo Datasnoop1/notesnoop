@@ -8,6 +8,8 @@ import CookieBanner from "@/components/cookie-banner";
 import FontProvider from "@/components/font-provider";
 import CopyProtection from "@/components/copy-protection";
 import { LanguageProvider } from "@/components/language-provider";
+import { LimitProvider } from "@/components/limit-provider";
+import LimitPopup from "@/components/limit-popup";
 import FooterTranslated from "@/components/footer-translated";
 import "./globals.css";
 
@@ -31,20 +33,23 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col bg-slate-50 font-sans">
         <LanguageProvider>
-          <FontProvider />
-          <CopyProtection />
-          <Nav />
-          <main className="flex-1" data-protected>
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-              {children}
+          <LimitProvider>
+            <FontProvider />
+            <CopyProtection />
+            <Nav />
+            <main className="flex-1" data-protected>
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                {children}
+              </div>
+            </main>
+            <div className="no-print">
+              <AdBanner />
+              <BrandSurvey />
+              <CookieBanner />
+              <FooterTranslated />
             </div>
-          </main>
-          <div className="no-print">
-            <AdBanner />
-            <BrandSurvey />
-            <CookieBanner />
-            <FooterTranslated />
-          </div>
+            <LimitPopup />
+          </LimitProvider>
         </LanguageProvider>
       </body>
     </html>
