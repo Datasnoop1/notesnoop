@@ -64,6 +64,7 @@ import {
   Search,
   Sparkles,
 } from "lucide-react";
+import { useTranslation } from "@/components/language-provider";
 
 /* ---------- skeleton ---------- */
 
@@ -102,6 +103,7 @@ function ProjectCard({
   onRemoveMember: (projectId: number, cbe: string) => void;
   onDelete: (projectId: number) => void;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [addSearch, setAddSearch] = useState("");
@@ -150,7 +152,7 @@ function ProjectCard({
             </span>
             <Badge variant="secondary" className="text-[10px] shrink-0">
               {project.members.length}{" "}
-              {project.members.length === 1 ? "company" : "companies"}
+              {project.members.length === 1 ? t("favourites.companySingular") : t("favourites.companyPlural")}
             </Badge>
           </button>
           <div className="flex items-center gap-1 shrink-0 ml-2">
@@ -162,7 +164,7 @@ function ProjectCard({
                 onClick={() => setShowAddMenu((prev) => !prev)}
               >
                 <Plus className="h-3.5 w-3.5 mr-1" />
-                Add
+                {t("favourites.add")}
               </Button>
               {showAddMenu && (
                 <>
@@ -181,7 +183,7 @@ function ProjectCard({
                             : "border-transparent text-slate-400 hover:text-slate-600"
                         }`}
                       >
-                        <Search className="h-3 w-3" /> Search
+                        <Search className="h-3 w-3" /> {t("favourites.searchTab")}
                       </button>
                       <button
                         onClick={() => setAddMode("favourites")}
@@ -191,7 +193,7 @@ function ProjectCard({
                             : "border-transparent text-slate-400 hover:text-slate-600"
                         }`}
                       >
-                        <Star className="h-3 w-3" /> From Favourites
+                        <Star className="h-3 w-3" /> {t("favourites.fromFavouritesTab")}
                       </button>
                     </div>
 
@@ -200,7 +202,7 @@ function ProjectCard({
                       <>
                         <div className="p-2 border-b border-slate-100">
                           <Input
-                            placeholder="Search any company by name or CBE..."
+                            placeholder={t("favourites.searchCompanyPlaceholder")}
                             value={addSearch}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddSearch(e.target.value)}
                             className="h-8 text-sm"
@@ -210,16 +212,16 @@ function ProjectCard({
                         <div className="max-h-80 overflow-y-auto">
                           {addSearch.length < 2 ? (
                             <p className="text-xs text-slate-400 p-4 text-center">
-                              Type at least 2 characters to search
+                              {t("favourites.typeMinChars")}
                             </p>
                           ) : addSearching ? (
                             <div className="flex items-center justify-center gap-2 py-4">
                               <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
-                              <span className="text-xs text-slate-400">Searching...</span>
+                              <span className="text-xs text-slate-400">{t("favourites.searching")}</span>
                             </div>
                           ) : addResults.length === 0 ? (
                             <p className="text-xs text-slate-400 p-4 text-center">
-                              No companies found
+                              {t("favourites.noCompaniesFound")}
                             </p>
                           ) : (
                             addResults.map((r) => (
@@ -254,8 +256,8 @@ function ProjectCard({
                         {availableFavourites.length === 0 ? (
                           <p className="text-xs text-slate-400 p-4 text-center">
                             {favourites.length === 0
-                              ? "No favourites yet"
-                              : "All favourites are already in this project"}
+                              ? t("favourites.noFavouritesYet")
+                              : t("favourites.allFavsInProject")}
                           </p>
                         ) : (
                           availableFavourites.map((f) => (
@@ -301,7 +303,7 @@ function ProjectCard({
           <div className="mt-3 border-t border-slate-100 pt-2">
             {project.members.length === 0 ? (
               <p className="text-xs text-slate-400 py-2">
-                No companies in this project yet. Add from your favourites.
+                {t("favourites.noCompaniesInProject")}
               </p>
             ) : (
               <div className="space-y-1">
@@ -415,7 +417,8 @@ function CsTab({
   const [csResults, setCsResults] = useState<SearchResult[]>([]);
   const [csSearching, setCsSearching] = useState(false);
   const [csAdding, setCsAdding] = useState<string | null>(null);
-  const label = listType === "customer" ? "Customers" : "Suppliers";
+  const { t } = useTranslation();
+  const label = listType === "customer" ? t("favourites.tabs.customers") : t("favourites.tabs.suppliers");
   const Icon = listType === "customer" ? Building2 : Truck;
 
   const existingCbes = new Set(items.map((i) => i.enterprise_number));
@@ -479,7 +482,7 @@ function CsTab({
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
           <Input
-            placeholder={`Search company by name to add as ${listType}...`}
+            placeholder={t("favourites.searchAddPlaceholder", { listType })}
             value={csSearch}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCsSearch(e.target.value)}
             className="h-9 pl-8 text-sm"
@@ -500,10 +503,10 @@ function CsTab({
               {csSearching ? (
                 <div className="flex items-center justify-center gap-2 py-3">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
-                  <span className="text-xs text-slate-400">Searching...</span>
+                  <span className="text-xs text-slate-400">{t("favourites.searching")}</span>
                 </div>
               ) : csResults.length === 0 ? (
-                <p className="text-xs text-slate-400 p-3 text-center">No companies found</p>
+                <p className="text-xs text-slate-400 p-3 text-center">{t("favourites.noCompaniesFound")}</p>
               ) : (
                 csResults.map((r) => (
                   <button
@@ -537,7 +540,7 @@ function CsTab({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Paste CBE numbers */}
         <div className="flex flex-col">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Paste CBE numbers</div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">{t("favourites.pasteCbeNumbers")}</div>
           <textarea
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
@@ -551,13 +554,13 @@ function CsTab({
             className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-start"
           >
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-            {uploading ? "Processing..." : "Match companies"}
+            {uploading ? t("favourites.processing") : t("favourites.matchCompanies")}
           </button>
         </div>
 
         {/* Upload file */}
         <div className="flex flex-col">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Upload file</div>
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">{t("favourites.uploadFile")}</div>
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
@@ -577,10 +580,10 @@ function CsTab({
               <>
                 <FileSpreadsheet className="h-5 w-5 text-slate-300 mb-1.5" />
                 <p className="text-xs font-medium text-slate-600">
-                  Drag & drop Excel / CSV
+                  {t("favourites.dragDropExcel")}
                 </p>
                 <p className="text-[10px] text-slate-400 mt-0.5 mb-2">
-                  First column = CBE numbers
+                  {t("favourites.firstColumnCbe")}
                 </p>
                 <label>
                   <input
@@ -591,7 +594,7 @@ function CsTab({
                   />
                   <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg cursor-pointer transition-colors">
                     <Upload className="h-3.5 w-3.5" />
-                    Browse
+                    {t("favourites.browse")}
                   </span>
                 </label>
               </>
@@ -604,10 +607,10 @@ function CsTab({
       {uploadResult && (
         <div className="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5">
           <div className="text-sm text-emerald-800">
-            <span className="font-semibold">{uploadResult.matched}</span> {uploadResult.matched === 1 ? "company" : "companies"} matched
+            <span className="font-semibold">{uploadResult.matched}</span> {uploadResult.matched === 1 ? t("favourites.companySingular") : t("favourites.companyPlural")} matched
             {uploadResult.not_found > 0 && (
               <span className="text-amber-700 ml-2">
-                · {uploadResult.not_found} not found
+                · {t("favourites.notFound", { count: String(uploadResult.not_found) })}
               </span>
             )}
           </div>
@@ -649,10 +652,10 @@ function CsTab({
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10">
           <Icon className="h-6 w-6 text-slate-300 mb-2" />
           <p className="text-sm font-medium text-slate-500">
-            No {label.toLowerCase()} yet.
+            {listType === "customer" ? t("favourites.noCustomersYet") : t("favourites.noSuppliersYet")}
           </p>
           <p className="mt-2 text-xs text-slate-400">
-            Upload a CSV or Excel file with CBE numbers to populate this list.
+            {t("favourites.uploadCsvHint")}
           </p>
         </div>
       )}
@@ -728,6 +731,7 @@ function CsTab({
 /* ---------- main component ---------- */
 
 export default function FavouritesPage() {
+  const { t } = useTranslation();
   const [favourites, setFavourites] = useState<FavouriteItem[]>([]);
   const [projects, setProjects] = useState<FavouriteProject[]>([]);
   const [peopleFavs, setPeopleFavs] = useState<PeopleFavourite[]>([]);
@@ -1077,16 +1081,16 @@ export default function FavouritesPage() {
         <div>
           <h1 className="text-xl font-bold text-slate-900">
             <Star className="w-4 h-4 inline mr-1.5" />
-            Favourites
+            {t("favourites.title")}
           </h1>
           <p className="mt-0.5 text-xs text-slate-500">
-            Track companies and people for deal sourcing
+            {t("favourites.subtitle")}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {!loading && (
             <Badge variant="secondary" className="text-indigo-700 bg-indigo-50 border-indigo-200 text-[11px] sm:text-xs">
-              {favourites.length} {favourites.length === 1 ? "company" : "companies"} · {peopleFavs.length} {peopleFavs.length === 1 ? "person" : "people"}
+              {favourites.length} {favourites.length === 1 ? t("favourites.companySingular") : t("favourites.companyPlural")} · {peopleFavs.length} {peopleFavs.length === 1 ? t("favourites.personSingular") : t("favourites.personPlural")}
             </Badge>
           )}
         </div>
@@ -1102,7 +1106,7 @@ export default function FavouritesPage() {
               : "border-transparent text-slate-500 hover:text-slate-700"
           }`}
         >
-          <Building2 className="h-3.5 w-3.5" /> Companies
+          <Building2 className="h-3.5 w-3.5" /> {t("favourites.tabs.companies")}
         </button>
         <button
           onClick={() => setActiveTab("people")}
@@ -1112,7 +1116,7 @@ export default function FavouritesPage() {
               : "border-transparent text-slate-500 hover:text-slate-700"
           }`}
         >
-          <Users className="h-3.5 w-3.5" /> People
+          <Users className="h-3.5 w-3.5" /> {t("favourites.tabs.people")}
         </button>
         <button
           onClick={() => setActiveTab("customers")}
@@ -1122,7 +1126,7 @@ export default function FavouritesPage() {
               : "border-transparent text-slate-500 hover:text-slate-700"
           }`}
         >
-          <Building2 className="h-3.5 w-3.5" /> Customers
+          <Building2 className="h-3.5 w-3.5" /> {t("favourites.tabs.customers")}
           {!loadingCustomers && customers.length > 0 && (
             <Badge variant="secondary" className="text-[10px] ml-0.5 px-1.5 py-0">{customers.length}</Badge>
           )}
@@ -1135,7 +1139,7 @@ export default function FavouritesPage() {
               : "border-transparent text-slate-500 hover:text-slate-700"
           }`}
         >
-          <Truck className="h-3.5 w-3.5" /> Suppliers
+          <Truck className="h-3.5 w-3.5" /> {t("favourites.tabs.suppliers")}
           {!loadingSuppliers && suppliers.length > 0 && (
             <Badge variant="secondary" className="text-[10px] ml-0.5 px-1.5 py-0">{suppliers.length}</Badge>
           )}
@@ -1148,14 +1152,14 @@ export default function FavouritesPage() {
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-700">
             <FolderPlus className="w-4 h-4 inline mr-1.5" />
-            Projects
+            {t("favourites.projects")}
           </h2>
         </div>
 
         {/* Create project */}
         <div className="flex gap-2 max-w-md">
           <Input
-            placeholder="New project name..."
+            placeholder={t("favourites.newProjectPlaceholder")}
             value={newProjectName}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               setNewProjectName(e.target.value)
@@ -1173,7 +1177,7 @@ export default function FavouritesPage() {
             {creatingProject ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              "Create"
+              t("favourites.create")
             )}
           </Button>
         </div>
@@ -1182,13 +1186,13 @@ export default function FavouritesPage() {
         {loadingProjects && (
           <div className="flex items-center gap-2 py-4">
             <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-            <span className="text-sm text-slate-400">Loading projects...</span>
+            <span className="text-sm text-slate-400">{t("favourites.loadingProjects")}</span>
           </div>
         )}
 
         {!loadingProjects && projects.length === 0 && (
           <p className="text-xs text-slate-400 py-2">
-            No projects yet. Create one to group your favourite companies.
+            {t("favourites.noProjectsYet")}
           </p>
         )}
 
@@ -1212,7 +1216,7 @@ export default function FavouritesPage() {
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
           <Star className="w-3.5 h-3.5 text-slate-400" />
-          All Favourites
+          {t("favourites.allFavourites")}
         </h2>
 
         {/* Loading state */}
@@ -1246,10 +1250,10 @@ export default function FavouritesPage() {
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10">
             <Star className="h-6 w-6 text-slate-300 mb-2" />
             <p className="text-sm font-medium text-slate-500">
-              No favourites yet. Star companies to track them here.
+              {t("favourites.noFavouritesEmpty")}
             </p>
             <p className="mt-2 text-xs text-slate-400">
-              Use the company page or screener to add companies to your favourites list.
+              {t("favourites.noFavouritesHint")}
             </p>
           </div>
         )}
@@ -1334,7 +1338,7 @@ export default function FavouritesPage() {
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
             <Users className="w-4 h-4" />
-            Saved People
+            {t("favourites.savedPeople")}
           </h2>
 
           {/* Search to add a person */}
@@ -1342,7 +1346,7 @@ export default function FavouritesPage() {
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
               <Input
-                placeholder="Search person by name to add..."
+                placeholder={t("favourites.searchPersonPlaceholder")}
                 value={peopleSearch}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPeopleSearch(e.target.value)}
                 className="h-9 pl-8 text-sm"
@@ -1363,10 +1367,10 @@ export default function FavouritesPage() {
                   {peopleSearching ? (
                     <div className="flex items-center justify-center gap-2 py-3">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
-                      <span className="text-xs text-slate-400">Searching...</span>
+                      <span className="text-xs text-slate-400">{t("favourites.searching")}</span>
                     </div>
                   ) : peopleSearchResults.length === 0 ? (
-                    <p className="text-xs text-slate-400 p-3 text-center">No people found</p>
+                    <p className="text-xs text-slate-400 p-3 text-center">{t("favourites.noPeopleFound")}</p>
                   ) : (
                     peopleSearchResults.map((r) => (
                       <button
@@ -1380,7 +1384,7 @@ export default function FavouritesPage() {
                             {r.name}
                           </span>
                           <span className="text-[10px] text-slate-400">
-                            {r.companies} {r.companies === 1 ? "company" : "companies"}
+                            {r.companies} {r.companies === 1 ? t("favourites.companySingular") : t("favourites.companyPlural")}
                           </span>
                         </div>
                         {addingPerson === r.name ? (
@@ -1399,7 +1403,7 @@ export default function FavouritesPage() {
           {loadingPeople && (
             <div className="flex items-center gap-2 py-8">
               <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-              <span className="text-sm text-slate-400">Loading people favourites...</span>
+              <span className="text-sm text-slate-400">{t("favourites.loadingPeople")}</span>
             </div>
           )}
 
@@ -1407,10 +1411,10 @@ export default function FavouritesPage() {
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10">
               <Users className="h-6 w-6 text-slate-300 mb-2" />
               <p className="text-sm font-medium text-slate-500">
-                No people saved yet.
+                {t("favourites.noPeopleSaved")}
               </p>
               <p className="mt-2 text-xs text-slate-400">
-                Visit a company profile → Administrators tab and click the star next to a person to save them here.
+                {t("favourites.noPeopleHint")}
               </p>
             </div>
           )}

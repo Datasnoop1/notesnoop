@@ -35,6 +35,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import FavouritesDialog from "@/components/favourites-dialog";
+import { useTranslation } from "@/components/language-provider";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -268,6 +269,7 @@ function fmtAggAcct(
 /* ------------------------------------------------------------------ */
 
 export default function AggregatePage() {
+  const { t } = useTranslation();
   const [companies, setCompanies] = useState<AggCompany[]>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -480,10 +482,10 @@ export default function AggregatePage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
           <Layers className="w-5 h-5 inline mr-2 -mt-0.5 text-slate-400" />
-          Aggregate Portfolio
+          {t("aggregate.title")}
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Combined P&L and cash flow for up to {MAX_COMPANIES} companies
+          {t("aggregate.subtitle", { max: String(MAX_COMPANIES) })}
         </p>
       </div>
 
@@ -493,7 +495,7 @@ export default function AggregatePage() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
-              placeholder="Search by company name or CBE number..."
+              placeholder={t("aggregate.searchPlaceholder")}
               value={query}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 handleSearch(e.target.value)
@@ -552,7 +554,7 @@ export default function AggregatePage() {
             !searching && (
               <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg p-4">
                 <p className="text-sm text-slate-400 text-center">
-                  No companies found
+                  {t("aggregate.noCompaniesFound")}
                 </p>
               </div>
             )}
@@ -577,8 +579,8 @@ export default function AggregatePage() {
             ) : (
               <Star className="h-4 w-4 mr-1.5 text-amber-500 fill-amber-500" />
             )}
-            <span className="hidden sm:inline">Load All Favourites</span>
-            <span className="sm:hidden">All Favs</span>
+            <span className="hidden sm:inline">{t("aggregate.loadAllFavourites")}</span>
+            <span className="sm:hidden">{t("aggregate.allFavs")}</span>
           </Button>
           <div className="relative" ref={projectMenuRef}>
             <Button
@@ -593,20 +595,20 @@ export default function AggregatePage() {
               ) : (
                 <FolderOpen className="h-4 w-4 mr-1.5 text-indigo-500" />
               )}
-              <span className="hidden sm:inline">Load Project</span>
-              <span className="sm:hidden">Project</span>
+              <span className="hidden sm:inline">{t("aggregate.loadProject")}</span>
+              <span className="sm:hidden">{t("aggregate.project")}</span>
               <ChevronDown className="h-3 w-3 ml-1 text-slate-400" />
             </Button>
             {showProjectMenu && (
               <div className="absolute z-50 mt-1 right-0 sm:left-0 w-64 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
                 <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
                   <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
-                    Your Projects
+                    {t("aggregate.yourProjects")}
                   </span>
                 </div>
                 {projects.length === 0 ? (
                   <p className="text-xs text-slate-400 p-4 text-center">
-                    No projects yet
+                    {t("aggregate.noProjectsYet")}
                   </p>
                 ) : (
                   <div className="max-h-56 overflow-y-auto">
@@ -635,7 +637,7 @@ export default function AggregatePage() {
 
         {companies.length >= MAX_COMPANIES && (
           <span className="text-xs text-slate-400 self-center">
-            Maximum {MAX_COMPANIES} companies reached
+            {t("aggregate.maxReached", { max: String(MAX_COMPANIES) })}
           </span>
         )}
       </div>
@@ -684,20 +686,20 @@ export default function AggregatePage() {
                   {c.name}
                 </Link>
                 <span className="text-slate-300 mx-1.5">|</span>
-                <span className="text-slate-500">Rev</span>{" "}
+                <span className="text-slate-500">{t("aggregate.rev")}</span>{" "}
                 <span className="font-mono font-medium text-slate-800">{fmtEur(latest.revenue)}</span>
                 <span className="text-slate-300 mx-1.5">|</span>
                 <span className="text-slate-500">EBITDA</span>{" "}
                 <span className="font-mono font-medium text-slate-800">{fmtEur(latest.ebitda)}</span>
                 <span className="text-slate-300 mx-1.5">|</span>
-                <span className="text-slate-500">Margin</span>{" "}
+                <span className="text-slate-500">{t("aggregate.margin")}</span>{" "}
                 <span className={`font-mono font-medium ${
                   margin != null
                     ? margin >= 15 ? "text-emerald-600" : margin >= 5 ? "text-amber-600" : "text-rose-400"
                     : "text-slate-300"
                 }`}>{margin != null ? `${margin.toFixed(1)}%` : "\u2014"}</span>
                 <span className="text-slate-300 mx-1.5">|</span>
-                <span className="text-slate-500">Net Profit</span>{" "}
+                <span className="text-slate-500">{t("aggregate.netProfit")}</span>{" "}
                 <span className={`font-mono font-medium ${(latest.net_profit ?? 0) < 0 ? "text-rose-400" : "text-slate-800"}`}>
                   {fmtEur(latest.net_profit)}
                 </span>
@@ -717,14 +719,14 @@ export default function AggregatePage() {
         <>
           <div>
             <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
-              Aggregated Income Statement
+              {t("aggregate.aggregatedIncomeStatement")}
             </h3>
             <div className="rounded-lg border overflow-x-auto bg-white">
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[180px] sm:min-w-[220px]">
-                      Line Item
+                      {t("aggregate.lineItem")}
                     </th>
                     {allYears.map((year) => (
                       <th key={year} className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[110px]">
@@ -794,7 +796,7 @@ export default function AggregatePage() {
                   {/* Companies w/ data row */}
                   <tr className="border-t-2 border-slate-200">
                     <td className="px-4 py-1 text-xs text-slate-500 italic">
-                      Companies w/ data
+                      {t("aggregate.companiesWithData")}
                     </td>
                     {allYears.map((year) => {
                       const count = companies.filter((c) =>
@@ -811,7 +813,7 @@ export default function AggregatePage() {
               </table>
             </div>
             <p className="mt-1 text-[10px] text-slate-400 italic">
-              Gross Profit = rubric 9900. EBIT = rubric 9901. Net Profit = rubric 9904. Cost of Sales = Revenue - Gross Profit. Other Op. Costs = Gross Profit - Personnel - D&A - EBIT. Costs shown in parentheses.
+              {t("compare.pnlNote")}
             </p>
           </div>
 
@@ -877,7 +879,7 @@ export default function AggregatePage() {
           <div className="flex gap-3">
             <Button variant="outline" size="sm" onClick={exportCsv}>
               <Download className="h-4 w-4 mr-1.5" />
-              Export CSV
+              {t("aggregate.exportCsv")}
             </Button>
           </div>
         </>
@@ -898,10 +900,10 @@ export default function AggregatePage() {
         <div className="border border-dashed border-slate-300 rounded-lg p-12 text-center">
           <Layers className="h-8 w-8 text-slate-300 mx-auto mb-3" />
           <p className="text-sm text-slate-500">
-            Search and add companies above to see their combined financials.
+            {t("aggregate.emptySearch")}
           </p>
           <p className="text-xs text-slate-400 mt-1">
-            Useful for seeing what a portfolio of companies looks like combined.
+            {t("aggregate.emptyHint")}
           </p>
         </div>
       )}

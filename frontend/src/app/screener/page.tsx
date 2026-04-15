@@ -31,6 +31,7 @@ import {
   SlidersHorizontal,
   X,
 } from "lucide-react";
+import { useTranslation } from "@/components/language-provider";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -272,38 +273,38 @@ function SortHeader({
 /*  Hover card                                                         */
 /* ------------------------------------------------------------------ */
 
-function HoverCard({ row }: { row: ScreenerRow }) {
+function HoverCard({ row, t }: { row: ScreenerRow; t: (key: string) => string }) {
   return (
     <div className="absolute z-50 left-0 top-full mt-1 w-72 rounded-lg border border-slate-200 bg-white p-3 shadow-lg pointer-events-none">
       <div className="text-xs font-semibold text-slate-800 mb-2 truncate">
         {row.name}
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
-        <span className="text-slate-400">CBE</span>
+        <span className="text-slate-400">{t("screener.hoverCbe")}</span>
         <span className="font-mono text-slate-600">{fmtCbe(row.cbe)}</span>
-        <span className="text-slate-400">Legal Form</span>
+        <span className="text-slate-400">{t("screener.hoverLegalForm")}</span>
         <span className="text-slate-600">{row.jf_label ?? "\u2014"}</span>
-        <span className="text-slate-400">Founded</span>
+        <span className="text-slate-400">{t("screener.hoverFounded")}</span>
         <span className="text-slate-600">
           {row.start_date ? row.start_date.slice(0, 4) : "\u2014"}
         </span>
-        <span className="text-slate-400">NACE</span>
+        <span className="text-slate-400">{t("screener.hoverNace")}</span>
         <span className="text-slate-600 truncate">{row.nace || "\u2014"}</span>
-        <span className="text-slate-400">Revenue</span>
+        <span className="text-slate-400">{t("screener.hoverRevenue")}</span>
         <span className="font-mono text-slate-700">{fmtEur(row.revenue)}</span>
-        <span className="text-slate-400">EBIT</span>
+        <span className="text-slate-400">{t("screener.hoverEbit")}</span>
         <span className="font-mono text-slate-700">{fmtEur(row.ebit)}</span>
-        <span className="text-slate-400">EBITDA</span>
+        <span className="text-slate-400">{t("screener.hoverEbitda")}</span>
         <span className="font-mono text-slate-700">{fmtEur(row.ebitda)}</span>
-        <span className="text-slate-400">Margin</span>
+        <span className="text-slate-400">{t("screener.hoverMargin")}</span>
         <span className={`font-mono ${marginColor(row.margin_pct)}`}>
           {fmtPct(row.margin_pct)}
         </span>
-        <span className="text-slate-400">Net Profit</span>
+        <span className="text-slate-400">{t("screener.hoverNetProfit")}</span>
         <span className="font-mono text-slate-700">
           {fmtEur(row.net_profit)}
         </span>
-        <span className="text-slate-400">FTE</span>
+        <span className="text-slate-400">{t("screener.hoverFte")}</span>
         <span className="font-mono text-slate-700">{fmtNumber(row.fte)}</span>
       </div>
     </div>
@@ -332,6 +333,7 @@ function savePresets(presets: FilterPreset[]) {
 }
 
 export default function ScreenerPage() {
+  const { t } = useTranslation();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [results, setResults] = useState<ScreenerRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -555,7 +557,7 @@ export default function ScreenerPage() {
           {/* Sidebar header */}
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-              Filters
+              {t("screener.filters")}
             </span>
             {activeFilterCount > 0 && (
               <Badge
@@ -574,14 +576,14 @@ export default function ScreenerPage() {
               className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors"
             >
               <RotateCcw className="w-3 h-3" />
-              Reset
+              {t("screener.reset")}
             </button>
             <button
               onClick={() => setShowSaveInput(!showSaveInput)}
               className="flex items-center gap-1 text-[11px] text-indigo-500 hover:text-indigo-700 transition-colors"
             >
               <Save className="w-3 h-3" />
-              Save
+              {t("screener.save")}
             </button>
             {presets.length > 0 && (
               <div className="relative">
@@ -590,7 +592,7 @@ export default function ScreenerPage() {
                   className="flex items-center gap-1 text-[11px] text-indigo-500 hover:text-indigo-700 transition-colors"
                 >
                   <FolderOpen className="w-3 h-3" />
-                  Load
+                  {t("screener.load")}
                 </button>
                 {showPresetMenu && (
                   <div className="absolute top-full left-0 mt-1 w-48 bg-white rounded-lg border shadow-lg z-50 py-1">
@@ -632,7 +634,7 @@ export default function ScreenerPage() {
             <div className="flex gap-1">
               <Input
                 className="h-6 text-[11px] flex-1"
-                placeholder="Preset name..."
+                placeholder={t("screener.presetPlaceholder")}
                 value={presetName}
                 onChange={(e) => setPresetName(e.target.value)}
                 onKeyDown={(e) => {
@@ -667,12 +669,12 @@ export default function ScreenerPage() {
           <div className="space-y-1" ref={naceContainerRef}>
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <Tag className="w-3 h-3 inline mr-1" />
-              NACE sector
+              {t("screener.naceSector")}
             </Label>
             <div className="relative">
               <Input
                 className="h-7 text-xs"
-                placeholder="Code or name..."
+                placeholder={t("screener.naceCodeOrName")}
                 value={filters.nace}
                 onChange={(e) => {
                   updateFilter("nace", e.target.value);
@@ -713,7 +715,7 @@ export default function ScreenerPage() {
           <div className="space-y-1">
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <MapPin className="w-3 h-3 inline mr-1" />
-              Province
+              {t("screener.province")}
             </Label>
             <Select
               value={filters.province || "all"}
@@ -742,7 +744,7 @@ export default function ScreenerPage() {
                 <SelectValue placeholder="All" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All provinces</SelectItem>
+                <SelectItem value="all">{t("screener.allProvinces")}</SelectItem>
                 {PROVINCES.map((p) => (
                   <SelectItem key={p.label} value={p.label}>
                     {p.label}
@@ -756,7 +758,7 @@ export default function ScreenerPage() {
           <div className="pt-1">
             <div className="flex items-center justify-between">
               <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-                Unit
+                {t("screener.unit")}
               </span>
               <div className="flex rounded border border-slate-200 overflow-hidden">
                 {(["raw", "K", "M"] as FinancialUnit[]).map((u) => (
@@ -779,7 +781,7 @@ export default function ScreenerPage() {
           {/* Revenue */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              Revenue{unit !== "raw" ? ` (${unit})` : ""}
+              {t("screener.revenue")}{unit !== "raw" ? ` (${unit})` : ""}
             </Label>
             <div className="grid grid-cols-2 gap-1.5">
               <Input
@@ -802,7 +804,7 @@ export default function ScreenerPage() {
           {/* EBIT */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              EBIT{unit !== "raw" ? ` (${unit})` : ""}
+              {t("screener.ebit")}{unit !== "raw" ? ` (${unit})` : ""}
             </Label>
             <div className="grid grid-cols-2 gap-1.5">
               <Input
@@ -825,7 +827,7 @@ export default function ScreenerPage() {
           {/* FTE */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              FTE
+              {t("screener.fte")}
             </Label>
             <div className="grid grid-cols-2 gap-1.5">
               <Input
@@ -848,7 +850,7 @@ export default function ScreenerPage() {
           {/* Margin */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              Margin min %
+              {t("screener.marginMin")}
             </Label>
             <Input
               className="h-7 text-xs font-mono"
@@ -863,7 +865,7 @@ export default function ScreenerPage() {
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <TrendingUp className="w-3 h-3 inline mr-1" />
-              Max Net Debt/EBITDA
+              {t("screener.maxNetDebtEbitda")}
             </Label>
             <Input
               className="h-7 text-xs font-mono"
@@ -878,7 +880,7 @@ export default function ScreenerPage() {
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <TrendingUp className="w-3 h-3 inline mr-1" />
-              Revenue Growth %
+              {t("screener.revenueGrowth")}
             </Label>
             <div className="grid grid-cols-2 gap-1">
               <Input
@@ -901,7 +903,7 @@ export default function ScreenerPage() {
           <div className="space-y-1">
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <TrendingUp className="w-3 h-3 inline mr-1" />
-              EBITDA Growth %
+              {t("screener.ebitdaGrowth")}
             </Label>
             <div className="grid grid-cols-2 gap-1">
               <Input
@@ -924,7 +926,7 @@ export default function ScreenerPage() {
           <div className="space-y-1">
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <TrendingUp className="w-3 h-3 inline mr-1" />
-              Total Assets Growth %
+              {t("screener.totalAssetsGrowth")}
             </Label>
             <div className="grid grid-cols-2 gap-1">
               <Input
@@ -947,7 +949,7 @@ export default function ScreenerPage() {
           {/* Limit */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              Limit
+              {t("screener.limit")}
             </Label>
             <Select
               value={filters.limit}
@@ -979,7 +981,7 @@ export default function ScreenerPage() {
               <input
                 type="text"
                 className="w-full h-8 pl-8 pr-3 text-sm border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 placeholder:text-slate-400"
-                placeholder="Search results by name or CBE..."
+                placeholder={t("screener.searchResultsPlaceholder")}
                 value={nameSearch}
                 onChange={(e) => setNameSearch(e.target.value)}
               />
@@ -995,7 +997,7 @@ export default function ScreenerPage() {
                   <span className="font-semibold text-slate-600">
                     {filteredResults.length.toLocaleString()}
                   </span>{" "}
-                  companies
+                  {t("screener.companies")}
                   {fetchMs != null && (
                     <span className="text-slate-300 ml-1">in {fetchMs}ms</span>
                   )}
@@ -1011,13 +1013,13 @@ export default function ScreenerPage() {
               className="flex items-center gap-1.5 h-7 px-3 text-[11px] font-medium text-slate-600 border border-slate-200 rounded-md hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="w-3 h-3" />
-              Export
+              {t("screener.export")}
             </button>
           </div>
 
           {/* Row 2: Quick filters */}
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-slate-400 mr-1">Quick:</span>
+            <span className="text-[10px] text-slate-400 mr-1">{t("screener.quick")}</span>
             {QUICK_FILTERS.map((qf) => {
               const active = qf.isActive(filters);
               return (
@@ -1044,7 +1046,7 @@ export default function ScreenerPage() {
             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="py-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-left w-[280px]">
-                  Company
+                  {t("screener.company")}
                 </th>
                 <SortHeader
                   label="Revenue"
@@ -1065,7 +1067,7 @@ export default function ScreenerPage() {
                   onSort={handleSort}
                 />
                 <th className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right whitespace-nowrap">
-                  Margin
+                  {t("screener.columns.margin")}
                 </th>
                 <SortHeader
                   label="FTE"
@@ -1074,7 +1076,7 @@ export default function ScreenerPage() {
                   onSort={handleSort}
                 />
                 <th className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right">
-                  FY
+                  {t("screener.fy")}
                 </th>
               </tr>
             </thead>
@@ -1088,7 +1090,7 @@ export default function ScreenerPage() {
                     colSpan={7}
                     className="py-20 text-center text-sm text-slate-400"
                   >
-                    No companies match your filters
+                    {t("screener.noMatchFilters")}
                   </td>
                 </tr>
               )}
@@ -1137,7 +1139,7 @@ export default function ScreenerPage() {
                       </div>
                     </div>
                     {/* Hover card */}
-                    {hoveredCbe === row.cbe && <HoverCard row={row} />}
+                    {hoveredCbe === row.cbe && <HoverCard row={row} t={t} />}
                   </td>
 
                   {/* Revenue */}

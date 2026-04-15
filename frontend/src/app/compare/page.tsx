@@ -16,6 +16,7 @@ import type { SearchResult, CompanyDetail, FinancialYear, FavouriteProject } fro
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
 import { Search, X, Plus, Download, ArrowUpDown, Loader2, GitCompareArrows, FolderOpen, ChevronDown } from "lucide-react";
 import FavouritesDialog from "@/components/favourites-dialog";
+import { useTranslation } from "@/components/language-provider";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -189,99 +190,37 @@ interface CompareLine {
   isRatio?: boolean;
 }
 
+/** i18n key for each line label — resolved at render time via t() */
 const INCOME_LINES: CompareLine[] = [
-  { label: "Revenue", key: "revenue", section: "REVENUE" },
-  {
-    label: "Cost of Sales",
-    key: "costOfSales",
-    isCost: true,
-    indent: true,
-  },
-  {
-    label: "Gross Profit",
-    key: "grossProfit",
-    bold: true,
-    topBorder: true,
-  },
-  {
-    label: "Personnel Costs",
-    key: "personnel",
-    isCost: true,
-    section: "OPERATING COSTS",
-    indent: true,
-  },
-  {
-    label: "Depreciation & Amortization",
-    key: "da",
-    isCost: true,
-    indent: true,
-  },
-  {
-    label: "Other Operating Costs",
-    key: "otherOpCosts",
-    isCost: true,
-    indent: true,
-  },
-  {
-    label: "EBIT (Operating Profit)",
-    key: "ebit",
-    bold: true,
-    topBorder: true,
-    isKeyMetric: true,
-  },
-  {
-    label: "Financial Charges",
-    key: "finCharges",
-    isCost: true,
-    section: "FINANCIAL",
-    indent: true,
-  },
-  {
-    label: "Profit Before Tax",
-    key: "pbt",
-    bold: true,
-    topBorder: true,
-    isKeyMetric: true,
-  },
-  { label: "Tax", key: "tax", isCost: true, indent: true },
-  {
-    label: "Net Profit",
-    key: "netProfit",
-    bold: true,
-    doubleBorder: true,
-    isKeyMetric: true,
-  },
-  {
-    label: "EBITDA",
-    key: "ebitda",
-    bold: true,
-    section: "EBITDA",
-    topBorder: true,
-    isKeyMetric: true,
-  },
-  { label: "EBITDA Margin", key: "ebitdaMarginPct", isPct: true },
+  { label: "compare.lines.revenue", key: "revenue", section: "compare.sections.revenue" },
+  { label: "compare.lines.costOfSales", key: "costOfSales", isCost: true, indent: true },
+  { label: "compare.lines.grossProfit", key: "grossProfit", bold: true, topBorder: true },
+  { label: "compare.lines.personnelCosts", key: "personnel", isCost: true, section: "compare.sections.operatingCosts", indent: true },
+  { label: "compare.lines.da", key: "da", isCost: true, indent: true },
+  { label: "compare.lines.otherOpCosts", key: "otherOpCosts", isCost: true, indent: true },
+  { label: "compare.lines.ebitOp", key: "ebit", bold: true, topBorder: true, isKeyMetric: true },
+  { label: "compare.lines.financialCharges", key: "finCharges", isCost: true, section: "compare.sections.financial", indent: true },
+  { label: "compare.lines.profitBeforeTax", key: "pbt", bold: true, topBorder: true, isKeyMetric: true },
+  { label: "compare.lines.tax", key: "tax", isCost: true, indent: true },
+  { label: "compare.lines.netProfitLine", key: "netProfit", bold: true, doubleBorder: true, isKeyMetric: true },
+  { label: "compare.lines.ebitda", key: "ebitda", bold: true, section: "compare.sections.ebitda", topBorder: true, isKeyMetric: true },
+  { label: "compare.lines.ebitdaMargin", key: "ebitdaMarginPct", isPct: true },
 ];
 
 const BALANCE_LINES: CompareLine[] = [
-  { label: "Total Assets", key: "totalAssets" },
-  { label: "Equity", key: "equity", indent: true },
-  { label: "Long-term Debt", key: "ltDebt", indent: true },
-  { label: "Short-term Debt", key: "stDebt", indent: true },
-  { label: "Cash", key: "cash", indent: true },
-  {
-    label: "Net Debt",
-    key: "netDebt",
-    bold: true,
-    topBorder: true,
-    isKeyMetric: true,
-  },
+  { label: "compare.lines.totalAssets", key: "totalAssets" },
+  { label: "compare.lines.equity", key: "equity", indent: true },
+  { label: "compare.lines.ltDebt", key: "ltDebt", indent: true },
+  { label: "compare.lines.stDebt", key: "stDebt", indent: true },
+  { label: "compare.lines.cash", key: "cash", indent: true },
+  { label: "compare.lines.netDebt", key: "netDebt", bold: true, topBorder: true, isKeyMetric: true },
 ];
 
 const RATIO_LINES: CompareLine[] = [
-  { label: "Net Debt / EBITDA", key: "netDebtEbitda", isRatio: true },
-  { label: "Equity Ratio", key: "equityRatio", isPct: true },
-  { label: "EBITDA Margin", key: "ebitdaMarginPct", isPct: true },
-  { label: "FTE", key: "fte" },
+  { label: "compare.lines.netDebtEbitda", key: "netDebtEbitda", isRatio: true },
+  { label: "compare.lines.equityRatio", key: "equityRatio", isPct: true },
+  { label: "compare.lines.ebitdaMargin", key: "ebitdaMarginPct", isPct: true },
+  { label: "compare.lines.fte", key: "fte" },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -289,6 +228,7 @@ const RATIO_LINES: CompareLine[] = [
 /* ------------------------------------------------------------------ */
 
 export default function ComparePage() {
+  const { t } = useTranslation();
   const [companies, setCompanies] = useState<CompanyColumn[]>([]);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -518,7 +458,7 @@ export default function ComparePage() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
                 <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[180px] sm:min-w-[220px]">
-                  Line Item
+                  {t("compare.lineItem")}
                 </th>
                 {companies.map((c) => (
                   <th
@@ -560,11 +500,11 @@ export default function ComparePage() {
                       {showSection && (
                         <div className="pb-1 pt-2">
                           <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">
-                            {line.section}
+                            {t(line.section!)}
                           </span>
                         </div>
                       )}
-                      {line.label}
+                      {t(line.label)}
                     </td>
                     {companies.map((c, idx) => {
                       if (c.loading) {
@@ -670,10 +610,10 @@ export default function ComparePage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
           <GitCompareArrows className="w-5 h-5 inline mr-2 -mt-0.5 text-slate-400" />
-          Compare Companies
+          {t("compare.title")}
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Side-by-side financial comparison of up to {MAX_COMPANIES} companies
+          {t("compare.subtitle", { max: String(MAX_COMPANIES) })}
         </p>
       </div>
 
@@ -683,7 +623,7 @@ export default function ComparePage() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
-              placeholder="Search by company name or CBE number..."
+              placeholder={t("compare.searchPlaceholder")}
               value={query}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 handleSearch(e.target.value)
@@ -744,7 +684,7 @@ export default function ComparePage() {
             !searching && (
               <div className="absolute z-50 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg p-4">
                 <p className="text-sm text-slate-400 text-center">
-                  No companies found
+                  {t("compare.noCompaniesFound")}
                 </p>
               </div>
             )}
@@ -769,20 +709,20 @@ export default function ComparePage() {
               ) : (
                 <FolderOpen className="h-4 w-4 mr-1.5 text-indigo-500" />
               )}
-              <span className="hidden sm:inline">Load Project</span>
-              <span className="sm:hidden">Project</span>
+              <span className="hidden sm:inline">{t("compare.loadProject")}</span>
+              <span className="sm:hidden">{t("compare.project")}</span>
               <ChevronDown className="h-3 w-3 ml-1 text-slate-400" />
             </Button>
             {showProjectMenu && (
               <div className="absolute z-50 mt-1 right-0 sm:left-0 w-64 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
                 <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
                   <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
-                    Your Projects
+                    {t("compare.yourProjects")}
                   </span>
                 </div>
                 {projects.length === 0 ? (
                   <p className="text-xs text-slate-400 p-4 text-center">
-                    No projects yet
+                    {t("compare.noProjectsYet")}
                   </p>
                 ) : (
                   <div className="max-h-56 overflow-y-auto">
@@ -811,7 +751,7 @@ export default function ComparePage() {
 
         {companies.length >= MAX_COMPANIES && (
           <span className="text-xs text-slate-400 self-center">
-            Maximum {MAX_COMPANIES} companies reached
+            {t("compare.maxReached", { max: String(MAX_COMPANIES) })}
           </span>
         )}
       </div>
@@ -862,13 +802,13 @@ export default function ComparePage() {
                   {c.name}
                 </Link>
                 <span className="text-slate-300 mx-1.5">|</span>
-                <span className="text-slate-500">Rev</span>{" "}
+                <span className="text-slate-500">{t("compare.rev")}</span>{" "}
                 <span className="font-mono font-medium text-slate-800">{fmtEur(pnl.revenue)}</span>
                 <span className="text-slate-300 mx-1.5">|</span>
                 <span className="text-slate-500">EBITDA</span>{" "}
                 <span className="font-mono font-medium text-slate-800">{fmtEur(pnl.ebitda)}</span>
                 <span className="text-slate-300 mx-1.5">|</span>
-                <span className="text-slate-500">Margin</span>{" "}
+                <span className="text-slate-500">{t("compare.margin")}</span>{" "}
                 <span className={`font-mono font-medium ${
                   pnl.ebitdaMarginPct != null
                     ? pnl.ebitdaMarginPct >= 15
@@ -881,7 +821,7 @@ export default function ComparePage() {
                   {pnl.ebitdaMarginPct != null ? `${pnl.ebitdaMarginPct.toFixed(1)}%` : "\u2014"}
                 </span>
                 <span className="text-slate-300 mx-1.5">|</span>
-                <span className="text-slate-500">Net Profit</span>{" "}
+                <span className="text-slate-500">{t("compare.netProfit")}</span>{" "}
                 <span className={`font-mono font-medium ${(pnl.netProfit ?? 0) < 0 ? "text-rose-400" : "text-slate-800"}`}>
                   {fmtEur(pnl.netProfit)}
                 </span>
@@ -901,29 +841,27 @@ export default function ComparePage() {
         <>
           <div className="space-y-6">
             {renderSection(
-              "Income Statement",
+              t("compare.incomeStatement"),
               INCOME_LINES,
               "border-indigo-500"
             )}
             {renderSection(
-              "Balance Sheet",
+              t("compare.balanceSheet"),
               BALANCE_LINES,
               "border-emerald-500"
             )}
-            {renderSection("Key Ratios", RATIO_LINES, "border-amber-500")}
+            {renderSection(t("compare.keyRatios"), RATIO_LINES, "border-amber-500")}
           </div>
 
           <p className="text-[10px] text-slate-400 italic">
-            Gross Profit = rubric 9900. EBIT = rubric 9901. Net Profit = rubric
-            9904. Cost of Sales = Revenue - Gross Profit. Other Op. Costs =
-            Gross Profit - Personnel - D&A - EBIT. Costs shown in parentheses.
+            {t("compare.pnlNote")}
           </p>
 
           {/* Actions */}
           <div className="flex gap-3">
             <Button variant="outline" size="sm" onClick={exportCsv}>
               <Download className="h-4 w-4 mr-1.5" />
-              Export CSV
+              {t("compare.exportCsv")}
             </Button>
           </div>
         </>
@@ -934,10 +872,10 @@ export default function ComparePage() {
         <div className="border border-dashed border-slate-300 rounded-lg p-12 text-center">
           <ArrowUpDown className="h-8 w-8 text-slate-300 mx-auto mb-3" />
           <p className="text-sm text-slate-500">
-            Search and add companies above to start comparing.
+            {t("compare.emptySearch")}
           </p>
           <p className="text-xs text-slate-400 mt-1">
-            Add at least 2 companies to see a side-by-side comparison.
+            {t("compare.emptyHint")}
           </p>
         </div>
       )}
@@ -946,7 +884,7 @@ export default function ComparePage() {
         <div className="border border-dashed border-slate-300 rounded-lg p-8 text-center">
           <Plus className="h-6 w-6 text-slate-300 mx-auto mb-2" />
           <p className="text-sm text-slate-500">
-            Add at least one more company to compare.
+            {t("compare.addOneMore")}
           </p>
         </div>
       )}
