@@ -84,7 +84,7 @@ export default function UnifiedSearchPage() {
                   <Link
                     key={`top-${c.enterprise_number}`}
                     href={`/company/${c.enterprise_number}`}
-                    className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white border border-slate-200 hover:border-indigo-200 hover:shadow-md transition-all group"
+                    className="flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-xl bg-white border border-slate-200 hover:border-indigo-200 hover:shadow-md transition-all group"
                   >
                     <div className="p-2 rounded-lg bg-indigo-50 text-indigo-500 shrink-0">
                       <Building className="w-4 h-4" />
@@ -115,7 +115,7 @@ export default function UnifiedSearchPage() {
                   <Link
                     key={`top-p-${i}`}
                     href={`/people?q=${encodeURIComponent(p.name)}`}
-                    className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white border border-slate-200 hover:border-emerald-200 hover:shadow-md transition-all group"
+                    className="flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-xl bg-white border border-slate-200 hover:border-emerald-200 hover:shadow-md transition-all group"
                   >
                     <div className="p-2 rounded-lg bg-emerald-50 text-emerald-500 shrink-0">
                       <Users className="w-4 h-4" />
@@ -156,7 +156,7 @@ export default function UnifiedSearchPage() {
                   <Link
                     key={c.enterprise_number}
                     href={`/company/${c.enterprise_number}`}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all group"
+                    className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all group"
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-800 group-hover:text-indigo-600 truncate">
@@ -196,7 +196,7 @@ export default function UnifiedSearchPage() {
                   <Link
                     key={`all-p-${i}`}
                     href={`/people?q=${encodeURIComponent(p.name)}`}
-                    className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all group"
+                    className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all group"
                   >
                     <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-800 group-hover:text-emerald-600 truncate">

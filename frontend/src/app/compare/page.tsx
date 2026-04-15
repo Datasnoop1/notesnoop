@@ -468,13 +468,13 @@ export default function ComparePage() {
           <table className="w-full">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[220px]">
+                <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[180px] sm:min-w-[220px]">
                   Line Item
                 </th>
                 {companies.map((c) => (
                   <th
                     key={c.cbe}
-                    className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[120px]"
+                    className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[110px] sm:min-w-[120px]"
                   >
                     <div className="flex flex-col items-end gap-0.5">
                       <Link
@@ -630,7 +630,7 @@ export default function ComparePage() {
 
       {/* Search bar */}
       <div className="flex flex-wrap gap-2 items-start">
-        <div className="relative flex-1 min-w-[280px] max-w-md" ref={searchRef}>
+        <div className="relative flex-1 min-w-0 sm:min-w-[280px] max-w-md" ref={searchRef}>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
@@ -737,9 +737,9 @@ export default function ComparePage() {
               </span>
               <button
                 onClick={() => removeCompany(c.cbe)}
-                className="ml-0.5 hover:bg-indigo-100 rounded-full p-0.5 transition-colors"
+                className="ml-0.5 hover:bg-indigo-100 rounded-full p-1.5 -mr-1 transition-colors"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           ))}

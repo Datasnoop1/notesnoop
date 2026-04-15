@@ -336,7 +336,7 @@ export default function AggregatePage() {
 
       {/* Search bar + favourites button */}
       <div className="flex flex-wrap gap-2 items-start">
-        <div className="relative flex-1 min-w-[280px] max-w-md" ref={searchRef}>
+        <div className="relative flex-1 min-w-0 sm:min-w-[280px] max-w-md" ref={searchRef}>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
@@ -406,7 +406,7 @@ export default function AggregatePage() {
         </div>
 
         {/* Quick actions */}
-        <div className="flex gap-2 items-center">
+        <div className="flex flex-wrap gap-2 items-center">
           <FavouritesDialog
             existingCbes={existingCbes}
             onAdd={addCompany}
@@ -415,6 +415,7 @@ export default function AggregatePage() {
           <Button
             variant="outline"
             size="sm"
+            className="py-2.5"
             onClick={loadAllFavourites}
             disabled={loadingFavs || companies.length >= MAX_COMPANIES}
           >
@@ -423,7 +424,8 @@ export default function AggregatePage() {
             ) : (
               <Star className="h-4 w-4 mr-1.5 text-amber-500 fill-amber-500" />
             )}
-            Load All Favourites
+            <span className="hidden sm:inline">Load All Favourites</span>
+            <span className="sm:hidden">All Favs</span>
           </Button>
         </div>
 
@@ -456,9 +458,9 @@ export default function AggregatePage() {
               </span>
               <button
                 onClick={() => removeCompany(c.cbe)}
-                className="ml-0.5 hover:bg-indigo-100 rounded-full p-0.5 transition-colors"
+                className="ml-0.5 hover:bg-indigo-100 rounded-full p-1.5 -mr-1 transition-colors"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           ))}

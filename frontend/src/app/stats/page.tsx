@@ -40,11 +40,6 @@ import {
   TrendingUp,
   Percent,
   Users,
-  PieChart,
-  MapPin,
-  CalendarRange,
-  Ruler,
-  TableProperties,
 } from "lucide-react";
 import {
   BarChart,
@@ -87,8 +82,7 @@ function SkeletonRows({ cols, count }: { cols: number; count: number }) {
 function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
   return (
     <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-4 flex items-center gap-1.5">
-      {icon}
-      {children}
+      {icon}{children}
     </h2>
   );
 }
@@ -267,7 +261,7 @@ function KpiCard({ label, value, icon, color, loading }: KpiCardProps) {
         ) : (
           <div className="flex items-start justify-between">
             <div>
-              <div className="text-3xl font-extrabold text-slate-900 tracking-tight">
+              <div className="text-xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
                 {value}
               </div>
               <div className="text-[11px] uppercase tracking-widest text-slate-500 mt-1.5 font-medium">
@@ -289,6 +283,15 @@ function KpiCard({ label, value, icon, color, loading }: KpiCardProps) {
    ============================================================ */
 
 export default function StatsPage() {
+  /* ---------- responsive ---------- */
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   /* ---------- state ---------- */
   const [overview, setOverview] = useState<StatsOverview | null>(null);
   const [sectors, setSectors] = useState<StatsSector[]>([]);
@@ -409,8 +412,8 @@ export default function StatsPage() {
 
       {/* ━━━━━━━━━━ HEADER ━━━━━━━━━━ */}
       <div>
-        <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-          <BarChart3 className="w-7 h-7 inline mr-2 -mt-1 text-indigo-600" />
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+          <BarChart3 className="w-6 h-6 sm:w-7 sm:h-7 inline mr-2 -mt-1 text-indigo-600" />
           Market Analytics
         </h1>
         <p className="mt-1 text-sm text-slate-500">
@@ -459,8 +462,8 @@ export default function StatsPage() {
 
       {/* ━━━━━━━━━━ SECTION 2: SECTOR BAR CHART ━━━━━━━━━━ */}
       <div>
-        <SectionHeader icon={<PieChart className="h-3.5 w-3.5 text-slate-400" />}>Sector Breakdown -- Top 20 by Company Count</SectionHeader>
-        <Card className="bg-white p-6">
+        <SectionHeader>Sector Breakdown -- Top 20 by Company Count</SectionHeader>
+        <Card className="bg-white p-3 sm:p-6">
           {loading ? (
             <ChartSkeleton height="h-[600px]" />
           ) : sectorBarData.length === 0 ? (
@@ -470,7 +473,7 @@ export default function StatsPage() {
               <BarChart
                 data={sectorBarData}
                 layout="vertical"
-                margin={{ top: 5, right: 40, left: 10, bottom: 5 }}
+                margin={{ top: 5, right: isMobile ? 15 : 40, left: isMobile ? 0 : 10, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                 <XAxis
@@ -481,11 +484,14 @@ export default function StatsPage() {
                 <YAxis
                   type="category"
                   dataKey="naceDisplay"
-                  width={260}
-                  tick={{ fontSize: 11, fill: "#475569" }}
+                  width={isMobile ? 120 : 260}
+                  tick={{ fontSize: isMobile ? 10 : 11, fill: "#475569" }}
                   axisLine={false}
                   tickLine={false}
-                  tickFormatter={(v: string) => v.length > 38 ? v.slice(0, 36) + "..." : v}
+                  tickFormatter={(v: string) => {
+                    const max = isMobile ? 16 : 38;
+                    return v.length > max ? v.slice(0, max - 2) + "..." : v;
+                  }}
                 />
                 <Tooltip content={<SectorBarTooltip />} cursor={{ fill: "rgba(99,102,241,0.06)" }} />
                 <Bar
@@ -505,14 +511,14 @@ export default function StatsPage() {
               </BarChart>
             </ResponsiveContainer>
           )}
-          <div className="mt-3 flex items-center gap-4 text-[10px] text-slate-400 px-2">
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-slate-400 px-2">
             <span>Bar color = median EBITDA margin:</span>
             <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{ background: "#059669" }} /> &ge;20%</span>
             <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{ background: "#10b981" }} /> 12-20%</span>
             <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{ background: "#f59e0b" }} /> 6-12%</span>
             <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{ background: "#f97316" }} /> 0-6%</span>
             <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{ background: "#ef4444" }} /> &lt;0%</span>
-            <span className="ml-auto">Click a bar to filter the screener</span>
+            <span className="sm:ml-auto">Click a bar to filter the screener</span>
           </div>
         </Card>
       </div>
@@ -522,8 +528,8 @@ export default function StatsPage() {
 
         {/* Revenue Distribution (size buckets) */}
         <div>
-          <SectionHeader icon={<Ruler className="h-3.5 w-3.5 text-slate-400" />}>Company Size Distribution</SectionHeader>
-          <Card className="bg-white p-6">
+          <SectionHeader>Company Size Distribution</SectionHeader>
+          <Card className="bg-white p-3 sm:p-6">
             {chartsLoading ? (
               <ChartSkeleton />
             ) : sizeDist.length === 0 ? (
@@ -560,8 +566,8 @@ export default function StatsPage() {
 
         {/* Margin Distribution */}
         <div>
-          <SectionHeader icon={<Percent className="h-3.5 w-3.5 text-slate-400" />}>EBITDA Margin Distribution</SectionHeader>
-          <Card className="bg-white p-6">
+          <SectionHeader>EBITDA Margin Distribution</SectionHeader>
+          <Card className="bg-white p-3 sm:p-6">
             {chartsLoading ? (
               <ChartSkeleton />
             ) : marginHistData.length === 0 ? (
@@ -597,8 +603,8 @@ export default function StatsPage() {
 
       {/* ━━━━━━━━━━ SECTION 4: EVOLUTION LINE CHART ━━━━━━━━━━ */}
       <div>
-        <SectionHeader icon={<CalendarRange className="h-3.5 w-3.5 text-slate-400" />}>Financial Evolution (2019-2024)</SectionHeader>
-        <Card className="bg-white p-6">
+        <SectionHeader>Financial Evolution (2019-2024)</SectionHeader>
+        <Card className="bg-white p-3 sm:p-6">
           {chartsLoading ? (
             <ChartSkeleton />
           ) : evolution.length === 0 ? (
@@ -662,8 +668,8 @@ export default function StatsPage() {
 
         {/* Province breakdown */}
         <div>
-          <SectionHeader icon={<MapPin className="h-3.5 w-3.5 text-slate-400" />}>Companies by Province</SectionHeader>
-          <Card className="bg-white p-6">
+          <SectionHeader>Companies by Province</SectionHeader>
+          <Card className="bg-white p-3 sm:p-6">
             {chartsLoading ? (
               <ChartSkeleton height="h-96" />
             ) : provinces.length === 0 ? (
@@ -673,7 +679,7 @@ export default function StatsPage() {
                 <BarChart
                   data={[...provinces].sort((a, b) => a.companies - b.companies)}
                   layout="vertical"
-                  margin={{ top: 5, right: 40, left: 10, bottom: 5 }}
+                  margin={{ top: 5, right: isMobile ? 15 : 40, left: isMobile ? 0 : 10, bottom: 5 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                   <XAxis
@@ -684,8 +690,8 @@ export default function StatsPage() {
                   <YAxis
                     type="category"
                     dataKey="province"
-                    width={130}
-                    tick={{ fontSize: 11, fill: "#475569" }}
+                    width={isMobile ? 90 : 130}
+                    tick={{ fontSize: isMobile ? 10 : 11, fill: "#475569" }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -705,8 +711,8 @@ export default function StatsPage() {
 
         {/* Average Revenue by Sector */}
         <div>
-          <SectionHeader icon={<DollarSign className="h-3.5 w-3.5 text-slate-400" />}>Average Revenue per Company by Sector</SectionHeader>
-          <Card className="bg-white p-6">
+          <SectionHeader>Average Revenue per Company by Sector</SectionHeader>
+          <Card className="bg-white p-3 sm:p-6">
             {loading ? (
               <ChartSkeleton height="h-96" />
             ) : revenuePerSector.length === 0 ? (
@@ -716,7 +722,7 @@ export default function StatsPage() {
                 <BarChart
                   data={revenuePerSector}
                   layout="vertical"
-                  margin={{ top: 5, right: 40, left: 10, bottom: 5 }}
+                  margin={{ top: 5, right: isMobile ? 15 : 40, left: isMobile ? 0 : 10, bottom: 5 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                   <XAxis
@@ -728,8 +734,8 @@ export default function StatsPage() {
                   <YAxis
                     type="category"
                     dataKey="label"
-                    width={220}
-                    tick={{ fontSize: 11, fill: "#475569" }}
+                    width={isMobile ? 100 : 220}
+                    tick={{ fontSize: isMobile ? 10 : 11, fill: "#475569" }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -754,8 +760,8 @@ export default function StatsPage() {
 
       {/* ━━━━━━━━━━ SECTION 6: FULL SORTABLE SECTOR TABLE ━━━━━━━━━━ */}
       <div>
-        <div className="flex items-center justify-between">
-          <SectionHeader icon={<TableProperties className="h-3.5 w-3.5 text-slate-400" />}>All Sectors -- Detailed Breakdown</SectionHeader>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <SectionHeader>All Sectors -- Detailed Breakdown</SectionHeader>
           <ExportButtons
             onExportCSV={() => {
               const headers = ["NACE", "Sector", "Companies", "Revenue (M)", "EBITDA (M)", "Median Margin", "Median FTE"];

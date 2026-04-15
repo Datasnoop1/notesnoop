@@ -161,7 +161,7 @@ function ProjectCard({
                     className="fixed inset-0 z-40"
                     onClick={() => { setShowAddMenu(false); setAddSearch(""); }}
                   />
-                  <div className="absolute right-0 top-full mt-1 z-50 w-96 bg-white border border-slate-200 rounded-lg shadow-xl">
+                  <div className="absolute right-0 top-full mt-1 z-50 w-[calc(100vw-3rem)] sm:w-96 max-w-[384px] bg-white border border-slate-200 rounded-lg shadow-xl">
                     <div className="p-2 border-b border-slate-100">
                       <Input
                         placeholder="Search any company by name or CBE..."
@@ -457,6 +457,7 @@ function CsTab({
       {/* Loading state */}
       {loading && (
         <Card className="bg-white overflow-hidden">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
@@ -473,6 +474,7 @@ function CsTab({
               <SkeletonRows cols={7} count={5} />
             </TableBody>
           </Table>
+          </div>
         </Card>
       )}
 
@@ -492,6 +494,7 @@ function CsTab({
       {/* Table */}
       {!loading && items.length > 0 && (
         <Card className="bg-white overflow-hidden">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
@@ -549,6 +552,7 @@ function CsTab({
               ))}
             </TableBody>
           </Table>
+          </div>
         </Card>
       )}
     </div>
@@ -833,7 +837,7 @@ export default function FavouritesPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-bold text-slate-900">
             <Star className="w-4 h-4 inline mr-1.5" />
@@ -845,7 +849,7 @@ export default function FavouritesPage() {
         </div>
         <div className="flex items-center gap-2">
           {!loading && (
-            <Badge variant="secondary" className="text-indigo-700 bg-indigo-50 border-indigo-200">
+            <Badge variant="secondary" className="text-indigo-700 bg-indigo-50 border-indigo-200 text-[11px] sm:text-xs">
               {favourites.length} {favourites.length === 1 ? "company" : "companies"} · {peopleFavs.length} {peopleFavs.length === 1 ? "person" : "people"}
             </Badge>
           )}
@@ -853,10 +857,10 @@ export default function FavouritesPage() {
       </div>
 
       {/* Tab switcher */}
-      <div className="flex items-center gap-1 border-b border-slate-100 pb-0">
+      <div className="flex items-center gap-1 border-b border-slate-100 pb-0 overflow-x-auto -mx-1 px-1 scrollbar-none">
         <button
           onClick={() => setActiveTab("companies")}
-          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap shrink-0 ${
             activeTab === "companies"
               ? "border-indigo-500 text-indigo-600"
               : "border-transparent text-slate-500 hover:text-slate-700"
@@ -866,7 +870,7 @@ export default function FavouritesPage() {
         </button>
         <button
           onClick={() => setActiveTab("people")}
-          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap shrink-0 ${
             activeTab === "people"
               ? "border-indigo-500 text-indigo-600"
               : "border-transparent text-slate-500 hover:text-slate-700"
@@ -876,7 +880,7 @@ export default function FavouritesPage() {
         </button>
         <button
           onClick={() => setActiveTab("customers")}
-          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap shrink-0 ${
             activeTab === "customers"
               ? "border-indigo-500 text-indigo-600"
               : "border-transparent text-slate-500 hover:text-slate-700"
@@ -889,7 +893,7 @@ export default function FavouritesPage() {
         </button>
         <button
           onClick={() => setActiveTab("suppliers")}
-          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap shrink-0 ${
             activeTab === "suppliers"
               ? "border-indigo-500 text-indigo-600"
               : "border-transparent text-slate-500 hover:text-slate-700"
@@ -978,6 +982,7 @@ export default function FavouritesPage() {
         {/* Loading state */}
         {loading && (
           <Card className="bg-white overflow-hidden">
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50">
@@ -996,6 +1001,7 @@ export default function FavouritesPage() {
                 <SkeletonRows cols={9} count={5} />
               </TableBody>
             </Table>
+            </div>
           </Card>
         )}
 
@@ -1015,6 +1021,7 @@ export default function FavouritesPage() {
         {/* Favourites table */}
         {!loading && favourites.length > 0 && (
           <Card className="bg-white overflow-hidden">
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-slate-50">
@@ -1080,6 +1087,7 @@ export default function FavouritesPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           </Card>
         )}
       </div>
@@ -1114,6 +1122,7 @@ export default function FavouritesPage() {
 
           {!loadingPeople && peopleFavs.length > 0 && (
             <Card className="bg-white overflow-hidden">
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
@@ -1167,6 +1176,7 @@ export default function FavouritesPage() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
             </Card>
           )}
         </div>
