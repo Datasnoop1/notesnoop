@@ -153,7 +153,7 @@ app.include_router(staatsblad.router)
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "ok", "service": "leadpeek-api"}
+    return {"status": "ok", "service": "datapeak-api"}
 
 
 # ---------------------------------------------------------------------------

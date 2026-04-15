@@ -165,7 +165,7 @@ async def search_companies(q: str = Query(..., min_length=1)):
         return [_serialize_row(r) for r in rows]
     except Exception as e:
         logger.exception("Company search failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +208,7 @@ async def get_company_detail(cbe: str):
         raise
     except Exception as e:
         logger.exception("Company detail query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -628,7 +628,7 @@ async def get_company_financials(cbe: str):
         }
     except Exception as e:
         logger.exception("Company financials query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -693,7 +693,7 @@ async def get_company_structure(cbe: str):
         }
     except Exception as e:
         logger.exception("Company structure query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -1061,7 +1061,7 @@ async def get_company_network(cbe: str, max_depth: int = Query(1, ge=1, le=3)):
         raise
     except Exception as e:
         logger.exception("Company network query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ── Sector Benchmarking ──────────────────────────────────────────
@@ -1180,7 +1180,7 @@ async def sector_benchmark(cbe: str):
         }
     except Exception as e:
         logger.exception("Sector benchmark failed for %s", cbe)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -1244,4 +1244,4 @@ async def get_similar_companies(cbe: str):
         raise
     except Exception as e:
         logger.exception("Similar companies failed for %s", cbe)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

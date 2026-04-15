@@ -5,6 +5,7 @@ Fetches the JWKS public key from Supabase to verify tokens.
 """
 
 import os
+import time
 import logging
 from typing import Optional
 
@@ -22,27 +23,40 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 
+# Accepted JWT audiences: Supabase project URL + project ref (bare ID)
+_SUPABASE_AUDIENCES = [
+    SUPABASE_URL,  # e.g. https://fpsyraglybfazambxuqb.supabase.co
+    "authenticated",  # Supabase default audience claim
+]
+
 security = HTTPBearer(auto_error=True)
 security_optional = HTTPBearer(auto_error=False)
 
-# Cache the JWKS keys
+# Cache the JWKS keys with a TTL
 _jwks_cache: dict = {}
+_jwks_fetched_at: float = 0.0
+_JWKS_TTL_SECONDS = 3600  # re-fetch after 1 hour
 
 
 def _get_jwks() -> dict:
-    """Fetch JWKS from Supabase (cached)."""
-    global _jwks_cache
-    if _jwks_cache:
+    """Fetch JWKS from Supabase (cached with 1-hour TTL)."""
+    global _jwks_cache, _jwks_fetched_at
+    now = time.monotonic()
+    if _jwks_cache and (now - _jwks_fetched_at) < _JWKS_TTL_SECONDS:
         return _jwks_cache
     if SUPABASE_URL:
         try:
             resp = httpx.get(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json", timeout=5)
             if resp.status_code == 200:
                 _jwks_cache = resp.json()
+                _jwks_fetched_at = now
                 logger.info("Fetched JWKS from Supabase: %d keys", len(_jwks_cache.get("keys", [])))
                 return _jwks_cache
         except Exception as e:
             logger.warning("Failed to fetch JWKS: %s", e)
+            # On fetch failure, keep serving stale cache if available
+            if _jwks_cache:
+                return _jwks_cache
     return {}
 
 
@@ -72,7 +86,8 @@ def _decode_token(token: str) -> dict:
                     token,
                     public_key,
                     algorithms=[alg],
-                    options={"verify_aud": False},
+                    audience=_SUPABASE_AUDIENCES,
+                    options={"verify_aud": True},
                 )
                 return payload
         except JWTError as e:
@@ -85,7 +100,8 @@ def _decode_token(token: str) -> dict:
                 token,
                 SUPABASE_JWT_SECRET,
                 algorithms=["HS256"],
-                options={"verify_aud": False},
+                audience=_SUPABASE_AUDIENCES,
+                options={"verify_aud": True},
             )
             return payload
         except JWTError as e:

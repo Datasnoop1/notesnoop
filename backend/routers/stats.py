@@ -112,7 +112,7 @@ async def stats_overview(
         return result
     except Exception as e:
         logger.exception("Stats overview query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +158,7 @@ async def stats_evolution(
         return _serialize(agg)
     except Exception as e:
         logger.exception("Stats evolution query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +248,7 @@ async def stats_sectors(
 
     except Exception as e:
         logger.exception("Stats sectors query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +315,7 @@ async def stats_provinces():
 
     except Exception as e:
         logger.exception("Stats provinces query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +350,7 @@ async def stats_margin_distribution(
         return _serialize(rows)
     except Exception as e:
         logger.exception("Margin distribution query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -403,4 +403,4 @@ async def stats_size_distribution(
         return _serialize(rows)
     except Exception as e:
         logger.exception("Size distribution query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

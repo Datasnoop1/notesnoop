@@ -65,7 +65,7 @@ async def list_favourites(user=Depends(get_current_user)):
         return [_serialize_row(r) for r in rows]
     except Exception as e:
         logger.exception("List favourites failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("", status_code=201)
@@ -81,7 +81,7 @@ async def add_favourite(body: FavouriteCreate, user=Depends(get_current_user)):
         return {"enterprise_number": cbe, "status": "added"}
     except Exception as e:
         logger.exception("Add favourite failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.delete("/{cbe}")
@@ -105,7 +105,7 @@ async def remove_favourite(cbe: str, user=Depends(get_current_user)):
         raise
     except Exception as e:
         logger.exception("Remove favourite failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ── Favourite Projects (grouping) ──────────────────────────────
@@ -177,7 +177,7 @@ async def list_projects(user=Depends(get_current_user)):
         return result
     except Exception as e:
         logger.exception("List projects failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/projects", status_code=201)
@@ -194,7 +194,7 @@ async def create_project(body: ProjectCreate, user=Depends(get_current_user)):
         return {**_serialize_row(row), "members": []}
     except Exception as e:
         logger.exception("Create project failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/projects/{project_id}/add", status_code=201)
@@ -220,7 +220,7 @@ async def add_project_member(project_id: int, body: ProjectMemberAdd, user=Depen
         raise
     except Exception as e:
         logger.exception("Add project member failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.delete("/projects/{project_id}/remove/{cbe}")
@@ -245,7 +245,7 @@ async def remove_project_member(project_id: int, cbe: str, user=Depends(get_curr
         raise
     except Exception as e:
         logger.exception("Remove project member failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.delete("/projects/{project_id}")
@@ -266,7 +266,7 @@ async def delete_project(project_id: int, user=Depends(get_current_user)):
         raise
     except Exception as e:
         logger.exception("Delete project failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ── Notifications: new data for favourited companies ──────────────
@@ -314,7 +314,7 @@ async def get_notifications(user=Depends(get_current_user)):
         return {"notifications": [_serialize_row(r) for r in rows], "count": len(rows)}
     except Exception as e:
         logger.exception("Notifications check failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/notifications/mark-read")
@@ -329,7 +329,7 @@ async def mark_notifications_read(user=Depends(get_current_user)):
         return {"status": "ok"}
     except Exception as e:
         logger.exception("Mark read failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ── People Favourites ─────────────────────────────────────────────
@@ -378,7 +378,7 @@ async def list_people_favourites(user=Depends(get_current_user)):
         return [_serialize_row(r) for r in rows]
     except Exception as e:
         logger.exception("List people favourites failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/people", status_code=201)
@@ -394,7 +394,7 @@ async def add_people_favourite(body: PeopleFavouriteCreate, user=Depends(get_cur
         return {"person_name": body.person_name.strip(), "status": "added"}
     except Exception as e:
         logger.exception("Add people favourite failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.delete("/people/{person_name}")
@@ -420,7 +420,7 @@ async def remove_people_favourite(person_name: str, user=Depends(get_current_use
         raise
     except Exception as e:
         logger.exception("Remove people favourite failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ── Customers & Suppliers ────────────────────────────────────────
@@ -549,7 +549,7 @@ async def list_customers(user=Depends(get_current_user)):
         return _list_cs(user["id"], "customer")
     except Exception as e:
         logger.exception("List customers failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/customers/upload")
@@ -559,7 +559,7 @@ async def upload_customers(body: CbeListUpload, user=Depends(get_current_user)):
         return _upload_cs(user["id"], "customer", body.enterprise_numbers)
     except Exception as e:
         logger.exception("Upload customers failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.delete("/customers/{cbe}")
@@ -571,7 +571,7 @@ async def remove_customer(cbe: str, user=Depends(get_current_user)):
         raise
     except Exception as e:
         logger.exception("Remove customer failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # Suppliers
@@ -583,7 +583,7 @@ async def list_suppliers(user=Depends(get_current_user)):
         return _list_cs(user["id"], "supplier")
     except Exception as e:
         logger.exception("List suppliers failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/suppliers/upload")
@@ -593,7 +593,7 @@ async def upload_suppliers(body: CbeListUpload, user=Depends(get_current_user)):
         return _upload_cs(user["id"], "supplier", body.enterprise_numbers)
     except Exception as e:
         logger.exception("Upload suppliers failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.delete("/suppliers/{cbe}")
@@ -605,4 +605,4 @@ async def remove_supplier(cbe: str, user=Depends(get_current_user)):
         raise
     except Exception as e:
         logger.exception("Remove supplier failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

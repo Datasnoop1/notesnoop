@@ -77,7 +77,7 @@ async def search_people(q: str = Query(..., min_length=1)):
 
     except Exception as e:
         logger.exception("People search failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ---------------------------------------------------------------------------
@@ -178,4 +178,4 @@ async def get_person_connections(name: str):
 
     except Exception as e:
         logger.exception("Person connections query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

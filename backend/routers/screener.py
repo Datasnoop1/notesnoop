@@ -199,4 +199,4 @@ async def screener(
         return rows
     except Exception as e:
         logger.exception("Screener query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
