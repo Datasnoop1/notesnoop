@@ -68,6 +68,9 @@ import {
   Minus,
   Building2,
   CreditCard,
+  Crown,
+  Layers,
+  Save,
 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -181,6 +184,18 @@ interface Poll {
   archived_at: string | null;
   total_votes: number;
   votes: Record<string, number>;
+}
+
+interface TierConfig {
+  tier: string;
+  page_views_per_day: number;
+  searches_per_day: number;
+  company_views_per_day: number;
+  ai_enrichments_per_day: number;
+  export_per_day: number;
+  screener_results_limit: number;
+  enabled: boolean;
+  updated_at: string;
 }
 
 /* ---------- API helper ---------- */
@@ -433,6 +448,10 @@ export default function AdminPanel() {
     totals: { total_requests_30d: number; guest_requests_30d: number; registered_requests_30d: number; unique_registered_30d: number; unique_guests_30d: number };
   } | null>(null);
   const [paymentsData, setPaymentsData] = useState<PaymentsData | null>(null);
+  const [tiers, setTiers] = useState<TierConfig[]>([]);
+  const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
+  const [tierSaving, setTierSaving] = useState<string | null>(null);
+  const [tierToggling, setTierToggling] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -440,7 +459,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage, pay] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -453,6 +472,7 @@ export default function AdminPanel() {
         adminFetch<Insights>("/api/admin/insights").catch(() => null),
         adminFetch<typeof usageData>("/api/admin/usage").catch(() => null),
         adminFetch<PaymentsData>("/api/admin/payments").catch(() => null),
+        adminFetch<TierConfig[]>("/api/admin/tiers").catch(() => [] as TierConfig[]),
       ]);
       setStats(s);
       setUsers(u);
@@ -464,6 +484,7 @@ export default function AdminPanel() {
       setInsights(ins);
       setUsageData(usage as typeof usageData);
       setPaymentsData(pay);
+      setTiers(tc);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -651,6 +672,63 @@ export default function AdminPanel() {
       /* ignore */
     } finally {
       setActionLoading(null);
+    }
+  }
+
+  /* ---- Tier actions ---- */
+
+  function getTierValue(tier: string, field: keyof TierConfig): number {
+    const edit = tierEdits[tier];
+    if (edit && edit[field] !== undefined) return edit[field] as number;
+    const row = tiers.find((t) => t.tier === tier);
+    return row ? (row[field] as number) : 0;
+  }
+
+  function setTierField(tier: string, field: string, value: number) {
+    setTierEdits((prev) => ({
+      ...prev,
+      [tier]: { ...prev[tier], [field]: value },
+    }));
+  }
+
+  async function saveTier(tier: string) {
+    const edits = tierEdits[tier];
+    if (!edits || Object.keys(edits).length === 0) return;
+    setTierSaving(tier);
+    try {
+      const updated = await adminFetch<TierConfig>(`/api/admin/tiers/${tier}`, {
+        method: "PUT",
+        body: JSON.stringify(edits),
+      });
+      setTiers((prev) =>
+        prev.map((t) => (t.tier === tier ? { ...t, ...updated } : t))
+      );
+      setTierEdits((prev) => {
+        const next = { ...prev };
+        delete next[tier];
+        return next;
+      });
+    } catch {
+      /* ignore */
+    } finally {
+      setTierSaving(null);
+    }
+  }
+
+  async function toggleAllLimits() {
+    const currentlyEnabled = tiers.some((t) => t.enabled);
+    const newEnabled = !currentlyEnabled;
+    setTierToggling(true);
+    try {
+      await adminFetch("/api/admin/tiers/toggle", {
+        method: "POST",
+        body: JSON.stringify({ enabled: newEnabled }),
+      });
+      setTiers((prev) => prev.map((t) => ({ ...t, enabled: newEnabled })));
+    } catch {
+      /* ignore */
+    } finally {
+      setTierToggling(false);
     }
   }
 
@@ -849,6 +927,10 @@ export default function AdminPanel() {
           <TabsTrigger value="polls">
             <Vote className="size-3.5 mr-1.5" />
             Polls
+          </TabsTrigger>
+          <TabsTrigger value="tiers">
+            <Layers className="size-3.5 mr-1.5" />
+            Tiers
           </TabsTrigger>
           <TabsTrigger value="activity">
             <Clock className="size-3.5 mr-1.5" />
@@ -2282,6 +2364,162 @@ export default function AdminPanel() {
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ================================================================
+            TAB: Tiers
+            ================================================================ */}
+        <TabsContent value="tiers">
+          <div className="space-y-6 pt-2">
+            {/* Master toggle */}
+            <Card className="bg-white">
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-700">
+                      Enforce usage limits
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      When enabled, users will be rate-limited according to their tier. Currently for configuration only.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {tiers.length > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className={
+                          tiers.some((t) => t.enabled)
+                            ? "bg-amber-50 text-amber-700 border border-amber-200"
+                            : "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                        }
+                      >
+                        {tiers.some((t) => t.enabled) ? "Enforced" : "Not enforced"}
+                      </Badge>
+                    )}
+                    <Button
+                      size="sm"
+                      variant={tiers.some((t) => t.enabled) ? "default" : "outline"}
+                      onClick={toggleAllLimits}
+                      disabled={tierToggling || tiers.length === 0}
+                      className="min-w-[80px]"
+                    >
+                      {tierToggling
+                        ? "..."
+                        : tiers.some((t) => t.enabled)
+                        ? "Disable"
+                        : "Enable"}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Tier cards */}
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {[1, 2, 3].map((i) => (
+                  <Card key={i} className="bg-white">
+                    <CardContent className="space-y-4">
+                      <Skeleton className="h-6 w-24" />
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                      <Skeleton className="h-8 w-full" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {(["guest", "registered", "premium"] as const).map((tierName) => {
+                  const tier = tiers.find((t) => t.tier === tierName);
+                  if (!tier) return null;
+
+                  const iconMap = {
+                    guest: Shield,
+                    registered: UserCheck,
+                    premium: Crown,
+                  };
+                  const colorMap = {
+                    guest: "text-slate-500",
+                    registered: "text-indigo-600",
+                    premium: "text-amber-500",
+                  };
+                  const bgMap = {
+                    guest: "bg-slate-50 border-slate-200",
+                    registered: "bg-indigo-50 border-indigo-200",
+                    premium: "bg-amber-50 border-amber-200",
+                  };
+                  const TierIcon = iconMap[tierName];
+                  const hasEdits = tierEdits[tierName] && Object.keys(tierEdits[tierName]).length > 0;
+
+                  const fields: { key: string; label: string }[] = [
+                    { key: "page_views_per_day", label: "Page views / day" },
+                    { key: "searches_per_day", label: "Searches / day" },
+                    { key: "company_views_per_day", label: "Company views / day" },
+                    { key: "ai_enrichments_per_day", label: "AI enrichments / day" },
+                    { key: "export_per_day", label: "Exports / day" },
+                    { key: "screener_results_limit", label: "Screener results limit" },
+                  ];
+
+                  return (
+                    <Card key={tierName} className={`border ${bgMap[tierName]}`}>
+                      <CardContent className="space-y-4">
+                        <div className="flex items-center gap-2">
+                          <TierIcon className={`size-5 ${colorMap[tierName]}`} />
+                          <h3 className="text-sm font-bold capitalize text-slate-800">
+                            {tierName}
+                          </h3>
+                        </div>
+
+                        {fields.map(({ key, label }) => (
+                          <div key={key}>
+                            <label className="text-[11px] font-medium text-slate-500 mb-1 block">
+                              {label}
+                            </label>
+                            <Input
+                              type="number"
+                              value={getTierValue(tierName, key as keyof TierConfig)}
+                              onChange={(e) =>
+                                setTierField(
+                                  tierName,
+                                  key,
+                                  parseInt(e.target.value, 10) || 0
+                                )
+                              }
+                              className="h-8 text-sm bg-white"
+                            />
+                          </div>
+                        ))}
+
+                        <p className="text-[10px] text-slate-400">
+                          -1 = unlimited
+                        </p>
+
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          onClick={() => saveTier(tierName)}
+                          disabled={!hasEdits || tierSaving === tierName}
+                        >
+                          {tierSaving === tierName ? (
+                            "Saving..."
+                          ) : (
+                            <>
+                              <Save className="size-3.5 mr-1.5" />
+                              Save {tierName}
+                            </>
+                          )}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
             )}
           </div>

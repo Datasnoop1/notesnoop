@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad
+from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config
 from rate_limit import limiter, get_client_ip
 
 load_dotenv()
@@ -144,6 +144,7 @@ app.include_router(admin.router)
 app.include_router(polls.router)
 app.include_router(stripe_pay.router)
 app.include_router(staatsblad.router)
+app.include_router(tier_config.router)
 
 # ---------------------------------------------------------------------------
 # Health check
