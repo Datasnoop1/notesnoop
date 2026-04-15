@@ -218,13 +218,10 @@ export default function Nav() {
 
             {user ? (
               <DropdownMenu>
-                <DropdownMenuTrigger className="hidden md:flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 transition-colors">
+                <DropdownMenuTrigger className="hidden md:flex items-center px-2 py-1.5 rounded-md hover:bg-slate-50 transition-colors">
                   <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[11px] font-bold">
                     {initials}
                   </div>
-                  <span className="text-[13px] text-slate-600 max-w-[130px] truncate">
-                    {user.email}
-                  </span>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem onClick={() => router.push("/account")} className="cursor-pointer">
