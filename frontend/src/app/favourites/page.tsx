@@ -56,6 +56,7 @@ import {
   Upload,
   FileSpreadsheet,
   Truck,
+  Search,
 } from "lucide-react";
 
 /* ---------- skeleton ---------- */
@@ -100,8 +101,10 @@ function ProjectCard({
   const [addSearch, setAddSearch] = useState("");
   const [addResults, setAddResults] = useState<SearchResult[]>([]);
   const [addSearching, setAddSearching] = useState(false);
+  const [addMode, setAddMode] = useState<"search" | "favourites">("search");
 
   const memberCbes = new Set(project.members.map((m) => m.enterprise_number));
+  const availableFavourites = favourites.filter((f) => !memberCbes.has(f.enterprise_number));
 
   // Debounced search for companies to add
   useEffect(() => {
@@ -159,56 +162,119 @@ function ProjectCard({
                 <>
                   <div
                     className="fixed inset-0 z-40"
-                    onClick={() => { setShowAddMenu(false); setAddSearch(""); }}
+                    onClick={() => { setShowAddMenu(false); setAddSearch(""); setAddMode("search"); }}
                   />
                   <div className="absolute right-0 top-full mt-1 z-50 w-[calc(100vw-3rem)] sm:w-96 max-w-[384px] bg-white border border-slate-200 rounded-lg shadow-xl">
-                    <div className="p-2 border-b border-slate-100">
-                      <Input
-                        placeholder="Search any company by name or CBE..."
-                        value={addSearch}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddSearch(e.target.value)}
-                        className="h-8 text-sm"
-                        autoFocus
-                      />
+                    {/* Tab toggle: Search / From Favourites */}
+                    <div className="flex border-b border-slate-100">
+                      <button
+                        onClick={() => setAddMode("search")}
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+                          addMode === "search"
+                            ? "border-indigo-500 text-indigo-600"
+                            : "border-transparent text-slate-400 hover:text-slate-600"
+                        }`}
+                      >
+                        <Search className="h-3 w-3" /> Search
+                      </button>
+                      <button
+                        onClick={() => setAddMode("favourites")}
+                        className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+                          addMode === "favourites"
+                            ? "border-indigo-500 text-indigo-600"
+                            : "border-transparent text-slate-400 hover:text-slate-600"
+                        }`}
+                      >
+                        <Star className="h-3 w-3" /> From Favourites
+                      </button>
                     </div>
-                    <div className="max-h-72 overflow-y-auto">
-                      {addSearch.length < 2 ? (
-                        <p className="text-xs text-slate-400 p-4 text-center">
-                          Type at least 2 characters to search
-                        </p>
-                      ) : addSearching ? (
-                        <div className="flex items-center justify-center gap-2 py-4">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
-                          <span className="text-xs text-slate-400">Searching...</span>
+
+                    {/* Search mode */}
+                    {addMode === "search" && (
+                      <>
+                        <div className="p-2 border-b border-slate-100">
+                          <Input
+                            placeholder="Search any company by name or CBE..."
+                            value={addSearch}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddSearch(e.target.value)}
+                            className="h-8 text-sm"
+                            autoFocus
+                          />
                         </div>
-                      ) : addResults.length === 0 ? (
-                        <p className="text-xs text-slate-400 p-4 text-center">
-                          No companies found
-                        </p>
-                      ) : (
-                        addResults.map((r) => (
-                          <button
-                            key={r.enterprise_number}
-                            onClick={() => {
-                              onAddMember(project.id, r.enterprise_number);
-                              setAddSearch("");
-                              setShowAddMenu(false);
-                            }}
-                            className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
-                          >
-                            <div className="min-w-0">
-                              <span className="text-sm font-medium text-slate-800 truncate block">
-                                {r.name || fmtCbe(r.enterprise_number)}
-                              </span>
-                              <span className="text-[10px] text-slate-400">
-                                {fmtCbe(r.enterprise_number)} · {r.city || "—"}
-                              </span>
+                        <div className="max-h-72 overflow-y-auto">
+                          {addSearch.length < 2 ? (
+                            <p className="text-xs text-slate-400 p-4 text-center">
+                              Type at least 2 characters to search
+                            </p>
+                          ) : addSearching ? (
+                            <div className="flex items-center justify-center gap-2 py-4">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                              <span className="text-xs text-slate-400">Searching...</span>
                             </div>
-                            <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
-                          </button>
-                        ))
-                      )}
-                    </div>
+                          ) : addResults.length === 0 ? (
+                            <p className="text-xs text-slate-400 p-4 text-center">
+                              No companies found
+                            </p>
+                          ) : (
+                            addResults.map((r) => (
+                              <button
+                                key={r.enterprise_number}
+                                onClick={() => {
+                                  onAddMember(project.id, r.enterprise_number);
+                                  setAddSearch("");
+                                  setShowAddMenu(false);
+                                }}
+                                className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                              >
+                                <div className="min-w-0">
+                                  <span className="text-sm font-medium text-slate-800 truncate block">
+                                    {r.name || fmtCbe(r.enterprise_number)}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400">
+                                    {fmtCbe(r.enterprise_number)} · {r.city || "—"}
+                                  </span>
+                                </div>
+                                <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </>
+                    )}
+
+                    {/* From Favourites mode */}
+                    {addMode === "favourites" && (
+                      <div className="max-h-72 overflow-y-auto">
+                        {availableFavourites.length === 0 ? (
+                          <p className="text-xs text-slate-400 p-4 text-center">
+                            {favourites.length === 0
+                              ? "No favourites yet"
+                              : "All favourites are already in this project"}
+                          </p>
+                        ) : (
+                          availableFavourites.map((f) => (
+                            <button
+                              key={f.enterprise_number}
+                              onClick={() => {
+                                onAddMember(project.id, f.enterprise_number);
+                                setShowAddMenu(false);
+                              }}
+                              className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                            >
+                              <div className="min-w-0">
+                                <span className="text-sm font-medium text-slate-800 truncate block">
+                                  {f.name || fmtCbe(f.enterprise_number)}
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                  {fmtCbe(f.enterprise_number)} · {f.city || "—"}
+                                </span>
+                              </div>
+                              <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
