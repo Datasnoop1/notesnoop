@@ -105,10 +105,11 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
     # ── Gather company context from DB ──────────────────────────
     company = fetch_one("""
         SELECT ci.name, ci.city, ci.nace_code, ci.zipcode,
-               ci.street, ci.house_number,
+               a.street_nl AS street, a.house_number,
                COALESCE(nl.description, ci.nace_code) AS sector,
                fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
         FROM company_info ci
+        LEFT JOIN address a ON a.entity_number = ci.enterprise_number AND a.type_of_address = 'REGO'
         LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
         LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
         WHERE ci.enterprise_number = %s
