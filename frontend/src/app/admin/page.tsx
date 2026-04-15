@@ -29,6 +29,7 @@ import {
   BarChart3,
   Database,
   TrendingUp,
+  TrendingDown,
   Shield,
   Search,
   Trash2,
@@ -46,6 +47,14 @@ import {
   Clock,
   Globe,
   Eye,
+  HeartPulse,
+  UserPlus,
+  ShieldCheck,
+  AlertTriangle,
+  ArrowUpRight,
+  ArrowDownRight,
+  Minus,
+  Building2,
 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -114,6 +123,23 @@ interface ActivityEntry {
   endpoint: string;
   method: string;
   created_at: string;
+}
+
+interface Insights {
+  total_users: number;
+  active_users_7d: number;
+  new_users_7d: number;
+  anon_requests_7d: number;
+  auth_requests_7d: number;
+  companies_with_financials: number;
+  total_companies: number;
+  coverage_pct: number;
+  load_success_count: number;
+  load_error_count: number;
+  success_rate: number;
+  active_users_prev_7d: number;
+  new_users_prev_7d: number;
+  top_companies: { cbe: string; name: string; view_count: number }[];
 }
 
 interface Poll {
@@ -186,7 +212,40 @@ function bgReadiness(score: number): string {
   return "bg-red-50 ring-red-200";
 }
 
+function trendDirection(current: number, previous: number): "up" | "down" | "flat" {
+  if (current > previous) return "up";
+  if (current < previous) return "down";
+  return "flat";
+}
+
+function healthStatus(rate: number): { label: string; color: string; bg: string } {
+  if (rate >= 95) return { label: "Healthy", color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" };
+  if (rate >= 80) return { label: "Good", color: "text-emerald-600", bg: "bg-emerald-50 border-emerald-200" };
+  if (rate >= 50) return { label: "Needs Attention", color: "text-amber-600", bg: "bg-amber-50 border-amber-200" };
+  return { label: "Critical", color: "text-red-600", bg: "bg-red-50 border-red-200" };
+}
+
 /* ---------- Small components ---------- */
+
+function TrendBadge({ current, previous, suffix = "" }: { current: number; previous: number; suffix?: string }) {
+  const dir = trendDirection(current, previous);
+  const diff = current - previous;
+  if (dir === "flat") {
+    return (
+      <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-slate-400">
+        <Minus className="size-3" />
+        No change
+      </span>
+    );
+  }
+  const isUp = dir === "up";
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-[10px] font-medium ${isUp ? "text-emerald-600" : "text-red-500"}`}>
+      {isUp ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
+      {isUp ? "+" : ""}{diff}{suffix} vs prev week
+    </span>
+  );
+}
 
 function Skeleton({ className = "" }: { className?: string }) {
   return (
@@ -336,6 +395,7 @@ export default function AdminPanel() {
   const [newOptionText, setNewOptionText] = useState("");
   const [userView, setUserView] = useState<"all" | "active">("all");
   const [finByYear, setFinByYear] = useState<{ fiscal_year: number; companies: number; filings: number }[]>([]);
+  const [insights, setInsights] = useState<Insights | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -343,7 +403,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -353,6 +413,7 @@ export default function AdminPanel() {
         adminFetch<Poll[]>("/api/polls").catch(() => [] as Poll[]),
         adminFetch<{ fiscal_year: number; companies: number; filings: number }[]>("/api/admin/financials-by-year").catch(() => []),
         adminFetch<ActivityEntry[]>("/api/admin/activity").catch(() => [] as ActivityEntry[]),
+        adminFetch<Insights>("/api/admin/insights").catch(() => null),
       ]);
       setStats(s);
       setUsers(u);
@@ -361,6 +422,7 @@ export default function AdminPanel() {
       setPolls(p);
       setFinByYear(fby);
       setActivityLog(alog);
+      setInsights(ins);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -804,6 +866,239 @@ export default function AdminPanel() {
                 ) : null}
               </CardContent>
             </Card>
+
+            {/* Platform Health Summary */}
+            {!loading && insights && (
+              <div>
+                <SectionHeading icon={HeartPulse}>Platform Health</SectionHeading>
+                {(() => {
+                  const health = healthStatus(insights.success_rate);
+                  const totalTraffic = insights.anon_requests_7d + insights.auth_requests_7d;
+                  const authPct = totalTraffic > 0 ? ((insights.auth_requests_7d / totalTraffic) * 100) : 0;
+                  return (
+                    <>
+                      {/* Health banner */}
+                      <Card className={`border ${health.bg} mb-4`}>
+                        <CardContent>
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2 rounded-lg ${health.bg}`}>
+                              {insights.success_rate >= 80 ? (
+                                <ShieldCheck className={`size-5 ${health.color}`} />
+                              ) : (
+                                <AlertTriangle className={`size-5 ${health.color}`} />
+                              )}
+                            </div>
+                            <div>
+                              <p className={`text-sm font-semibold ${health.color}`}>
+                                Platform status: {health.label}
+                              </p>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                {insights.success_rate.toFixed(1)}% data load success rate
+                                {" / "}
+                                {fmt(insights.active_users_7d)} active user{insights.active_users_7d !== 1 ? "s" : ""} this week
+                                {" / "}
+                                {insights.coverage_pct.toFixed(1)}% financial coverage
+                              </p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* KPI cards */}
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                        {/* Active users */}
+                        <Card className="bg-white">
+                          <CardContent>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                                Active Users (7d)
+                              </span>
+                              <Users className="size-3.5 text-indigo-300" />
+                            </div>
+                            <div className="text-2xl font-bold font-mono text-slate-900">
+                              {fmt(insights.active_users_7d)}
+                            </div>
+                            <div className="text-[10px] text-slate-400 mb-1">
+                              of {fmt(insights.total_users)} total
+                            </div>
+                            <TrendBadge
+                              current={insights.active_users_7d}
+                              previous={insights.active_users_prev_7d}
+                            />
+                          </CardContent>
+                        </Card>
+
+                        {/* New users */}
+                        <Card className="bg-white">
+                          <CardContent>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                                New Users (7d)
+                              </span>
+                              <UserPlus className="size-3.5 text-emerald-300" />
+                            </div>
+                            <div className="text-2xl font-bold font-mono text-slate-900">
+                              {fmt(insights.new_users_7d)}
+                            </div>
+                            <div className="text-[10px] text-slate-400 mb-1">
+                              sign-ups this week
+                            </div>
+                            <TrendBadge
+                              current={insights.new_users_7d}
+                              previous={insights.new_users_prev_7d}
+                            />
+                          </CardContent>
+                        </Card>
+
+                        {/* Data coverage */}
+                        <Card className="bg-white">
+                          <CardContent>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                                Financial Coverage
+                              </span>
+                              <Database className="size-3.5 text-blue-300" />
+                            </div>
+                            <div className={`text-2xl font-bold font-mono ${readinessColor(insights.coverage_pct)}`}>
+                              {insights.coverage_pct.toFixed(1)}%
+                            </div>
+                            <div className="text-[10px] text-slate-400 mb-1">
+                              {fmt(insights.companies_with_financials)} of {fmt(insights.total_companies)}
+                            </div>
+                            <ProgressBar
+                              value={insights.companies_with_financials}
+                              target={insights.total_companies}
+                              colorCoded
+                            />
+                          </CardContent>
+                        </Card>
+
+                        {/* Load success rate */}
+                        <Card className="bg-white">
+                          <CardContent>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                                Load Success Rate
+                              </span>
+                              <Activity className="size-3.5 text-emerald-300" />
+                            </div>
+                            <div className={`text-2xl font-bold font-mono ${
+                              insights.success_rate >= 95
+                                ? "text-emerald-600"
+                                : insights.success_rate >= 80
+                                  ? "text-amber-500"
+                                  : "text-red-500"
+                            }`}>
+                              {insights.success_rate.toFixed(1)}%
+                            </div>
+                            <div className="text-[10px] text-slate-400 mb-1">
+                              {fmt(insights.load_success_count)} ok / {fmt(insights.load_error_count)} errors
+                            </div>
+                            <ProgressBar
+                              value={insights.load_success_count}
+                              target={insights.load_success_count + insights.load_error_count}
+                              colorCoded
+                            />
+                          </CardContent>
+                        </Card>
+                      </div>
+
+                      {/* Traffic split + Top companies row */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {/* Traffic split */}
+                        <Card className="bg-white">
+                          <CardContent>
+                            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
+                              <Globe className="size-3.5 text-slate-400" />
+                              Traffic Split (7 days)
+                            </h3>
+                            <div className="flex items-end gap-4 mb-3">
+                              <div>
+                                <div className="text-xl font-bold font-mono text-slate-900">
+                                  {fmt(totalTraffic)}
+                                </div>
+                                <div className="text-[10px] text-slate-400">total requests</div>
+                              </div>
+                            </div>
+                            {/* Stacked bar */}
+                            <div className="h-3 w-full rounded-full bg-slate-100 overflow-hidden flex">
+                              <div
+                                className="h-full bg-indigo-500 transition-all duration-700"
+                                style={{ width: `${authPct}%` }}
+                              />
+                              <div
+                                className="h-full bg-slate-300 transition-all duration-700"
+                                style={{ width: `${100 - authPct}%` }}
+                              />
+                            </div>
+                            <div className="flex justify-between mt-2 text-xs">
+                              <span className="flex items-center gap-1.5">
+                                <span className="inline-block w-2 h-2 rounded-full bg-indigo-500" />
+                                <span className="text-slate-600">Registered</span>
+                                <span className="font-mono font-semibold text-slate-800">{fmt(insights.auth_requests_7d)}</span>
+                                <span className="text-slate-400">({authPct.toFixed(0)}%)</span>
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <span className="inline-block w-2 h-2 rounded-full bg-slate-300" />
+                                <span className="text-slate-600">Anonymous</span>
+                                <span className="font-mono font-semibold text-slate-800">{fmt(insights.anon_requests_7d)}</span>
+                                <span className="text-slate-400">({(100 - authPct).toFixed(0)}%)</span>
+                              </span>
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        {/* Most viewed companies */}
+                        <Card className="bg-white">
+                          <CardContent>
+                            <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
+                              <Building2 className="size-3.5 text-slate-400" />
+                              Most Viewed Companies (30 days)
+                            </h3>
+                            {insights.top_companies.length === 0 ? (
+                              <p className="text-sm text-slate-400 py-4 text-center">No company views recorded yet.</p>
+                            ) : (
+                              <div className="space-y-1.5">
+                                {insights.top_companies.map((tc, i) => {
+                                  const maxViews = insights.top_companies[0]?.view_count || 1;
+                                  const barW = (tc.view_count / maxViews) * 100;
+                                  return (
+                                    <div key={tc.cbe} className="flex items-center gap-2">
+                                      <span className="text-[10px] text-slate-400 font-mono w-4 text-right shrink-0">
+                                        {i + 1}
+                                      </span>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-0.5">
+                                          <span className="text-xs text-slate-800 truncate font-medium">
+                                            {tc.name}
+                                          </span>
+                                          <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                                            {tc.cbe}
+                                          </span>
+                                        </div>
+                                        <div className="h-1 w-full rounded-full bg-slate-100 overflow-hidden">
+                                          <div
+                                            className="h-full rounded-full bg-indigo-400 transition-all duration-500"
+                                            style={{ width: `${barW}%` }}
+                                          />
+                                        </div>
+                                      </div>
+                                      <span className="text-xs font-mono text-slate-600 font-semibold shrink-0 w-8 text-right">
+                                        {tc.view_count}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* User Experience Simulator */}
             {!loading && stats && (

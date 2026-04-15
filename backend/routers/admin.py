@@ -242,6 +242,99 @@ async def clear_feedback(user=Depends(_require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/insights")
+async def admin_insights(user=Depends(_require_admin)):
+    """Actionable platform insights: user engagement, data coverage, load health, top companies."""
+    try:
+        row = fetch_one("""
+            SELECT
+                -- User engagement
+                (SELECT COUNT(*) FROM user_roles) AS total_users,
+                (SELECT COUNT(DISTINCT user_email) FROM activity_log
+                 WHERE created_at > NOW() - INTERVAL '7 days'
+                   AND user_email NOT LIKE 'anon:%%') AS active_users_7d,
+                (SELECT COUNT(*) FROM user_roles
+                 WHERE created_at > NOW() - INTERVAL '7 days') AS new_users_7d,
+
+                -- Anonymous vs registered traffic (7d)
+                (SELECT COUNT(*) FROM activity_log
+                 WHERE created_at > NOW() - INTERVAL '7 days'
+                   AND user_email LIKE 'anon:%%') AS anon_requests_7d,
+                (SELECT COUNT(*) FROM activity_log
+                 WHERE created_at > NOW() - INTERVAL '7 days'
+                   AND user_email NOT LIKE 'anon:%%') AS auth_requests_7d,
+
+                -- Data coverage
+                (SELECT COUNT(DISTINCT enterprise_number) FROM financial_latest) AS companies_with_financials,
+                (SELECT COUNT(*) FROM enterprise
+                 WHERE type_of_enterprise = '1' AND status = 'AC') AS total_companies,
+
+                -- Load health from nbb_load_log
+                (SELECT COUNT(*) FROM nbb_load_log
+                 WHERE rubric_count > 0) AS load_success_count,
+                (SELECT COUNT(*) FROM nbb_load_log
+                 WHERE rubric_count IS NULL OR rubric_count = 0) AS load_error_count,
+
+                -- Previous period comparisons for trend indicators
+                (SELECT COUNT(DISTINCT user_email) FROM activity_log
+                 WHERE created_at > NOW() - INTERVAL '14 days'
+                   AND created_at <= NOW() - INTERVAL '7 days'
+                   AND user_email NOT LIKE 'anon:%%') AS active_users_prev_7d,
+                (SELECT COUNT(*) FROM user_roles
+                 WHERE created_at > NOW() - INTERVAL '14 days'
+                   AND created_at <= NOW() - INTERVAL '7 days') AS new_users_prev_7d
+        """)
+
+        result = dict(row) if row else {}
+
+        # Compute coverage percentage
+        total_co = result.get("total_companies") or 1
+        with_fin = result.get("companies_with_financials") or 0
+        result["coverage_pct"] = round((with_fin / total_co) * 100, 1)
+
+        # Compute success rate
+        success = result.get("load_success_count") or 0
+        errors = result.get("load_error_count") or 0
+        total_loads = success + errors
+        result["success_rate"] = round((success / total_loads) * 100, 1) if total_loads > 0 else 100.0
+
+        # Top 10 most viewed companies
+        top_rows = fetch_all("""
+            SELECT
+                REPLACE(REPLACE(al.endpoint, '/api/company/', ''), '/financials', '') AS cbe,
+                COUNT(*) AS view_count
+            FROM activity_log al
+            WHERE al.endpoint LIKE '/api/company/0%%'
+              AND al.created_at > NOW() - INTERVAL '30 days'
+            GROUP BY cbe
+            ORDER BY view_count DESC
+            LIMIT 10
+        """)
+
+        # Enrich with company names
+        top_companies = []
+        for r in top_rows:
+            cbe = r.get("cbe", "")
+            # Clean up any remaining path segments
+            if "/" in cbe:
+                cbe = cbe.split("/")[0]
+            name_row = fetch_one(
+                "SELECT name FROM company_info WHERE enterprise_number = %s",
+                (cbe,),
+            )
+            top_companies.append({
+                "cbe": cbe,
+                "name": name_row["name"] if name_row else cbe,
+                "view_count": r["view_count"],
+            })
+        result["top_companies"] = top_companies
+
+        return result
+    except Exception as e:
+        logger.exception("Admin insights failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/activity")
 async def get_activity(user=Depends(_require_admin)):
     """Recent user activity across the platform."""
