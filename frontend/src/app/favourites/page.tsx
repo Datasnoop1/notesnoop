@@ -28,10 +28,18 @@ import {
   getPeopleFavourites,
   removePeopleFavourite,
   searchCompanies,
+  getCustomers,
+  getSuppliers,
+  uploadCustomers,
+  uploadSuppliers,
+  removeCustomer,
+  removeSupplier,
   type FavouriteItem,
   type FavouriteProject,
   type PeopleFavourite,
   type SearchResult,
+  type CustomerSupplierItem,
+  type CsUploadResult,
 } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
 import {
@@ -45,6 +53,9 @@ import {
   X,
   Users,
   Building2,
+  Upload,
+  FileSpreadsheet,
+  Truck,
 } from "lucide-react";
 
 /* ---------- skeleton ---------- */
@@ -264,20 +275,268 @@ function ProjectCard({
   );
 }
 
+/* ---------- file parser helper ---------- */
+
+function parseCbeFromFile(file: File): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const lines = text.split(/[\r\n]+/).filter(Boolean);
+        const cbes: string[] = [];
+        for (const line of lines) {
+          // Take the first column (comma or semicolon or tab separated)
+          const cell = line.split(/[,;\t]/)[0].trim();
+          // Strip dots, spaces, quotes
+          const cleaned = cell.replace(/[."' ]/g, "");
+          // Skip header-like rows and empty values
+          if (!cleaned || /^[a-zA-Z]/.test(cleaned)) continue;
+          // Pad to 10 digits
+          const padded = cleaned.padStart(10, "0");
+          // Basic validation: should be 10 digits
+          if (/^\d{10}$/.test(padded)) {
+            cbes.push(padded);
+          }
+        }
+        resolve(cbes);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsText(file);
+  });
+}
+
+/* ---------- upload zone + table for customers/suppliers ---------- */
+
+function CsTab({
+  listType,
+  items,
+  loading,
+  uploading,
+  uploadResult,
+  removing,
+  onUpload,
+  onRemove,
+  onClearResult,
+}: {
+  listType: "customer" | "supplier";
+  items: CustomerSupplierItem[];
+  loading: boolean;
+  uploading: boolean;
+  uploadResult: CsUploadResult | null;
+  removing: string | null;
+  onUpload: (file: File) => void;
+  onRemove: (cbe: string) => void;
+  onClearResult: () => void;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const label = listType === "customer" ? "Customers" : "Suppliers";
+  const Icon = listType === "customer" ? Building2 : Truck;
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) onUpload(file);
+  }
+
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) onUpload(file);
+    e.target.value = "";
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Upload zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        className={`relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed py-8 px-4 transition-colors ${
+          dragOver
+            ? "border-indigo-400 bg-indigo-50"
+            : "border-slate-200 bg-slate-50/50 hover:border-slate-300"
+        }`}
+      >
+        {uploading ? (
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
+            <span className="text-sm text-slate-600">Processing file...</span>
+          </div>
+        ) : (
+          <>
+            <FileSpreadsheet className="h-8 w-8 text-slate-300 mb-2" />
+            <p className="text-sm font-medium text-slate-600">
+              Drag & drop an Excel or CSV file
+            </p>
+            <p className="text-xs text-slate-400 mt-1 mb-3">
+              First column should contain CBE numbers (0xxx.xxx.xxx or 0xxxxxxxxx)
+            </p>
+            <label>
+              <input
+                type="file"
+                accept=".csv,.xlsx,.xls,.tsv,.txt"
+                onChange={handleFileInput}
+                className="hidden"
+              />
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md cursor-pointer transition-colors">
+                <Upload className="h-3.5 w-3.5" />
+                Browse files
+              </span>
+            </label>
+          </>
+        )}
+      </div>
+
+      {/* Upload result banner */}
+      {uploadResult && (
+        <div className="flex items-center justify-between rounded-md bg-emerald-50 border border-emerald-200 px-4 py-2.5">
+          <div className="text-sm text-emerald-800">
+            <span className="font-semibold">{uploadResult.matched}</span> {uploadResult.matched === 1 ? "company" : "companies"} matched
+            {uploadResult.not_found > 0 && (
+              <span className="text-amber-700 ml-2">
+                · {uploadResult.not_found} not found
+              </span>
+            )}
+          </div>
+          <button
+            onClick={onClearResult}
+            className="text-emerald-600 hover:text-emerald-800 p-0.5"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Loading state */}
+      {loading && (
+        <Card className="bg-white overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-slate-50">
+                <TableHead>Company</TableHead>
+                <TableHead>City</TableHead>
+                <TableHead className="text-right">Revenue</TableHead>
+                <TableHead className="text-right">EBITDA</TableHead>
+                <TableHead className="text-right">Margin</TableHead>
+                <TableHead className="text-right">FTE</TableHead>
+                <TableHead className="w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <SkeletonRows cols={7} count={5} />
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+
+      {/* Empty state */}
+      {!loading && items.length === 0 && (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10">
+          <Icon className="h-6 w-6 text-slate-300 mb-2" />
+          <p className="text-sm font-medium text-slate-500">
+            No {label.toLowerCase()} yet.
+          </p>
+          <p className="mt-2 text-xs text-slate-400">
+            Upload a CSV or Excel file with CBE numbers to populate this list.
+          </p>
+        </div>
+      )}
+
+      {/* Table */}
+      {!loading && items.length > 0 && (
+        <Card className="bg-white overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-slate-50">
+                <TableHead className="min-w-[200px]">Company</TableHead>
+                <TableHead>City</TableHead>
+                <TableHead className="text-right">Revenue</TableHead>
+                <TableHead className="text-right">EBITDA</TableHead>
+                <TableHead className="text-right">Margin</TableHead>
+                <TableHead className="text-right">FTE</TableHead>
+                <TableHead className="w-12" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((item) => (
+                <TableRow key={item.enterprise_number} className="hover:bg-indigo-50/40">
+                  <TableCell className="font-medium py-1.5 text-sm">
+                    <Link
+                      href={`/company/${item.enterprise_number}`}
+                      className="text-indigo-600 hover:text-indigo-800 hover:underline"
+                    >
+                      {item.name || item.custom_name || fmtCbe(item.enterprise_number)}
+                    </Link>
+                  </TableCell>
+                  <TableCell className="text-xs text-slate-600 py-1.5">
+                    {item.city ?? "\u2014"}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs py-1.5">
+                    {fmtEur(item.revenue)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs py-1.5">
+                    {fmtEur(item.ebitda)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs py-1.5">
+                    {fmtPct(item.margin_pct)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs py-1.5">
+                    {fmtNumber(item.fte_total)}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
+                      onClick={() => onRemove(item.enterprise_number)}
+                      disabled={removing === item.enterprise_number}
+                    >
+                      {removing === item.enterprise_number ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 /* ---------- main component ---------- */
 
 export default function FavouritesPage() {
   const [favourites, setFavourites] = useState<FavouriteItem[]>([]);
   const [projects, setProjects] = useState<FavouriteProject[]>([]);
   const [peopleFavs, setPeopleFavs] = useState<PeopleFavourite[]>([]);
+  const [customers, setCustomers] = useState<CustomerSupplierItem[]>([]);
+  const [suppliers, setSuppliers] = useState<CustomerSupplierItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingPeople, setLoadingPeople] = useState(true);
+  const [loadingCustomers, setLoadingCustomers] = useState(true);
+  const [loadingSuppliers, setLoadingSuppliers] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
   const [removingPerson, setRemovingPerson] = useState<string | null>(null);
+  const [removingCustomer, setRemovingCustomer] = useState<string | null>(null);
+  const [removingSupplier, setRemovingSupplier] = useState<string | null>(null);
+  const [uploadingCustomers, setUploadingCustomers] = useState(false);
+  const [uploadingSuppliers, setUploadingSuppliers] = useState(false);
+  const [customerUploadResult, setCustomerUploadResult] = useState<CsUploadResult | null>(null);
+  const [supplierUploadResult, setSupplierUploadResult] = useState<CsUploadResult | null>(null);
   const [newProjectName, setNewProjectName] = useState("");
   const [creatingProject, setCreatingProject] = useState(false);
-  const [activeTab, setActiveTab] = useState<"companies" | "people">("companies");
+  const [activeTab, setActiveTab] = useState<"companies" | "people" | "customers" | "suppliers">("companies");
 
   const loadFavourites = useCallback(async () => {
     try {
@@ -315,11 +574,37 @@ export default function FavouritesPage() {
     }
   }, []);
 
+  const loadCustomers = useCallback(async () => {
+    try {
+      const data = await getCustomers();
+      setCustomers(data);
+    } catch (err) {
+      console.error("Failed to load customers:", err);
+      setCustomers([]);
+    } finally {
+      setLoadingCustomers(false);
+    }
+  }, []);
+
+  const loadSuppliers = useCallback(async () => {
+    try {
+      const data = await getSuppliers();
+      setSuppliers(data);
+    } catch (err) {
+      console.error("Failed to load suppliers:", err);
+      setSuppliers([]);
+    } finally {
+      setLoadingSuppliers(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadFavourites();
     loadProjects();
     loadPeopleFavourites();
-  }, [loadFavourites, loadProjects, loadPeopleFavourites]);
+    loadCustomers();
+    loadSuppliers();
+  }, [loadFavourites, loadProjects, loadPeopleFavourites, loadCustomers, loadSuppliers]);
 
   async function handleRemovePerson(name: string) {
     setRemovingPerson(name);
@@ -399,6 +684,68 @@ export default function FavouritesPage() {
     }
   }
 
+  async function handleCustomerUpload(file: File) {
+    setUploadingCustomers(true);
+    setCustomerUploadResult(null);
+    try {
+      const cbes = await parseCbeFromFile(file);
+      if (cbes.length === 0) {
+        setCustomerUploadResult({ matched: 0, not_found: 0, total: 0, not_found_cbes: [] });
+        return;
+      }
+      const result = await uploadCustomers(cbes);
+      setCustomerUploadResult(result);
+      loadCustomers();
+    } catch (err) {
+      console.error("Customer upload failed:", err);
+    } finally {
+      setUploadingCustomers(false);
+    }
+  }
+
+  async function handleSupplierUpload(file: File) {
+    setUploadingSuppliers(true);
+    setSupplierUploadResult(null);
+    try {
+      const cbes = await parseCbeFromFile(file);
+      if (cbes.length === 0) {
+        setSupplierUploadResult({ matched: 0, not_found: 0, total: 0, not_found_cbes: [] });
+        return;
+      }
+      const result = await uploadSuppliers(cbes);
+      setSupplierUploadResult(result);
+      loadSuppliers();
+    } catch (err) {
+      console.error("Supplier upload failed:", err);
+    } finally {
+      setUploadingSuppliers(false);
+    }
+  }
+
+  async function handleRemoveCustomer(cbe: string) {
+    setRemovingCustomer(cbe);
+    try {
+      await removeCustomer(cbe);
+      setCustomers((prev) => prev.filter((c) => c.enterprise_number !== cbe));
+    } catch (err) {
+      console.error("Failed to remove customer:", err);
+    } finally {
+      setRemovingCustomer(null);
+    }
+  }
+
+  async function handleRemoveSupplier(cbe: string) {
+    setRemovingSupplier(cbe);
+    try {
+      await removeSupplier(cbe);
+      setSuppliers((prev) => prev.filter((s) => s.enterprise_number !== cbe));
+    } catch (err) {
+      console.error("Failed to remove supplier:", err);
+    } finally {
+      setRemovingSupplier(null);
+    }
+  }
+
   function formatDate(dateStr: string | null): string {
     if (!dateStr) return "\u2014";
     try {
@@ -456,6 +803,32 @@ export default function FavouritesPage() {
           }`}
         >
           <Users className="h-3.5 w-3.5" /> People
+        </button>
+        <button
+          onClick={() => setActiveTab("customers")}
+          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+            activeTab === "customers"
+              ? "border-indigo-500 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          <Building2 className="h-3.5 w-3.5" /> Customers
+          {!loadingCustomers && customers.length > 0 && (
+            <Badge variant="secondary" className="text-[10px] ml-0.5 px-1.5 py-0">{customers.length}</Badge>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab("suppliers")}
+          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+            activeTab === "suppliers"
+              ? "border-indigo-500 text-indigo-600"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          <Truck className="h-3.5 w-3.5" /> Suppliers
+          {!loadingSuppliers && suppliers.length > 0 && (
+            <Badge variant="secondary" className="text-[10px] ml-0.5 px-1.5 py-0">{suppliers.length}</Badge>
+          )}
         </button>
       </div>
 
@@ -726,6 +1099,36 @@ export default function FavouritesPage() {
             </Card>
           )}
         </div>
+      )}
+
+      {/* ── Customers ──────────────────────────────────────── */}
+      {activeTab === "customers" && (
+        <CsTab
+          listType="customer"
+          items={customers}
+          loading={loadingCustomers}
+          uploading={uploadingCustomers}
+          uploadResult={customerUploadResult}
+          removing={removingCustomer}
+          onUpload={handleCustomerUpload}
+          onRemove={handleRemoveCustomer}
+          onClearResult={() => setCustomerUploadResult(null)}
+        />
+      )}
+
+      {/* ── Suppliers ──────────────────────────────────────── */}
+      {activeTab === "suppliers" && (
+        <CsTab
+          listType="supplier"
+          items={suppliers}
+          loading={loadingSuppliers}
+          uploading={uploadingSuppliers}
+          uploadResult={supplierUploadResult}
+          removing={removingSupplier}
+          onUpload={handleSupplierUpload}
+          onRemove={handleRemoveSupplier}
+          onClearResult={() => setSupplierUploadResult(null)}
+        />
       )}
     </div>
   );

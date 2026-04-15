@@ -477,6 +477,51 @@ export const removePeopleFavourite = (personName: string) =>
     { method: "DELETE" }
   );
 
+// ── Customers & Suppliers ─────────────────────────────────
+export interface CustomerSupplierItem {
+  enterprise_number: string;
+  name: string | null;
+  custom_name: string | null;
+  city: string | null;
+  revenue: number | null;
+  ebitda: number | null;
+  margin_pct: number | null;
+  fte_total: number | null;
+  added_at: string;
+  notes: string | null;
+}
+
+export interface CsUploadResult {
+  matched: number;
+  not_found: number;
+  total: number;
+  not_found_cbes: string[];
+}
+
+export const getCustomers = () =>
+  apiFetch<CustomerSupplierItem[]>("/api/favourites/customers");
+
+export const getSuppliers = () =>
+  apiFetch<CustomerSupplierItem[]>("/api/favourites/suppliers");
+
+export const uploadCustomers = (enterprise_numbers: string[]) =>
+  apiFetch<CsUploadResult>("/api/favourites/customers/upload", {
+    method: "POST",
+    body: JSON.stringify({ enterprise_numbers }),
+  });
+
+export const uploadSuppliers = (enterprise_numbers: string[]) =>
+  apiFetch<CsUploadResult>("/api/favourites/suppliers/upload", {
+    method: "POST",
+    body: JSON.stringify({ enterprise_numbers }),
+  });
+
+export const removeCustomer = (cbe: string) =>
+  apiFetch<{ status: string }>(`/api/favourites/customers/${cbe}`, { method: "DELETE" });
+
+export const removeSupplier = (cbe: string) =>
+  apiFetch<{ status: string }>(`/api/favourites/suppliers/${cbe}`, { method: "DELETE" });
+
 // ── Sector Benchmark ───────────────────────────────────────
 export interface BenchmarkMetric {
   metric: string;

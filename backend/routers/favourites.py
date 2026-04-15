@@ -1,4 +1,4 @@
-"""Favourites router — per-user company tracking + projects (grouping)."""
+"""Favourites router — per-user company tracking + projects (grouping) + customers/suppliers."""
 
 import logging
 from typing import Optional, List
@@ -335,6 +335,10 @@ async def mark_notifications_read(user=Depends(get_current_user)):
 # ── People Favourites ─────────────────────────────────────────────
 
 
+class CbeListUpload(BaseModel):
+    enterprise_numbers: List[str]
+
+
 class PeopleFavouriteCreate(BaseModel):
     person_name: str
     notes: Optional[str] = None
@@ -416,4 +420,189 @@ async def remove_people_favourite(person_name: str, user=Depends(get_current_use
         raise
     except Exception as e:
         logger.exception("Remove people favourite failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Customers & Suppliers ────────────────────────────────────────
+
+
+def _ensure_customer_supplier_table():
+    """Create customer_supplier_list table if it does not exist."""
+    execute("""
+        CREATE TABLE IF NOT EXISTS customer_supplier_list (
+            id SERIAL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            list_type TEXT NOT NULL CHECK (list_type IN ('customer', 'supplier')),
+            enterprise_number TEXT NOT NULL,
+            custom_name TEXT,
+            notes TEXT,
+            added_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(user_id, list_type, enterprise_number)
+        )
+    """)
+
+
+_cs_tables_ensured = False
+
+
+def _ensure_cs_tables_once():
+    global _cs_tables_ensured
+    if not _cs_tables_ensured:
+        try:
+            _ensure_customer_supplier_table()
+            _cs_tables_ensured = True
+        except Exception:
+            logger.warning("Could not auto-create customer_supplier_list table — may already exist")
+            _cs_tables_ensured = True
+
+
+def _list_cs(user_id: str, list_type: str):
+    """Shared query for listing customers or suppliers with financials."""
+    _ensure_cs_tables_once()
+    rows = fetch_all("""
+        SELECT cs.enterprise_number, cs.custom_name, cs.notes, cs.added_at,
+               COALESCE(ci.name, d.denomination) AS "name",
+               ci.city,
+               fl.revenue, fl.ebitda, fl.fte_total,
+               CASE WHEN fl.revenue > 0
+                    THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1)
+               END AS "margin_pct"
+        FROM customer_supplier_list cs
+        LEFT JOIN company_info ci ON ci.enterprise_number = cs.enterprise_number
+        LEFT JOIN denomination d ON d.entity_number = cs.enterprise_number
+             AND d.type_of_denomination = '001' AND d.language IN ('2','1')
+        LEFT JOIN financial_latest fl ON fl.enterprise_number = cs.enterprise_number
+        WHERE cs.user_id = %s AND cs.list_type = %s
+        ORDER BY cs.added_at DESC
+    """, (user_id, list_type))
+    return [_serialize_row(r) for r in rows]
+
+
+def _upload_cs(user_id: str, list_type: str, enterprise_numbers: List[str]):
+    """Bulk insert CBE numbers into customer/supplier list, return match stats."""
+    _ensure_cs_tables_once()
+    cleaned = []
+    for raw in enterprise_numbers:
+        cbe = str(raw).strip().replace(".", "").replace(" ", "")
+        if cbe:
+            cbe = cbe.zfill(10)
+            cleaned.append(cbe)
+
+    if not cleaned:
+        return {"matched": 0, "not_found": 0, "total": 0, "items": []}
+
+    # Deduplicate
+    cleaned = list(dict.fromkeys(cleaned))
+
+    # Check which ones exist in KBO
+    placeholders = ",".join(["%s"] * len(cleaned))
+    existing = fetch_all(
+        f"SELECT enterprise_number FROM enterprise WHERE enterprise_number IN ({placeholders})",
+        tuple(cleaned),
+    )
+    found_set = {r["enterprise_number"] for r in existing}
+
+    inserted = 0
+    for cbe in cleaned:
+        if cbe in found_set:
+            try:
+                execute(
+                    """INSERT INTO customer_supplier_list (user_id, list_type, enterprise_number)
+                       VALUES (%s, %s, %s) ON CONFLICT DO NOTHING""",
+                    (user_id, list_type, cbe),
+                )
+                inserted += 1
+            except Exception:
+                logger.warning(f"Failed to insert {cbe} into {list_type} list")
+
+    return {
+        "matched": len(found_set),
+        "not_found": len(cleaned) - len(found_set),
+        "total": len(cleaned),
+        "not_found_cbes": [c for c in cleaned if c not in found_set],
+    }
+
+
+def _remove_cs(user_id: str, list_type: str, cbe: str):
+    """Remove one entry from customer/supplier list."""
+    _ensure_cs_tables_once()
+    cbe = cbe.strip().replace(".", "").zfill(10)
+    existing = fetch_one(
+        "SELECT 1 FROM customer_supplier_list WHERE user_id = %s AND list_type = %s AND enterprise_number = %s",
+        (user_id, list_type, cbe),
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"{list_type.title()} {cbe} not found")
+    execute(
+        "DELETE FROM customer_supplier_list WHERE user_id = %s AND list_type = %s AND enterprise_number = %s",
+        (user_id, list_type, cbe),
+    )
+    return {"enterprise_number": cbe, "status": "removed"}
+
+
+# Customers
+
+@router.get("/customers")
+async def list_customers(user=Depends(get_current_user)):
+    """List customer companies for the logged-in user with financials."""
+    try:
+        return _list_cs(user["id"], "customer")
+    except Exception as e:
+        logger.exception("List customers failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/customers/upload")
+async def upload_customers(body: CbeListUpload, user=Depends(get_current_user)):
+    """Bulk upload customer CBE numbers."""
+    try:
+        return _upload_cs(user["id"], "customer", body.enterprise_numbers)
+    except Exception as e:
+        logger.exception("Upload customers failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/customers/{cbe}")
+async def remove_customer(cbe: str, user=Depends(get_current_user)):
+    """Remove a customer from the list."""
+    try:
+        return _remove_cs(user["id"], "customer", cbe)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Remove customer failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Suppliers
+
+@router.get("/suppliers")
+async def list_suppliers(user=Depends(get_current_user)):
+    """List supplier companies for the logged-in user with financials."""
+    try:
+        return _list_cs(user["id"], "supplier")
+    except Exception as e:
+        logger.exception("List suppliers failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/suppliers/upload")
+async def upload_suppliers(body: CbeListUpload, user=Depends(get_current_user)):
+    """Bulk upload supplier CBE numbers."""
+    try:
+        return _upload_cs(user["id"], "supplier", body.enterprise_numbers)
+    except Exception as e:
+        logger.exception("Upload suppliers failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/suppliers/{cbe}")
+async def remove_supplier(cbe: str, user=Depends(get_current_user)):
+    """Remove a supplier from the list."""
+    try:
+        return _remove_cs(user["id"], "supplier", cbe)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Remove supplier failed")
         raise HTTPException(status_code=500, detail=str(e))
