@@ -436,11 +436,11 @@ export default function CompanyDetailPage(props: {
           // Build loading stages
           const stages: LoadStage[] = [];
           if (needsFinancials) {
-            stages.push({ label: "Fetching financial filings from NBB", status: "pending" });
-            stages.push({ label: "Processing and storing financials", status: "pending" });
+            stages.push({ label: "Gathering financial data", status: "pending" });
+            stages.push({ label: "Processing and storing data", status: "pending" });
           }
           if (needsPublications) {
-            stages.push({ label: "Loading publications from Staatsblad", status: "pending" });
+            stages.push({ label: "Loading publications", status: "pending" });
           }
           stages.push({ label: "Done", status: "pending" });
 
@@ -678,55 +678,69 @@ export default function CompanyDetailPage(props: {
         {/* KPI cards */}
       </div>
 
-      {/* ━━━ Auto-load overlay ━━━ */}
+      {/* ━━━ Auto-load overlay (centered) ━━━ */}
       {loadOverlay && (
-        <div className="fixed bottom-6 right-6 z-50 w-[340px] rounded-xl border border-slate-200 bg-white shadow-lg p-5 animate-in slide-in-from-bottom-4 duration-300">
-          <div className="flex items-center gap-2 mb-3">
-            {loadStages.some((s) => s.status === "active") ? (
-              <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-            )}
-            <span className="text-sm font-semibold text-slate-800">
-              {loadStages.every((s) => s.status === "done") ? "Data loaded successfully" : "Loading company data..."}
-            </span>
-            <button onClick={() => setLoadOverlay(false)} className="ml-auto text-slate-400 hover:text-slate-600 text-xs">✕</button>
-          </div>
-          <p className="text-[10px] text-slate-400 mb-3">
-            {loadStages.every((s) => s.status === "done")
-              ? "All data is now available."
-              : `This data was not yet in our database. Estimated time: 30–60 seconds.`}
-          </p>
-          <div className="space-y-2">
-            {loadStages.map((stage, i) => (
-              <div key={i} className="flex items-center gap-2">
-                {stage.status === "done" ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                ) : stage.status === "active" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500 shrink-0" />
-                ) : stage.status === "error" ? (
-                  <XCircle className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+        <>
+          <div className="fixed inset-0 z-40 bg-black/10 backdrop-blur-[1px]" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="w-full max-w-[380px] rounded-2xl border border-slate-200 bg-white shadow-2xl p-6">
+              <div className="flex items-center gap-3 mb-4">
+                {loadStages.some((s) => s.status === "active") ? (
+                  <div className="h-10 w-10 rounded-full bg-indigo-50 flex items-center justify-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
+                  </div>
                 ) : (
-                  <div className="h-3.5 w-3.5 rounded-full border border-slate-200 shrink-0" />
+                  <div className="h-10 w-10 rounded-full bg-emerald-50 flex items-center justify-center">
+                    <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  </div>
                 )}
-                <span className={`text-xs ${stage.status === "active" ? "text-indigo-600 font-medium" : stage.status === "done" ? "text-slate-500" : stage.status === "error" ? "text-rose-400" : "text-slate-400"}`}>
-                  {stage.label}
-                </span>
+                <div>
+                  <span className="text-sm font-semibold text-slate-800 block">
+                    {loadStages.every((s) => s.status === "done") ? "Data loaded successfully" : "Gathering data & loading..."}
+                  </span>
+                  <p className="text-[11px] text-slate-400">
+                    {loadStages.every((s) => s.status === "done")
+                      ? "All data is now available."
+                      : "This may take 30–60 seconds."}
+                  </p>
+                </div>
+                <button onClick={() => setLoadOverlay(false)} className="ml-auto text-slate-400 hover:text-slate-600 text-lg leading-none">×</button>
               </div>
-            ))}
-          </div>
-          {loadStartTime && (
-            <div className="mt-3 pt-2 border-t border-slate-100">
-              <div className="flex items-center justify-between text-[10px] text-slate-400">
-                <span>Elapsed: {loadElapsed}s</span>
-                <span className="flex items-center gap-1">
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                  Working...
-                </span>
+              <div className="space-y-2.5 mb-4">
+                {loadStages.map((stage, i) => (
+                  <div key={i} className="flex items-center gap-2.5">
+                    {stage.status === "done" ? (
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+                    ) : stage.status === "active" ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-indigo-500 shrink-0" />
+                    ) : stage.status === "error" ? (
+                      <XCircle className="h-4 w-4 text-rose-400 shrink-0" />
+                    ) : (
+                      <div className="h-4 w-4 rounded-full border-2 border-slate-200 shrink-0" />
+                    )}
+                    <span className={`text-sm ${stage.status === "active" ? "text-indigo-600 font-medium" : stage.status === "done" ? "text-slate-500" : stage.status === "error" ? "text-rose-400" : "text-slate-400"}`}>
+                      {stage.label}
+                    </span>
+                  </div>
+                ))}
               </div>
+              {loadStartTime && (
+                <div className="pt-3 border-t border-slate-100">
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                    <div className="h-full bg-indigo-500 rounded-full animate-pulse" style={{ width: `${Math.min(95, loadElapsed * 1.5)}%`, transition: "width 1s ease" }} />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1.5">
+                    <span>{loadElapsed}s elapsed</span>
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                      Working...
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        </>
       )}
 
       {/* Tabs */}
