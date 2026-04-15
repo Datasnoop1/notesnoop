@@ -1181,3 +1181,67 @@ async def sector_benchmark(cbe: str):
     except Exception as e:
         logger.exception("Sector benchmark failed for %s", cbe)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# GET /api/companies/{cbe}/similar
+# ---------------------------------------------------------------------------
+
+@router.get("/{cbe}/similar")
+async def get_similar_companies(cbe: str):
+    """Find up to 10 companies in the same NACE sector with closest revenue."""
+    cbe = cbe.strip().replace(".", "")
+
+    try:
+        # Get the target company's NACE code and latest revenue
+        target = fetch_one("""
+            SELECT ci.nace_code, fl.revenue
+            FROM company_info ci
+            LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+            WHERE ci.enterprise_number = %s
+        """, (cbe,))
+
+        if not target:
+            raise HTTPException(status_code=404, detail=f"Company {cbe} not found")
+
+        nace = target.get("nace_code")
+        revenue = target.get("revenue")
+
+        if not nace:
+            return []
+
+        if revenue and revenue > 0:
+            # Find companies in same sector with revenue within 0.5x to 2x
+            rev_min = float(revenue) * 0.5
+            rev_max = float(revenue) * 2.0
+            rows = fetch_all("""
+                SELECT ci.enterprise_number, ci.name, ci.city,
+                       fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
+                FROM company_info ci
+                JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+                WHERE ci.nace_code = %s
+                  AND ci.enterprise_number != %s
+                  AND fl.revenue IS NOT NULL
+                  AND fl.revenue BETWEEN %s AND %s
+                ORDER BY ABS(fl.revenue - %s)
+                LIMIT 10
+            """, (nace, cbe, rev_min, rev_max, float(revenue)))
+        else:
+            # No revenue data — just return companies in the same sector
+            rows = fetch_all("""
+                SELECT ci.enterprise_number, ci.name, ci.city,
+                       fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
+                FROM company_info ci
+                LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+                WHERE ci.nace_code = %s
+                  AND ci.enterprise_number != %s
+                ORDER BY fl.revenue DESC NULLS LAST
+                LIMIT 10
+            """, (nace, cbe))
+
+        return [_serialize_row(r) for r in rows]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Similar companies failed for %s", cbe)
+        raise HTTPException(status_code=500, detail=str(e))
