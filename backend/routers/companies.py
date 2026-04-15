@@ -232,7 +232,7 @@ async def semantic_search(q: str = Query(..., min_length=1)):
                     LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
                     WHERE ce.description ILIKE %s
                     ORDER BY ce.description
-                    LIMIT 10
+                    LIMIT 50
                 """, (f"%{query}%",))
         except Exception:
             pass  # embedding table may not exist yet in some environments
@@ -1313,7 +1313,7 @@ async def get_similar_companies(cbe: str):
                   AND fl.revenue IS NOT NULL
                   AND fl.revenue BETWEEN %s AND %s
                 ORDER BY ABS(fl.revenue - %s)
-                LIMIT 10
+                LIMIT 50
             """, (nace, cbe, rev_min, rev_max, float(revenue)))
         else:
             # No revenue data — just return companies in the same sector
@@ -1325,7 +1325,7 @@ async def get_similar_companies(cbe: str):
                 WHERE ci.nace_code = %s
                   AND ci.enterprise_number != %s
                 ORDER BY fl.revenue DESC NULLS LAST
-                LIMIT 10
+                LIMIT 50
             """, (nace, cbe))
 
         return [_serialize_row(r) for r in rows]

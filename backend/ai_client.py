@@ -17,7 +17,7 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions"
 async def ai_complete(
     prompt: str,
     system: str = "",
-    model: str = "meta-llama/llama-3.2-3b-instruct:free",
+    model: str = "google/gemma-3-4b-it",
 ) -> str:
     """Call OpenRouter with the cheapest available model.
 
