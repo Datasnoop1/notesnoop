@@ -313,6 +313,7 @@ CREATE TABLE IF NOT EXISTS administrator (
 );
 
 CREATE INDEX IF NOT EXISTS idx_admin_ent ON administrator(enterprise_number);
+CREATE INDEX IF NOT EXISTS idx_admin_name_type ON administrator(person_type, name);
 
 CREATE TABLE IF NOT EXISTS participating_interest (
     enterprise_number   TEXT NOT NULL,
