@@ -412,7 +412,7 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
 
     Returns a dict with structured insight fields, suitable for JSON storage.
     """
-    from scraper import scrape_url, _strip_html, slugify_company_name
+    from scraper import scrape_url, _strip_html, slugify_company_name, duckduckgo_search_url, zenrows_search_url
 
     fetch_one = conn_helpers["fetch_one"]
     fetch_all = conn_helpers.get("fetch_all", lambda q, p: [])
@@ -477,11 +477,41 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
     graph_block = _format_corporate_graph_block(graph)
 
     # ══════════════════════════════════════════════════════════════
-    # STEP 1: URL Discovery
+    # STEP 1: URL Discovery  (KBO → Google → LLM fallback)
     # ══════════════════════════════════════════════════════════════
     website_url = known_website
     linkedin_url = ""
+    url_source_website = ""
+    url_source_linkedin = ""
 
+    if website_url:
+        url_source_website = "KBO"
+        logger.info("URL discovery for %s: website from KBO contact table — %s", name, website_url)
+
+    # ── Try DuckDuckGo search first (free, no API key) ──────────
+    # If user flagged website as wrong previously, use Zenrows (Google) instead
+    use_zenrows = feedback.get("website_flagged", False)
+
+    if not website_url:
+        try:
+            if use_zenrows:
+                logger.info("URL discovery for %s: using Zenrows (previous website was flagged wrong)", name)
+                search_results = await zenrows_search_url(name, city=city)
+            else:
+                search_results = await duckduckgo_search_url(name, city=city)
+            search_source = "Zenrows" if use_zenrows else "DuckDuckGo"
+            if search_results.get("website_url"):
+                website_url = search_results["website_url"]
+                url_source_website = search_source
+                logger.info("URL discovery for %s: website from %s — %s", name, search_source, website_url)
+            if search_results.get("linkedin_url"):
+                linkedin_url = search_results["linkedin_url"]
+                url_source_linkedin = search_source
+                logger.info("URL discovery for %s: LinkedIn from %s — %s", name, search_source, linkedin_url)
+        except Exception as e:
+            logger.warning("Search failed for %s, falling back to LLM: %s", name, e)
+
+    # ── LLM fallback (only if Google didn't find a website) ──────
     if not website_url:
         url_prompt = (
             f"Given a Belgian company:\n"
@@ -523,18 +553,32 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         if url_resp:
             parsed = _extract_json(url_resp)
             if parsed:
-                website_url = parsed.get("website_url", "") or ""
-                linkedin_url = parsed.get("linkedin_url", "") or ""
+                if not website_url and parsed.get("website_url"):
+                    website_url = parsed.get("website_url", "") or ""
+                    url_source_website = "LLM"
+                    logger.info("URL discovery for %s: website from LLM fallback — %s", name, website_url)
+                if not linkedin_url and parsed.get("linkedin_url"):
+                    linkedin_url = parsed.get("linkedin_url", "") or ""
+                    url_source_linkedin = "LLM"
 
     if not linkedin_url:
         # Build LinkedIn URL from company name slug
         slug = slugify_company_name(name)
         if slug:
             linkedin_url = f"https://www.linkedin.com/company/{slug}"
+            if not url_source_linkedin:
+                url_source_linkedin = "slug"
 
     # Ensure scheme on website URL
     if website_url and not website_url.startswith("http"):
         website_url = "https://" + website_url
+
+    logger.info(
+        "URL discovery summary for %s: website=%s (source=%s), linkedin=%s (source=%s)",
+        name,
+        website_url or "(none)", url_source_website or "none",
+        linkedin_url or "(none)", url_source_linkedin or "none",
+    )
 
     # ══════════════════════════════════════════════════════════════
     # Scrape website and LinkedIn
@@ -906,6 +950,10 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         insights["website_url"] = website_url
     if not insights.get("linkedin_url"):
         insights["linkedin_url"] = linkedin_url
+
+    # Tag how each URL was discovered (KBO / Google / LLM / slug)
+    insights["url_source_website"] = url_source_website
+    insights["url_source_linkedin"] = url_source_linkedin
 
     # ══════════════════════════════════════════════════════════════
     # Store in database
