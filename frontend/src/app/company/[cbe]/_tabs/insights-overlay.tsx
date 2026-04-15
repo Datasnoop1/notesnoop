@@ -226,8 +226,9 @@ export function InsightsOverlay({
                 <Sparkles className="h-4 w-4 text-indigo-500" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-slate-800">
+                <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
                   AI Insights
+                  <span className="text-[8px] font-bold bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Alpha</span>
                 </h3>
                 <p className="text-[11px] text-slate-400">{companyName}</p>
               </div>
