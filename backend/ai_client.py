@@ -138,6 +138,114 @@ def _summarize_feedback(fetch_all, cbe: str) -> dict:
     }
 
 
+def _build_corporate_graph(fetch_all, cbe: str) -> dict:
+    """Query shareholder, participating_interest, and administrator tables once.
+
+    Returns a dict with:
+        - shareholders: list of dicts with name, type, ownership_pct
+        - subsidiaries: list of dicts with name, country, ownership_pct
+        - administrators: list of dicts with name, role_label
+        - admin_names_str: comma-separated string for quick prompt embedding
+    """
+    shareholders = []
+    try:
+        rows = fetch_all(
+            """SELECT name, shareholder_type, ownership_pct FROM shareholder
+               WHERE enterprise_number = %s
+               ORDER BY ownership_pct DESC NULLS LAST LIMIT 10""",
+            (cbe,),
+        )
+        if rows:
+            shareholders = [
+                {
+                    "name": r["name"],
+                    "type": "individual" if r.get("shareholder_type") == "individual" else "entity",
+                    "ownership_pct": r.get("ownership_pct"),
+                }
+                for r in rows if r.get("name")
+            ]
+    except Exception as e:
+        logger.warning("Failed to fetch shareholders for %s: %s", cbe, e)
+
+    subsidiaries = []
+    try:
+        rows = fetch_all(
+            """SELECT name, country, ownership_pct FROM participating_interest
+               WHERE enterprise_number = %s
+               ORDER BY ownership_pct DESC NULLS LAST LIMIT 10""",
+            (cbe,),
+        )
+        if rows:
+            subsidiaries = [
+                {
+                    "name": r["name"],
+                    "country": r.get("country"),
+                    "ownership_pct": r.get("ownership_pct"),
+                }
+                for r in rows if r.get("name")
+            ]
+    except Exception as e:
+        logger.warning("Failed to fetch subsidiaries for %s: %s", cbe, e)
+
+    administrators = []
+    try:
+        rows = fetch_all(
+            """SELECT DISTINCT name, role_label FROM administrator
+               WHERE enterprise_number = %s AND mandate_end IS NULL
+               LIMIT 10""",
+            (cbe,),
+        )
+        if rows:
+            administrators = [
+                {"name": r["name"], "role_label": r.get("role_label", "")}
+                for r in rows if r.get("name")
+            ]
+    except Exception as e:
+        logger.warning("Failed to fetch administrators for %s: %s", cbe, e)
+
+    admin_names_str = ", ".join(a["name"] for a in administrators) if administrators else ""
+
+    return {
+        "shareholders": shareholders,
+        "subsidiaries": subsidiaries,
+        "administrators": administrators,
+        "admin_names_str": admin_names_str,
+    }
+
+
+def _format_corporate_graph_block(graph: dict) -> str:
+    """Format the corporate graph as a <corporate_graph> XML block for prompts.
+
+    Returns an empty string if the graph has no shareholders, subsidiaries, or
+    administrators — avoids padding prompts with empty data for standalone SMEs.
+    """
+    if not graph["shareholders"] and not graph["subsidiaries"] and not graph["administrators"]:
+        return ""
+
+    parts = ["<corporate_graph>"]
+    if graph["shareholders"]:
+        sh_lines = []
+        for s in graph["shareholders"]:
+            pct = f" ({s['ownership_pct']}%)" if s.get("ownership_pct") else ""
+            sh_lines.append(f"  - {s['name']} [{s['type']}]{pct}")
+        parts.append("Shareholders:\n" + "\n".join(sh_lines))
+    if graph["subsidiaries"]:
+        sub_lines = []
+        for s in graph["subsidiaries"]:
+            pct = f" ({s['ownership_pct']}%)" if s.get("ownership_pct") else ""
+            country = f", {s['country']}" if s.get("country") else ""
+            sub_lines.append(f"  - {s['name']}{country}{pct}")
+        parts.append("Subsidiaries:\n" + "\n".join(sub_lines))
+    if graph["administrators"]:
+        adm_lines = []
+        for a in graph["administrators"]:
+            role = f" — {a['role_label']}" if a.get("role_label") else ""
+            adm_lines.append(f"  - {a['name']}{role}")
+        parts.append("Administrators:\n" + "\n".join(adm_lines))
+    parts.append("</corporate_graph>")
+    return "\n".join(parts)
+
+
 async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
     """Multi-step AI pipeline to generate structured company insights.
 
@@ -209,42 +317,35 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             except (json.JSONDecodeError, TypeError):
                 pass
 
-    # ── Gather corporate structure for context ───────────────────
-    shareholders_rows = fetch_all("""
-        SELECT name, ownership_pct FROM shareholder
-        WHERE enterprise_number = %s ORDER BY ownership_pct DESC NULLS LAST LIMIT 5
-    """, (cbe,))
-    subsidiaries_rows = fetch_all("""
-        SELECT name, ownership_pct, country FROM participating_interest
-        WHERE enterprise_number = %s ORDER BY ownership_pct DESC NULLS LAST LIMIT 5
-    """, (cbe,))
-    shareholder_names = [r["name"] for r in shareholders_rows if r.get("name")] if shareholders_rows else []
-    subsidiary_names = [r["name"] for r in subsidiaries_rows if r.get("name")] if subsidiaries_rows else []
+    # ── Build corporate graph ONCE, reuse everywhere ───────────
+    graph = _build_corporate_graph(fetch_all, cbe)
+    admin_names = graph["admin_names_str"]
+    graph_block = _format_corporate_graph_block(graph)
 
     # ── STEP 1: URL Discovery ──────────────────────────────────
     website_url = known_website
     linkedin_url = ""
 
     if not website_url:
-        structure_context = ""
-        if shareholder_names:
-            structure_context += f"- Shareholders: {', '.join(shareholder_names[:3])}\n"
-        if subsidiary_names:
-            structure_context += f"- Subsidiaries: {', '.join(subsidiary_names[:3])}\n"
-
         url_prompt = (
             f"Given a Belgian company:\n"
             f"- Name: {name}\n"
             f"- City: {city}\n"
             f"- Sector: {sector}\n"
             f"- Registered address: {kbo_address}\n"
-            f"{structure_context}\n"
-            "What is the most likely company website URL? "
-            "Use the shareholders/subsidiaries as extra clues — the company may be a subsidiary "
-            "of a larger group, or the website may be under the parent company's domain.\n"
-            "Also guess the LinkedIn company page URL.\n"
-            'Return ONLY JSON: {{"website_url": "...", "linkedin_url": "..."}}\n'
-            "If you cannot determine a URL, use an empty string."
+        )
+        if admin_names:
+            url_prompt += f"- Administrators: {admin_names}\n"
+        if graph_block:
+            url_prompt += f"\n{graph_block}\n\n"
+        url_prompt += (
+            "The target company may share a website or LinkedIn page with a parent, "
+            "holding, or operating subsidiary. Consider brand names of parents and active "
+            "subsidiaries. Prefer a URL that clearly covers the target entity's activity; "
+            "if only a group-level URL exists, return it.\n\n"
+            'Return ONLY JSON: {{"website_url": "...", "linkedin_url": "...", '
+            '"confidence": "high"|"medium"|"low"}}\n'
+            "If you cannot determine a URL, use empty strings."
         )
         url_resp = await ai_complete(
             url_prompt,
@@ -294,28 +395,24 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
     website_verified = bool(known_website)  # Trust KBO-registered websites
 
     if website_text and not website_verified:
-        # Also fetch admin names for cross-referencing
-        admin_check = fetch_one("""
-            SELECT string_agg(DISTINCT name, ', ') AS names
-            FROM administrator
-            WHERE enterprise_number = %s AND mandate_end IS NULL
-        """, (cbe,))
-        verify_admin_names = admin_check.get("names", "") if admin_check else ""
-
         verify_prompt = (
             f"I scraped the website {website_url} and need to verify it belongs to this Belgian company:\n"
             f"- Company name: {name}\n"
             f"- Registered address: {kbo_address}\n"
             f"- Sector/activity: {sector}\n"
             f"- Country: Belgium\n"
-            f"- Known administrators: {verify_admin_names}\n\n"
-            f"Website text (first 3000 chars):\n{website_text[:3000]}\n\n"
-            "Does this website belong to THIS specific company? Check:\n"
-            "1. Does the address or city on the website match the registered address?\n"
-            "2. Does the business activity match the sector?\n"
-            "3. Is this a Belgian company or a different country (e.g. .nl = Netherlands)?\n"
-            "4. Does the company name on the website match?\n"
-            "5. Do any administrator names appear on the website (team page, about us)?\n\n"
+            f"- Known administrators: {admin_names}\n"
+        )
+        if graph_block:
+            verify_prompt += f"\n{graph_block}\n"
+        verify_prompt += (
+            f"\nWebsite text (first 3000 chars):\n{website_text[:3000]}\n\n"
+            "Does this website belong to THIS company or its corporate group? Check:\n"
+            "1. Address/city match (target OR any parent/subsidiary address)\n"
+            "2. Business activity match (target NACE OR parent/subsidiary NACE if group-level website)\n"
+            "3. Country: at least one entity must be Belgian\n"
+            "4. Company name match (target name, parent name, or subsidiary name)\n"
+            "5. Administrator names appear on website (target admins, or individual shareholders >=25%)\n\n"
             "If at least 2 of these 5 checks match, return true. Otherwise false.\n"
             'Return ONLY JSON: {"match": true/false, "reason": "brief explanation"}'
         )
@@ -364,25 +461,20 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         f"Sector (NACE): {sector}\n"
         f"Financials: {financial_summary}\n"
     )
-    if shareholder_names:
-        insight_prompt += f"Shareholders: {', '.join(shareholder_names)}\n"
-    if subsidiary_names:
-        insight_prompt += f"Subsidiaries: {', '.join(subsidiary_names)}\n"
     if admin_names:
         insight_prompt += f"Current administrators: {admin_names}\n"
+    if graph_block:
+        insight_prompt += f"\n{graph_block}\n"
+        insight_prompt += (
+            "\nIf the website/LinkedIn content describes group-level activity, "
+            "distinguish what applies to the target entity vs. the broader group. "
+            "Ownership structure may be mentioned factually (parent, subsidiaries) "
+            "but do NOT include ownership percentages or transaction values.\n"
+        )
     if website_text:
         insight_prompt += f"\n--- Company website text ---\n{website_text}\n"
     if linkedin_text:
         insight_prompt += f"\n--- LinkedIn page text ---\n{linkedin_text}\n"
-
-    # Fetch administrator names for cross-referencing with LinkedIn
-    admin_row = fetch_one("""
-        SELECT string_agg(DISTINCT name, ', ') AS admin_names
-        FROM administrator
-        WHERE enterprise_number = %s AND mandate_end IS NULL
-        LIMIT 1
-    """, (cbe,))
-    admin_names = admin_row.get("admin_names", "") if admin_row else ""
 
     insight_prompt += (
         "\nBased on the above, create a company intelligence brief.\n\n"
@@ -400,6 +492,7 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         '- "competitive_position": Market position and key differentiators\n'
         '- "company_history": Brief history/milestones (founding, acquisitions, growth)\n'
         '- "key_management": Array of key people found, each as {"name": "...", "role": "...", "linkedin_url": "..."} — extract from LinkedIn page or website team page. If none found, use empty array []\n'
+        '- "group_context": If this company is part of a group, describe the parent/subsidiary relationship in one sentence. If standalone, use empty string.\n'
         '- "website_url": The company website URL (or empty string if unknown)\n'
         '- "linkedin_url": The LinkedIn company page URL (or empty string if unknown)\n\n'
         "Return ONLY valid JSON, no markdown fences."
@@ -457,6 +550,7 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             "target_customers": "",
             "competitive_position": "",
             "company_history": "",
+            "group_context": "",
             "website_url": website_url,
             "linkedin_url": linkedin_url,
         }
@@ -473,7 +567,8 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         "Check for:\n"
         "1. Factual inconsistencies or hallucinated claims\n"
         "2. Content that just restates financial data without adding insight\n"
-        "3. Missing or empty fields that could be filled from context\n\n"
+        "3. Missing or empty fields that could be filled from context\n"
+        "4. Any claim that conflates target-entity activity with parent/group activity without attribution\n\n"
         f"Company name: {name}\n"
         f"Sector: {sector}\n"
         f"Location: {city}, Belgium\n\n"

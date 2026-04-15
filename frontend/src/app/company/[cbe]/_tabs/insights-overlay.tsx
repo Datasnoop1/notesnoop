@@ -425,6 +425,13 @@ export function InsightsOverlay({
                   </div>
                 )}
 
+                {/* Group context note */}
+                {insights.group_context && (
+                  <p className="text-xs text-slate-400 italic px-1">
+                    Part of: {insights.group_context}
+                  </p>
+                )}
+
                 {/* Links */}
                 {(insights.website_url || insights.linkedin_url) && (
                   <div className="flex flex-wrap gap-3 pt-2">
