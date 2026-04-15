@@ -17,6 +17,7 @@ import {
   removeFavourite,
   loadCompanyNBB,
   loadPublications,
+  extractAdminsFromStaatsblad,
   getSectorBenchmark,
   getSimilarCompanies,
   addPeopleFavourite,
@@ -324,6 +325,30 @@ export default function CompanyDetailPage(props: {
         setLoading(false);
       });
   }, [cbe]);
+
+  /* -- Extract admins from Staatsblad if company has none -- */
+  const adminExtractTriggered = React.useRef(false);
+  useEffect(() => {
+    if (!structure || adminExtractTriggered.current) return;
+    const hasAdmins = structure.administrators.length > 0;
+    const hasAppointmentPubs = structure.staatsblad_publications?.some(
+      (p) => p.pub_type === "ONTSLAGEN - BENOEMINGEN"
+    );
+    if (hasAdmins || !hasAppointmentPubs) return;
+
+    adminExtractTriggered.current = true;
+    extractAdminsFromStaatsblad(cbe)
+      .then((result) => {
+        if (result.extracted > 0) {
+          getCompanyStructure(cbe).then((refreshed) =>
+            setStructure(refreshed as unknown as StructureData)
+          );
+        }
+      })
+      .catch(() => {
+        // Non-critical — silently ignore
+      });
+  }, [cbe, structure]);
 
   /* -- Callbacks -- */
 

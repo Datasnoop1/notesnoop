@@ -107,7 +107,7 @@ export function PublicationsTab({
                 // Refetch structure to get new publications
                 getCompanyStructure(cbe).then((s) =>
                   setStructure(s as unknown as StructureData)
-                );
+                ).catch(() => {});
               }
               setNbbResult(data.publications_stored > 0 ? "success" : "no-data");
             } catch {

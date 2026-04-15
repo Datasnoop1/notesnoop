@@ -486,6 +486,10 @@ export interface StaatsbladLoadResult {
 export const loadPublications = (cbe: string) =>
   apiFetch<StaatsbladLoadResult>(`/api/staatsblad/${cbe}/load`, { method: "POST" });
 
+// ── Staatsblad Admin Extraction ──────────────────────────
+export const extractAdminsFromStaatsblad = (cbe: string) =>
+  apiFetch<{ extracted: number }>(`/api/companies/${cbe}/extract-admins`, { method: "POST" });
+
 // ── Feedback ───────────────────────────────────────────────
 export const submitFeedback = (
   type: "bug" | "suggestion",

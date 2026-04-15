@@ -38,9 +38,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://datapeak.invm.be", "https://datasnoop.be", "https://datasnoop.eu", "https://www.datasnoop.be", "http://localhost:3000"],
+    allow_origins=["https://datapeak.invm.be", "https://datasnoop.be", "https://datasnoop.eu", "https://www.datasnoop.be", "https://staging.datasnoop.be"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
