@@ -17,6 +17,7 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions"
 
 # Model aliases
 CHEAP_MODEL = "google/gemma-3-4b-it"
+VALIDATION_MODEL = "x-ai/grok-3-mini"  # Better model for URL discovery + validation
 INSIGHT_MODEL = "x-ai/grok-3-mini"
 INSIGHT_MODEL_FALLBACK = "x-ai/grok-2"
 
@@ -226,7 +227,7 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         url_resp = await ai_complete(
             url_prompt,
             system="You are a data lookup assistant. Return only valid JSON.",
-            model=CHEAP_MODEL,
+            model=VALIDATION_MODEL,
             max_tokens=200,
         )
         if url_resp:
@@ -307,7 +308,7 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         verify_resp = await ai_complete(
             verify_prompt,
             system="You are a data validation assistant. Be strict — if unsure, return false.",
-            model=CHEAP_MODEL,
+            model=VALIDATION_MODEL,
             max_tokens=150,
         )
         if verify_resp:

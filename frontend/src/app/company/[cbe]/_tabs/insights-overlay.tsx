@@ -219,7 +219,7 @@ export function InsightsOverlay({
       {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         <div
-          className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+          className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -392,7 +392,7 @@ export function InsightsOverlay({
                           <ThumbsUp className="h-3 w-3" /> Looks good
                         </button>
                         <button
-                          onClick={() => { setFeedbackGiven("down"); onFeedback?.({ overall: "down", websiteCorrect: websiteOk ?? undefined, linkedinCorrect: linkedinOk ?? undefined, insightCorrect: insightOk ?? undefined }); }}
+                          onClick={() => { setFeedbackGiven("down"); onFeedback?.({ overall: "down", websiteCorrect: websiteOk ?? undefined, linkedinCorrect: linkedinOk ?? undefined, insightCorrect: insightOk ?? undefined }); if (onRegenerate) { setTimeout(() => onRegenerate(), 1500); } }}
                           className="inline-flex items-center gap-1.5 rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 transition-colors"
                         >
                           <ThumbsDown className="h-3 w-3" /> Needs improvement
