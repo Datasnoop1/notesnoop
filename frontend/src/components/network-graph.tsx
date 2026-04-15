@@ -119,7 +119,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
       graphRef.current.d3Force("link")?.distance(120);
       setTimeout(() => graphRef.current?.zoomToFit(400), 100);
     }
-  }, [graphData, isFullscreen]);
+  }, [nodes, edges, isFullscreen]);
 
   const handleNodeClick = useCallback(
     (node: { id?: string }) => {
