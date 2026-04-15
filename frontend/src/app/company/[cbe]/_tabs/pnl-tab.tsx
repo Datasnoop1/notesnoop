@@ -111,7 +111,7 @@ export function PnlTab({
                   const data = await loadCompanyNBB(cbe);
                   if (data.rubrics_loaded > 0) {
                     setNbbResult("success");
-                    getCompanyFinancials(cbe).then(f => setFinancials(f as unknown as FinancialsData));
+                    getCompanyFinancials(cbe).then(f => setFinancials(f as unknown as FinancialsData)).catch(() => setNbbResult("error"));
                   } else {
                     setNbbResult("no-data");
                   }

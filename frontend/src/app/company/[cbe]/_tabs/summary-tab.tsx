@@ -257,10 +257,10 @@ export function SummaryTab({
                 </thead>
                 <tbody>
                   {(() => {
-                    const chronoMini = sorted.slice(0, 5).reverse();
-                    return chronoMini.map((r, i) => {
-                      const prevRow = i > 0 ? chronoMini[i - 1] : null;
-                      const isLatest = i === chronoMini.length - 1;
+                    const recentFirst = sorted.slice(0, 5);
+                    return recentFirst.map((r, i) => {
+                      const prevRow = i < recentFirst.length - 1 ? recentFirst[i + 1] : null;
+                      const isLatest = i === 0;
                       return (
                         <tr key={r.fiscal_year} className={isLatest ? "bg-indigo-50/30 font-medium" : "border-t border-slate-50"}>
                           <td className="px-5 py-2 font-mono text-slate-700">{r.fiscal_year}</td>
