@@ -40,7 +40,13 @@
       "statsTitle": "Statistieken",
       "statsDesc": "Sectorbenchmarks, marges, schuldgraad, geografie",
       "peopleTitle": "Personen",
-      "peopleDesc": "Zoek bestuurders en aandeelhouders op naam"
+      "peopleDesc": "Zoek bestuurders en aandeelhouders op naam",
+      "searchTitle": "Zoeken",
+      "searchDesc": "Zoek bedrijven op naam, KBO-nummer of trefwoord",
+      "favouritesTitle": "Favorieten",
+      "favouritesDesc": "Uw opgeslagen bedrijven",
+      "graveyardTitle": "Kerkhof",
+      "graveyardDesc": "Analyse van gefaalde bedrijven"
     },
 
     "whatsNewItems": {

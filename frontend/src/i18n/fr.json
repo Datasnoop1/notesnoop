@@ -40,7 +40,13 @@
       "statsTitle": "Statistiques",
       "statsDesc": "Benchmarks sectoriels, marges, endettement, geographie",
       "peopleTitle": "Personnes",
-      "peopleDesc": "Recherchez administrateurs et actionnaires par nom"
+      "peopleDesc": "Recherchez administrateurs et actionnaires par nom",
+      "searchTitle": "Recherche",
+      "searchDesc": "Trouvez des entreprises par nom, BCE ou mot-cle",
+      "favouritesTitle": "Favoris",
+      "favouritesDesc": "Vos entreprises sauvegardees",
+      "graveyardTitle": "Cimetiere",
+      "graveyardDesc": "Analyse des entreprises en faillite"
     },
 
     "whatsNewItems": {

@@ -40,7 +40,13 @@
       "statsTitle": "Stats",
       "statsDesc": "Sector benchmarks, margins, leverage, geography",
       "peopleTitle": "People",
-      "peopleDesc": "Find administrators and shareholders by name"
+      "peopleDesc": "Find administrators and shareholders by name",
+      "searchTitle": "Search",
+      "searchDesc": "Find companies by name, CBE, or keyword",
+      "favouritesTitle": "Favourites",
+      "favouritesDesc": "Your saved companies",
+      "graveyardTitle": "Graveyard",
+      "graveyardDesc": "Failed company analysis"
     },
 
     "whatsNewItems": {

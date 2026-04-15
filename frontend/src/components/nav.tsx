@@ -38,7 +38,7 @@ export default function Nav() {
   const [showNotifs, setShowNotifs] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
-  const [logoPath, setLogoPath] = useState("/logos/dog-telescope.jpg");
+  const [logoPath, setLogoPath] = useState("/logos/dog-telescope-clean.jpeg");
 
   const NAV_LINKS = [
     { label: t("nav.screener"), href: "/screener" },

@@ -1,40 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { getDashboard, type DashboardKPIs } from "@/lib/api";
-import { fmtNumber } from "@/lib/format";
 import { useTranslation } from "@/components/language-provider";
 import {
-  Building2,
-  BarChart3,
-  FileText,
-  Users,
-  Calendar,
   Search,
+  SlidersHorizontal,
   Building,
   BarChart,
   UserSearch,
   Sparkles,
+  Heart,
+  Skull,
 } from "lucide-react";
-
-function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse bg-slate-200 rounded ${className}`} />;
-}
 
 export default function Dashboard() {
   const { t } = useTranslation();
-  const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const KPI_META = [
-    { key: "enterprise_count" as const, label: t("home.kpi.activeEnterprises"), icon: Building2 },
-    { key: "financial_count" as const, label: t("home.kpi.companiesWithFinancials"), icon: BarChart3 },
-    { key: "filing_count" as const, label: t("home.kpi.filingsLoaded"), icon: FileText },
-    { key: "admin_count" as const, label: t("home.kpi.administratorsIndexed"), icon: Users },
-  ];
 
   const WHATS_NEW = [
     { label: t("home.whatsNewItems.unifiedSearch"), desc: t("home.whatsNewItems.unifiedSearchDesc"), color: "bg-indigo-400" },
@@ -46,18 +27,14 @@ export default function Dashboard() {
   ];
 
   const QUICK_ACCESS = [
-    { href: "/screener", title: t("home.quickAccessCards.screenerTitle"), desc: t("home.quickAccessCards.screenerDesc"), icon: Search },
+    { href: "/search", title: t("home.quickAccessCards.searchTitle") || "Search", desc: t("home.quickAccessCards.searchDesc") || "Find companies by name, CBE, or keyword", icon: Search },
+    { href: "/screener", title: t("home.quickAccessCards.screenerTitle"), desc: t("home.quickAccessCards.screenerDesc"), icon: SlidersHorizontal },
     { href: "/company", title: t("home.quickAccessCards.companyTitle"), desc: t("home.quickAccessCards.companyDesc"), icon: Building },
     { href: "/stats", title: t("home.quickAccessCards.statsTitle"), desc: t("home.quickAccessCards.statsDesc"), icon: BarChart },
     { href: "/people", title: t("home.quickAccessCards.peopleTitle"), desc: t("home.quickAccessCards.peopleDesc"), icon: UserSearch },
+    { href: "/favourites", title: t("home.quickAccessCards.favouritesTitle") || "Favourites", desc: t("home.quickAccessCards.favouritesDesc") || "Your saved companies", icon: Heart },
+    { href: "/graveyard", title: t("home.quickAccessCards.graveyardTitle") || "Graveyard", desc: t("home.quickAccessCards.graveyardDesc") || "Failed company analysis", icon: Skull },
   ];
-
-  useEffect(() => {
-    getDashboard()
-      .then(setKpis)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
 
   return (
     <div className="space-y-8">
@@ -67,82 +44,6 @@ export default function Dashboard() {
           <span className="font-semibold text-indigo-600">{t("home.betaNotice")}</span>{" "}
           {t("home.betaBody")}
         </p>
-      </div>
-
-      {/* Search section */}
-      <Link href="/search">
-        <Card className="bg-white hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group">
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100 transition-colors">
-                <Search className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-slate-900">{t("home.searchTitle")}</h3>
-                <p className="text-xs text-slate-400 mt-0.5">{t("home.searchDesc")}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </Link>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 pt-2">
-        {KPI_META.map((kpi) => {
-          const Icon = kpi.icon;
-          return (
-            <Card key={kpi.key} className="bg-white">
-              <CardContent className="pt-3 pb-3 text-center">
-                {loading ? (
-                  <><Skeleton className="h-7 w-24 mx-auto mb-1" /><Skeleton className="h-3 w-20 mx-auto" /></>
-                ) : (
-                  <>
-                    <Icon className="w-4 h-4 text-indigo-500 mx-auto mb-1" />
-                    <div className="text-xl font-bold text-slate-900">{kpis ? fmtNumber(kpis[kpi.key]) : "—"}</div>
-                    <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-0.5">{kpi.label}</div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
-        <Card className="bg-white">
-          <CardContent className="pt-3 pb-3 text-center">
-            {loading ? (
-              <><Skeleton className="h-7 w-24 mx-auto mb-1" /><Skeleton className="h-3 w-20 mx-auto" /></>
-            ) : (
-              <>
-                <Calendar className="w-4 h-4 text-indigo-500 mx-auto mb-1" />
-                <div className="text-xl font-bold text-slate-900">{kpis?.snapshot_date || "—"}</div>
-                <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-0.5">{t("home.snapshotDate")}</div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-
-      {/* Quick Access */}
-      <div>
-        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-3">{t("home.quickAccess")}</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {QUICK_ACCESS.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Link key={item.href} href={item.href}>
-                <Card className="bg-white hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-indigo-600 h-full">
-                  <CardContent className="pt-3 pb-3">
-                    <h3 className="font-semibold text-sm text-slate-900">
-                      <Icon className="w-3.5 h-3.5 inline mr-1.5" />
-                      {item.title}
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">{item.desc}</p>
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
       </div>
 
       {/* What's New */}
@@ -166,6 +67,29 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Quick Access */}
+      <div>
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-3">{t("home.quickAccess")}</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {QUICK_ACCESS.map((item) => {
+            const Icon = item.icon;
+            return (
+              <Link key={item.href} href={item.href}>
+                <Card className="bg-white hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-indigo-600 h-full">
+                  <CardContent className="pt-3 pb-3">
+                    <h3 className="font-semibold text-sm text-slate-900">
+                      <Icon className="w-3.5 h-3.5 inline mr-1.5" />
+                      {item.title}
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">{item.desc}</p>
+                  </CardContent>
+                </Card>
+              </Link>
+            );
+          })}
+        </div>
       </div>
 
       {/* Data Stats teaser */}
