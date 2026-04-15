@@ -463,8 +463,8 @@ async def load_company_data(cbe: str, user=Depends(optional_user)):
             "status": "no_filings",
         }
 
-    # Limit to 5 most recent filings (references come newest-first from NBB)
-    refs_to_load = references[:5]
+    # Try up to 15 references to find 5 successful filings (some return 404)
+    refs_to_load = references[:15]
 
     # --- Step 2-4: Fetch, parse, and insert each filing ---
     conn = get_connection()
@@ -476,6 +476,8 @@ async def load_company_data(cbe: str, user=Depends(optional_user)):
         cur = conn.cursor()
 
         for ref in refs_to_load:
+            if filings_loaded >= 5:
+                break  # Stop after 5 successful filings
             ref_number = ref.get("ReferenceNumber", "")
             if not ref_number:
                 continue
