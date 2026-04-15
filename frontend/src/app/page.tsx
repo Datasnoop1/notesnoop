@@ -11,19 +11,18 @@ import {
   UserSearch,
   Sparkles,
   Heart,
-  Skull,
 } from "lucide-react";
 
 export default function Dashboard() {
   const { t } = useTranslation();
 
   const WHATS_NEW = [
-    { label: t("home.whatsNewItems.unifiedSearch"), desc: t("home.whatsNewItems.unifiedSearchDesc"), color: "bg-indigo-400" },
-    { label: t("home.whatsNewItems.sectorBenchmarking"), desc: t("home.whatsNewItems.sectorBenchmarkingDesc"), color: "bg-emerald-400" },
-    { label: t("home.whatsNewItems.smartFilters"), desc: t("home.whatsNewItems.smartFiltersDesc"), color: "bg-amber-400" },
-    { label: t("home.whatsNewItems.dataAlerts"), desc: t("home.whatsNewItems.dataAlertsDesc"), color: "bg-rose-400" },
-    { label: t("home.whatsNewItems.customerSupplierLists"), desc: t("home.whatsNewItems.customerSupplierListsDesc"), color: "bg-sky-400" },
-    { label: t("home.whatsNewItems.fullExport"), desc: t("home.whatsNewItems.fullExportDesc"), color: "bg-violet-400" },
+    { label: "AI Company Insights", desc: "One-click AI analysis with business description, products, customers & market position", color: "bg-indigo-400" },
+    { label: "Enhanced Similar Companies", desc: "100 peers with 11 sortable financial metrics", color: "bg-emerald-400" },
+    { label: "Company Profile Redesign", desc: "Faster page with 10 dedicated tabs for financials, structure & benchmarks", color: "bg-amber-400" },
+    { label: "Sector Benchmarking", desc: "See how a company ranks within its sector", color: "bg-sky-400" },
+    { label: "Full Excel & PDF Export", desc: "Download complete company profiles with all financials", color: "bg-violet-400" },
+    { label: "Smart Screener Filters", desc: "Save and load your screener filter presets", color: "bg-rose-400" },
   ];
 
   const QUICK_ACCESS = [
@@ -33,7 +32,7 @@ export default function Dashboard() {
     { href: "/stats", title: t("home.quickAccessCards.statsTitle"), desc: t("home.quickAccessCards.statsDesc"), icon: BarChart },
     { href: "/people", title: t("home.quickAccessCards.peopleTitle"), desc: t("home.quickAccessCards.peopleDesc"), icon: UserSearch },
     { href: "/favourites", title: t("home.quickAccessCards.favouritesTitle") || "Favourites", desc: t("home.quickAccessCards.favouritesDesc") || "Your saved companies", icon: Heart },
-    { href: "/graveyard", title: t("home.quickAccessCards.graveyardTitle") || "Graveyard", desc: t("home.quickAccessCards.graveyardDesc") || "Failed company analysis", icon: Skull },
+    // Graveyard removed from Quick Access per user request
   ];
 
   return (
