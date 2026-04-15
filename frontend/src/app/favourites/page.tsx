@@ -836,9 +836,9 @@ export default function FavouritesPage() {
     const timer = setTimeout(async () => {
       setPeopleSearching(true);
       try {
-        const existingNames = new Set(peopleFavs.map((p) => p.person_name));
+        const existingNames = new Set(peopleFavs.map((p) => p.person_name.toLowerCase()));
         const results = await searchPeople(peopleSearch);
-        setPeopleSearchResults(results.filter((r) => !existingNames.has(r.name)));
+        setPeopleSearchResults(results.filter((r) => !existingNames.has(r.name.toLowerCase())));
       } catch { setPeopleSearchResults([]); }
       finally { setPeopleSearching(false); }
     }, 300);
@@ -1384,7 +1384,7 @@ export default function FavouritesPage() {
                             {r.name}
                           </span>
                           <span className="text-[10px] text-slate-400">
-                            {r.companies} {r.companies === 1 ? t("favourites.companySingular") : t("favourites.companyPlural")}
+                            {r.company_count ?? r.companies ?? 0} {(r.company_count ?? r.companies ?? 0) === 1 ? t("favourites.companySingular") : t("favourites.companyPlural")}
                           </span>
                         </div>
                         {addingPerson === r.name ? (

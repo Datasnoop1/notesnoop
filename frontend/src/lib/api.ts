@@ -378,6 +378,7 @@ export interface PersonResult {
   roles: number;
   companies: number;
   holdings: number;
+  company_count: number;
 }
 
 export interface PersonConnection {

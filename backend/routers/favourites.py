@@ -387,12 +387,20 @@ async def add_people_favourite(body: PeopleFavouriteCreate, user=Depends(get_cur
     """Add a person to the user's favourites."""
     try:
         _ensure_people_fav_table()
+        name = body.person_name.strip()
+        # Check case-insensitively to avoid duplicates with different casing
+        existing = fetch_one(
+            "SELECT person_name FROM people_favourite WHERE user_id = %s AND LOWER(person_name) = LOWER(%s)",
+            (user["id"], name),
+        )
+        if existing:
+            return {"person_name": existing["person_name"], "status": "already_exists"}
         execute(
             """INSERT INTO people_favourite (user_id, person_name, notes)
                VALUES (%s, %s, %s) ON CONFLICT DO NOTHING""",
-            (user["id"], body.person_name.strip(), body.notes),
+            (user["id"], name, body.notes),
         )
-        return {"person_name": body.person_name.strip(), "status": "added"}
+        return {"person_name": name, "status": "added"}
     except Exception as e:
         logger.exception("Add people favourite failed")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -406,14 +414,14 @@ async def remove_people_favourite(person_name: str, user=Depends(get_current_use
         import urllib.parse
         name = urllib.parse.unquote(person_name).strip()
         existing = fetch_one(
-            "SELECT 1 FROM people_favourite WHERE user_id = %s AND person_name = %s",
+            "SELECT person_name FROM people_favourite WHERE user_id = %s AND LOWER(person_name) = LOWER(%s)",
             (user["id"], name),
         )
         if not existing:
             raise HTTPException(status_code=404, detail=f"Person '{name}' not found in favourites")
 
         execute(
-            "DELETE FROM people_favourite WHERE user_id = %s AND person_name = %s",
+            "DELETE FROM people_favourite WHERE user_id = %s AND LOWER(person_name) = LOWER(%s)",
             (user["id"], name),
         )
         return {"person_name": name, "status": "removed"}
