@@ -8,8 +8,9 @@ from typing import Optional
 import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from db import fetch_all, fetch_one, get_connection, put_connection, get_conn
+from db import fetch_all, fetch_one, execute, get_connection, put_connection, get_conn
 from auth import get_current_user, optional_user
+from ai_client import ai_complete
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/companies", tags=["companies"])
@@ -165,6 +166,94 @@ async def search_companies(q: str = Query(..., min_length=1)):
         return [_serialize_row(r) for r in rows]
     except Exception as e:
         logger.exception("Company search failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/companies/semantic-search?q=...
+# ---------------------------------------------------------------------------
+
+@router.get("/semantic-search")
+async def semantic_search(q: str = Query(..., min_length=1)):
+    """Fuzzy / semantic company search using pg_trgm trigram similarity.
+
+    Searches company_info.name with trigram similarity scoring, then falls
+    back to ILIKE if no good trigram matches are found.  When the
+    company_embedding table contains vectors in the future, cosine-similarity
+    results will be merged in automatically.
+    """
+    query = q.strip()
+
+    try:
+        # --- Phase 1: trigram similarity on company_info.name --------
+        trgm_rows = fetch_all("""
+            SELECT ci.enterprise_number, ci.name,
+                   e.status, e.juridical_form AS "jf_label", ci.city,
+                   COALESCE(nl.description, ci.nace_code) AS "sector",
+                   e.start_date,
+                   fl.revenue, fl.ebitda,
+                   CASE WHEN fl.revenue > 0
+                        THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1)
+                   END AS "ebitda_margin_pct",
+                   fl.fte_total, fl.fiscal_year,
+                   similarity(ci.name, %s) AS score
+            FROM company_info ci
+            JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
+            LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+            LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+            WHERE similarity(ci.name, %s) > 0.15
+               OR ci.name ILIKE %s
+            ORDER BY similarity(ci.name, %s) DESC, ci.name
+            LIMIT 25
+        """, (query, query, f"%{query}%", query))
+
+        # --- Phase 2: vector cosine search (when embeddings exist) ---
+        emb_rows = []
+        try:
+            has_embeddings = fetch_one(
+                "SELECT EXISTS(SELECT 1 FROM company_embedding LIMIT 1) AS has_data"
+            )
+            if has_embeddings and has_embeddings.get("has_data"):
+                emb_rows = fetch_all("""
+                    SELECT ce.enterprise_number, ci.name,
+                           e.status, e.juridical_form AS "jf_label", ci.city,
+                           COALESCE(nl.description, ci.nace_code) AS "sector",
+                           e.start_date,
+                           fl.revenue, fl.ebitda,
+                           CASE WHEN fl.revenue > 0
+                                THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1)
+                           END AS "ebitda_margin_pct",
+                           fl.fte_total, fl.fiscal_year,
+                           0.0::float AS score
+                    FROM company_embedding ce
+                    JOIN enterprise e ON e.enterprise_number = ce.enterprise_number
+                    LEFT JOIN company_info ci ON ci.enterprise_number = ce.enterprise_number
+                    LEFT JOIN financial_latest fl ON fl.enterprise_number = ce.enterprise_number
+                    LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+                    WHERE ce.description ILIKE %s
+                    ORDER BY ce.description
+                    LIMIT 10
+                """, (f"%{query}%",))
+        except Exception:
+            pass  # embedding table may not exist yet in some environments
+
+        # --- Merge & deduplicate ----------------------------------
+        seen = set()
+        merged = []
+        for row in trgm_rows + emb_rows:
+            cbe = row["enterprise_number"]
+            if cbe not in seen:
+                seen.add(cbe)
+                merged.append(row)
+
+        # Drop the internal score column before returning
+        for row in merged:
+            row.pop("score", None)
+
+        return [_serialize_row(r) for r in merged[:25]]
+
+    except Exception as e:
+        logger.exception("Semantic search failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1525,3 +1614,122 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
     except Exception as e:
         logger.exception("Deep network query failed for %s", cbe)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# AI Enrichment — company profile summaries via OpenRouter
+# ---------------------------------------------------------------------------
+
+_enrichment_table_ensured = False
+
+
+def _ensure_enrichment_table():
+    """Create enrichment table if it does not exist (idempotent)."""
+    global _enrichment_table_ensured
+    if _enrichment_table_ensured:
+        return
+    execute("""
+        CREATE TABLE IF NOT EXISTS company_enrichment (
+            enterprise_number VARCHAR(10) PRIMARY KEY,
+            summary TEXT,
+            generated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    _enrichment_table_ensured = True
+
+
+@router.post("/{cbe}/enrich")
+async def enrich_company(cbe: str, user=Depends(get_current_user)):
+    """Generate an AI company profile summary via OpenRouter.
+
+    Gathers existing company data (name, sector, city, financials) and asks
+    the LLM to write a concise 2-3 sentence company profile.
+    """
+    _ensure_enrichment_table()
+
+    cbe = cbe.strip().replace(".", "").zfill(10)
+
+    # Gather company data for the prompt
+    company = fetch_one("""
+        SELECT ci.name, ci.city, ci.nace_code,
+               COALESCE(nl.description, ci.nace_code) AS sector,
+               fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
+        FROM company_info ci
+        LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+        LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+        WHERE ci.enterprise_number = %s
+    """, (cbe,))
+
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Build the prompt from available data
+    parts = []
+    if company.get("name"):
+        parts.append(f"Company: {company['name']}")
+    if company.get("sector"):
+        parts.append(f"Sector: {company['sector']}")
+    if company.get("city"):
+        parts.append(f"Location: {company['city']}, Belgium")
+    if company.get("revenue"):
+        parts.append(f"Revenue: EUR {company['revenue']:,.0f}")
+    if company.get("ebitda"):
+        parts.append(f"EBITDA: EUR {company['ebitda']:,.0f}")
+    if company.get("fte_total"):
+        parts.append(f"FTE: {company['fte_total']:,.0f}")
+    if company.get("fiscal_year"):
+        parts.append(f"Fiscal year: {company['fiscal_year']}")
+
+    if not parts:
+        raise HTTPException(
+            status_code=422, detail="Not enough data to generate a profile"
+        )
+
+    prompt = (
+        "Based on the following data about a Belgian company, write a concise "
+        "2-3 sentence company profile summary suitable for an investor audience. "
+        "Be factual, do not speculate.\n\n"
+        + "\n".join(parts)
+    )
+
+    system = (
+        "You are a financial analyst assistant. Write concise, professional "
+        "company summaries for private equity deal sourcing."
+    )
+
+    summary = await ai_complete(prompt, system=system)
+
+    if not summary:
+        raise HTTPException(
+            status_code=503,
+            detail="AI service unavailable — check OPENROUTER_API_KEY",
+        )
+
+    # Store (upsert) the enrichment
+    execute("""
+        INSERT INTO company_enrichment (enterprise_number, summary, generated_at)
+        VALUES (%s, %s, NOW())
+        ON CONFLICT (enterprise_number)
+        DO UPDATE SET summary = EXCLUDED.summary, generated_at = NOW()
+    """, (cbe, summary))
+
+    return {"summary": summary}
+
+
+@router.get("/{cbe}/enrichment")
+async def get_enrichment(cbe: str, user=Depends(optional_user)):
+    """Fetch existing AI-generated enrichment for a company."""
+    _ensure_enrichment_table()
+
+    cbe = cbe.strip().replace(".", "").zfill(10)
+
+    row = fetch_one("""
+        SELECT summary, generated_at
+        FROM company_enrichment
+        WHERE enterprise_number = %s
+    """, (cbe,))
+
+    if not row:
+        return None
+
+    return _serialize_row(row)

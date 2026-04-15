@@ -573,3 +573,10 @@ export const getSectorBenchmark = (cbe: string) =>
 
 export const getSimilarCompanies = (cbe: string) =>
   apiFetch<{ enterprise_number: string; name: string; city: string; revenue: number | null; ebitda: number | null; fte_total: number | null; fiscal_year: number }[]>(`/api/companies/${cbe}/similar`);
+
+// ── AI Enrichment ─────────────────────────────────────────
+export const enrichCompany = (cbe: string) =>
+  apiFetch<{ summary: string }>(`/api/companies/${cbe}/enrich`, { method: "POST" });
+
+export const getEnrichment = (cbe: string) =>
+  apiFetch<{ summary: string; generated_at: string } | null>(`/api/companies/${cbe}/enrichment`);
