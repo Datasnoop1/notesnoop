@@ -566,11 +566,14 @@ export default function CompanyDetailPage(props: {
     (value: any) => {
       if (typeof value === "string") {
         setActiveTab(value);
-        // Lazy-load benchmark + similar companies on first visit
-        if (value === "sector") {
+        // Lazy-load benchmark on first visit
+        if (value === "benchmark") {
           if (!benchmark) {
             getSectorBenchmark(cbe).then(setBenchmark).catch(() => {});
           }
+        }
+        // Lazy-load similar companies on first visit
+        if (value === "similar") {
           if (!similarCompanies) {
             getSimilarCompanies(cbe).then(setSimilarCompanies).catch(() => setSimilarCompanies([]));
           }
@@ -749,14 +752,11 @@ export default function CompanyDetailPage(props: {
               variant="outline"
               size="sm"
               onClick={() => {
-                // Switch to sector tab and lazy-load if needed
-                if (!benchmark) {
-                  getSectorBenchmark(cbe).then(setBenchmark).catch(() => {});
-                }
+                // Switch to similar tab and lazy-load if needed
                 if (!similarCompanies) {
                   getSimilarCompanies(cbe).then(setSimilarCompanies).catch(() => setSimilarCompanies([]));
                 }
-                setActiveTab("sector");
+                setActiveTab("similar");
               }}
               className="h-9 md:h-7 text-[11px] text-slate-500 border-slate-200 hover:border-slate-300 px-2.5 md:px-2"
             >
@@ -900,8 +900,11 @@ export default function CompanyDetailPage(props: {
           <TabsTrigger value="publications" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Publications
           </TabsTrigger>
-          <TabsTrigger value="sector" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            Sector
+          <TabsTrigger value="benchmark" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
+            Benchmark
+          </TabsTrigger>
+          <TabsTrigger value="similar" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
+            Similar
           </TabsTrigger>
         </TabsList>
 
@@ -3021,8 +3024,8 @@ export default function CompanyDetailPage(props: {
           )}
         </TabsContent>
 
-        {/* ===== Sector Benchmarking tab (last) ===== */}
-        <TabsContent value="sector" className="mt-3">
+        {/* ===== Benchmark tab ===== */}
+        <TabsContent value="benchmark" className="mt-3">
           {!benchmark ? (
             <div className="py-8 text-center">
               <Loader2 className="w-6 h-6 animate-spin text-indigo-500 mx-auto mb-2" />
@@ -3143,7 +3146,10 @@ export default function CompanyDetailPage(props: {
             );
           })()}
 
-          {/* ── Similar Companies ── */}
+        </TabsContent>
+
+        {/* ===== Similar Companies tab ===== */}
+        <TabsContent value="similar" className="mt-3">
           {similarCompanies === null ? (
             <div className="py-6 text-center">
               <Loader2 className="w-5 h-5 animate-spin text-indigo-400 mx-auto mb-1" />
@@ -3156,7 +3162,7 @@ export default function CompanyDetailPage(props: {
               : 0;
             const barMax = Math.max(maxRevenue, thisRevenue, 1);
             return (
-            <div className="mt-5">
+            <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2">Similar Companies</h3>
                 <Button
