@@ -1,9 +1,10 @@
-"""OpenRouter AI client — uses cheapest model per use case."""
+"""OpenRouter AI client — multi-step company intelligence pipeline."""
 
 import json
 import os
 import logging
 import re
+from urllib.parse import urlparse
 
 import httpx
 from dotenv import load_dotenv
@@ -15,20 +16,35 @@ logger = logging.getLogger(__name__)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions"
 
-# Model aliases — optimized April 2026 per OpenRouter pricing
-CHEAP_MODEL = "google/gemma-4-31b-it"          # $0.13/$0.38 — replaces gemma-3, better JSON + instructions
-VALIDATION_MODEL = "google/gemma-4-31b-it"     # URL discovery + website validation
-INSIGHT_MODEL = "google/gemini-2.5-flash"      # $0.30/$2.50 — best quality under $0.01/call
-INSIGHT_MODEL_FALLBACK = "deepseek/deepseek-v3.2"  # $0.26/$0.38 — strong quality fallback
+# ── Model routing per pipeline step ────────────────────────
+MODELS = {
+    "url_discovery":       {"primary": "google/gemini-2.5-flash", "fallback": "openai/gpt-4o-mini"},
+    "website_validation":  {"primary": "openai/gpt-4o-mini", "fallback": "google/gemini-2.5-flash"},
+    "insight_generation":  {"primary": "deepseek/deepseek-chat-v3", "fallback": "google/gemini-2.5-flash"},
+    "review":              {"primary": "openai/gpt-4o-mini", "fallback": "google/gemini-2.5-flash"},
+}
+MAX_TOKENS = {
+    "url_discovery": 150,
+    "website_validation": 400,
+    "insight_generation": 2000,
+    "review": 1500,
+}
+
+# Financial terms that must not appear in the company brief
+FORBIDDEN_TERMS_RE = re.compile(
+    r"\b(?:revenue|turnover|omzet|chiffre\s+d['\u2019]affaires|ebitda|profit|margin|"
+    r"sales\s+figures|growth\s+percentages|ownership\s+percentages|transaction\s+values)\b",
+    re.IGNORECASE,
+)
 
 
 async def ai_complete(
     prompt: str,
     system: str = "",
-    model: str = "google/gemma-3-4b-it",
+    model: str = "google/gemini-2.5-flash",
     max_tokens: int = 500,
 ) -> str:
-    """Call OpenRouter with the cheapest available model.
+    """Call OpenRouter with the specified model.
 
     Returns the model's text response, or empty string on failure / no API key.
     """
@@ -40,6 +56,19 @@ async def ai_complete(
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
+    payload: dict = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+    }
+
+    # DeepSeek provider routing for better reliability
+    if "deepseek" in model:
+        payload["provider"] = {
+            "order": ["Fireworks", "Together", "DeepSeek"],
+            "allow_fallbacks": True,
+        }
+
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -49,11 +78,7 @@ async def ai_complete(
                     "HTTP-Referer": "https://datasnoop.be",
                     "X-Title": "Datasnoop",
                 },
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "max_tokens": max_tokens,
-                },
+                json=payload,
                 timeout=60,
             )
             if resp.status_code == 200:
@@ -84,6 +109,78 @@ def _extract_json(text: str) -> dict | None:
         except json.JSONDecodeError:
             pass
     return None
+
+
+def _clean_scraped_text(text: str) -> str:
+    """Pre-clean scraped website/LinkedIn text before passing to the LLM.
+
+    - Strips nav/footer/cookie banner boilerplate
+    - Drops paragraphs shorter than 50 chars
+    - Deduplicates repeated lines
+    - Collapses whitespace
+    """
+    if not text:
+        return ""
+
+    # Remove common boilerplate patterns (nav, footer, cookie banners)
+    boilerplate_patterns = [
+        r"(?i)(?:accept|reject)\s+(?:all\s+)?cookies?.*",
+        r"(?i)we\s+use\s+cookies.*?(?:accept|learn more|privacy policy).*",
+        r"(?i)cookie\s+(?:policy|preferences|settings|consent).*",
+        r"(?i)privacy\s+(?:policy|notice|statement)\s*[\|\-].*",
+        r"(?i)(?:skip\s+to\s+(?:main\s+)?content|jump\s+to\s+navigation).*",
+        r"(?i)\b(?:copyright|all\s+rights\s+reserved)\s*\d{4}.*",
+        r"(?i)terms\s+(?:of\s+use|and\s+conditions|of\s+service)\s*[\|\-].*",
+        r"(?i)follow\s+us\s+on\s+(?:twitter|facebook|instagram|linkedin).*",
+        r"(?i)subscribe\s+to\s+our\s+newsletter.*",
+        r"(?i)sign\s+up\s+for\s+(?:our|the)\s+newsletter.*",
+    ]
+    for pattern in boilerplate_patterns:
+        text = re.sub(pattern, "", text)
+
+    # Split into lines and process
+    lines = text.split("\n")
+
+    # Drop paragraphs shorter than 50 chars
+    lines = [line for line in lines if len(line.strip()) >= 50 or line.strip() == ""]
+
+    # Deduplicate repeated lines (preserve order)
+    seen: set[str] = set()
+    unique_lines = []
+    for line in lines:
+        normalized = line.strip().lower()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            unique_lines.append(line)
+        elif not normalized:
+            unique_lines.append(line)
+
+    text = "\n".join(unique_lines)
+
+    # Collapse excessive whitespace
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+
+    return text.strip()
+
+
+def _normalize_domain(s: str) -> str:
+    """Normalize a domain or company name to a comparable slug."""
+    s = s.lower().strip()
+    # Remove common company suffixes
+    for suffix in [" nv", " bv", " sa", " bvba", " sprl", " srl", " cvba", " scrl"]:
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+    # Strip scheme and www if it looks like a URL
+    s = re.sub(r"^https?://", "", s)
+    s = re.sub(r"^www\.", "", s)
+    # Take only the domain part if there's a path
+    s = s.split("/")[0]
+    # Remove TLD
+    s = re.sub(r"\.\w{2,6}$", "", s)
+    # Collapse to alphanumeric
+    s = re.sub(r"[^a-z0-9]", "", s)
+    return s
 
 
 def _summarize_feedback(fetch_all, cbe: str) -> dict:
@@ -246,6 +343,63 @@ def _format_corporate_graph_block(graph: dict) -> str:
     return "\n".join(parts)
 
 
+def _needs_review(insights: dict) -> bool:
+    """Decide whether the review step (Step 4) should run.
+
+    Returns True if ANY of these conditions hold:
+    - Brief contains forbidden financial terms
+    - Any field is missing source attribution
+    - business_description is shorter than 80 chars
+    - history is longer than 1500 chars
+    - confidence is "low"
+    """
+    # Check forbidden financial terms in all text fields
+    text_fields = [
+        "business_description", "products", "customers",
+        "market_position", "history", "group_context",
+    ]
+    for field in text_fields:
+        val = insights.get(field, "")
+        if isinstance(val, list):
+            val = " ".join(val)
+        if val and FORBIDDEN_TERMS_RE.search(val):
+            return True
+
+    # Check source attribution completeness
+    attribution = insights.get("source_attribution", {})
+    if not attribution or not isinstance(attribution, dict):
+        return True
+    for field in ["business_description", "products", "customers", "market_position", "history"]:
+        if insights.get(field) and field not in attribution:
+            return True
+
+    # business_description too short
+    desc = insights.get("business_description", "")
+    if len(desc) < 80:
+        return True
+
+    # history too long
+    history = insights.get("history", "")
+    if len(history) > 1500:
+        return True
+
+    # low confidence
+    if insights.get("confidence") == "low":
+        return True
+
+    return False
+
+
+def _apply_review_diff(insights: dict, diff_items: list[dict]) -> dict:
+    """Apply a review diff (list of corrections) to the insights dict."""
+    for item in diff_items:
+        field = item.get("field", "")
+        corrected = item.get("corrected")
+        if field and corrected is not None and field in insights:
+            insights[field] = corrected
+    return insights
+
+
 async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
     """Multi-step AI pipeline to generate structured company insights.
 
@@ -322,7 +476,9 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
     admin_names = graph["admin_names_str"]
     graph_block = _format_corporate_graph_block(graph)
 
-    # ── STEP 1: URL Discovery ──────────────────────────────────
+    # ══════════════════════════════════════════════════════════════
+    # STEP 1: URL Discovery
+    # ══════════════════════════════════════════════════════════════
     website_url = known_website
     linkedin_url = ""
 
@@ -344,15 +500,26 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             "subsidiaries. Prefer a URL that clearly covers the target entity's activity; "
             "if only a group-level URL exists, return it.\n\n"
             'Return ONLY JSON: {{"website_url": "...", "linkedin_url": "...", '
+            '"website_shared_with": "parent/subsidiary name or empty string", '
+            '"linkedin_shared_with": "parent/subsidiary name or empty string", '
             '"confidence": "high"|"medium"|"low"}}\n'
             "If you cannot determine a URL, use empty strings."
         )
+        # Try primary model
         url_resp = await ai_complete(
             url_prompt,
             system="You are a data lookup assistant. Return only valid JSON.",
-            model=VALIDATION_MODEL,
-            max_tokens=200,
+            model=MODELS["url_discovery"]["primary"],
+            max_tokens=MAX_TOKENS["url_discovery"],
         )
+        # Fallback on empty response
+        if not url_resp:
+            url_resp = await ai_complete(
+                url_prompt,
+                system="You are a data lookup assistant. Return only valid JSON.",
+                model=MODELS["url_discovery"]["fallback"],
+                max_tokens=MAX_TOKENS["url_discovery"],
+            )
         if url_resp:
             parsed = _extract_json(url_resp)
             if parsed:
@@ -369,7 +536,9 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
     if website_url and not website_url.startswith("http"):
         website_url = "https://" + website_url
 
-    # ── STEP 2: Scrape & Generate Insights (Grok via OpenRouter) ─
+    # ══════════════════════════════════════════════════════════════
+    # Scrape website and LinkedIn
+    # ══════════════════════════════════════════════════════════════
     website_text = ""
     linkedin_text = ""
 
@@ -389,10 +558,27 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         except Exception as e:
             logger.warning("LinkedIn scrape failed for %s: %s", linkedin_url, e)
 
-    # ── STEP 2b: Validate website matches the company ───────────
-    # If the website was LLM-guessed (not from KBO), verify it belongs
-    # to this company by checking address, country, and activity match.
+    # ══════════════════════════════════════════════════════════════
+    # STEP 2: Website Validation
+    # ══════════════════════════════════════════════════════════════
     website_verified = bool(known_website)  # Trust KBO-registered websites
+
+    if website_text and not website_verified:
+        # Deterministic shortcut: if domain matches company name AND
+        # (scraped text mentions registered city OR domain ends in .be)
+        domain_norm = _normalize_domain(website_url)
+        name_norm = _normalize_domain(name)
+        city_lower = city.lower() if city else ""
+        domain_is_be = website_url.rstrip("/").endswith(".be") or ".be/" in website_url
+
+        if domain_norm == name_norm and (
+            (city_lower and city_lower in website_text.lower()) or domain_is_be
+        ):
+            logger.info(
+                "Website %s deterministically validated for %s (domain match + city/BE)",
+                website_url, name,
+            )
+            website_verified = True
 
     if website_text and not website_verified:
         verify_prompt = (
@@ -407,14 +593,20 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             verify_prompt += f"\n{graph_block}\n"
         verify_prompt += (
             f"\nWebsite text (first 3000 chars):\n{website_text[:3000]}\n\n"
-            "Does this website belong to THIS company or its corporate group? Check:\n"
-            "1. Address/city match (target OR any parent/subsidiary address)\n"
-            "2. Business activity match (target NACE OR parent/subsidiary NACE if group-level website)\n"
-            "3. Country: at least one entity must be Belgian\n"
-            "4. Company name match (target name, parent name, or subsidiary name)\n"
-            "5. Administrator names appear on website (target admins, or individual shareholders >=25%)\n\n"
-            "If at least 2 of these 5 checks match, return true. Otherwise false.\n"
-            'Return ONLY JSON: {"match": true/false, "reason": "brief explanation"}'
+            "Does this website belong to THIS company or its corporate group? Check each:\n"
+            "1. address_match: Does the website mention the registered address or city?\n"
+            "2. activity_match: Does the website describe the same business activity/sector?\n"
+            "3. country_match: Is at least one entity Belgian?\n"
+            "4. name_match: Does the company name, parent name, or subsidiary name appear?\n"
+            "5. people_match: Do administrator names or major shareholders appear?\n\n"
+            "Return ONLY JSON with this exact structure:\n"
+            '{"matches": [\n'
+            '  {"check": "address_match", "found": true/false, "match_source": "brief explanation"},\n'
+            '  {"check": "activity_match", "found": true/false, "match_source": "brief explanation"},\n'
+            '  {"check": "country_match", "found": true/false, "match_source": "brief explanation"},\n'
+            '  {"check": "name_match", "found": true/false, "match_source": "brief explanation"},\n'
+            '  {"check": "people_match", "found": true/false, "match_source": "brief explanation"}\n'
+            "]}"
         )
         # Inject feedback about previously wrong website
         if feedback["website_flagged"]:
@@ -424,21 +616,57 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
                 flag_note += f" found website {old_url} but"
             flag_note += " users flagged the website as incorrect. Please be extra careful in verifying the website."
             verify_prompt += flag_note
+
         verify_resp = await ai_complete(
             verify_prompt,
-            system="You are a data validation assistant. Be strict — if unsure, return false.",
-            model=VALIDATION_MODEL,
-            max_tokens=150,
+            system="You are a data validation assistant. Be strict — if unsure, mark the check as false.",
+            model=MODELS["website_validation"]["primary"],
+            max_tokens=MAX_TOKENS["website_validation"],
         )
+        # Fallback on empty response
+        if not verify_resp:
+            verify_resp = await ai_complete(
+                verify_prompt,
+                system="You are a data validation assistant. Be strict — if unsure, mark the check as false.",
+                model=MODELS["website_validation"]["fallback"],
+                max_tokens=MAX_TOKENS["website_validation"],
+            )
+
         if verify_resp:
             verify_parsed = _extract_json(verify_resp)
-            if verify_parsed and not verify_parsed.get("match", True):
-                logger.info(
-                    "Website %s rejected for %s: %s",
-                    website_url, name, verify_parsed.get("reason", "no match")
+            if verify_parsed:
+                # Compute is_valid in code: need at least 2 of 5 checks to match
+                matches_list = verify_parsed.get("matches", [])
+                match_count = sum(
+                    1 for m in matches_list if m.get("found") is True
                 )
-                website_text = ""  # Don't use this website's content
-                website_url = ""   # Clear the bad URL
+                is_valid = match_count >= 2
+
+                if not is_valid:
+                    reasons = [
+                        m.get("match_source", "")
+                        for m in matches_list if m.get("found") is True
+                    ]
+                    logger.info(
+                        "Website %s rejected for %s: only %d/5 checks passed (%s)",
+                        website_url, name, match_count,
+                        "; ".join(reasons) if reasons else "no matches",
+                    )
+                    website_text = ""  # Don't use this website's content
+                    website_url = ""   # Clear the bad URL
+            else:
+                # Couldn't parse structured response — reject to be safe
+                logger.info("Website validation response unparseable for %s, rejecting %s", name, website_url)
+                website_text = ""
+                website_url = ""
+
+    # ══════════════════════════════════════════════════════════════
+    # STEP 3: Insight Generation
+    # ══════════════════════════════════════════════════════════════
+
+    # Pre-clean scraped text
+    cleaned_website_text = _clean_scraped_text(website_text)
+    cleaned_linkedin_text = _clean_scraped_text(linkedin_text)
 
     # Build financial summary for context
     fin_parts = []
@@ -471,28 +699,33 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             "Ownership structure may be mentioned factually (parent, subsidiaries) "
             "but do NOT include ownership percentages or transaction values.\n"
         )
-    if website_text:
-        insight_prompt += f"\n--- Company website text ---\n{website_text}\n"
-    if linkedin_text:
-        insight_prompt += f"\n--- LinkedIn page text ---\n{linkedin_text}\n"
+    if cleaned_website_text:
+        insight_prompt += f"\n--- <website> Company website text ---\n{cleaned_website_text}\n--- </website> ---\n"
+    if cleaned_linkedin_text:
+        insight_prompt += f"\n--- <linkedin> LinkedIn page text ---\n{cleaned_linkedin_text}\n--- </linkedin> ---\n"
+    if graph_block:
+        insight_prompt += "\n--- <corporate_graph> (see above) ---\n"
 
     insight_prompt += (
         "\nBased on the above, create a company intelligence brief.\n\n"
         "CRITICAL RULES:\n"
-        "- NEVER include revenue, EBITDA, margins, profit, employee count, or any "
-        "financial numbers — the user already has those in their financial statements.\n"
+        "- Do NOT include: revenue, turnover, omzet, chiffre d'affaires, EBITDA, profit, "
+        "margin, sales figures, growth percentages, ownership percentages, transaction values.\n"
         "- NEVER restate the NACE sector description — the user already sees that.\n"
         "- Focus ONLY on: what the company actually does day-to-day, what products/services "
         "they sell, who buys from them, what makes them different, and their history.\n"
-        "- Use specific details from the website and LinkedIn content.\n\n"
+        "- Use specific details from the website and LinkedIn content.\n"
+        "- Every extracted fact MUST cite its source tag (website/linkedin/corporate_graph).\n\n"
         "Return a JSON object with exactly these fields:\n"
         '- "business_description": What the company does in 2-3 sentences (no financials!)\n'
-        '- "products_services": Their main products/services (specific names, brands)\n'
-        '- "target_customers": Who their customers are (industries, segments, B2B/B2C)\n'
-        '- "competitive_position": Market position and key differentiators\n'
-        '- "company_history": Brief history/milestones (founding, acquisitions, growth)\n'
+        '- "products": Array of their main products/services as strings, e.g. ["product A", "service B"]\n'
+        '- "customers": Who their customers are (industries, segments, B2B/B2C)\n'
+        '- "market_position": Market position and key differentiators\n'
+        '- "history": Brief history/milestones (founding, acquisitions, growth)\n'
         '- "key_management": Array of key people found, each as {"name": "...", "role": "...", "linkedin_url": "..."} — extract from LinkedIn page or website team page. If none found, use empty array []\n'
         '- "group_context": If this company is part of a group, describe the parent/subsidiary relationship in one sentence. If standalone, use empty string.\n'
+        '- "confidence": "high"|"medium"|"low" — how confident you are in the accuracy of this brief\n'
+        '- "source_attribution": Object mapping each field name to its primary source, e.g. {"business_description": "website", "products": "website+linkedin", "history": "corporate_graph"}\n'
         '- "website_url": The company website URL (or empty string if unknown)\n'
         '- "linkedin_url": The LinkedIn company page URL (or empty string if unknown)\n\n'
         "Return ONLY valid JSON, no markdown fences."
@@ -511,15 +744,25 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         "You must NEVER include financial figures (revenue, EBITDA, margins, profit, "
         "employee counts) — the user already has those. Focus exclusively on qualitative "
         "business insights: what the company does, their products, customers, and history. "
-        "If website or LinkedIn text is available, extract specific details."
+        "If website or LinkedIn text is available, extract specific details. "
+        "Every fact must cite its source (website/linkedin/corporate_graph)."
     )
 
-    # Try primary model, fall back if needed
+    def _build_insight_prompt_with_review_feedback(base_prompt: str, review_feedback: str) -> str:
+        """Append review feedback to the insight prompt for a retry."""
+        return (
+            base_prompt
+            + f"\n--- Review feedback from quality check ---\n"
+            + review_feedback
+            + "\nPlease fix the issues identified above and return corrected JSON.\n"
+        )
+
+    # Try primary model
     insight_resp = await ai_complete(
         insight_prompt,
         system=insight_system,
-        model=INSIGHT_MODEL,
-        max_tokens=1000,
+        model=MODELS["insight_generation"]["primary"],
+        max_tokens=MAX_TOKENS["insight_generation"],
     )
 
     if not insight_resp:
@@ -527,17 +770,8 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         insight_resp = await ai_complete(
             insight_prompt,
             system=insight_system,
-            model=INSIGHT_MODEL_FALLBACK,
-            max_tokens=1000,
-        )
-
-    if not insight_resp:
-        # Last resort: use cheap model
-        insight_resp = await ai_complete(
-            insight_prompt,
-            system=insight_system,
-            model=CHEAP_MODEL,
-            max_tokens=1000,
+            model=MODELS["insight_generation"]["fallback"],
+            max_tokens=MAX_TOKENS["insight_generation"],
         )
 
     insights = _extract_json(insight_resp) if insight_resp else None
@@ -546,14 +780,22 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         # Build a minimal fallback from whatever we have
         insights = {
             "business_description": insight_resp.strip() if insight_resp else "Unable to generate insights.",
-            "products_services": "",
-            "target_customers": "",
-            "competitive_position": "",
-            "company_history": "",
+            "products": [],
+            "customers": "",
+            "market_position": "",
+            "history": "",
             "group_context": "",
+            "confidence": "low",
+            "source_attribution": {},
             "website_url": website_url,
             "linkedin_url": linkedin_url,
         }
+
+    # Normalize products field: ensure it's a list
+    products = insights.get("products", [])
+    if isinstance(products, str):
+        # Split comma-separated string into list
+        insights["products"] = [p.strip() for p in products.split(",") if p.strip()] if products else []
 
     # Ensure URL fields are populated from our discovery
     if not insights.get("website_url"):
@@ -561,48 +803,113 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
     if not insights.get("linkedin_url"):
         insights["linkedin_url"] = linkedin_url
 
-    # ── STEP 3: Review / Validate (cheap model) ─────────────────
-    review_prompt = (
-        "Review this company intelligence brief about a Belgian company. "
-        "Check for:\n"
-        "1. Factual inconsistencies or hallucinated claims\n"
-        "2. Content that just restates financial data without adding insight\n"
-        "3. Missing or empty fields that could be filled from context\n"
-        "4. Any claim that conflates target-entity activity with parent/group activity without attribution\n\n"
-        f"Company name: {name}\n"
-        f"Sector: {sector}\n"
-        f"Location: {city}, Belgium\n\n"
-        f"Brief to review:\n{json.dumps(insights, indent=2)}\n\n"
-        "Return the same JSON with any corrections, or return it unchanged if it looks good. "
-        "Return ONLY valid JSON, no markdown fences."
-    )
-
-    # Inject user feedback into review prompt
-    if feedback_text:
-        review_prompt += (
-            f"\n--- User feedback on previous attempt ---\n"
-            f"{feedback_text}\n"
-            "Pay special attention to the issues flagged by users.\n"
+    # ══════════════════════════════════════════════════════════════
+    # STEP 4: Conditional Review
+    # ══════════════════════════════════════════════════════════════
+    if _needs_review(insights):
+        review_prompt = (
+            "Review this company intelligence brief about a Belgian company. "
+            "Check for:\n"
+            "1. Forbidden financial terms (revenue, turnover, omzet, chiffre d'affaires, EBITDA, "
+            "profit, margin, sales figures, growth percentages, ownership percentages, transaction values)\n"
+            "2. Missing source attribution on any field\n"
+            "3. Hallucinated claims not supported by the source data\n"
+            "4. Content that conflates target-entity activity with parent/group activity\n"
+            "5. business_description shorter than 80 characters\n"
+            "6. history longer than 1500 characters\n\n"
+            f"Company name: {name}\n"
+            f"Sector: {sector}\n"
+            f"Location: {city}, Belgium\n\n"
+            f"Brief to review:\n{json.dumps(insights, indent=2)}\n\n"
+            "Return a JSON object with exactly this structure:\n"
+            '{"issues": [\n'
+            '  {"field": "field_name", "original": "original text", "issue_type": "forbidden_term|missing_source|hallucination|too_short|too_long", "corrected": "corrected text"}\n'
+            "]}\n"
+            "If no issues found, return {\"issues\": []}.\n"
+            "Return ONLY valid JSON, no markdown fences."
         )
 
-    review_resp = await ai_complete(
-        review_prompt,
-        system="You are a quality reviewer. Fix factual errors and improve weak content. Return only valid JSON.",
-        model=CHEAP_MODEL,
-        max_tokens=1000,
-    )
+        # Inject user feedback into review prompt
+        if feedback_text:
+            review_prompt += (
+                f"\n--- User feedback on previous attempt ---\n"
+                f"{feedback_text}\n"
+                "Pay special attention to the issues flagged by users.\n"
+            )
 
-    if review_resp:
-        reviewed = _extract_json(review_resp)
-        if reviewed:
-            # Preserve URL fields from our discovery (reviewer might drop them)
-            if not reviewed.get("website_url"):
-                reviewed["website_url"] = website_url
-            if not reviewed.get("linkedin_url"):
-                reviewed["linkedin_url"] = linkedin_url
-            insights = reviewed
+        review_resp = await ai_complete(
+            review_prompt,
+            system="You are a quality reviewer. Identify specific issues and provide corrections. Return only valid JSON.",
+            model=MODELS["review"]["primary"],
+            max_tokens=MAX_TOKENS["review"],
+        )
+        # Fallback on empty response
+        if not review_resp:
+            review_resp = await ai_complete(
+                review_prompt,
+                system="You are a quality reviewer. Identify specific issues and provide corrections. Return only valid JSON.",
+                model=MODELS["review"]["fallback"],
+                max_tokens=MAX_TOKENS["review"],
+            )
 
-    # ── STEP 4: Store in database ───────────────────────────────
+        if review_resp:
+            review_parsed = _extract_json(review_resp)
+            if review_parsed:
+                issues = review_parsed.get("issues", [])
+                has_hallucination = any(
+                    i.get("issue_type") == "hallucination" for i in issues
+                )
+
+                if len(issues) > 3 or has_hallucination:
+                    # Retry Step 3 ONCE with review feedback appended
+                    review_feedback = json.dumps(issues, indent=2)
+                    retry_prompt = _build_insight_prompt_with_review_feedback(
+                        insight_prompt, review_feedback
+                    )
+                    retry_resp = await ai_complete(
+                        retry_prompt,
+                        system=insight_system,
+                        model=MODELS["insight_generation"]["primary"],
+                        max_tokens=MAX_TOKENS["insight_generation"],
+                    )
+                    if not retry_resp:
+                        retry_resp = await ai_complete(
+                            retry_prompt,
+                            system=insight_system,
+                            model=MODELS["insight_generation"]["fallback"],
+                            max_tokens=MAX_TOKENS["insight_generation"],
+                        )
+                    retry_insights = _extract_json(retry_resp) if retry_resp else None
+
+                    if retry_insights:
+                        # Normalize products on retry too
+                        retry_products = retry_insights.get("products", [])
+                        if isinstance(retry_products, str):
+                            retry_insights["products"] = [
+                                p.strip() for p in retry_products.split(",") if p.strip()
+                            ] if retry_products else []
+                        if not retry_insights.get("website_url"):
+                            retry_insights["website_url"] = website_url
+                        if not retry_insights.get("linkedin_url"):
+                            retry_insights["linkedin_url"] = linkedin_url
+                        insights = retry_insights
+                    else:
+                        # Retry failed — apply original diff and flag quality warning
+                        insights = _apply_review_diff(insights, issues)
+                        insights["quality_warning"] = True
+                else:
+                    # Apply the diff corrections
+                    insights = _apply_review_diff(insights, issues)
+
+    # Preserve URL fields (reviewer/retry might drop them)
+    if not insights.get("website_url"):
+        insights["website_url"] = website_url
+    if not insights.get("linkedin_url"):
+        insights["linkedin_url"] = linkedin_url
+
+    # ══════════════════════════════════════════════════════════════
+    # Store in database
+    # ══════════════════════════════════════════════════════════════
     insights_json = json.dumps(insights, ensure_ascii=False)
     try:
         execute("""

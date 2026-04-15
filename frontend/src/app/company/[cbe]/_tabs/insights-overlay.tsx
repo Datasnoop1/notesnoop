@@ -17,6 +17,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import type { AiInsights } from "@/lib/api";
 
@@ -80,9 +81,9 @@ function InsightSection({
 }: {
   icon: React.ReactNode;
   title: string;
-  content: string;
+  content: string | string[];
 }) {
-  if (!content) return null;
+  if (!content || (Array.isArray(content) && content.length === 0)) return null;
   return (
     <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -91,7 +92,15 @@ function InsightSection({
           {title}
         </h4>
       </div>
-      <p className="text-sm text-slate-700 leading-relaxed">{content}</p>
+      {Array.isArray(content) ? (
+        <ul className="text-sm text-slate-700 leading-relaxed list-disc list-inside space-y-0.5">
+          {content.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-slate-700 leading-relaxed">{content}</p>
+      )}
     </div>
   );
 }
@@ -230,6 +239,17 @@ export function InsightsOverlay({
                 <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
                   AI Insights
                   <span className="text-[8px] font-bold bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Alpha</span>
+                  {insights?.confidence && (
+                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-widest ${
+                      insights.confidence === "high"
+                        ? "bg-emerald-100 text-emerald-600"
+                        : insights.confidence === "medium"
+                        ? "bg-amber-100 text-amber-600"
+                        : "bg-rose-100 text-rose-600"
+                    }`}>
+                      {insights.confidence}
+                    </span>
+                  )}
                 </h3>
                 <p className="text-[11px] text-slate-400">{companyName}</p>
               </div>
@@ -371,6 +391,12 @@ export function InsightsOverlay({
             {/* Insights display */}
             {insights && (
               <div className="space-y-3">
+                {insights.quality_warning && (
+                  <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-700">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    <span>These insights could not be fully verified. Some details may be inaccurate.</span>
+                  </div>
+                )}
                 <InsightSection
                   icon={<Building2 className="h-4 w-4" />}
                   title="What they do"
@@ -379,22 +405,22 @@ export function InsightsOverlay({
                 <InsightSection
                   icon={<ShoppingBag className="h-4 w-4" />}
                   title="Products & Services"
-                  content={insights.products_services}
+                  content={insights.products}
                 />
                 <InsightSection
                   icon={<Users className="h-4 w-4" />}
-                  title="Target Customers"
-                  content={insights.target_customers}
+                  title="Customers"
+                  content={insights.customers}
                 />
                 <InsightSection
                   icon={<Trophy className="h-4 w-4" />}
                   title="Market Position"
-                  content={insights.competitive_position}
+                  content={insights.market_position}
                 />
                 <InsightSection
                   icon={<Clock className="h-4 w-4" />}
-                  title="Company History"
-                  content={insights.company_history}
+                  title="History"
+                  content={insights.history}
                 />
 
                 {/* Key Management */}
