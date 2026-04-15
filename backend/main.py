@@ -115,7 +115,8 @@ def _classify_endpoint(path: str) -> str | None:
     """Map an API path to a tier limit column name, or None if not limited."""
     if "/search" in path:
         return "searches_per_day"
-    if "/enrich" in path or "/ai-insights" in path or "/scrape-" in path:
+    # Only count POST-style AI endpoints, NOT the GET /enrichment read endpoint
+    if ("/enrich" in path and "/enrichment" not in path) or "/ai-insights" in path or "/scrape-" in path:
         return "ai_enrichments_per_day"
     if "/export" in path:
         return "export_per_day"
