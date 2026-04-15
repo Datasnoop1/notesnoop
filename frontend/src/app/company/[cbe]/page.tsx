@@ -38,6 +38,8 @@ import {
   getEnrichment,
   enrichPerson,
   getPersonEnrichment,
+  scrapeCompanyWebsite,
+  scrapeCompanyLinkedIn,
 } from "@/lib/api";
 import type { SectorBenchmark } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
@@ -70,6 +72,7 @@ import {
   FileSpreadsheet,
   FileDown,
   Sparkles,
+  Globe,
 } from "lucide-react";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
 import {
@@ -438,6 +441,12 @@ export default function CompanyDetailPage(props: {
   const [aiLoading, setAiLoading] = useState(false);
   const [personEnrichments, setPersonEnrichments] = useState<Record<string, { summary: string; loading: boolean }>>({});
 
+  /* ── Website & LinkedIn Scraping state ── */
+  const [websiteScrape, setWebsiteScrape] = useState<{ summary: string; products: string; employees: string; key_people: string; website_url: string } | null>(null);
+  const [websiteScrapeLoading, setWebsiteScrapeLoading] = useState(false);
+  const [linkedinScrape, setLinkedinScrape] = useState<{ summary: string; employee_count: string; industry: string; specialties: string; linkedin_url: string } | null>(null);
+  const [linkedinScrapeLoading, setLinkedinScrapeLoading] = useState(false);
+
   /* ── Collapsible section state ── */
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const toggleSection = (key: string) =>
@@ -751,7 +760,7 @@ export default function CompanyDetailPage(props: {
               })()}
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 no-print">
             <Button
               variant="outline"
               size="sm"
@@ -1447,6 +1456,125 @@ export default function CompanyDetailPage(props: {
                       <Sparkles className="h-4 w-4" />
                       Enrich with AI
                     </button>
+                  )}
+                </div>
+
+                {/* Web & LinkedIn Scraping Section */}
+                <div className="rounded-xl border border-slate-200 bg-slate-50/30 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Globe className="h-4 w-4 text-slate-500" />
+                    <h3 className="text-xs font-medium text-slate-600 uppercase tracking-wider">Web Enrichment</h3>
+                    <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider">Premium</span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {/* Scrape Website button */}
+                    {!websiteScrape && (
+                      <button
+                        type="button"
+                        disabled={websiteScrapeLoading}
+                        onClick={async () => {
+                          setWebsiteScrapeLoading(true);
+                          try {
+                            const result = await scrapeCompanyWebsite(cbe);
+                            if (result) setWebsiteScrape(result);
+                          } catch {
+                            // silent fail
+                          } finally {
+                            setWebsiteScrapeLoading(false);
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-colors disabled:opacity-50"
+                      >
+                        {websiteScrapeLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                        ) : (
+                          <Globe className="h-3.5 w-3.5 text-slate-400" />
+                        )}
+                        Scrape Website
+                      </button>
+                    )}
+
+                    {/* Scrape LinkedIn button */}
+                    {!linkedinScrape && (
+                      <button
+                        type="button"
+                        disabled={linkedinScrapeLoading}
+                        onClick={async () => {
+                          setLinkedinScrapeLoading(true);
+                          try {
+                            const result = await scrapeCompanyLinkedIn(cbe);
+                            if (result) setLinkedinScrape(result);
+                          } catch {
+                            // silent fail
+                          } finally {
+                            setLinkedinScrapeLoading(false);
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-colors disabled:opacity-50"
+                      >
+                        {linkedinScrapeLoading ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                        ) : (
+                          <svg className="h-3.5 w-3.5 text-[#0A66C2]" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" /></svg>
+                        )}
+                        Scrape LinkedIn
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Website scrape result */}
+                  {websiteScrape && (
+                    <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Globe className="h-3.5 w-3.5 text-slate-400" />
+                        <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Website</span>
+                        {websiteScrape.website_url && (
+                          <a href={websiteScrape.website_url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:underline ml-auto flex items-center gap-1">
+                            Visit <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                      </div>
+                      {websiteScrape.summary && <p className="text-sm text-slate-700 leading-relaxed">{websiteScrape.summary}</p>}
+                      {websiteScrape.products && (
+                        <p className="text-xs text-slate-500"><span className="font-medium text-slate-600">Products:</span> {websiteScrape.products}</p>
+                      )}
+                      {websiteScrape.key_people && (
+                        <p className="text-xs text-slate-500"><span className="font-medium text-slate-600">Key people:</span> {websiteScrape.key_people}</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* LinkedIn scrape result */}
+                  {linkedinScrape && (
+                    <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <svg className="h-3.5 w-3.5 text-[#0A66C2]" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" /></svg>
+                        <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">LinkedIn</span>
+                        {linkedinScrape.linkedin_url && (
+                          <a href={linkedinScrape.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:underline ml-auto flex items-center gap-1">
+                            View profile <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                      </div>
+                      {linkedinScrape.summary && <p className="text-sm text-slate-700 leading-relaxed">{linkedinScrape.summary}</p>}
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        {linkedinScrape.industry && (
+                          <p className="text-xs text-slate-500"><span className="font-medium text-slate-600">Industry:</span> {linkedinScrape.industry}</p>
+                        )}
+                        {linkedinScrape.employee_count && (
+                          <p className="text-xs text-slate-500"><span className="font-medium text-slate-600">Employees:</span> {linkedinScrape.employee_count}</p>
+                        )}
+                        {linkedinScrape.specialties && (
+                          <p className="text-xs text-slate-500"><span className="font-medium text-slate-600">Specialties:</span> {linkedinScrape.specialties}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Both buttons hidden, no results yet -- show nothing extra */}
+                  {websiteScrape && linkedinScrape && !websiteScrapeLoading && !linkedinScrapeLoading && (
+                    <div />
                   )}
                 </div>
               </div>
@@ -3383,7 +3511,13 @@ export default function CompanyDetailPage(props: {
               </div>
             </div>
             );
-          })() : null}
+          })() : (
+            <div className="py-12 text-center">
+              <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+              <p className="text-sm font-medium text-slate-400">No similar companies found in this sector</p>
+              <p className="text-xs text-slate-300 mt-1">This company may have a unique NACE code or no peers with comparable revenue</p>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </div>
