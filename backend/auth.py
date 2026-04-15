@@ -25,7 +25,7 @@ SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 
 # Accepted JWT audiences: Supabase project URL + project ref (bare ID)
 _SUPABASE_AUDIENCES = [
-    SUPABASE_URL,  # e.g. https://fpsyraglybfazambxuqb.supabase.co
+    SUPABASE_URL,  # e.g. https://nvtopretdjlxabsmqxvk.supabase.co
     "authenticated",  # Supabase default audience claim
 ]
 
