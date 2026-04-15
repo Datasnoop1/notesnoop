@@ -681,7 +681,7 @@ export default function ScreenerPage() {
                 onFocus={() => setNaceOpen(true)}
               />
               {naceOpen && naceSuggestions.length > 0 && (
-                <div className="absolute z-50 top-full left-0 right-0 mt-0.5 bg-white border border-slate-200 rounded shadow-lg max-h-72 overflow-y-auto">
+                <div className="fixed z-50 left-4 right-4 sm:left-auto sm:right-auto sm:absolute sm:top-full sm:left-0 sm:w-96 mt-0.5 bg-white border border-slate-200 rounded-lg shadow-xl max-h-[70vh] overflow-y-auto">
                   {naceSuggestions.map((s) => (
                     <button
                       key={s.nace_code}
