@@ -40,6 +40,11 @@ import {
   TrendingUp,
   Percent,
   Users,
+  PieChart,
+  MapPin,
+  CalendarRange,
+  Ruler,
+  TableProperties,
 } from "lucide-react";
 import {
   BarChart,
@@ -79,9 +84,10 @@ function SkeletonRows({ cols, count }: { cols: number; count: number }) {
   );
 }
 
-function SectionHeader({ children }: { children: React.ReactNode }) {
+function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
   return (
-    <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-4">
+    <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-4 flex items-center gap-1.5">
+      {icon}
       {children}
     </h2>
   );
@@ -453,7 +459,7 @@ export default function StatsPage() {
 
       {/* ━━━━━━━━━━ SECTION 2: SECTOR BAR CHART ━━━━━━━━━━ */}
       <div>
-        <SectionHeader>Sector Breakdown -- Top 20 by Company Count</SectionHeader>
+        <SectionHeader icon={<PieChart className="h-3.5 w-3.5 text-slate-400" />}>Sector Breakdown -- Top 20 by Company Count</SectionHeader>
         <Card className="bg-white p-6">
           {loading ? (
             <ChartSkeleton height="h-[600px]" />
@@ -516,7 +522,7 @@ export default function StatsPage() {
 
         {/* Revenue Distribution (size buckets) */}
         <div>
-          <SectionHeader>Company Size Distribution</SectionHeader>
+          <SectionHeader icon={<Ruler className="h-3.5 w-3.5 text-slate-400" />}>Company Size Distribution</SectionHeader>
           <Card className="bg-white p-6">
             {chartsLoading ? (
               <ChartSkeleton />
@@ -554,7 +560,7 @@ export default function StatsPage() {
 
         {/* Margin Distribution */}
         <div>
-          <SectionHeader>EBITDA Margin Distribution</SectionHeader>
+          <SectionHeader icon={<Percent className="h-3.5 w-3.5 text-slate-400" />}>EBITDA Margin Distribution</SectionHeader>
           <Card className="bg-white p-6">
             {chartsLoading ? (
               <ChartSkeleton />
@@ -591,7 +597,7 @@ export default function StatsPage() {
 
       {/* ━━━━━━━━━━ SECTION 4: EVOLUTION LINE CHART ━━━━━━━━━━ */}
       <div>
-        <SectionHeader>Financial Evolution (2019-2024)</SectionHeader>
+        <SectionHeader icon={<CalendarRange className="h-3.5 w-3.5 text-slate-400" />}>Financial Evolution (2019-2024)</SectionHeader>
         <Card className="bg-white p-6">
           {chartsLoading ? (
             <ChartSkeleton />
@@ -656,7 +662,7 @@ export default function StatsPage() {
 
         {/* Province breakdown */}
         <div>
-          <SectionHeader>Companies by Province</SectionHeader>
+          <SectionHeader icon={<MapPin className="h-3.5 w-3.5 text-slate-400" />}>Companies by Province</SectionHeader>
           <Card className="bg-white p-6">
             {chartsLoading ? (
               <ChartSkeleton height="h-96" />
@@ -699,7 +705,7 @@ export default function StatsPage() {
 
         {/* Average Revenue by Sector */}
         <div>
-          <SectionHeader>Average Revenue per Company by Sector</SectionHeader>
+          <SectionHeader icon={<DollarSign className="h-3.5 w-3.5 text-slate-400" />}>Average Revenue per Company by Sector</SectionHeader>
           <Card className="bg-white p-6">
             {loading ? (
               <ChartSkeleton height="h-96" />
@@ -749,7 +755,7 @@ export default function StatsPage() {
       {/* ━━━━━━━━━━ SECTION 6: FULL SORTABLE SECTOR TABLE ━━━━━━━━━━ */}
       <div>
         <div className="flex items-center justify-between">
-          <SectionHeader>All Sectors -- Detailed Breakdown</SectionHeader>
+          <SectionHeader icon={<TableProperties className="h-3.5 w-3.5 text-slate-400" />}>All Sectors -- Detailed Breakdown</SectionHeader>
           <ExportButtons
             onExportCSV={() => {
               const headers = ["NACE", "Sector", "Companies", "Revenue (M)", "EBITDA (M)", "Median Margin", "Median FTE"];
