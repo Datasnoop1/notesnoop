@@ -791,7 +791,7 @@ export default function AdminPanel() {
         </Button>
       </div>
 
-      <Tabs defaultValue="usage">
+      <Tabs defaultValue="readiness">
         <TabsList className="overflow-x-auto scrollbar-none w-full">
           <TabsTrigger value="readiness">
             <Gauge className="size-3.5 mr-1.5" />
