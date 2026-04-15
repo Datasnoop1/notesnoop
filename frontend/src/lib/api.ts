@@ -742,12 +742,15 @@ export const getPersonFailedCompanies = (name: string) =>
 // ── AI Insights (structured multi-step pipeline) ─────────
 export interface AiInsights {
   business_description: string;
-  products_services: string;
-  target_customers: string;
-  competitive_position: string;
-  company_history: string;
+  products: string[];
+  customers: string;
+  market_position: string;
+  history: string;
   key_management?: { name: string; role: string; linkedin_url: string }[];
   group_context?: string;
+  confidence?: string;
+  source_attribution?: Record<string, string>;
+  quality_warning?: boolean;
   website_url: string;
   linkedin_url: string;
 }
