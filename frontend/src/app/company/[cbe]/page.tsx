@@ -63,6 +63,7 @@ import {
   CheckCircle2,
   XCircle,
 } from "lucide-react";
+import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
 import dynamic from "next/dynamic";
 
 const NetworkGraph = dynamic(() => import("@/components/network-graph"), {
@@ -601,7 +602,9 @@ export default function CompanyDetailPage(props: {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h1 className="text-xl font-semibold text-slate-900">
-              {detail.name || fmtCbe(cbe)}
+              <SearchableText text={detail.name || fmtCbe(cbe)} mapsQuery={address || undefined}>
+                {detail.name || fmtCbe(cbe)}
+              </SearchableText>
             </h1>
             {/* Single info line: status dot + CBE | address | website | NACE */}
             <div className="mt-0.5 flex flex-wrap items-center text-xs text-slate-400">
@@ -614,7 +617,7 @@ export default function CompanyDetailPage(props: {
                     <span className="font-mono">CBE {fmtCbe(cbe)}</span>
                   </span>
                 );
-                if (address) parts.push(<span key="addr">{address}</span>);
+                if (address) parts.push(<GoogleSearchLink key="addr" query={address} type="maps">{address}</GoogleSearchLink>);
                 // Website as clickable link
                 if (detail.website) {
                   parts.push(
@@ -2036,19 +2039,23 @@ export default function CompanyDetailPage(props: {
                                   <div className="flex items-center gap-2">
                                     <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-green-500" />
                                     {adminCbe ? (
-                                      <Link
-                                        href={`/company/${adminCbe}`}
-                                        className="font-bold text-sm text-indigo-600 hover:underline truncate"
-                                      >
-                                        {admin.name}
-                                      </Link>
+                                      <GoogleSearchLink query={admin.name}>
+                                        <Link
+                                          href={`/company/${adminCbe}`}
+                                          className="font-bold text-sm text-indigo-600 hover:underline truncate"
+                                        >
+                                          {admin.name}
+                                        </Link>
+                                      </GoogleSearchLink>
                                     ) : (
-                                      <Link
-                                        href={`/people?q=${encodeURIComponent(admin.name)}`}
-                                        className="font-bold text-sm text-indigo-600 hover:underline truncate"
-                                      >
-                                        {admin.name}
-                                      </Link>
+                                      <GoogleSearchLink query={admin.name}>
+                                        <Link
+                                          href={`/people?q=${encodeURIComponent(admin.name)}`}
+                                          className="font-bold text-sm text-indigo-600 hover:underline truncate"
+                                        >
+                                          {admin.name}
+                                        </Link>
+                                      </GoogleSearchLink>
                                     )}
                                   </div>
                                   <p className="mt-1 text-sm font-medium text-slate-700">

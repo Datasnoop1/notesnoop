@@ -27,9 +27,11 @@ import {
   deleteFavouriteProject,
   getPeopleFavourites,
   removePeopleFavourite,
+  searchCompanies,
   type FavouriteItem,
   type FavouriteProject,
   type PeopleFavourite,
+  type SearchResult,
 } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
 import {
@@ -84,11 +86,31 @@ function ProjectCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [addSearch, setAddSearch] = useState("");
+  const [addResults, setAddResults] = useState<SearchResult[]>([]);
+  const [addSearching, setAddSearching] = useState(false);
 
   const memberCbes = new Set(project.members.map((m) => m.enterprise_number));
-  const addableFavourites = favourites.filter(
-    (f) => !memberCbes.has(f.enterprise_number)
-  );
+
+  // Debounced search for companies to add
+  useEffect(() => {
+    if (!showAddMenu || addSearch.length < 2) {
+      setAddResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setAddSearching(true);
+      try {
+        const results = await searchCompanies(addSearch);
+        setAddResults(results.filter((r: SearchResult) => !memberCbes.has(r.enterprise_number)));
+      } catch {
+        setAddResults([]);
+      } finally {
+        setAddSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [addSearch, showAddMenu]);
 
   return (
     <Card className="bg-white overflow-hidden">
@@ -126,30 +148,56 @@ function ProjectCard({
                 <>
                   <div
                     className="fixed inset-0 z-40"
-                    onClick={() => setShowAddMenu(false)}
+                    onClick={() => { setShowAddMenu(false); setAddSearch(""); }}
                   />
-                  <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                    {addableFavourites.length === 0 ? (
-                      <p className="text-xs text-slate-400 p-3 text-center">
-                        All favourites already in this project
-                      </p>
-                    ) : (
-                      addableFavourites.map((f) => (
-                        <button
-                          key={f.enterprise_number}
-                          onClick={() => {
-                            onAddMember(project.id, f.enterprise_number);
-                            setShowAddMenu(false);
-                          }}
-                          className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0 text-sm flex items-center justify-between"
-                        >
-                          <span className="truncate">
-                            {f.name || fmtCbe(f.enterprise_number)}
-                          </span>
-                          <Plus className="h-3 w-3 text-indigo-500 shrink-0" />
-                        </button>
-                      ))
-                    )}
+                  <div className="absolute right-0 top-full mt-1 z-50 w-96 bg-white border border-slate-200 rounded-lg shadow-xl">
+                    <div className="p-2 border-b border-slate-100">
+                      <Input
+                        placeholder="Search any company by name or CBE..."
+                        value={addSearch}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddSearch(e.target.value)}
+                        className="h-8 text-sm"
+                        autoFocus
+                      />
+                    </div>
+                    <div className="max-h-72 overflow-y-auto">
+                      {addSearch.length < 2 ? (
+                        <p className="text-xs text-slate-400 p-4 text-center">
+                          Type at least 2 characters to search
+                        </p>
+                      ) : addSearching ? (
+                        <div className="flex items-center justify-center gap-2 py-4">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                          <span className="text-xs text-slate-400">Searching...</span>
+                        </div>
+                      ) : addResults.length === 0 ? (
+                        <p className="text-xs text-slate-400 p-4 text-center">
+                          No companies found
+                        </p>
+                      ) : (
+                        addResults.map((r) => (
+                          <button
+                            key={r.enterprise_number}
+                            onClick={() => {
+                              onAddMember(project.id, r.enterprise_number);
+                              setAddSearch("");
+                              setShowAddMenu(false);
+                            }}
+                            className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <span className="text-sm font-medium text-slate-800 truncate block">
+                                {r.name || fmtCbe(r.enterprise_number)}
+                              </span>
+                              <span className="text-[10px] text-slate-400">
+                                {fmtCbe(r.enterprise_number)} · {r.city || "—"}
+                              </span>
+                            </div>
+                            <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                          </button>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </>
               )}
