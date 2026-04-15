@@ -3,9 +3,8 @@
 import React from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
+import { fmtEur, fmtPct, fmtNumber } from "@/lib/format";
 import {
-  ExternalLink,
   ChevronRight,
   Users,
   Briefcase,
@@ -15,29 +14,19 @@ import {
   DollarSign,
   TrendingUp,
   Percent,
-  Activity,
   Calendar,
   UserCheck,
   Newspaper,
-  Loader2,
-  Sparkles,
-  Globe,
+  Shield,
+  Scale,
+  Landmark,
 } from "lucide-react";
-import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
 import type {
   CompanyDetail,
   FinancialsData,
   StructureData,
 } from "../types";
-import { renderDelta, cleanCbe, ChartTooltip } from "../helpers";
+import { renderDelta, cleanCbe } from "../helpers";
 
 /* ---------- props ---------- */
 
@@ -151,116 +140,155 @@ export function SummaryTab({
 
   // Credit ratios
   let netDebtEbitda: number | null = null;
+  let equityRatio: number | null = null;
+  let interestCoverage: number | null = null;
   if (latest) {
     const grossDebt = (latest.lt_financial_debt ?? 0) + (latest.st_financial_debt ?? 0);
     const netDebt = grossDebt - (latest.cash ?? 0) - (latest.current_investments ?? 0);
     netDebtEbitda = latest.ebitda && latest.ebitda !== 0 ? netDebt / latest.ebitda : null;
+    equityRatio = latest.total_assets && latest.total_assets !== 0 && latest.equity != null
+      ? (latest.equity / latest.total_assets) * 100
+      : null;
+    interestCoverage = latest.financial_charges && latest.financial_charges !== 0 && latest.ebitda != null
+      ? latest.ebitda / Math.abs(latest.financial_charges)
+      : null;
   }
 
   const revenueYoy = yoyChange(latest?.revenue ?? null, prev?.revenue ?? null);
   const ebitdaYoy = yoyChange(latest?.ebitda ?? null, prev?.ebitda ?? null);
   const fteYoy = yoyChange(latest?.fte_total ?? null, prev?.fte_total ?? null);
 
-  // Sparkline data (last 5 years)
-  const sparkData = sorted.slice(0, 5).reverse().map((r) => ({
-    fy: String(r.fiscal_year),
-    Revenue: r.revenue,
-    EBITDA: r.ebitda,
-  }));
-
   return (
     <div className="space-y-6">
-      {/* Row 1: KPIs (left) + Trend chart (right) */}
+      {/* Key Financials — full-width KPI cards + Financial History (no gap) */}
       {latest && (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-          {/* Left: compact KPI list */}
-          <div className="lg:col-span-2 rounded-xl border border-slate-100 bg-white p-4">
-            <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+        <div className="rounded-xl border border-slate-100 bg-white overflow-hidden">
+          {/* Header */}
+          <div className="px-5 pt-4 pb-3 flex items-baseline justify-between">
+            <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <BarChart3 className="h-3 w-3" /> Key Financials
               {latest.fiscal_year && <span className="text-slate-300 font-mono">FY{latest.fiscal_year}</span>}
             </h3>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <DollarSign className="h-3.5 w-3.5 text-slate-400" /> Revenue
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-slate-900 font-mono">{fmtEur(latest.revenue)}</span>
-                  {changeArrow(revenueYoy)}
-                </div>
+            <button type="button" onClick={() => setActiveTab("pnl")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+              Full P&L →
+            </button>
+          </div>
+          {/* KPI cards row */}
+          <div className="px-5 pb-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+            {/* Revenue */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <DollarSign className="h-3 w-3" /> Revenue
               </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <TrendingUp className="h-3.5 w-3.5 text-slate-400" /> EBITDA
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-slate-900 font-mono">{fmtEur(latest.ebitda)}</span>
-                  {changeArrow(ebitdaYoy)}
-                </div>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Percent className="h-3.5 w-3.5 text-slate-400" /> Margin
-                </div>
-                <span className={`text-sm font-semibold font-mono ${marginColorClass(latest.ebitda_margin_pct)}`}>{fmtPct(latest.ebitda_margin_pct)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <Users className="h-3.5 w-3.5 text-slate-400" /> Employees
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-slate-900 font-mono">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</span>
-                  {changeArrow(fteYoy)}
-                </div>
-              </div>
+              <div className="text-sm font-semibold text-slate-900 font-mono">{fmtEur(latest.revenue)}</div>
+              {changeArrow(revenueYoy) && <div className="mt-0.5">{changeArrow(revenueYoy)}</div>}
             </div>
-            {/* Health pills */}
-            <div className="flex flex-wrap gap-1.5 mt-4 pt-3 border-t border-slate-50">
-              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${pillColor("leverage", netDebtEbitda)}`}>
-                {netDebtEbitda != null && isFinite(netDebtEbitda) ? `${netDebtEbitda.toFixed(1)}x leverage` : "\u2014 leverage"}
-              </span>
-              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${pillColor("growth", revenueYoy?.pct ?? null)}`}>
-                {revenueYoy ? `${revenueYoy.pct > 0 ? "+" : ""}${revenueYoy.pct.toFixed(0)}% growth` : "\u2014 growth"}
-              </span>
+            {/* EBITDA */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <TrendingUp className="h-3 w-3" /> EBITDA
+              </div>
+              <div className="text-sm font-semibold text-slate-900 font-mono">{fmtEur(latest.ebitda)}</div>
+              {changeArrow(ebitdaYoy) && <div className="mt-0.5">{changeArrow(ebitdaYoy)}</div>}
+            </div>
+            {/* Margin */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <Percent className="h-3 w-3" /> Margin
+              </div>
+              <div className={`text-sm font-semibold font-mono ${marginColorClass(latest.ebitda_margin_pct)}`}>{fmtPct(latest.ebitda_margin_pct)}</div>
+            </div>
+            {/* Employees */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <Users className="h-3 w-3" /> Employees
+              </div>
+              <div className="text-sm font-semibold text-slate-900 font-mono">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</div>
+              {changeArrow(fteYoy) && <div className="mt-0.5">{changeArrow(fteYoy)}</div>}
+            </div>
+            {/* Net Debt / EBITDA */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <Scale className="h-3 w-3" /> Leverage
+              </div>
+              <div className={`text-sm font-semibold font-mono ${netDebtEbitda != null && isFinite(netDebtEbitda) ? (netDebtEbitda < 3 ? "text-emerald-600" : netDebtEbitda <= 5 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
+                {netDebtEbitda != null && isFinite(netDebtEbitda) ? `${netDebtEbitda.toFixed(1)}x` : "\u2014"}
+              </div>
+              <div className="text-[9px] text-slate-400 mt-0.5">Net Debt / EBITDA</div>
+            </div>
+            {/* Equity Ratio */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <Shield className="h-3 w-3" /> Equity Ratio
+              </div>
+              <div className={`text-sm font-semibold font-mono ${equityRatio != null ? (equityRatio >= 30 ? "text-emerald-600" : equityRatio >= 15 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
+                {equityRatio != null ? `${equityRatio.toFixed(1)}%` : "\u2014"}
+              </div>
+              <div className="text-[9px] text-slate-400 mt-0.5">Equity / Assets</div>
+            </div>
+            {/* Interest Coverage */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <Landmark className="h-3 w-3" /> Int. Coverage
+              </div>
+              <div className={`text-sm font-semibold font-mono ${interestCoverage != null ? (interestCoverage >= 3 ? "text-emerald-600" : interestCoverage >= 1.5 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
+                {interestCoverage != null && isFinite(interestCoverage) ? `${interestCoverage.toFixed(1)}x` : "\u2014"}
+              </div>
+              <div className="text-[9px] text-slate-400 mt-0.5">EBITDA / Int. Exp</div>
             </div>
           </div>
 
-          {/* Right: sparkline chart */}
-          <div className="lg:col-span-3 rounded-xl border border-slate-100 bg-white p-4">
-            <div className="flex items-baseline justify-between mb-2">
-              <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Activity className="h-3 w-3" /> Trend
-              </h3>
-              <button type="button" onClick={() => setActiveTab("pnl")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
-                Full P&L →
-              </button>
-            </div>
-            {sparkData.length >= 2 ? (
-              <>
-                <ResponsiveContainer width="100%" height={130}>
-                  <LineChart data={sparkData} margin={{ top: 5, right: 5, bottom: 5, left: 5 }}>
-                    <XAxis dataKey="fy" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                    <YAxis hide />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Line type="monotone" dataKey="Revenue" stroke="#6366f1" strokeWidth={2} dot={{ r: 2, fill: "#6366f1" }} />
-                    <Line type="monotone" dataKey="EBITDA" stroke="#06b6d4" strokeWidth={2} dot={{ r: 2, fill: "#06b6d4" }} strokeDasharray="4 2" />
-                  </LineChart>
-                </ResponsiveContainer>
-                <div className="flex items-center gap-4 mt-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-block h-0.5 w-4 rounded bg-indigo-500" />
-                    <span className="text-[10px] text-slate-400">Revenue</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="inline-block h-0.5 w-4 rounded bg-cyan-500" />
-                    <span className="text-[10px] text-slate-400">EBITDA</span>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center justify-center h-[130px] text-xs text-slate-300">Not enough years for a trend</div>
-            )}
-          </div>
+          {/* Financial History table — directly inside same card, no gap */}
+          {sorted.length > 1 && (
+            <>
+              <div className="px-5 pt-3 pb-2 border-t border-slate-100">
+                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Financial History</h3>
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-t border-slate-50">
+                    <th className="px-5 py-2 text-left text-slate-400 font-medium">Year</th>
+                    <th className="px-3 py-2 text-right text-slate-400 font-medium">Revenue</th>
+                    <th className="px-3 py-2 text-right text-slate-400 font-medium">EBITDA</th>
+                    <th className="px-3 py-2 text-right text-slate-400 font-medium">Margin</th>
+                    <th className="px-3 py-2 text-right text-slate-400 font-medium">Net Profit</th>
+                    <th className="px-3 py-2 text-right text-slate-400 font-medium">FTE</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const chronoMini = sorted.slice(0, 5).reverse();
+                    return chronoMini.map((r, i) => {
+                      const prevRow = i > 0 ? chronoMini[i - 1] : null;
+                      const isLatest = i === chronoMini.length - 1;
+                      return (
+                        <tr key={r.fiscal_year} className={isLatest ? "bg-indigo-50/30 font-medium" : "border-t border-slate-50"}>
+                          <td className="px-5 py-2 font-mono text-slate-700">{r.fiscal_year}</td>
+                          <td className="px-3 py-2 text-right font-mono text-slate-700">
+                            {fmtEur(r.revenue)}
+                            {renderDelta(r.revenue, prevRow?.revenue ?? null)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-slate-700">
+                            {fmtEur(r.ebitda)}
+                            {renderDelta(r.ebitda, prevRow?.ebitda ?? null)}
+                          </td>
+                          <td className={`px-3 py-2 text-right font-mono ${marginColorClass(r.ebitda_margin_pct)}`}>{fmtPct(r.ebitda_margin_pct)}</td>
+                          <td className={`px-3 py-2 text-right font-mono ${(r.net_profit ?? 0) < 0 ? "text-rose-400" : "text-slate-700"}`}>
+                            {fmtEur(r.net_profit)}
+                            {renderDelta(r.net_profit, prevRow?.net_profit ?? null)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-slate-700">
+                            {r.fte_total != null ? fmtNumber(r.fte_total) : "\u2014"}
+                            {renderDelta(r.fte_total, prevRow?.fte_total ?? null)}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </>
+          )}
         </div>
       )}
 
@@ -480,58 +508,6 @@ export function SummaryTab({
           )}
         </div>
       </div>
-
-      {/* Financial History Mini Table (last 5 years) */}
-      {sorted.length > 1 && (
-        <div className="rounded-xl border border-slate-100 bg-white overflow-hidden">
-          <div className="px-5 pt-4 pb-2">
-            <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Financial History</h3>
-          </div>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-t border-slate-50">
-                <th className="px-5 py-2 text-left text-slate-400 font-medium">Year</th>
-                <th className="px-3 py-2 text-right text-slate-400 font-medium">Revenue</th>
-                <th className="px-3 py-2 text-right text-slate-400 font-medium">EBITDA</th>
-                <th className="px-3 py-2 text-right text-slate-400 font-medium">Margin</th>
-                <th className="px-3 py-2 text-right text-slate-400 font-medium">Net Profit</th>
-                <th className="px-3 py-2 text-right text-slate-400 font-medium">FTE</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(() => {
-                const chronoMini = sorted.slice(0, 5).reverse();
-                return chronoMini.map((r, i) => {
-                  const prevRow = i > 0 ? chronoMini[i - 1] : null;
-                  const isLatest = i === chronoMini.length - 1;
-                  return (
-                    <tr key={r.fiscal_year} className={isLatest ? "bg-indigo-50/30 font-medium" : "border-t border-slate-50"}>
-                      <td className="px-5 py-2 font-mono text-slate-700">{r.fiscal_year}</td>
-                      <td className="px-3 py-2 text-right font-mono text-slate-700">
-                        {fmtEur(r.revenue)}
-                        {renderDelta(r.revenue, prevRow?.revenue ?? null)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-slate-700">
-                        {fmtEur(r.ebitda)}
-                        {renderDelta(r.ebitda, prevRow?.ebitda ?? null)}
-                      </td>
-                      <td className={`px-3 py-2 text-right font-mono ${marginColorClass(r.ebitda_margin_pct)}`}>{fmtPct(r.ebitda_margin_pct)}</td>
-                      <td className={`px-3 py-2 text-right font-mono ${(r.net_profit ?? 0) < 0 ? "text-rose-400" : "text-slate-700"}`}>
-                        {fmtEur(r.net_profit)}
-                        {renderDelta(r.net_profit, prevRow?.net_profit ?? null)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-slate-700">
-                        {r.fte_total != null ? fmtNumber(r.fte_total) : "\u2014"}
-                        {renderDelta(r.fte_total, prevRow?.fte_total ?? null)}
-                      </td>
-                    </tr>
-                  );
-                });
-              })()}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       {/* Quick navigation links */}
       <div className="flex flex-wrap gap-3 pt-2">
