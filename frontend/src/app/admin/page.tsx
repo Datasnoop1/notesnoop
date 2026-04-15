@@ -454,7 +454,7 @@ export default function AdminPanel() {
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
   const [tierSaving, setTierSaving] = useState<string | null>(null);
   const [tierToggling, setTierToggling] = useState(false);
-  const [siteLogo, setSiteLogo] = useState<string>("/logo.svg");
+  const [siteLogo, setSiteLogo] = useState<string>("/logos/dog-b-indigo.svg");
   const [logoSaving, setLogoSaving] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -477,7 +477,7 @@ export default function AdminPanel() {
         adminFetch<typeof usageData>("/api/admin/usage").catch(() => null),
         adminFetch<PaymentsData>("/api/admin/payments").catch(() => null),
         adminFetch<TierConfig[]>("/api/admin/tiers").catch(() => [] as TierConfig[]),
-        adminFetch<{ site_logo: string }>("/api/admin/site-config").catch(() => ({ site_logo: "/logo.svg" })),
+        adminFetch<{ site_logo: string }>("/api/admin/site-config").catch(() => ({ site_logo: "/logos/dog-b-indigo.svg" })),
       ]);
       setStats(s);
       setUsers(u);
@@ -1327,7 +1327,7 @@ export default function AdminPanel() {
                         {fmt(stats.companies_with_publications)}
                       </div>
                       <div className="text-[10px] text-slate-400 mb-2">
-                        companies scraped
+                        companies enriched
                       </div>
                       <ProgressBar
                         value={stats.companies_with_publications}

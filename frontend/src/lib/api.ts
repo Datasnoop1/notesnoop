@@ -608,7 +608,7 @@ export const enrichPerson = (name: string) =>
 export const getPersonEnrichment = (name: string) =>
   apiFetch<{ summary: string; generated_at: string } | null>(`/api/people/${encodeURIComponent(name)}/enrichment`);
 
-// ── Website & LinkedIn Scraping ──────────────────────────
+// ── AI Insights: Website & LinkedIn ──────────────────────
 export const scrapeCompanyWebsite = (cbe: string) =>
   apiFetch<{ summary: string; products: string; employees: string; key_people: string; website_url: string }>(
     `/api/companies/${cbe}/scrape-website`, { method: "POST" }

@@ -439,13 +439,16 @@ export default function CompanyDetailPage(props: {
   /* ── AI Enrichment state ── */
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [personEnrichments, setPersonEnrichments] = useState<Record<string, { summary: string; loading: boolean }>>({});
 
-  /* ── Website & LinkedIn Scraping state ── */
+  /* ── Website & LinkedIn AI Insights state ── */
   const [websiteScrape, setWebsiteScrape] = useState<{ summary: string; products: string; employees: string; key_people: string; website_url: string } | null>(null);
   const [websiteScrapeLoading, setWebsiteScrapeLoading] = useState(false);
+  const [websiteError, setWebsiteError] = useState<string | null>(null);
   const [linkedinScrape, setLinkedinScrape] = useState<{ summary: string; employee_count: string; industry: string; specialties: string; linkedin_url: string } | null>(null);
   const [linkedinScrapeLoading, setLinkedinScrapeLoading] = useState(false);
+  const [linkedinError, setLinkedinError] = useState<string | null>(null);
 
   /* ── Collapsible section state ── */
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -464,6 +467,44 @@ export default function CompanyDetailPage(props: {
     getEnrichment(cbe)
       .then((data) => {
         if (data && data.summary) setAiSummary(data.summary);
+        // Restore existing website enrichment
+        if (data && data.website_summary) {
+          try {
+            const parsed = typeof data.website_summary === "string"
+              ? JSON.parse(data.website_summary)
+              : data.website_summary;
+            if (parsed && typeof parsed === "object") {
+              setWebsiteScrape({
+                summary: parsed.summary || "",
+                products: parsed.products || "",
+                employees: parsed.employees || "",
+                key_people: parsed.key_people || "",
+                website_url: data.website_url || "",
+              });
+            }
+          } catch {
+            // website_summary wasn't valid JSON — skip
+          }
+        }
+        // Restore existing LinkedIn enrichment
+        if (data && data.linkedin_summary) {
+          try {
+            const parsed = typeof data.linkedin_summary === "string"
+              ? JSON.parse(data.linkedin_summary)
+              : data.linkedin_summary;
+            if (parsed && typeof parsed === "object") {
+              setLinkedinScrape({
+                summary: parsed.summary || "",
+                employee_count: parsed.employee_count || "",
+                industry: parsed.industry || "",
+                specialties: parsed.specialties || "",
+                linkedin_url: parsed.linkedin_url || "",
+              });
+            }
+          } catch {
+            // linkedin_summary wasn't valid JSON — skip
+          }
+        }
       })
       .catch(() => {});
   }, [cbe]);
@@ -1438,28 +1479,45 @@ export default function CompanyDetailPage(props: {
                       <span className="text-sm text-slate-500">Generating AI summary...</span>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setAiLoading(true);
-                        try {
-                          const result = await enrichCompany(cbe);
-                          if (result?.summary) setAiSummary(result.summary);
-                        } catch {
-                          // silent fail
-                        } finally {
-                          setAiLoading(false);
-                        }
-                      }}
-                      className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors shadow-sm"
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      Enrich with AI
-                    </button>
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setAiLoading(true);
+                          setAiError(null);
+                          try {
+                            const result = await enrichCompany(cbe);
+                            if (result?.summary) {
+                              setAiSummary(result.summary);
+                            } else {
+                              setAiError("No summary returned. The AI service may be temporarily unavailable.");
+                            }
+                          } catch (err: unknown) {
+                            const msg = err instanceof Error ? err.message : "Unknown error";
+                            if (msg.includes("401") || msg.includes("403")) {
+                              setAiError("Please sign in to use AI enrichment.");
+                            } else if (msg.includes("503")) {
+                              setAiError("AI service unavailable. Please check your API key configuration.");
+                            } else {
+                              setAiError(`AI enrichment failed: ${msg}`);
+                            }
+                          } finally {
+                            setAiLoading(false);
+                          }
+                        }}
+                        className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors shadow-sm"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        Enrich with AI
+                      </button>
+                      {aiError && (
+                        <p className="text-xs text-red-500">{aiError}</p>
+                      )}
+                    </div>
                   )}
                 </div>
 
-                {/* Web & LinkedIn Scraping Section */}
+                {/* AI Insights: Web & LinkedIn */}
                 <div className="rounded-xl border border-slate-200 bg-slate-50/30 p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <Globe className="h-4 w-4 text-slate-500" />
@@ -1468,62 +1526,84 @@ export default function CompanyDetailPage(props: {
                   </div>
 
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {/* Scrape Website button */}
+                    {/* AI Insights: Website button */}
                     {!websiteScrape && (
-                      <button
-                        type="button"
-                        disabled={websiteScrapeLoading}
-                        onClick={async () => {
-                          setWebsiteScrapeLoading(true);
-                          try {
-                            const result = await scrapeCompanyWebsite(cbe);
-                            if (result) setWebsiteScrape(result);
-                          } catch {
-                            // silent fail
-                          } finally {
-                            setWebsiteScrapeLoading(false);
-                          }
-                        }}
-                        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-colors disabled:opacity-50"
-                      >
-                        {websiteScrapeLoading ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
-                        ) : (
-                          <Globe className="h-3.5 w-3.5 text-slate-400" />
-                        )}
-                        Scrape Website
-                      </button>
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          disabled={websiteScrapeLoading}
+                          onClick={async () => {
+                            setWebsiteScrapeLoading(true);
+                            setWebsiteError(null);
+                            try {
+                              const result = await scrapeCompanyWebsite(cbe);
+                              if (result) setWebsiteScrape(result);
+                            } catch (err: unknown) {
+                              const msg = err instanceof Error ? err.message : "Unknown error";
+                              if (msg.includes("404")) {
+                                setWebsiteError("No website found for this company.");
+                              } else if (msg.includes("401") || msg.includes("403")) {
+                                setWebsiteError("Please sign in to use this feature.");
+                              } else {
+                                setWebsiteError(`Website insights failed: ${msg}`);
+                              }
+                            } finally {
+                              setWebsiteScrapeLoading(false);
+                            }
+                          }}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-colors disabled:opacity-50"
+                        >
+                          {websiteScrapeLoading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                          ) : (
+                            <Globe className="h-3.5 w-3.5 text-slate-400" />
+                          )}
+                          AI Insights: Website
+                        </button>
+                        {websiteError && <p className="text-[10px] text-red-500">{websiteError}</p>}
+                      </div>
                     )}
 
-                    {/* Scrape LinkedIn button */}
+                    {/* AI Insights: LinkedIn button */}
                     {!linkedinScrape && (
-                      <button
-                        type="button"
-                        disabled={linkedinScrapeLoading}
-                        onClick={async () => {
-                          setLinkedinScrapeLoading(true);
-                          try {
-                            const result = await scrapeCompanyLinkedIn(cbe);
-                            if (result) setLinkedinScrape(result);
-                          } catch {
-                            // silent fail
-                          } finally {
-                            setLinkedinScrapeLoading(false);
-                          }
-                        }}
-                        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-colors disabled:opacity-50"
-                      >
-                        {linkedinScrapeLoading ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
-                        ) : (
-                          <svg className="h-3.5 w-3.5 text-[#0A66C2]" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" /></svg>
-                        )}
-                        Scrape LinkedIn
-                      </button>
+                      <div className="space-y-1">
+                        <button
+                          type="button"
+                          disabled={linkedinScrapeLoading}
+                          onClick={async () => {
+                            setLinkedinScrapeLoading(true);
+                            setLinkedinError(null);
+                            try {
+                              const result = await scrapeCompanyLinkedIn(cbe);
+                              if (result) setLinkedinScrape(result);
+                            } catch (err: unknown) {
+                              const msg = err instanceof Error ? err.message : "Unknown error";
+                              if (msg.includes("404")) {
+                                setLinkedinError("No LinkedIn profile found for this company.");
+                              } else if (msg.includes("401") || msg.includes("403")) {
+                                setLinkedinError("Please sign in to use this feature.");
+                              } else {
+                                setLinkedinError(`LinkedIn insights failed: ${msg}`);
+                              }
+                            } finally {
+                              setLinkedinScrapeLoading(false);
+                            }
+                          }}
+                          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-400 transition-colors disabled:opacity-50"
+                        >
+                          {linkedinScrapeLoading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                          ) : (
+                            <svg className="h-3.5 w-3.5 text-[#0A66C2]" viewBox="0 0 24 24" fill="currentColor"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" /></svg>
+                          )}
+                          AI Insights: LinkedIn
+                        </button>
+                        {linkedinError && <p className="text-[10px] text-red-500">{linkedinError}</p>}
+                      </div>
                     )}
                   </div>
 
-                  {/* Website scrape result */}
+                  {/* Website AI Insights result */}
                   {websiteScrape && (
                     <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
                       <div className="flex items-center gap-2">
@@ -1545,7 +1625,7 @@ export default function CompanyDetailPage(props: {
                     </div>
                   )}
 
-                  {/* LinkedIn scrape result */}
+                  {/* LinkedIn AI Insights result */}
                   {linkedinScrape && (
                     <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
                       <div className="flex items-center gap-2">
