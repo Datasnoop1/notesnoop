@@ -545,3 +545,6 @@ export interface SectorBenchmark {
 
 export const getSectorBenchmark = (cbe: string) =>
   apiFetch<SectorBenchmark>(`/api/companies/${cbe}/sector-benchmark`);
+
+export const getSimilarCompanies = (cbe: string) =>
+  apiFetch<{ enterprise_number: string; name: string; city: string; revenue: number | null; ebitda: number | null; fte_total: number | null; fiscal_year: number }[]>(`/api/companies/${cbe}/similar`);
