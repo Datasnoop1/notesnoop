@@ -539,7 +539,7 @@ async def admin_payments(user=Depends(_require_admin)):
 # ---------------------------------------------------------------------------
 
 _SITE_CONFIG_DEFAULTS = {
-    "site_logo": "/logos/dog-b-indigo.svg",
+    "site_logo": "/logos/dog-telescope.jpg",
 }
 
 

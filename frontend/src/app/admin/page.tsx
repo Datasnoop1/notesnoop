@@ -454,7 +454,7 @@ export default function AdminPanel() {
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
   const [tierSaving, setTierSaving] = useState<string | null>(null);
   const [tierToggling, setTierToggling] = useState(false);
-  const [siteLogo, setSiteLogo] = useState<string>("/logos/dog-b-indigo.svg");
+  const [siteLogo, setSiteLogo] = useState<string>("/logos/dog-telescope.jpg");
   const [logoSaving, setLogoSaving] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -477,7 +477,7 @@ export default function AdminPanel() {
         adminFetch<typeof usageData>("/api/admin/usage").catch(() => null),
         adminFetch<PaymentsData>("/api/admin/payments").catch(() => null),
         adminFetch<TierConfig[]>("/api/admin/tiers").catch(() => [] as TierConfig[]),
-        adminFetch<{ site_logo: string }>("/api/admin/site-config").catch(() => ({ site_logo: "/logos/dog-b-indigo.svg" })),
+        adminFetch<{ site_logo: string }>("/api/admin/site-config").catch(() => ({ site_logo: "/logos/dog-telescope.jpg" })),
       ]);
       setStats(s);
       setUsers(u);
@@ -2881,7 +2881,7 @@ export default function AdminPanel() {
                   {[
                     { path: "/logo.svg", label: "Mountain peak" },
                     { path: "/logos/dog-a-warm.svg", label: "Dog - warm" },
-                    { path: "/logos/dog-b-indigo.svg", label: "Dog - indigo" },
+                    { path: "/logos/dog-telescope.jpg", label: "Dog - indigo" },
                     { path: "/logos/dog-c-teal.svg", label: "Dog - teal" },
                     { path: "/logos/datasnoop-logo-1-magnifier.svg", label: "Magnifier" },
                     { path: "/logos/datasnoop-logo-2-eye.svg", label: "Eye" },
