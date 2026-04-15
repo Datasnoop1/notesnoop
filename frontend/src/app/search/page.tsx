@@ -7,9 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { searchCompanies, searchPeople } from "@/lib/api";
 import type { SearchResult, PersonResult } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct } from "@/lib/format";
+import { useTranslation } from "@/components/language-provider";
 import { Search, Building, Users, Loader2, ArrowRight } from "lucide-react";
 
 export default function UnifiedSearchPage() {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [companies, setCompanies] = useState<SearchResult[]>([]);
   const [people, setPeople] = useState<PersonResult[]>([]);
@@ -51,7 +53,7 @@ export default function UnifiedSearchPage() {
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
           <Input
-            placeholder="Search companies and people..."
+            placeholder={t("search.placeholder")}
             value={query}
             onChange={(e) => doSearch(e.target.value)}
             className="pl-12 h-12 text-base rounded-xl border-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-200"
@@ -63,7 +65,7 @@ export default function UnifiedSearchPage() {
         </div>
         {!searched && (
           <p className="text-center text-xs text-slate-400 mt-3">
-            Search by company name, CBE number, or person name
+            {t("search.hint")}
           </p>
         )}
       </div>
@@ -76,7 +78,7 @@ export default function UnifiedSearchPage() {
           {(companies.length > 0 || people.length > 0) && (
             <div>
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2 mb-3">
-                Top Results
+                {t("search.topResults")}
               </h2>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {/* Top companies */}
@@ -145,7 +147,7 @@ export default function UnifiedSearchPage() {
               <div className="flex items-center gap-2 mb-3">
                 <Building className="w-4 h-4 text-indigo-500" />
                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  All Companies
+                  {t("search.allCompanies")}
                 </h2>
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                   {companies.length}
@@ -185,7 +187,7 @@ export default function UnifiedSearchPage() {
               <div className="flex items-center gap-2 mb-3">
                 <Users className="w-4 h-4 text-emerald-500" />
                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  All People
+                  {t("search.allPeople")}
                 </h2>
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                   {people.length}
@@ -220,7 +222,7 @@ export default function UnifiedSearchPage() {
           {/* No results */}
           {companies.length === 0 && people.length === 0 && !loading && (
             <div className="rounded-lg border border-dashed border-slate-200 p-8 text-center">
-              <p className="text-sm text-slate-400">No results found for &ldquo;{query}&rdquo;</p>
+              <p className="text-sm text-slate-400">{t("search.noResults", { query })}</p>
             </div>
           )}
         </div>
@@ -232,15 +234,15 @@ export default function UnifiedSearchPage() {
           <Link href="/company">
             <div className="rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group text-center">
               <Building className="w-8 h-8 text-indigo-400 mx-auto mb-2 group-hover:text-indigo-600 transition-colors" />
-              <h3 className="text-sm font-semibold text-slate-700">Browse Companies</h3>
-              <p className="text-[11px] text-slate-400 mt-1">Search by name or CBE number</p>
+              <h3 className="text-sm font-semibold text-slate-700">{t("search.browseCompanies")}</h3>
+              <p className="text-[11px] text-slate-400 mt-1">{t("search.browseCompaniesDesc")}</p>
             </div>
           </Link>
           <Link href="/people">
             <div className="rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-emerald-200 transition-all cursor-pointer group text-center">
               <Users className="w-8 h-8 text-emerald-400 mx-auto mb-2 group-hover:text-emerald-600 transition-colors" />
-              <h3 className="text-sm font-semibold text-slate-700">Browse People</h3>
-              <p className="text-[11px] text-slate-400 mt-1">Find administrators & shareholders</p>
+              <h3 className="text-sm font-semibold text-slate-700">{t("search.browsePeople")}</h3>
+              <p className="text-[11px] text-slate-400 mt-1">{t("search.browsePeopleDesc")}</p>
             </div>
           </Link>
         </div>

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Inter, DM_Sans } from "next/font/google";
 import { Geist } from "next/font/google";
-import Link from "next/link";
 import Nav from "@/components/nav";
 import AdBanner from "@/components/ad-banner";
 import BrandSurvey from "@/components/brand-survey";
