@@ -16,6 +16,7 @@ import {
   ExternalLink,
   ThumbsUp,
   ThumbsDown,
+  RefreshCw,
 } from "lucide-react";
 import type { AiInsights } from "@/lib/api";
 
@@ -28,6 +29,7 @@ interface InsightsOverlayProps {
   loading: boolean;
   companyName: string;
   onGenerate: () => void;
+  onRegenerate?: () => void;
   onFeedback?: (feedback: { overall: "up" | "down"; websiteCorrect?: boolean; linkedinCorrect?: boolean; insightCorrect?: boolean; comment?: string }) => void;
 }
 
@@ -125,6 +127,7 @@ export function InsightsOverlay({
   loading,
   companyName,
   onGenerate,
+  onRegenerate,
   onFeedback,
 }: InsightsOverlayProps) {
   const [feedbackGiven, setFeedbackGiven] = useState<"up" | "down" | null>(null);
@@ -233,12 +236,24 @@ export function InsightsOverlay({
                 <p className="text-[11px] text-slate-400">{companyName}</p>
               </div>
             </div>
-            <button
-              onClick={onClose}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              {insights && onRegenerate && (
+                <button
+                  onClick={() => { setFeedbackGiven(null); setWebsiteOk(null); setLinkedinOk(null); setInsightOk(null); onRegenerate(); }}
+                  disabled={loading}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 transition-colors disabled:opacity-50"
+                  title="Regenerate insights"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           {/* Content */}

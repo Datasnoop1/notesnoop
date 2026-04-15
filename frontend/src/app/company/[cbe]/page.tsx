@@ -27,6 +27,7 @@ import {
   scrapeCompanyWebsite,
   scrapeCompanyLinkedIn,
   generateAiInsights,
+  submitInsightsFeedback,
 } from "@/lib/api";
 import type { SectorBenchmark, SimilarCompany, AiInsights } from "@/lib/api";
 import { fmtCbe } from "@/lib/format";
@@ -441,6 +442,28 @@ export default function CompanyDetailPage(props: {
     }
   }, [cbe]);
 
+  const handleRegenerateInsights = useCallback(async () => {
+    setAiInsights(null);
+    setAiInsightsLoading(true);
+    try {
+      const result = await generateAiInsights(cbe);
+      setAiInsights(result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      console.error("AI insights regeneration failed:", msg);
+    } finally {
+      setAiInsightsLoading(false);
+    }
+  }, [cbe]);
+
+  const handleInsightsFeedback = useCallback(async (feedback: { overall: "up" | "down"; websiteCorrect?: boolean; linkedinCorrect?: boolean; insightCorrect?: boolean; comment?: string }) => {
+    try {
+      await submitInsightsFeedback(cbe, feedback);
+    } catch (err: unknown) {
+      console.error("Failed to submit insights feedback:", err instanceof Error ? err.message : err);
+    }
+  }, [cbe]);
+
   const handleEnrichPerson = useCallback(async (name: string) => {
     if (personEnrichments[name]?.summary || personEnrichments[name]?.loading) return;
     setPersonEnrichments((prev) => ({
@@ -752,6 +775,8 @@ export default function CompanyDetailPage(props: {
         loading={aiInsightsLoading}
         companyName={detail.name || fmtCbe(cbe)}
         onGenerate={handleGenerateInsights}
+        onRegenerate={handleRegenerateInsights}
+        onFeedback={handleInsightsFeedback}
       />
 
       {/* Auto-load overlay (centered) */}
