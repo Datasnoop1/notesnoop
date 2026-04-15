@@ -29,6 +29,7 @@ import {
   Layers,
   Loader2,
   Star,
+  Building2,
 } from "lucide-react";
 import FavouritesDialog from "@/components/favourites-dialog";
 
@@ -325,6 +326,7 @@ export default function AggregatePage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
+          <Layers className="w-5 h-5 inline mr-2 -mt-0.5 text-slate-400" />
           Aggregate Portfolio
         </h1>
         <p className="text-sm text-slate-500 mt-1">
@@ -532,7 +534,8 @@ export default function AggregatePage() {
 
           {/* Per-company breakdown */}
           <details className="group">
-            <summary className="cursor-pointer text-sm text-indigo-600 font-medium hover:text-indigo-800 select-none">
+            <summary className="cursor-pointer text-sm text-indigo-600 font-medium hover:text-indigo-800 select-none flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5 text-slate-400" />
               Show per-company breakdown
             </summary>
             <div className="mt-3 border border-slate-200 rounded-lg bg-white overflow-x-auto">

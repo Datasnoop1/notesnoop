@@ -984,7 +984,8 @@ export default function FavouritesPage() {
 
       {/* ── Favourites list ──────────────────────────────── */}
       <div className="space-y-3">
-        <h2 className="text-sm font-semibold text-slate-700">
+        <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+          <Star className="w-3.5 h-3.5 text-slate-400" />
           All Favourites
         </h2>
 

@@ -13,7 +13,7 @@ import {
 } from "@/lib/api";
 import type { SearchResult, CompanyDetail, FinancialYear } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
-import { Search, X, Plus, Download, ArrowUpDown, Loader2 } from "lucide-react";
+import { Search, X, Plus, Download, ArrowUpDown, Loader2, GitCompareArrows } from "lucide-react";
 import FavouritesDialog from "@/components/favourites-dialog";
 
 /* ------------------------------------------------------------------ */
@@ -620,6 +620,7 @@ export default function ComparePage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-slate-900">
+          <GitCompareArrows className="w-5 h-5 inline mr-2 -mt-0.5 text-slate-400" />
           Compare Companies
         </h1>
         <p className="text-sm text-slate-500 mt-1">
@@ -793,6 +794,7 @@ export default function ComparePage() {
 
       {companies.length === 1 && (
         <div className="border border-dashed border-slate-300 rounded-lg p-8 text-center">
+          <Plus className="h-6 w-6 text-slate-300 mx-auto mb-2" />
           <p className="text-sm text-slate-500">
             Add at least one more company to compare.
           </p>
