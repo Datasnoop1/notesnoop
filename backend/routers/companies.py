@@ -1300,9 +1300,9 @@ async def get_similar_companies(cbe: str):
             return []
 
         if revenue and revenue > 0:
-            # Find companies in same sector with revenue within 0.5x to 2x
-            rev_min = float(revenue) * 0.5
-            rev_max = float(revenue) * 2.0
+            # Find companies in same sector with revenue within 0.1x to 10x
+            rev_min = float(revenue) * 0.1
+            rev_max = float(revenue) * 10.0
             rows = fetch_all("""
                 SELECT ci.enterprise_number, ci.name, ci.city,
                        fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
@@ -1780,7 +1780,7 @@ async def scrape_company_website(cbe: str, user=Depends(get_current_user)):
     if not html:
         raise HTTPException(
             status_code=502,
-            detail="Could not scrape the website — check ZENROWS_API_KEY or try again later",
+            detail="Could not retrieve website data — check ZENROWS_API_KEY or try again later",
         )
 
     # 3. Extract text from HTML
@@ -1882,7 +1882,7 @@ async def scrape_company_linkedin(cbe: str, user=Depends(get_current_user)):
     if not html:
         raise HTTPException(
             status_code=502,
-            detail="Could not scrape LinkedIn — check ZENROWS_API_KEY or try again later",
+            detail="Could not retrieve LinkedIn data — check ZENROWS_API_KEY or try again later",
         )
 
     # 3. Extract text from HTML
