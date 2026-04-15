@@ -1949,6 +1949,38 @@ export default function AdminPanel() {
           <div className="space-y-4 pt-2">
             <SectionHeading icon={Clock}>Activity Timeline</SectionHeading>
 
+            {/* Guest vs Registered summary */}
+            {activityLog.length > 0 && (() => {
+              const anonEntries = activityLog.filter(e => e.user_email?.startsWith("anon:"));
+              const authEntries = activityLog.filter(e => e.user_email && !e.user_email.startsWith("anon:"));
+              const uniqueGuests = new Set(anonEntries.map(e => e.user_email)).size;
+              const uniqueRegistered = new Set(authEntries.map(e => e.user_email)).size;
+              return (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                  <Card className="bg-white"><CardContent className="p-3 text-center">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Registered Users</div>
+                    <div className="text-lg font-bold text-indigo-600">{uniqueRegistered}</div>
+                    <div className="text-[10px] text-slate-400">{authEntries.length} requests</div>
+                  </CardContent></Card>
+                  <Card className="bg-white"><CardContent className="p-3 text-center">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Guest Visitors</div>
+                    <div className="text-lg font-bold text-orange-500">{uniqueGuests}</div>
+                    <div className="text-[10px] text-slate-400">{anonEntries.length} requests</div>
+                  </CardContent></Card>
+                  <Card className="bg-white"><CardContent className="p-3 text-center">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Total Requests</div>
+                    <div className="text-lg font-bold text-slate-800">{activityLog.length}</div>
+                    <div className="text-[10px] text-slate-400">last 200 shown</div>
+                  </CardContent></Card>
+                  <Card className="bg-white"><CardContent className="p-3 text-center">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Guest %</div>
+                    <div className="text-lg font-bold text-orange-500">{activityLog.length > 0 ? Math.round(anonEntries.length / activityLog.length * 100) : 0}%</div>
+                    <div className="text-[10px] text-slate-400">of total traffic</div>
+                  </CardContent></Card>
+                </div>
+              );
+            })()}
+
             {activityLog.length === 0 ? (
               <Card className="bg-white">
                 <CardContent>
@@ -2037,9 +2069,15 @@ export default function AdminPanel() {
                                       {entry.endpoint.replace("/api/", "")}
                                     </span>
                                   </div>
-                                  <div className="text-[11px] text-slate-400 mt-0.5">
-                                    {entry.user_email?.split("@")[0] || "anonymous"}
-                                    <span className="mx-1.5 text-slate-300">·</span>
+                                  <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5">
+                                    {entry.user_email?.startsWith("anon:") ? (
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 text-[9px] font-semibold">
+                                        <Globe className="size-2.5" /> Guest {entry.user_email.replace("anon:", "").split(".").slice(0, 2).join(".")}…
+                                      </span>
+                                    ) : (
+                                      <span>{entry.user_email?.split("@")[0] || "unknown"}</span>
+                                    )}
+                                    <span className="text-slate-300">·</span>
                                     {formatTime(entry.created_at)}
                                   </div>
                                 </div>
