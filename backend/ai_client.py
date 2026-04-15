@@ -209,17 +209,39 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             except (json.JSONDecodeError, TypeError):
                 pass
 
-    # ── STEP 1: URL Discovery (cheap model) ─────────────────────
+    # ── Gather corporate structure for context ───────────────────
+    shareholders_rows = fetch_all("""
+        SELECT name, ownership_pct FROM shareholder
+        WHERE enterprise_number = %s ORDER BY ownership_pct DESC NULLS LAST LIMIT 5
+    """, (cbe,))
+    subsidiaries_rows = fetch_all("""
+        SELECT name, ownership_pct, country FROM participating_interest
+        WHERE enterprise_number = %s ORDER BY ownership_pct DESC NULLS LAST LIMIT 5
+    """, (cbe,))
+    shareholder_names = [r["name"] for r in shareholders_rows if r.get("name")] if shareholders_rows else []
+    subsidiary_names = [r["name"] for r in subsidiaries_rows if r.get("name")] if subsidiaries_rows else []
+
+    # ── STEP 1: URL Discovery ──────────────────────────────────
     website_url = known_website
     linkedin_url = ""
 
     if not website_url:
+        structure_context = ""
+        if shareholder_names:
+            structure_context += f"- Shareholders: {', '.join(shareholder_names[:3])}\n"
+        if subsidiary_names:
+            structure_context += f"- Subsidiaries: {', '.join(subsidiary_names[:3])}\n"
+
         url_prompt = (
             f"Given a Belgian company:\n"
             f"- Name: {name}\n"
             f"- City: {city}\n"
-            f"- Sector: {sector}\n\n"
+            f"- Sector: {sector}\n"
+            f"- Registered address: {kbo_address}\n"
+            f"{structure_context}\n"
             "What is the most likely company website URL? "
+            "Use the shareholders/subsidiaries as extra clues — the company may be a subsidiary "
+            "of a larger group, or the website may be under the parent company's domain.\n"
             "Also guess the LinkedIn company page URL.\n"
             'Return ONLY JSON: {{"website_url": "...", "linkedin_url": "..."}}\n'
             "If you cannot determine a URL, use an empty string."
@@ -342,6 +364,12 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         f"Sector (NACE): {sector}\n"
         f"Financials: {financial_summary}\n"
     )
+    if shareholder_names:
+        insight_prompt += f"Shareholders: {', '.join(shareholder_names)}\n"
+    if subsidiary_names:
+        insight_prompt += f"Subsidiaries: {', '.join(subsidiary_names)}\n"
+    if admin_names:
+        insight_prompt += f"Current administrators: {admin_names}\n"
     if website_text:
         insight_prompt += f"\n--- Company website text ---\n{website_text}\n"
     if linkedin_text:
