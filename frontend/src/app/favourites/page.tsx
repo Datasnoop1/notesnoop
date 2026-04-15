@@ -36,6 +36,7 @@ import {
   uploadSuppliers,
   removeCustomer,
   removeSupplier,
+  suggestSimilarCustomers,
   type FavouriteItem,
   type FavouriteProject,
   type PeopleFavourite,
@@ -43,6 +44,7 @@ import {
   type SearchResult,
   type CustomerSupplierItem,
   type CsUploadResult,
+  type SimilarCustomerSuggestion,
 } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
 import {
@@ -60,6 +62,7 @@ import {
   FileSpreadsheet,
   Truck,
   Search,
+  Sparkles,
 } from "lucide-react";
 
 /* ---------- skeleton ---------- */
@@ -750,6 +753,10 @@ export default function FavouritesPage() {
   const [peopleSearchResults, setPeopleSearchResults] = useState<PersonResult[]>([]);
   const [peopleSearching, setPeopleSearching] = useState(false);
   const [addingPerson, setAddingPerson] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<SimilarCustomerSuggestion[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [addingSuggestion, setAddingSuggestion] = useState<string | null>(null);
 
   const loadFavourites = useCallback(async () => {
     try {
@@ -1013,6 +1020,39 @@ export default function FavouritesPage() {
       console.error("Failed to remove supplier:", err);
     } finally {
       setRemovingSupplier(null);
+    }
+  }
+
+  async function handleSuggestSimilar() {
+    setSuggestLoading(true);
+    setSuggestError(null);
+    setSuggestions([]);
+    try {
+      const data = await suggestSimilarCustomers();
+      setSuggestions(data);
+      if (data.length === 0) {
+        setSuggestError("No similar companies found. Add more customers to improve suggestions.");
+      }
+    } catch (err) {
+      console.error("Suggest similar failed:", err);
+      setSuggestError("Failed to generate suggestions. Please try again.");
+    } finally {
+      setSuggestLoading(false);
+    }
+  }
+
+  async function handleAddSuggestionAsCustomer(cbe: string) {
+    setAddingSuggestion(cbe);
+    try {
+      await uploadCustomers([cbe]);
+      // Remove from suggestions list
+      setSuggestions((prev) => prev.filter((s) => s.enterprise_number !== cbe));
+      // Reload customers list
+      loadCustomers();
+    } catch (err) {
+      console.error("Failed to add suggestion as customer:", err);
+    } finally {
+      setAddingSuggestion(null);
     }
   }
 
@@ -1439,18 +1479,107 @@ export default function FavouritesPage() {
 
       {/* ── Customers ──────────────────────────────────────── */}
       {activeTab === "customers" && (
-        <CsTab
-          listType="customer"
-          items={customers}
-          loading={loadingCustomers}
-          uploading={uploadingCustomers}
-          uploadResult={customerUploadResult}
-          removing={removingCustomer}
-          onUpload={handleCustomerUpload}
-          onUploadCbes={handleCustomerCbes}
-          onRemove={handleRemoveCustomer}
-          onClearResult={() => setCustomerUploadResult(null)}
-        />
+        <div className="space-y-4">
+          <CsTab
+            listType="customer"
+            items={customers}
+            loading={loadingCustomers}
+            uploading={uploadingCustomers}
+            uploadResult={customerUploadResult}
+            removing={removingCustomer}
+            onUpload={handleCustomerUpload}
+            onUploadCbes={handleCustomerCbes}
+            onRemove={handleRemoveCustomer}
+            onClearResult={() => setCustomerUploadResult(null)}
+          />
+
+          {/* Suggest Similar button */}
+          {!loadingCustomers && customers.length >= 2 && (
+            <div className="pt-2">
+              <Button
+                onClick={handleSuggestSimilar}
+                disabled={suggestLoading}
+                className="bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white text-sm gap-2"
+              >
+                {suggestLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {suggestLoading ? "Analyzing customer profile..." : "Suggest Similar Companies"}
+                <span className="inline-flex items-center rounded-full bg-white/20 text-white px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider ml-1">Premium</span>
+              </Button>
+            </div>
+          )}
+
+          {/* Error state */}
+          {suggestError && !suggestLoading && (
+            <div className="flex items-center justify-between rounded-lg bg-amber-50 border border-amber-200 px-4 py-2.5">
+              <span className="text-sm text-amber-800">{suggestError}</span>
+              <button onClick={() => setSuggestError(null)} className="text-amber-600 hover:text-amber-800 p-0.5">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Suggestions results */}
+          {suggestions.length > 0 && (
+            <Card className="bg-white overflow-hidden border-indigo-200">
+              <div className="px-4 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-indigo-100 flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-indigo-500" />
+                <h3 className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  AI-Suggested Similar Companies
+                </h3>
+                <Badge variant="secondary" className="text-[10px] ml-auto">{suggestions.length} suggestions</Badge>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {suggestions.map((s) => (
+                  <div key={s.enterprise_number} className="px-4 py-3 hover:bg-indigo-50/30 transition-colors">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Link
+                            href={`/company/${s.enterprise_number}`}
+                            className="text-sm font-medium text-indigo-600 hover:text-indigo-800 hover:underline"
+                          >
+                            {s.name}
+                          </Link>
+                          {s.nace_code && (
+                            <span className="text-[10px] text-slate-400 font-mono">{s.nace_code}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5">
+                          <span className="text-xs text-slate-500">{s.city || "\u2014"}</span>
+                          {s.revenue != null && (
+                            <span className="text-xs font-mono text-slate-500">{fmtEur(s.revenue)}</span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600 italic leading-relaxed">
+                          <Sparkles className="h-3 w-3 text-indigo-400 inline mr-1 -mt-0.5" />
+                          {s.reason}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 text-xs h-8 gap-1.5 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                        onClick={() => handleAddSuggestionAsCustomer(s.enterprise_number)}
+                        disabled={addingSuggestion === s.enterprise_number}
+                      >
+                        {addingSuggestion === s.enterprise_number ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5" />
+                        )}
+                        Add as Customer
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+        </div>
       )}
 
       {/* ── Suppliers ──────────────────────────────────────── */}

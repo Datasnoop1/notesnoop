@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from db import fetch_all, fetch_one, execute
 from auth import get_current_user, optional_user
+from ai_client import ai_complete
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/favourites", tags=["favourites"])
@@ -581,6 +582,190 @@ async def remove_customer(cbe: str, user=Depends(get_current_user)):
     except Exception as e:
         logger.exception("Remove customer failed")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ── Suggest Similar Customers (AI-powered, Premium) ────────────
+
+@router.post("/customers/suggest-similar")
+async def suggest_similar_customers(user=Depends(get_current_user)):
+    """Analyze the user's customer list and suggest similar companies using AI."""
+    _ensure_cs_tables_once()
+    try:
+        # 1. Get customer enterprise_numbers
+        customer_rows = fetch_all(
+            "SELECT enterprise_number FROM customer_supplier_list WHERE user_id = %s AND list_type = 'customer'",
+            (user["id"],),
+        )
+        if not customer_rows:
+            return []
+
+        customer_cbes = [r["enterprise_number"] for r in customer_rows]
+        placeholders = ",".join(["%s"] * len(customer_cbes))
+
+        # 2. Get NACE codes of customers
+        nace_rows = fetch_all(f"""
+            SELECT ci.nace_code, COUNT(*) AS cnt
+            FROM company_info ci
+            WHERE ci.enterprise_number IN ({placeholders})
+              AND ci.nace_code IS NOT NULL AND ci.nace_code != ''
+            GROUP BY ci.nace_code
+            ORDER BY cnt DESC
+            LIMIT 10
+        """, tuple(customer_cbes))
+        nace_codes = [r["nace_code"] for r in nace_rows]
+        if not nace_codes:
+            return []
+
+        # 3. Get revenue range of customers
+        rev_row = fetch_one(f"""
+            SELECT MIN(fl.revenue) AS min_rev, MAX(fl.revenue) AS max_rev,
+                   AVG(fl.revenue) AS avg_rev
+            FROM financial_latest fl
+            WHERE fl.enterprise_number IN ({placeholders})
+              AND fl.revenue IS NOT NULL AND fl.revenue > 0
+        """, tuple(customer_cbes))
+        min_rev = float(rev_row["min_rev"]) if rev_row and rev_row["min_rev"] else None
+        max_rev = float(rev_row["max_rev"]) if rev_row and rev_row["max_rev"] else None
+
+        # 4. Get common zipcodes/regions of customers
+        zip_rows = fetch_all(f"""
+            SELECT ci.zipcode, COUNT(*) AS cnt
+            FROM company_info ci
+            WHERE ci.enterprise_number IN ({placeholders})
+              AND ci.zipcode IS NOT NULL AND ci.zipcode != ''
+            GROUP BY ci.zipcode
+            ORDER BY cnt DESC
+            LIMIT 10
+        """, tuple(customer_cbes))
+        zipcodes = [r["zipcode"] for r in zip_rows]
+
+        # 5. Find similar companies NOT in the customer list
+        nace_ph = ",".join(["%s"] * len(nace_codes))
+        cust_ph = ",".join(["%s"] * len(customer_cbes))
+
+        # Build revenue filter
+        rev_filter = ""
+        rev_params: list = []
+        if min_rev is not None and max_rev is not None:
+            # Expand range by 50% on each side for broader matches
+            low = min_rev * 0.5
+            high = max_rev * 1.5
+            rev_filter = "AND fl.revenue BETWEEN %s AND %s"
+            rev_params = [low, high]
+
+        # Region bonus: order by zipcode match first
+        zip_case = ""
+        zip_params: list = []
+        if zipcodes:
+            zip_ph = ",".join(["%s"] * len(zipcodes))
+            zip_case = f", CASE WHEN ci.zipcode IN ({zip_ph}) THEN 1 ELSE 0 END AS region_match"
+            zip_params = zipcodes
+
+        query = f"""
+            SELECT ci.enterprise_number,
+                   COALESCE(ci.name, d.denomination) AS name,
+                   ci.city, ci.nace_code,
+                   fl.revenue
+                   {zip_case}
+            FROM company_info ci
+            LEFT JOIN LATERAL (
+                SELECT denomination FROM denomination
+                WHERE entity_number = ci.enterprise_number
+                  AND type_of_denomination = '001'
+                ORDER BY CASE language WHEN '2' THEN 1 WHEN '1' THEN 2 ELSE 3 END
+                LIMIT 1
+            ) d ON true
+            LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+            JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
+            WHERE ci.nace_code IN ({nace_ph})
+              AND ci.enterprise_number NOT IN ({cust_ph})
+              AND e.status = '0'
+              {rev_filter}
+              AND (ci.name IS NOT NULL OR d.denomination IS NOT NULL)
+            ORDER BY
+                {('region_match DESC, ' if zipcodes else '')}
+                fl.revenue DESC NULLS LAST
+            LIMIT 40
+        """
+        params = (*zip_params, *nace_codes, *customer_cbes, *rev_params)
+        candidates = fetch_all(query, params)
+
+        if not candidates:
+            return []
+
+        # Take top 20
+        candidates = candidates[:20]
+
+        # 6. Use AI to generate a short reason for each match
+        customer_profile = (
+            f"NACE sectors: {', '.join(nace_codes[:5])}. "
+            f"Revenue range: {fmtEurBackend(min_rev)} - {fmtEurBackend(max_rev)}. "
+            f"Common regions (zipcodes): {', '.join(zipcodes[:5]) if zipcodes else 'various'}."
+        )
+
+        candidate_lines = []
+        for c in candidates:
+            candidate_lines.append(
+                f"- {c['name']} (NACE: {c.get('nace_code','?')}, City: {c.get('city','?')}, Revenue: {fmtEurBackend(c.get('revenue'))})"
+            )
+
+        prompt = (
+            f"A user's customer list has this profile:\n{customer_profile}\n\n"
+            f"Here are candidate companies similar to their customers:\n"
+            + "\n".join(candidate_lines) +
+            "\n\nFor each company, write ONE short sentence (max 15 words) explaining "
+            "why it matches the customer profile. Focus on sector, size, or region fit. "
+            "Return ONLY a numbered list like:\n1. [reason]\n2. [reason]\n..."
+        )
+
+        ai_text = await ai_complete(prompt, system="You are a concise business analyst. Give brief reasons why each company matches a customer profile.")
+
+        # Parse AI reasons
+        reasons: list[str] = []
+        if ai_text:
+            for line in ai_text.strip().split("\n"):
+                line = line.strip()
+                if line and line[0].isdigit():
+                    # Remove "1. " prefix
+                    parts = line.split(".", 1)
+                    if len(parts) > 1:
+                        reasons.append(parts[1].strip())
+                    else:
+                        reasons.append(line)
+
+        # Build result
+        result = []
+        for i, c in enumerate(candidates):
+            reason = reasons[i] if i < len(reasons) else "Similar sector and company profile"
+            result.append({
+                "enterprise_number": c["enterprise_number"],
+                "name": c.get("name") or c["enterprise_number"],
+                "city": c.get("city") or "",
+                "revenue": float(c["revenue"]) if c.get("revenue") else None,
+                "nace_code": c.get("nace_code") or "",
+                "reason": reason,
+            })
+
+        return result
+
+    except Exception as e:
+        logger.exception("Suggest similar customers failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def fmtEurBackend(val) -> str:
+    """Format a numeric value as EUR string for AI prompts."""
+    if val is None:
+        return "N/A"
+    try:
+        v = float(val)
+        if abs(v) >= 1_000_000:
+            return f"\u20ac{v/1_000_000:.1f}M"
+        if abs(v) >= 1_000:
+            return f"\u20ac{v/1_000:.0f}K"
+        return f"\u20ac{v:.0f}"
+    except (ValueError, TypeError):
+        return "N/A"
 
 
 # Suppliers
