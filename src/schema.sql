@@ -314,6 +314,7 @@ CREATE TABLE IF NOT EXISTS administrator (
 
 CREATE INDEX IF NOT EXISTS idx_admin_ent ON administrator(enterprise_number);
 CREATE INDEX IF NOT EXISTS idx_admin_name_type ON administrator(person_type, name);
+CREATE INDEX IF NOT EXISTS idx_admin_name_trgm ON administrator USING GIN (name gin_trgm_ops);
 
 CREATE TABLE IF NOT EXISTS participating_interest (
     enterprise_number   TEXT NOT NULL,
@@ -345,6 +346,7 @@ CREATE TABLE IF NOT EXISTS shareholder (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sh_ent ON shareholder(enterprise_number);
+CREATE INDEX IF NOT EXISTS idx_sh_name_trgm ON shareholder USING GIN (name gin_trgm_ops);
 
 -- ============================================================
 -- Materialized/pre-computed tables (populated by pipeline.py)

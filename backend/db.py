@@ -158,10 +158,19 @@ def ensure_trgm_setup():
         """, (_BELGIAN_SUFFIXES_RE,))
         normalized_count = cur.rowcount
 
-        # 4. Create GIN trigram index
+        # 4. Create GIN trigram indexes
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_ci_name_trgm
             ON company_info USING GIN (name_normalized gin_trgm_ops);
+        """)
+        # 5. GIN trigram indexes on people tables for ILIKE searches
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_admin_name_trgm
+            ON administrator USING GIN (name gin_trgm_ops);
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sh_name_trgm
+            ON shareholder USING GIN (name gin_trgm_ops);
         """)
 
         conn.commit()
