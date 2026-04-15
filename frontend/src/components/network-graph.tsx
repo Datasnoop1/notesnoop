@@ -340,6 +340,10 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
               nodeColor={nodeColor}
               nodeLabel={(node: { label?: string }) => node.label || ""}
               nodeRelSize={6}
+              d3VelocityDecay={0.3}
+              d3AlphaDecay={0.02}
+              linkDistance={120}
+              dagLevelDistance={80}
               linkDirectionalArrowLength={4}
               linkDirectionalArrowRelPos={1}
               linkLabel={(link: { label?: string }) => link.label || ""}
