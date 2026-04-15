@@ -43,30 +43,38 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 
 class ActivityLogMiddleware(BaseHTTPMiddleware):
+    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard")
+
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        # Log authenticated API requests (not health checks or static)
         path = request.url.path
-        if path.startswith("/api/") and path != "/api/health":
-            auth = request.headers.get("authorization", "")
-            if auth.startswith("Bearer "):
-                try:
-                    from auth import _decode_token
-                    payload = _decode_token(auth[7:])
-                    email = payload.get("email", "unknown")
-                    from db import execute
-                    # Auto-register user in user_roles (first login)
-                    execute(
-                        "INSERT INTO user_roles (email, role) VALUES (%s, 'user') ON CONFLICT (email) DO NOTHING",
-                        (email,),
-                    )
-                    # Log activity
-                    execute(
-                        "INSERT INTO activity_log (user_email, endpoint, method) VALUES (%s, %s, %s)",
-                        (email, path, request.method),
-                    )
-                except Exception:
-                    pass  # Don't break requests if logging fails
+        if path.startswith("/api/") and path not in self.SKIP_PATHS:
+            try:
+                from db import execute
+                email = None
+                auth = request.headers.get("authorization", "")
+                if auth.startswith("Bearer "):
+                    try:
+                        from auth import _decode_token
+                        payload = _decode_token(auth[7:])
+                        email = payload.get("email")
+                        if email:
+                            execute(
+                                "INSERT INTO user_roles (email, role) VALUES (%s, 'user') ON CONFLICT (email) DO NOTHING",
+                                (email,),
+                            )
+                    except Exception:
+                        pass
+
+                # Log for both authenticated and anonymous users
+                # Anonymous: store IP as "anon:<ip>"
+                user_label = email or f"anon:{get_client_ip(request)}"
+                execute(
+                    "INSERT INTO activity_log (user_email, endpoint, method) VALUES (%s, %s, %s)",
+                    (user_label, path, request.method),
+                )
+            except Exception:
+                pass
         return response
 
 app.add_middleware(ActivityLogMiddleware)
