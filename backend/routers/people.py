@@ -48,14 +48,14 @@ async def search_people(q: str = Query(..., min_length=1)):
             # Group by LOWER(name) to deduplicate case variations
             # (e.g. "Dries Bertrem" vs "Dries BERTREM"), display as INITCAP
             cur.execute("""
-                SELECT INITCAP(name) AS name,
+                SELECT INITCAP(MIN(name)) AS name,
                        COUNT(DISTINCT enterprise_number) AS n_admin_cos
                 FROM administrator
                 WHERE name ILIKE %s
                   AND person_type = 'natural'
                 GROUP BY LOWER(name)
                 UNION
-                SELECT INITCAP(name) AS name,
+                SELECT INITCAP(MIN(name)) AS name,
                        COUNT(DISTINCT enterprise_number) AS n_sh_cos
                 FROM shareholder
                 WHERE name ILIKE %s
