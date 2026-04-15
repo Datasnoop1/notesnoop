@@ -67,7 +67,12 @@ export default function LoginPage() {
   async function handleOAuth(provider: "google" | "linkedin_oidc") {
     setLoading(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithOAuth({ provider });
+    // On staging, we need explicit redirectTo since Supabase Site URL is production
+    const isStaging = window.location.hostname.includes("staging.");
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      ...(isStaging ? { options: { redirectTo: `${window.location.origin}/auth/callback` } } : {}),
+    });
     if (error) {
       setError(error.message);
       setLoading(false);
