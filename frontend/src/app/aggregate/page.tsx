@@ -284,7 +284,7 @@ export default function AggregatePage() {
         yearSet.add(fy.fiscal_year);
       }
     }
-    return Array.from(yearSet).sort((a, b) => b - a);
+    return Array.from(yearSet).sort((a, b) => a - b);
   }, [companies]);
 
   // Close dropdown on outside click
