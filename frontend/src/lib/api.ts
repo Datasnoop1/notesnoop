@@ -618,3 +618,77 @@ export const scrapeCompanyLinkedIn = (cbe: string) =>
   apiFetch<{ summary: string; employee_count: string; industry: string; specialties: string; linkedin_url: string }>(
     `/api/companies/${cbe}/scrape-linkedin`, { method: "POST" }
   );
+
+// ── Graveyard ─────────────────────────────────────────────
+export interface GraveyardStatusBucket {
+  status: string;
+  label: string;
+  count: number;
+}
+
+export interface GraveyardSituationBucket {
+  code: string;
+  label: string;
+  count: number;
+}
+
+export interface GraveyardDecadeBucket {
+  decade: number;
+  count: number;
+}
+
+export interface GraveyardOverview {
+  active_count: number;
+  non_active_count: number;
+  by_status: GraveyardStatusBucket[];
+  by_situation: GraveyardSituationBucket[];
+  by_decade: GraveyardDecadeBucket[];
+}
+
+export interface RepeatOffender {
+  name: string;
+  failed_count: number;
+  active_count: number;
+}
+
+export interface RepeatOffendersResponse {
+  offenders: RepeatOffender[];
+  total: number;
+}
+
+export interface FailedCompanyDetail {
+  enterprise_number: string;
+  company_name: string;
+  role: string | null;
+  role_label: string | null;
+  mandate_start: string | null;
+  mandate_end: string | null;
+  status?: string;
+  status_label?: string;
+  juridical_situation?: string;
+  situation_label?: string;
+  start_date?: string | null;
+  revenue: number | null;
+  ebitda: number | null;
+  fte_total: number | null;
+  fiscal_year: number | null;
+}
+
+export interface PersonCompaniesResponse {
+  name: string;
+  failed_companies: FailedCompanyDetail[];
+  active_companies: FailedCompanyDetail[];
+}
+
+export const getGraveyardOverview = () =>
+  apiFetch<GraveyardOverview>("/api/graveyard/overview");
+
+export const getRepeatOffenders = (minFailed = 2, limit = 100) =>
+  apiFetch<RepeatOffendersResponse>(
+    `/api/graveyard/repeat-offenders?min_failed=${minFailed}&limit=${limit}`
+  );
+
+export const getPersonFailedCompanies = (name: string) =>
+  apiFetch<PersonCompaniesResponse>(
+    `/api/graveyard/person/${encodeURIComponent(name)}/companies`
+  );
