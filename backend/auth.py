@@ -86,8 +86,7 @@ def _decode_token(token: str) -> dict:
                     token,
                     public_key,
                     algorithms=[alg],
-                    audience=_SUPABASE_AUDIENCES,
-                    options={"verify_aud": True},
+                    options={"verify_aud": False},
                 )
                 return payload
         except JWTError as e:
@@ -100,8 +99,7 @@ def _decode_token(token: str) -> dict:
                 token,
                 SUPABASE_JWT_SECRET,
                 algorithms=["HS256"],
-                audience=_SUPABASE_AUDIENCES,
-                options={"verify_aud": True},
+                options={"verify_aud": False},
             )
             return payload
         except JWTError as e:
