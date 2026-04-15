@@ -164,7 +164,7 @@ function ProjectCard({
                     className="fixed inset-0 z-40"
                     onClick={() => { setShowAddMenu(false); setAddSearch(""); setAddMode("search"); }}
                   />
-                  <div className="absolute right-0 top-full mt-1 z-50 w-[calc(100vw-3rem)] sm:w-96 max-w-[384px] bg-white border border-slate-200 rounded-lg shadow-xl">
+                  <div className="absolute right-0 top-full mt-1 z-50 w-[calc(100vw-2rem)] sm:w-[28rem] max-w-[28rem] bg-white border border-slate-200 rounded-lg shadow-xl">
                     {/* Tab toggle: Search / From Favourites */}
                     <div className="flex border-b border-slate-100">
                       <button
@@ -201,7 +201,7 @@ function ProjectCard({
                             autoFocus
                           />
                         </div>
-                        <div className="max-h-72 overflow-y-auto">
+                        <div className="max-h-80 overflow-y-auto">
                           {addSearch.length < 2 ? (
                             <p className="text-xs text-slate-400 p-4 text-center">
                               Type at least 2 characters to search
@@ -244,7 +244,7 @@ function ProjectCard({
 
                     {/* From Favourites mode */}
                     {addMode === "favourites" && (
-                      <div className="max-h-72 overflow-y-auto">
+                      <div className="max-h-80 overflow-y-auto">
                         {availableFavourites.length === 0 ? (
                           <p className="text-xs text-slate-400 p-4 text-center">
                             {favourites.length === 0

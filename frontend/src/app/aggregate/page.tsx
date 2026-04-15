@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -18,8 +18,9 @@ import {
   getCompanyFinancials,
   getFavourites,
   loadCompanyNBB,
+  getFavouriteProjects,
 } from "@/lib/api";
-import type { SearchResult, FinancialYear } from "@/lib/api";
+import type { SearchResult, FinancialYear, FavouriteProject } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
 import {
   Search,
@@ -30,6 +31,8 @@ import {
   Loader2,
   Star,
   Building2,
+  FolderOpen,
+  ChevronDown,
 } from "lucide-react";
 import FavouritesDialog from "@/components/favourites-dialog";
 
@@ -85,6 +88,91 @@ const METRICS: AggMetricDef[] = [
     },
   },
   { label: "Personnel Costs", key: "personnel_costs", format: "eur" },
+];
+
+/** Structured P&L lines matching the company profile style */
+interface AggPnlLine {
+  label: string;
+  metric: AggMetricDef;
+  bold?: boolean;
+  topBorder?: boolean;
+  doubleBorder?: boolean;
+  section?: string;
+  indent?: boolean;
+  isKeyMetric?: boolean;
+}
+
+const COST_OF_SALES_METRIC: AggMetricDef = {
+  label: "Cost of Sales",
+  key: "net_debt", // reused key, derive overrides
+  format: "eur",
+  derive: (r) => {
+    if (r.revenue == null || r.gross_margin == null) return null;
+    return -(r.revenue - r.gross_margin);
+  },
+};
+const GROSS_PROFIT_METRIC: AggMetricDef = { label: "Gross Profit", key: "gross_margin" as keyof FinancialYear, format: "eur" };
+const PERSONNEL_METRIC: AggMetricDef = {
+  label: "Personnel Costs",
+  key: "personnel_costs",
+  format: "eur",
+  derive: (r) => (r.personnel_costs != null ? -Math.abs(r.personnel_costs) : null),
+};
+const DA_METRIC: AggMetricDef = {
+  label: "D&A",
+  key: "da" as keyof FinancialYear,
+  format: "eur",
+  derive: (r) => (r.da != null ? -Math.abs(r.da) : null),
+};
+const OTHER_OP_METRIC: AggMetricDef = {
+  label: "Other Operating Costs",
+  key: "net_debt",
+  format: "eur",
+  derive: (r) => {
+    const gm = r.gross_margin;
+    const ebit = r.ebit;
+    if (gm == null || ebit == null) return null;
+    const v = -(gm - ebit - Math.abs(r.personnel_costs ?? 0) - Math.abs(r.da ?? 0));
+    return Math.abs(v) > 0.5 ? v : null;
+  },
+};
+const FIN_CHARGES_METRIC: AggMetricDef = {
+  label: "Financial Charges",
+  key: "financial_charges" as keyof FinancialYear,
+  format: "eur",
+  derive: (r) => (r.financial_charges != null ? -Math.abs(r.financial_charges) : null),
+};
+const PBT_METRIC: AggMetricDef = {
+  label: "Profit Before Tax",
+  key: "net_debt",
+  format: "eur",
+  derive: (r) => {
+    if (r.ebit == null || r.financial_charges == null) return null;
+    return r.ebit - Math.abs(r.financial_charges);
+  },
+};
+const EBITDA_MARGIN_METRIC: AggMetricDef = {
+  label: "EBITDA Margin",
+  key: "ebitda_margin_pct",
+  format: "pct",
+  isRatio: true,
+  ratioNum: "ebitda",
+  ratioDen: "revenue",
+};
+
+const PNL_LINES: AggPnlLine[] = [
+  { label: "Revenue", metric: { label: "Revenue", key: "revenue", format: "eur" }, section: "REVENUE" },
+  { label: "Cost of Sales", metric: COST_OF_SALES_METRIC, indent: true },
+  { label: "Gross Profit", metric: GROSS_PROFIT_METRIC, bold: true, topBorder: true },
+  { label: "Personnel Costs", metric: PERSONNEL_METRIC, section: "OPERATING COSTS", indent: true },
+  { label: "Depreciation & Amortization", metric: DA_METRIC, indent: true },
+  { label: "Other Operating Costs", metric: OTHER_OP_METRIC, indent: true },
+  { label: "EBIT (Operating Profit)", metric: { label: "EBIT", key: "ebit", format: "eur" }, bold: true, topBorder: true, isKeyMetric: true },
+  { label: "Financial Charges", metric: FIN_CHARGES_METRIC, section: "FINANCIAL", indent: true },
+  { label: "Profit Before Tax", metric: PBT_METRIC, bold: true, topBorder: true, isKeyMetric: true },
+  { label: "Net Profit", metric: { label: "Net Profit", key: "net_profit", format: "eur" }, bold: true, doubleBorder: true, isKeyMetric: true },
+  { label: "EBITDA", metric: { label: "EBITDA", key: "ebitda", format: "eur" }, bold: true, section: "EBITDA", topBorder: true, isKeyMetric: true },
+  { label: "EBITDA Margin", metric: EBITDA_MARGIN_METRIC },
 ];
 
 const MAX_COMPANIES = 10;
@@ -154,6 +242,25 @@ function sumMetric(
     }
   }
   return hasAny ? total : null;
+}
+
+/** Format a value in accounting style for aggregated P&L */
+function fmtAggAcct(
+  v: number | null,
+  isCost = false,
+  isKeyMetric = false
+): React.ReactNode {
+  if (v == null) return <span className="text-slate-300">{"\u2014"}</span>;
+  if (isCost && v < 0) {
+    return <span className="text-slate-500">({fmtEur(Math.abs(v))})</span>;
+  }
+  if (isKeyMetric && v < 0) {
+    return <span className="text-rose-400">({fmtEur(Math.abs(v))})</span>;
+  }
+  if (v < 0) {
+    return <span className="text-slate-500">({fmtEur(Math.abs(v))})</span>;
+  }
+  return <>{fmtEur(v)}</>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -293,6 +400,52 @@ export default function AggregatePage() {
     }
   }, [companies, addCompany]);
 
+  // ── Load from project ───────────────────────────────────────
+  const [projects, setProjects] = useState<FavouriteProject[]>([]);
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
+  const [loadingProject, setLoadingProject] = useState(false);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (showProjectMenu) {
+      getFavouriteProjects()
+        .then(setProjects)
+        .catch(() => setProjects([]));
+    }
+  }, [showProjectMenu]);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
+        setShowProjectMenu(false);
+      }
+    }
+    if (showProjectMenu) {
+      document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }
+  }, [showProjectMenu]);
+
+  const loadProject = useCallback(
+    async (project: FavouriteProject) => {
+      setShowProjectMenu(false);
+      setLoadingProject(true);
+      try {
+        const existing = new Set(companies.map((c) => c.cbe));
+        const toAdd = project.members
+          .filter((m) => !existing.has(m.enterprise_number))
+          .slice(0, MAX_COMPANIES - companies.length);
+
+        for (const m of toAdd) {
+          await addCompany(m.enterprise_number, m.name || m.enterprise_number);
+        }
+      } finally {
+        setLoadingProject(false);
+      }
+    },
+    [companies, addCompany]
+  );
+
   // Export to CSV
   const exportCsv = useCallback(() => {
     if (allYears.length === 0) return;
@@ -427,6 +580,57 @@ export default function AggregatePage() {
             <span className="hidden sm:inline">Load All Favourites</span>
             <span className="sm:hidden">All Favs</span>
           </Button>
+          <div className="relative" ref={projectMenuRef}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="py-2.5"
+              onClick={() => setShowProjectMenu((p) => !p)}
+              disabled={loadingProject || companies.length >= MAX_COMPANIES}
+            >
+              {loadingProject ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <FolderOpen className="h-4 w-4 mr-1.5 text-indigo-500" />
+              )}
+              <span className="hidden sm:inline">Load Project</span>
+              <span className="sm:hidden">Project</span>
+              <ChevronDown className="h-3 w-3 ml-1 text-slate-400" />
+            </Button>
+            {showProjectMenu && (
+              <div className="absolute z-50 mt-1 right-0 sm:left-0 w-64 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+                <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
+                  <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+                    Your Projects
+                  </span>
+                </div>
+                {projects.length === 0 ? (
+                  <p className="text-xs text-slate-400 p-4 text-center">
+                    No projects yet
+                  </p>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto">
+                    {projects.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => loadProject(p)}
+                        disabled={p.members.length === 0}
+                        className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <span className="text-sm font-medium text-slate-800 block truncate">
+                          {p.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {p.members.length}{" "}
+                          {p.members.length === 1 ? "company" : "companies"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {companies.length >= MAX_COMPANIES && (
@@ -467,71 +671,148 @@ export default function AggregatePage() {
         </div>
       )}
 
-      {/* Aggregated table */}
+      {/* KPI Summary (text lines per company) */}
+      {companies.length >= 1 && !anyLoading && (
+        <div className="space-y-1.5">
+          {companies.map((c) => {
+            const latest = c.allYears.length > 0 ? c.allYears[c.allYears.length - 1] : null;
+            if (!latest) return null;
+            const margin = latest.revenue && latest.ebitda ? (latest.ebitda / latest.revenue) * 100 : null;
+            return (
+              <div key={`kpi-${c.cbe}`} className="text-xs text-slate-600">
+                <Link href={`/company/${c.cbe}`} className="font-semibold text-indigo-600 hover:underline">
+                  {c.name}
+                </Link>
+                <span className="text-slate-300 mx-1.5">|</span>
+                <span className="text-slate-500">Rev</span>{" "}
+                <span className="font-mono font-medium text-slate-800">{fmtEur(latest.revenue)}</span>
+                <span className="text-slate-300 mx-1.5">|</span>
+                <span className="text-slate-500">EBITDA</span>{" "}
+                <span className="font-mono font-medium text-slate-800">{fmtEur(latest.ebitda)}</span>
+                <span className="text-slate-300 mx-1.5">|</span>
+                <span className="text-slate-500">Margin</span>{" "}
+                <span className={`font-mono font-medium ${
+                  margin != null
+                    ? margin >= 15 ? "text-emerald-600" : margin >= 5 ? "text-amber-600" : "text-rose-400"
+                    : "text-slate-300"
+                }`}>{margin != null ? `${margin.toFixed(1)}%` : "\u2014"}</span>
+                <span className="text-slate-300 mx-1.5">|</span>
+                <span className="text-slate-500">Net Profit</span>{" "}
+                <span className={`font-mono font-medium ${(latest.net_profit ?? 0) < 0 ? "text-rose-400" : "text-slate-800"}`}>
+                  {fmtEur(latest.net_profit)}
+                </span>
+                <span className="text-slate-300 mx-1.5">|</span>
+                <span className="text-slate-500">FTE</span>{" "}
+                <span className="font-mono font-medium text-slate-800">
+                  {latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Aggregated P&L table (matches company profile style) */}
       {companies.length >= 1 && allYears.length > 0 && !anyLoading && (
         <>
-          <div className="border border-slate-200 rounded-lg bg-white overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-slate-50">
-                  <TableHead className="w-40 font-semibold text-slate-700">
-                    Metric
-                  </TableHead>
-                  {allYears.map((year) => (
-                    <TableHead
-                      key={year}
-                      className="text-right min-w-[120px] font-semibold text-slate-700"
-                    >
-                      FY{year}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {METRICS.map((metric) => (
-                  <TableRow key={metric.key} className="hover:bg-slate-50/50">
-                    <TableCell className="font-medium text-slate-700 text-sm">
-                      {metric.label}
-                    </TableCell>
-                    {allYears.map((year) => {
-                      const val = sumMetric(companies, year, metric);
+          <div>
+            <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
+              Aggregated Income Statement
+            </h3>
+            <div className="rounded-lg border overflow-x-auto bg-white">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[180px] sm:min-w-[220px]">
+                      Line Item
+                    </th>
+                    {allYears.map((year) => (
+                      <th key={year} className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[110px]">
+                        FY{year}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    let lastSection = "";
+                    return PNL_LINES.map((line) => {
+                      const showSection = line.section && line.section !== lastSection;
+                      if (line.section) lastSection = line.section;
+                      const isCost = line.indent && !line.bold;
                       return (
-                        <TableCell
-                          key={year}
-                          className={`text-right text-sm tabular-nums ${
-                            val != null && val < 0
-                              ? "text-red-600"
-                              : "text-slate-900"
-                          }`}
-                        >
-                          {formatValue(val, metric.format)}
-                        </TableCell>
+                        <React.Fragment key={line.label}>
+                          {showSection && (
+                            <tr>
+                              <td colSpan={allYears.length + 1} className="px-4 pt-3 pb-1">
+                                <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
+                              </td>
+                            </tr>
+                          )}
+                          <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
+                            <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
+                              {line.label}
+                            </td>
+                            {allYears.map((year) => {
+                              const val = sumMetric(companies, year, line.metric);
+                              if (line.metric.format === "pct") {
+                                return (
+                                  <td key={year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                    {val != null ? (
+                                      <span className={val >= 15 ? "text-emerald-600" : val >= 5 ? "text-amber-600" : "text-rose-400"}>
+                                        {val.toFixed(1)}%
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-300">{"\u2014"}</span>
+                                    )}
+                                  </td>
+                                );
+                              }
+                              return (
+                                <td key={year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                  {fmtAggAcct(val, isCost, line.isKeyMetric)}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        </React.Fragment>
+                      );
+                    });
+                  })()}
+                  {/* FTE row */}
+                  <tr className="border-t border-slate-200">
+                    <td className="px-4 py-1 text-xs text-slate-600">FTE</td>
+                    {allYears.map((year) => {
+                      const val = sumMetric(companies, year, METRICS.find((m) => m.key === "fte_total")!);
+                      return (
+                        <td key={year} className="px-3 py-1 text-right text-xs font-mono">
+                          {val != null ? fmtNumber(val) : <span className="text-slate-300">{"\u2014"}</span>}
+                        </td>
                       );
                     })}
-                  </TableRow>
-                ))}
-
-                {/* Companies included row */}
-                <TableRow className="border-t-2 border-slate-200">
-                  <TableCell className="font-medium text-slate-500 text-xs italic">
-                    Companies w/ data
-                  </TableCell>
-                  {allYears.map((year) => {
-                    const count = companies.filter((c) =>
-                      c.allYears.some((fy) => fy.fiscal_year === year)
-                    ).length;
-                    return (
-                      <TableCell
-                        key={year}
-                        className="text-right text-xs text-slate-400 tabular-nums"
-                      >
-                        {count} / {companies.length}
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              </TableBody>
-            </Table>
+                  </tr>
+                  {/* Companies w/ data row */}
+                  <tr className="border-t-2 border-slate-200">
+                    <td className="px-4 py-1 text-xs text-slate-500 italic">
+                      Companies w/ data
+                    </td>
+                    {allYears.map((year) => {
+                      const count = companies.filter((c) =>
+                        c.allYears.some((fy) => fy.fiscal_year === year)
+                      ).length;
+                      return (
+                        <td key={year} className="px-3 py-1 text-right text-[10px] text-slate-400 tabular-nums">
+                          {count} / {companies.length}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-1 text-[10px] text-slate-400 italic">
+              Gross Profit = rubric 9900. EBIT = rubric 9901. Net Profit = rubric 9904. Cost of Sales = Revenue - Gross Profit. Other Op. Costs = Gross Profit - Personnel - D&A - EBIT. Costs shown in parentheses.
+            </p>
           </div>
 
           {/* Per-company breakdown */}

@@ -10,10 +10,11 @@ import {
   getCompanyDetail,
   getCompanyFinancials,
   loadCompanyNBB,
+  getFavouriteProjects,
 } from "@/lib/api";
-import type { SearchResult, CompanyDetail, FinancialYear } from "@/lib/api";
+import type { SearchResult, CompanyDetail, FinancialYear, FavouriteProject } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
-import { Search, X, Plus, Download, ArrowUpDown, Loader2, GitCompareArrows } from "lucide-react";
+import { Search, X, Plus, Download, ArrowUpDown, Loader2, GitCompareArrows, FolderOpen, ChevronDown } from "lucide-react";
 import FavouritesDialog from "@/components/favourites-dialog";
 
 /* ------------------------------------------------------------------ */
@@ -402,6 +403,54 @@ export default function ComparePage() {
     [companies]
   );
 
+  // ── Load from project ───────────────────────────────────────
+  const [projects, setProjects] = useState<FavouriteProject[]>([]);
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
+  const [loadingProject, setLoadingProject] = useState(false);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
+
+  // Fetch projects when the menu opens
+  useEffect(() => {
+    if (showProjectMenu) {
+      getFavouriteProjects()
+        .then(setProjects)
+        .catch(() => setProjects([]));
+    }
+  }, [showProjectMenu]);
+
+  // Close project menu on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (projectMenuRef.current && !projectMenuRef.current.contains(e.target as Node)) {
+        setShowProjectMenu(false);
+      }
+    }
+    if (showProjectMenu) {
+      document.addEventListener("mousedown", handleClick);
+      return () => document.removeEventListener("mousedown", handleClick);
+    }
+  }, [showProjectMenu]);
+
+  const loadProject = useCallback(
+    async (project: FavouriteProject) => {
+      setShowProjectMenu(false);
+      setLoadingProject(true);
+      try {
+        const existing = new Set(companies.map((c) => c.cbe));
+        const toAdd = project.members
+          .filter((m) => !existing.has(m.enterprise_number))
+          .slice(0, MAX_COMPANIES - companies.length);
+
+        for (const m of toAdd) {
+          await addCompany(m.enterprise_number, m.name || m.enterprise_number);
+        }
+      } finally {
+        setLoadingProject(false);
+      }
+    },
+    [companies, addCompany]
+  );
+
   // Remove a company
   const removeCompany = useCallback((cbe: string) => {
     setCompanies((prev) => prev.filter((c) => c.cbe !== cbe));
@@ -701,12 +750,64 @@ export default function ComparePage() {
             )}
         </div>
 
-        {/* Load from Favourites */}
-        <FavouritesDialog
-          existingCbes={existingCbes}
-          onAdd={addCompany}
-          max={MAX_COMPANIES}
-        />
+        {/* Load from Favourites + Load Project */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <FavouritesDialog
+            existingCbes={existingCbes}
+            onAdd={addCompany}
+            max={MAX_COMPANIES}
+          />
+          <div className="relative" ref={projectMenuRef}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowProjectMenu((p) => !p)}
+              disabled={loadingProject || companies.length >= MAX_COMPANIES}
+            >
+              {loadingProject ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <FolderOpen className="h-4 w-4 mr-1.5 text-indigo-500" />
+              )}
+              <span className="hidden sm:inline">Load Project</span>
+              <span className="sm:hidden">Project</span>
+              <ChevronDown className="h-3 w-3 ml-1 text-slate-400" />
+            </Button>
+            {showProjectMenu && (
+              <div className="absolute z-50 mt-1 right-0 sm:left-0 w-64 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+                <div className="px-3 py-2 border-b border-slate-100 bg-slate-50">
+                  <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">
+                    Your Projects
+                  </span>
+                </div>
+                {projects.length === 0 ? (
+                  <p className="text-xs text-slate-400 p-4 text-center">
+                    No projects yet
+                  </p>
+                ) : (
+                  <div className="max-h-56 overflow-y-auto">
+                    {projects.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => loadProject(p)}
+                        disabled={p.members.length === 0}
+                        className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <span className="text-sm font-medium text-slate-800 block truncate">
+                          {p.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {p.members.length}{" "}
+                          {p.members.length === 1 ? "company" : "companies"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
 
         {companies.length >= MAX_COMPANIES && (
           <span className="text-xs text-slate-400 self-center">
@@ -743,6 +844,55 @@ export default function ComparePage() {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Key KPI Summary (text, not cards) */}
+      {companies.length >= 2 && (
+        <div className="space-y-1.5">
+          {companies.map((c) => {
+            const pnl = pnlRows.find((pr) => pr.cbe === c.cbe)?.pnl;
+            if (!pnl || c.loading) return null;
+            return (
+              <div key={`kpi-${c.cbe}`} className="text-xs text-slate-600">
+                <Link
+                  href={`/company/${c.cbe}`}
+                  className="font-semibold text-indigo-600 hover:underline"
+                >
+                  {c.name}
+                </Link>
+                <span className="text-slate-300 mx-1.5">|</span>
+                <span className="text-slate-500">Rev</span>{" "}
+                <span className="font-mono font-medium text-slate-800">{fmtEur(pnl.revenue)}</span>
+                <span className="text-slate-300 mx-1.5">|</span>
+                <span className="text-slate-500">EBITDA</span>{" "}
+                <span className="font-mono font-medium text-slate-800">{fmtEur(pnl.ebitda)}</span>
+                <span className="text-slate-300 mx-1.5">|</span>
+                <span className="text-slate-500">Margin</span>{" "}
+                <span className={`font-mono font-medium ${
+                  pnl.ebitdaMarginPct != null
+                    ? pnl.ebitdaMarginPct >= 15
+                      ? "text-emerald-600"
+                      : pnl.ebitdaMarginPct >= 5
+                        ? "text-amber-600"
+                        : "text-rose-400"
+                    : "text-slate-300"
+                }`}>
+                  {pnl.ebitdaMarginPct != null ? `${pnl.ebitdaMarginPct.toFixed(1)}%` : "\u2014"}
+                </span>
+                <span className="text-slate-300 mx-1.5">|</span>
+                <span className="text-slate-500">Net Profit</span>{" "}
+                <span className={`font-mono font-medium ${(pnl.netProfit ?? 0) < 0 ? "text-rose-400" : "text-slate-800"}`}>
+                  {fmtEur(pnl.netProfit)}
+                </span>
+                <span className="text-slate-300 mx-1.5">|</span>
+                <span className="text-slate-500">FTE</span>{" "}
+                <span className="font-mono font-medium text-slate-800">
+                  {pnl.fte != null ? fmtNumber(pnl.fte) : "\u2014"}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 
