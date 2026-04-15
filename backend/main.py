@@ -175,7 +175,7 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
                         role_row = fetch_one(
                             "SELECT role FROM user_roles WHERE email = %s", (email,)
                         )
-                        if role_row and role_row["role"] == "premium":
+                        if role_row and role_row["role"] in ("pro", "admin", "premium"):
                             tier = "premium"
                     except Exception:
                         pass
