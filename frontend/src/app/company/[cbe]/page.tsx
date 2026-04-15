@@ -469,8 +469,13 @@ export default function CompanyDetailPage(props: {
               const data = await loadCompanyNBB(cbe);
               advance();
               if (data.rubrics_loaded > 0) {
-                const newF = await getCompanyFinancials(cbe);
+                // Refetch financials AND structure (admins, shareholders, subsidiaries)
+                const [newF, newS] = await Promise.all([
+                  getCompanyFinancials(cbe),
+                  getCompanyStructure(cbe),
+                ]);
                 setFinancials(newF as unknown as FinancialsData);
+                setStructure(newS as unknown as StructureData);
                 setNbbResult("success");
               } else {
                 setNbbResult("no-data");
