@@ -1,14 +1,23 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { searchCompanies, searchPeople } from "@/lib/api";
+import {
+  searchCompanies,
+  searchPeople,
+  getFavourites,
+  addFavourite,
+  removeFavourite,
+  getPeopleFavourites,
+  addPeopleFavourite,
+  removePeopleFavourite,
+} from "@/lib/api";
 import type { SearchResult, PersonResult } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct } from "@/lib/format";
 import { useTranslation } from "@/components/language-provider";
-import { Search, Building, Users, Loader2, ArrowRight } from "lucide-react";
+import { Search, Building, Users, Loader2, ArrowRight, Star } from "lucide-react";
 
 export default function UnifiedSearchPage() {
   const { t } = useTranslation();
@@ -18,6 +27,56 @@ export default function UnifiedSearchPage() {
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Favourite state
+  const [favCompanies, setFavCompanies] = useState<Set<string>>(new Set());
+  const [favPeople, setFavPeople] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    getFavourites()
+      .then((items) => setFavCompanies(new Set(items.map((f) => f.enterprise_number))))
+      .catch(() => {});
+    getPeopleFavourites()
+      .then((items) => setFavPeople(new Set(items.map((f) => f.person_name))))
+      .catch(() => {});
+  }, []);
+
+  const toggleCompanyFav = (cbe: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const isFav = favCompanies.has(cbe);
+    setFavCompanies((prev) => {
+      const next = new Set(prev);
+      if (isFav) next.delete(cbe); else next.add(cbe);
+      return next;
+    });
+    (isFav ? removeFavourite(cbe) : addFavourite(cbe)).catch(() => {
+      // rollback on failure
+      setFavCompanies((prev) => {
+        const next = new Set(prev);
+        if (isFav) next.add(cbe); else next.delete(cbe);
+        return next;
+      });
+    });
+  };
+
+  const togglePersonFav = (name: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const isFav = favPeople.has(name);
+    setFavPeople((prev) => {
+      const next = new Set(prev);
+      if (isFav) next.delete(name); else next.add(name);
+      return next;
+    });
+    (isFav ? removePeopleFavourite(name) : addPeopleFavourite(name)).catch(() => {
+      setFavPeople((prev) => {
+        const next = new Set(prev);
+        if (isFav) next.add(name); else next.delete(name);
+        return next;
+      });
+    });
+  };
 
   const doSearch = useCallback((q: string) => {
     setQuery(q);
@@ -110,6 +169,12 @@ export default function UnifiedSearchPage() {
                         )}
                       </div>
                     )}
+                    <button
+                      onClick={(e) => toggleCompanyFav(c.enterprise_number, e)}
+                      className="p-1 rounded-md hover:bg-slate-100 transition-colors shrink-0"
+                    >
+                      <Star className={`w-3.5 h-3.5 ${favCompanies.has(c.enterprise_number) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
+                    </button>
                   </Link>
                 ))}
                 {/* Top people */}
@@ -135,6 +200,12 @@ export default function UnifiedSearchPage() {
                     <Badge variant="secondary" className="text-[10px] shrink-0">
                       {p.companies} {p.companies === 1 ? "co." : "cos."}
                     </Badge>
+                    <button
+                      onClick={(e) => togglePersonFav(p.name, e)}
+                      className="p-1 rounded-md hover:bg-slate-100 transition-colors shrink-0"
+                    >
+                      <Star className={`w-3.5 h-3.5 ${favPeople.has(p.name) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
+                    </button>
                   </Link>
                 ))}
               </div>
@@ -175,6 +246,12 @@ export default function UnifiedSearchPage() {
                         <div className="text-xs font-mono text-slate-600">{fmtEur(c.revenue)}</div>
                       )}
                     </div>
+                    <button
+                      onClick={(e) => toggleCompanyFav(c.enterprise_number, e)}
+                      className="p-1 rounded-md hover:bg-slate-100 transition-colors shrink-0"
+                    >
+                      <Star className={`w-3.5 h-3.5 ${favCompanies.has(c.enterprise_number) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
+                    </button>
                   </Link>
                 ))}
               </div>
@@ -213,6 +290,12 @@ export default function UnifiedSearchPage() {
                     <Badge variant="secondary" className="text-[10px] shrink-0">
                       {p.companies} cos.
                     </Badge>
+                    <button
+                      onClick={(e) => togglePersonFav(p.name, e)}
+                      className="p-1 rounded-md hover:bg-slate-100 transition-colors shrink-0"
+                    >
+                      <Star className={`w-3.5 h-3.5 ${favPeople.has(p.name) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
+                    </button>
                   </Link>
                 ))}
               </div>

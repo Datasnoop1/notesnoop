@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -703,7 +704,7 @@ export default function ScreenerPage() {
                   updateNaceDropdownPosition();
                 }}
               />
-              {naceOpen && naceSuggestions.length > 0 && (
+              {naceOpen && naceSuggestions.length > 0 && typeof document !== "undefined" && createPortal(
                 <div className="z-[100] bg-white border border-slate-200 rounded-lg shadow-2xl max-h-[60vh] overflow-y-auto" style={naceDropdownStyle}>
                   {naceSuggestions.map((s) => (
                     <button
@@ -727,7 +728,8 @@ export default function ScreenerPage() {
                       )}
                     </button>
                   ))}
-                </div>
+                </div>,
+                document.body,
               )}
             </div>
           </div>

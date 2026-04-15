@@ -15,11 +15,11 @@ logger = logging.getLogger(__name__)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions"
 
-# Model aliases
-CHEAP_MODEL = "google/gemma-3-4b-it"
-VALIDATION_MODEL = "x-ai/grok-3-mini"  # Better model for URL discovery + validation
-INSIGHT_MODEL = "x-ai/grok-3-mini"
-INSIGHT_MODEL_FALLBACK = "x-ai/grok-2"
+# Model aliases — optimized April 2026 per OpenRouter pricing
+CHEAP_MODEL = "google/gemma-4-31b-it"          # $0.13/$0.38 — replaces gemma-3, better JSON + instructions
+VALIDATION_MODEL = "google/gemma-4-31b-it"     # URL discovery + website validation
+INSIGHT_MODEL = "google/gemini-2.5-flash"      # $0.30/$2.50 — best quality under $0.01/call
+INSIGHT_MODEL_FALLBACK = "deepseek/deepseek-v3.2"  # $0.26/$0.38 — strong quality fallback
 
 
 async def ai_complete(
