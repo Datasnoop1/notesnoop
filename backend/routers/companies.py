@@ -242,6 +242,7 @@ async def load_company_data(cbe: str, user=Depends(optional_user)):
         "Accept": "application/json",
         "NBB-CBSO-Subscription-Key": nbb_key,
         "X-Request-Id": str(uuid.uuid4()),
+        "User-Agent": "DataPeak/1.0 (Belgian Company Intelligence)",
     }
     try:
         resp = http_requests.get(
@@ -302,6 +303,7 @@ async def load_company_data(cbe: str, user=Depends(optional_user)):
                 "Accept": "application/x.jsonxbrl",
                 "NBB-CBSO-Subscription-Key": nbb_key,
                 "X-Request-Id": str(uuid.uuid4()),
+                "User-Agent": "DataPeak/1.0 (Belgian Company Intelligence)",
             }
             try:
                 filing_resp = http_requests.get(
