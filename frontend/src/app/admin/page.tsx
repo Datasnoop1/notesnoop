@@ -1880,7 +1880,7 @@ export default function AdminPanel() {
                                       Unblock
                                     </Button>
                                   )}
-                                  {!isMe && u.role !== "pro" && u.role !== "admin" && u.role !== "blocked" && (
+                                  {u.role !== "pro" && u.role !== "admin" && u.role !== "blocked" && (
                                     <Button
                                       variant="outline"
                                       size="xs"
@@ -1894,7 +1894,7 @@ export default function AdminPanel() {
                                       Pro
                                     </Button>
                                   )}
-                                  {!isMe && u.role === "pro" && (
+                                  {u.role === "pro" && (
                                     <Button
                                       variant="outline"
                                       size="xs"
@@ -1907,7 +1907,7 @@ export default function AdminPanel() {
                                       Revoke Pro
                                     </Button>
                                   )}
-                                  {!isMe && u.role !== "admin" && u.role !== "blocked" && (
+                                  {u.role !== "admin" && u.role !== "blocked" && (
                                     <Button
                                       variant="outline"
                                       size="xs"
@@ -1921,7 +1921,7 @@ export default function AdminPanel() {
                                       Admin
                                     </Button>
                                   )}
-                                  {!isMe && u.role === "admin" && (
+                                  {u.role === "admin" && (
                                     <Button
                                       variant="outline"
                                       size="xs"
