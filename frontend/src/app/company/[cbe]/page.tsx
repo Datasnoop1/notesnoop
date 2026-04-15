@@ -900,7 +900,7 @@ export default function CompanyDetailPage(props: {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList variant="line" className="border-b border-slate-100 gap-0 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap">
+        <TabsList variant="line" className="border-b border-slate-100 gap-0 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap no-print">
           <TabsTrigger value="summary" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             Summary
           </TabsTrigger>
