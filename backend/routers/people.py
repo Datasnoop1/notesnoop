@@ -3,9 +3,11 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from db import fetch_all, get_conn
+from db import fetch_all, fetch_one, execute, get_conn
+from auth import get_current_user, optional_user
+from ai_client import ai_complete
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/people", tags=["people"])
@@ -179,3 +181,151 @@ async def get_person_connections(name: str):
     except Exception as e:
         logger.exception("Person connections query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# AI Enrichment — people profile summaries via OpenRouter
+# ---------------------------------------------------------------------------
+
+_people_enrichment_table_ensured = False
+
+
+def _ensure_people_enrichment_table():
+    """Create people_enrichment table if it does not exist (idempotent)."""
+    global _people_enrichment_table_ensured
+    if _people_enrichment_table_ensured:
+        return
+    execute("""
+        CREATE TABLE IF NOT EXISTS people_enrichment (
+            person_name TEXT PRIMARY KEY,
+            summary TEXT,
+            generated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    _people_enrichment_table_ensured = True
+
+
+# ---------------------------------------------------------------------------
+# POST /api/people/{name}/enrich
+# ---------------------------------------------------------------------------
+
+@router.post("/{name}/enrich")
+async def enrich_person(name: str, user=Depends(get_current_user)):
+    """Generate an AI professional profile summary for a person.
+
+    Looks up their admin roles and holdings from the database,
+    builds a prompt, and calls the AI to write a 2-3 sentence profile.
+    """
+    _ensure_people_enrichment_table()
+
+    # Gather admin roles
+    admin_rows = fetch_all("""
+        SELECT
+            COALESCE(d.denomination, a.enterprise_number) AS company_name,
+            a.role,
+            a.mandate_start,
+            a.mandate_end
+        FROM administrator a
+        LEFT JOIN denomination d ON d.entity_number = a.enterprise_number
+            AND d.type_of_denomination = '001' AND d.language IN ('2','1')
+        WHERE a.name = %s
+        ORDER BY a.mandate_start DESC NULLS LAST
+        LIMIT 20
+    """, (name,))
+
+    # Gather holdings
+    holding_rows = fetch_all("""
+        SELECT
+            COALESCE(d.denomination, s.enterprise_number) AS company_name,
+            s.ownership_pct
+        FROM shareholder s
+        LEFT JOIN denomination d ON d.entity_number = s.enterprise_number
+            AND d.type_of_denomination = '001' AND d.language IN ('2','1')
+        WHERE s.name = %s
+        ORDER BY s.ownership_pct DESC NULLS LAST
+        LIMIT 20
+    """, (name,))
+
+    if not admin_rows and not holding_rows:
+        raise HTTPException(
+            status_code=422,
+            detail="Not enough data to generate a profile for this person",
+        )
+
+    # Build the prompt
+    parts = [f"Person: {name}"]
+
+    if admin_rows:
+        role_labels = {
+            "fct:m10": "Director", "fct:m11": "Managing director",
+            "fct:m12": "Chairman", "fct:m13": "Administrator",
+            "fct:m14": "Secretary", "fct:m15": "Treasurer",
+            "fct:m20": "Statutory auditor", "fct:m30": "Liquidator",
+            "fct:m40": "Daily management",
+        }
+        role_lines = []
+        for r in admin_rows:
+            role = role_labels.get(r.get("role", ""), r.get("role", ""))
+            company = r.get("company_name", "unknown")
+            active = "current" if not r.get("mandate_end") else "ended"
+            role_lines.append(f"  - {role} at {company} ({active})")
+        parts.append("Corporate roles:\n" + "\n".join(role_lines))
+
+    if holding_rows:
+        hold_lines = []
+        for h in holding_rows:
+            company = h.get("company_name", "unknown")
+            pct = h.get("ownership_pct")
+            pct_str = f" ({pct:.1f}%)" if pct else ""
+            hold_lines.append(f"  - {company}{pct_str}")
+        parts.append("Holdings/Shareholdings:\n" + "\n".join(hold_lines))
+
+    prompt = (
+        "Based on this person's corporate roles, write a 2-3 sentence "
+        "professional profile. Be factual, do not speculate.\n\n"
+        + "\n".join(parts)
+    )
+
+    system = (
+        "You are a financial analyst assistant. Write concise, professional "
+        "person profiles for private equity deal sourcing."
+    )
+
+    summary = await ai_complete(prompt, system=system)
+
+    if not summary:
+        raise HTTPException(
+            status_code=503,
+            detail="AI service unavailable — check OPENROUTER_API_KEY",
+        )
+
+    # Store (upsert) the enrichment
+    execute("""
+        INSERT INTO people_enrichment (person_name, summary, generated_at)
+        VALUES (%s, %s, NOW())
+        ON CONFLICT (person_name)
+        DO UPDATE SET summary = EXCLUDED.summary, generated_at = NOW()
+    """, (name, summary))
+
+    return {"summary": summary}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/people/{name}/enrichment
+# ---------------------------------------------------------------------------
+
+@router.get("/{name}/enrichment")
+async def get_person_enrichment(name: str, user=Depends(optional_user)):
+    """Fetch existing AI-generated enrichment for a person."""
+    _ensure_people_enrichment_table()
+
+    row = fetch_one("""
+        SELECT summary, generated_at
+        FROM people_enrichment
+        WHERE person_name = %s
+    """, (name,))
+
+    if not row:
+        return None
+
+    return _serialize_row(row)

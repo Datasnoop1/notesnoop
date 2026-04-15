@@ -583,3 +583,9 @@ export const enrichCompany = (cbe: string) =>
 
 export const getEnrichment = (cbe: string) =>
   apiFetch<{ summary: string; generated_at: string } | null>(`/api/companies/${cbe}/enrichment`);
+
+export const enrichPerson = (name: string) =>
+  apiFetch<{ summary: string }>(`/api/people/${encodeURIComponent(name)}/enrich`, { method: "POST" });
+
+export const getPersonEnrichment = (name: string) =>
+  apiFetch<{ summary: string; generated_at: string } | null>(`/api/people/${encodeURIComponent(name)}/enrichment`);

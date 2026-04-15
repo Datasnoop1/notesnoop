@@ -34,6 +34,10 @@ import {
   getSectorBenchmark,
   getSimilarCompanies,
   addPeopleFavourite,
+  enrichCompany,
+  getEnrichment,
+  enrichPerson,
+  getPersonEnrichment,
 } from "@/lib/api";
 import type { SectorBenchmark } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
@@ -65,6 +69,7 @@ import {
   XCircle,
   FileSpreadsheet,
   FileDown,
+  Sparkles,
 } from "lucide-react";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
 import {
@@ -428,6 +433,11 @@ export default function CompanyDetailPage(props: {
   const [loadStartTime, setLoadStartTime] = useState<number | null>(null);
   const [loadElapsed, setLoadElapsed] = useState(0);
 
+  /* ── AI Enrichment state ── */
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [personEnrichments, setPersonEnrichments] = useState<Record<string, { summary: string; loading: boolean }>>({});
+
   /* ── Collapsible section state ── */
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const toggleSection = (key: string) =>
@@ -439,6 +449,15 @@ export default function CompanyDetailPage(props: {
     const interval = setInterval(() => setLoadElapsed(Math.floor((Date.now() - loadStartTime) / 1000)), 1000);
     return () => clearInterval(interval);
   }, [loadStartTime]);
+
+  /* ── Check for existing AI enrichment on load ── */
+  useEffect(() => {
+    getEnrichment(cbe)
+      .then((data) => {
+        if (data && data.summary) setAiSummary(data.summary);
+      })
+      .catch(() => {});
+  }, [cbe]);
 
   useEffect(() => {
     setLoading(true);
@@ -1394,6 +1413,42 @@ export default function CompanyDetailPage(props: {
                     </button>
                   )}
                 </div>
+
+                {/* AI Enrichment Section */}
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/30 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles className="h-4 w-4 text-indigo-500" />
+                    <h3 className="text-xs font-medium text-slate-600 uppercase tracking-wider">AI Company Summary</h3>
+                    <span className="inline-flex items-center rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider">Premium</span>
+                  </div>
+                  {aiSummary ? (
+                    <p className="text-sm text-slate-700 leading-relaxed">{aiSummary}</p>
+                  ) : aiLoading ? (
+                    <div className="flex items-center gap-2 py-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
+                      <span className="text-sm text-slate-500">Generating AI summary...</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setAiLoading(true);
+                        try {
+                          const result = await enrichCompany(cbe);
+                          if (result?.summary) setAiSummary(result.summary);
+                        } catch {
+                          // silent fail
+                        } finally {
+                          setAiLoading(false);
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors shadow-sm"
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      Enrich with AI
+                    </button>
+                  )}
+                </div>
               </div>
             );
           })()}
@@ -2167,6 +2222,7 @@ export default function CompanyDetailPage(props: {
                     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                       {currentAdmins.map((admin, i) => {
                         const adminCbe = cleanCbe(admin.identifier);
+                        const pe = personEnrichments[admin.name];
                         return (
                           <Card key={`current-${admin.name}-${admin.role}-${i}`}>
                             <CardContent className="p-3">
@@ -2212,6 +2268,49 @@ export default function CompanyDetailPage(props: {
                                   <button
                                     onClick={async (e) => {
                                       e.stopPropagation();
+                                      if (pe?.summary || pe?.loading) return;
+                                      setPersonEnrichments((prev) => ({
+                                        ...prev,
+                                        [admin.name]: { summary: "", loading: true },
+                                      }));
+                                      try {
+                                        // Check for existing enrichment first
+                                        const existing = await getPersonEnrichment(admin.name);
+                                        if (existing?.summary) {
+                                          setPersonEnrichments((prev) => ({
+                                            ...prev,
+                                            [admin.name]: { summary: existing.summary, loading: false },
+                                          }));
+                                          return;
+                                        }
+                                        const result = await enrichPerson(admin.name);
+                                        setPersonEnrichments((prev) => ({
+                                          ...prev,
+                                          [admin.name]: { summary: result?.summary || "", loading: false },
+                                        }));
+                                      } catch {
+                                        setPersonEnrichments((prev) => ({
+                                          ...prev,
+                                          [admin.name]: { summary: "", loading: false },
+                                        }));
+                                      }
+                                    }}
+                                    title="Enrich with AI"
+                                    className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${
+                                      pe?.summary
+                                        ? "text-indigo-500"
+                                        : "text-slate-300 hover:text-indigo-500"
+                                    }`}
+                                  >
+                                    {pe?.loading ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Sparkles className="h-3.5 w-3.5" />
+                                    )}
+                                  </button>
+                                  <button
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
                                       try {
                                         await addPeopleFavourite(admin.name);
                                         const btn = e.currentTarget;
@@ -2232,6 +2331,14 @@ export default function CompanyDetailPage(props: {
                                   </Badge>
                                 </div>
                               </div>
+                              {pe?.summary && (
+                                <div className="mt-2 pt-2 border-t border-indigo-100">
+                                  <div className="flex items-start gap-1.5">
+                                    <Sparkles className="h-3 w-3 text-indigo-400 mt-0.5 shrink-0" />
+                                    <p className="text-xs text-slate-600 leading-relaxed">{pe.summary}</p>
+                                  </div>
+                                </div>
+                              )}
                             </CardContent>
                           </Card>
                         );
@@ -2264,6 +2371,7 @@ export default function CompanyDetailPage(props: {
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                         {pastAdmins.map((admin, i) => {
                           const adminCbe = cleanCbe(admin.identifier);
+                          const pe = personEnrichments[admin.name];
                           return (
                             <Card key={`past-${admin.name}-${admin.role}-${i}`} className="opacity-75">
                               <CardContent className="p-3">
@@ -2299,13 +2407,65 @@ export default function CompanyDetailPage(props: {
                                       </p>
                                     )}
                                   </div>
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-[10px] shrink-0 bg-slate-50 text-slate-400 border-slate-200"
-                                  >
-                                    Ended
-                                  </Badge>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        if (pe?.summary || pe?.loading) return;
+                                        setPersonEnrichments((prev) => ({
+                                          ...prev,
+                                          [admin.name]: { summary: "", loading: true },
+                                        }));
+                                        try {
+                                          const existing = await getPersonEnrichment(admin.name);
+                                          if (existing?.summary) {
+                                            setPersonEnrichments((prev) => ({
+                                              ...prev,
+                                              [admin.name]: { summary: existing.summary, loading: false },
+                                            }));
+                                            return;
+                                          }
+                                          const result = await enrichPerson(admin.name);
+                                          setPersonEnrichments((prev) => ({
+                                            ...prev,
+                                            [admin.name]: { summary: result?.summary || "", loading: false },
+                                          }));
+                                        } catch {
+                                          setPersonEnrichments((prev) => ({
+                                            ...prev,
+                                            [admin.name]: { summary: "", loading: false },
+                                          }));
+                                        }
+                                      }}
+                                      title="Enrich with AI"
+                                      className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${
+                                        pe?.summary
+                                          ? "text-indigo-500"
+                                          : "text-slate-300 hover:text-indigo-500"
+                                      }`}
+                                    >
+                                      {pe?.loading ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <Sparkles className="h-3.5 w-3.5" />
+                                      )}
+                                    </button>
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px] shrink-0 bg-slate-50 text-slate-400 border-slate-200"
+                                    >
+                                      Ended
+                                    </Badge>
+                                  </div>
                                 </div>
+                                {pe?.summary && (
+                                  <div className="mt-2 pt-2 border-t border-indigo-100">
+                                    <div className="flex items-start gap-1.5">
+                                      <Sparkles className="h-3 w-3 text-indigo-400 mt-0.5 shrink-0" />
+                                      <p className="text-xs text-slate-600 leading-relaxed">{pe.summary}</p>
+                                    </div>
+                                  </div>
+                                )}
                               </CardContent>
                             </Card>
                           );
