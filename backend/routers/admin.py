@@ -493,6 +493,148 @@ async def platform_usage(user=Depends(_require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/adoption")
+async def adoption_dashboard(user=Depends(_require_admin)):
+    """Adoption dashboard: KPIs, daily trend, feature breakdown, top users, recent activity."""
+    try:
+        import decimal, datetime as dt
+
+        # ---- Adoption KPI cards ----
+        kpis = fetch_one("""
+            SELECT
+                (SELECT COUNT(*) FROM user_roles) AS total_registered,
+                (SELECT COUNT(DISTINCT user_email) FROM activity_log
+                 WHERE created_at > NOW() - INTERVAL '7 days'
+                   AND user_email NOT LIKE 'anon:%%') AS active_7d,
+                (SELECT COUNT(DISTINCT user_email) FROM activity_log
+                 WHERE created_at > NOW() - INTERVAL '30 days'
+                   AND user_email NOT LIKE 'anon:%%') AS active_30d,
+                (SELECT COUNT(DISTINCT user_email) FROM activity_log
+                 WHERE created_at::date = CURRENT_DATE
+                   AND user_email NOT LIKE 'anon:%%') AS sessions_today,
+                -- Previous-period comparisons
+                (SELECT COUNT(DISTINCT user_email) FROM activity_log
+                 WHERE created_at > NOW() - INTERVAL '14 days'
+                   AND created_at <= NOW() - INTERVAL '7 days'
+                   AND user_email NOT LIKE 'anon:%%') AS active_prev_7d,
+                (SELECT COUNT(DISTINCT user_email) FROM activity_log
+                 WHERE created_at > NOW() - INTERVAL '60 days'
+                   AND created_at <= NOW() - INTERVAL '30 days'
+                   AND user_email NOT LIKE 'anon:%%') AS active_prev_30d,
+                (SELECT COUNT(DISTINCT user_email) FROM activity_log
+                 WHERE created_at::date = CURRENT_DATE - 1
+                   AND user_email NOT LIKE 'anon:%%') AS sessions_yesterday
+        """)
+
+        # ---- Daily trend (last 30 days): DAU + page views ----
+        daily_trend = fetch_all("""
+            SELECT
+                (created_at AT TIME ZONE 'Europe/Brussels')::date AS day,
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email NOT LIKE 'anon:%%') AS dau,
+                COUNT(*) AS page_views
+            FROM activity_log
+            WHERE created_at > NOW() - INTERVAL '30 days'
+            GROUP BY 1
+            ORDER BY 1 ASC
+        """)
+
+        # ---- Feature breakdown (last 7 days) ----
+        features = fetch_all("""
+            SELECT
+                CASE
+                    WHEN endpoint LIKE '/api/companies/search%%' THEN 'Company Search'
+                    WHEN endpoint LIKE '/api/people/search%%' THEN 'People Search'
+                    WHEN endpoint LIKE '/api/screener%%' THEN 'Screener'
+                    WHEN endpoint LIKE '%%/financials' THEN 'Financials'
+                    WHEN endpoint LIKE '%%/structure' THEN 'Company Structure'
+                    WHEN endpoint LIKE '%%/sector-benchmark' THEN 'Sector Benchmark'
+                    WHEN endpoint LIKE '%%/network' THEN 'Network Graph'
+                    WHEN endpoint LIKE '/api/companies/%%/compare%%' THEN 'Compare'
+                    WHEN endpoint LIKE '/api/companies/%%/load' THEN 'NBB Data Load'
+                    WHEN endpoint LIKE '/api/staatsblad/%%' THEN 'Publications'
+                    WHEN endpoint LIKE '/api/favourites%%' THEN 'Favourites'
+                    WHEN endpoint LIKE '/api/dashboard' THEN 'Dashboard'
+                    WHEN endpoint LIKE '/api/company/0%%' THEN 'Company Profile'
+                    WHEN endpoint LIKE '/api/ai%%' OR endpoint LIKE '%%/enrich%%' THEN 'AI Insights'
+                    WHEN endpoint LIKE '/api/export%%' THEN 'Export'
+                    ELSE NULL
+                END AS feature,
+                COUNT(*) AS requests,
+                COUNT(DISTINCT user_email) AS unique_users
+            FROM activity_log
+            WHERE created_at > NOW() - INTERVAL '7 days'
+            GROUP BY 1
+            HAVING CASE
+                    WHEN endpoint LIKE '/api/companies/search%%' THEN 'Company Search'
+                    WHEN endpoint LIKE '/api/people/search%%' THEN 'People Search'
+                    WHEN endpoint LIKE '/api/screener%%' THEN 'Screener'
+                    WHEN endpoint LIKE '%%/financials' THEN 'Financials'
+                    WHEN endpoint LIKE '%%/structure' THEN 'Company Structure'
+                    WHEN endpoint LIKE '%%/sector-benchmark' THEN 'Sector Benchmark'
+                    WHEN endpoint LIKE '%%/network' THEN 'Network Graph'
+                    WHEN endpoint LIKE '/api/companies/%%/compare%%' THEN 'Compare'
+                    WHEN endpoint LIKE '/api/companies/%%/load' THEN 'NBB Data Load'
+                    WHEN endpoint LIKE '/api/staatsblad/%%' THEN 'Publications'
+                    WHEN endpoint LIKE '/api/favourites%%' THEN 'Favourites'
+                    WHEN endpoint LIKE '/api/dashboard' THEN 'Dashboard'
+                    WHEN endpoint LIKE '/api/company/0%%' THEN 'Company Profile'
+                    WHEN endpoint LIKE '/api/ai%%' OR endpoint LIKE '%%/enrich%%' THEN 'AI Insights'
+                    WHEN endpoint LIKE '/api/export%%' THEN 'Export'
+                    ELSE NULL
+                END IS NOT NULL
+            ORDER BY requests DESC
+            LIMIT 15
+        """)
+
+        # ---- Top users (last 30 days, by session count) ----
+        top_users = fetch_all("""
+            SELECT
+                user_email AS email,
+                COUNT(DISTINCT (created_at AT TIME ZONE 'Europe/Brussels')::date) AS session_days,
+                COUNT(*) AS total_requests,
+                MAX(created_at AT TIME ZONE 'Europe/Brussels') AS last_active
+            FROM activity_log
+            WHERE created_at > NOW() - INTERVAL '30 days'
+              AND user_email NOT LIKE 'anon:%%'
+            GROUP BY user_email
+            ORDER BY session_days DESC, total_requests DESC
+            LIMIT 10
+        """)
+
+        # ---- Recent activity (last 50, with Belgian timestamps) ----
+        recent = fetch_all("""
+            SELECT
+                user_email,
+                endpoint,
+                method,
+                created_at AT TIME ZONE 'Europe/Brussels' AS created_at_be
+            FROM activity_log
+            ORDER BY created_at DESC
+            LIMIT 50
+        """)
+
+        def _ser(val):
+            if isinstance(val, decimal.Decimal):
+                return float(val)
+            if isinstance(val, (dt.date, dt.datetime)):
+                return str(val)
+            return val
+
+        def serialize_rows(rows):
+            return [{k: _ser(v) for k, v in r.items()} for r in rows]
+
+        return {
+            "kpis": {k: _ser(v) for k, v in (kpis or {}).items()},
+            "daily_trend": serialize_rows(daily_trend),
+            "features": serialize_rows(features),
+            "top_users": serialize_rows(top_users),
+            "recent": serialize_rows(recent),
+        }
+    except Exception as e:
+        logger.exception("Adoption dashboard failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/payments")
 async def admin_payments(user=Depends(_require_admin)):
     """List recent Stripe payments for the admin dashboard."""

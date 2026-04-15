@@ -176,6 +176,22 @@ interface Insights {
   top_companies: { cbe: string; name: string; view_count: number }[];
 }
 
+interface AdoptionData {
+  kpis: {
+    total_registered: number;
+    active_7d: number;
+    active_30d: number;
+    sessions_today: number;
+    active_prev_7d: number;
+    active_prev_30d: number;
+    sessions_yesterday: number;
+  };
+  daily_trend: { day: string; dau: number; page_views: number }[];
+  features: { feature: string; requests: number; unique_users: number }[];
+  top_users: { email: string; session_days: number; total_requests: number; last_active: string }[];
+  recent: { user_email: string; endpoint: string; method: string; created_at_be: string }[];
+}
+
 interface Poll {
   id: number;
   title: string;
@@ -238,6 +254,49 @@ function pct(value: number, total: number): number {
 
 function pctStr(value: number, total: number): string {
   return pct(value, total).toFixed(1);
+}
+
+/** Format a timestamp string to Belgian timezone (Europe/Brussels). */
+function toBelgianTime(ts: string, options?: Intl.DateTimeFormatOptions): string {
+  try {
+    const defaults: Intl.DateTimeFormatOptions = {
+      timeZone: "Europe/Brussels",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    };
+    return new Date(ts).toLocaleString("en-BE", { ...defaults, ...options });
+  } catch {
+    return ts;
+  }
+}
+
+function toBelgianDate(ts: string): string {
+  try {
+    return new Date(ts).toLocaleDateString("en-BE", {
+      timeZone: "Europe/Brussels",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  } catch {
+    return ts;
+  }
+}
+
+function toBelgianTimeOnly(ts: string): string {
+  try {
+    return new Date(ts).toLocaleTimeString("en-BE", {
+      timeZone: "Europe/Brussels",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return ts;
+  }
 }
 
 function readinessColor(score: number): string {
@@ -449,6 +508,7 @@ export default function AdminPanel() {
     top_guests: { ip: string; requests: number; unique_pages: number; last_seen: string }[];
     totals: { total_requests_30d: number; guest_requests_30d: number; registered_requests_30d: number; unique_registered_30d: number; unique_guests_30d: number };
   } | null>(null);
+  const [adoptionData, setAdoptionData] = useState<AdoptionData | null>(null);
   const [paymentsData, setPaymentsData] = useState<PaymentsData | null>(null);
   const [tiers, setTiers] = useState<TierConfig[]>([]);
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
@@ -463,7 +523,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -478,6 +538,7 @@ export default function AdminPanel() {
         adminFetch<PaymentsData>("/api/admin/payments").catch(() => null),
         adminFetch<TierConfig[]>("/api/admin/tiers").catch(() => [] as TierConfig[]),
         adminFetch<{ site_logo: string }>("/api/admin/site-config").catch(() => ({ site_logo: "/logos/dog-telescope.jpg" })),
+        adminFetch<AdoptionData>("/api/admin/adoption").catch(() => null),
       ]);
       setStats(s);
       setUsers(u);
@@ -491,6 +552,7 @@ export default function AdminPanel() {
       setPaymentsData(pay);
       setTiers(tc);
       if (sc?.site_logo) setSiteLogo(sc.site_logo);
+      setAdoptionData(adopt);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -809,7 +871,7 @@ export default function AdminPanel() {
           <div className="flex items-center gap-3 mt-2 text-[11px] text-slate-400">
             {f.page && <span>{f.page}</span>}
             {f.user_email && <span>{f.user_email}</span>}
-            <span>{new Date(f.created_at).toLocaleDateString()}</span>
+            <span>{toBelgianDate(f.created_at)}</span>
           </div>
 
           {f.reply ? (
@@ -820,7 +882,7 @@ export default function AdminPanel() {
                 </Badge>
                 {f.replied_at && (
                   <span className="text-[10px] text-slate-400">
-                    {new Date(f.replied_at).toLocaleDateString()}
+                    {toBelgianDate(f.replied_at)}
                   </span>
                 )}
               </div>
@@ -1435,296 +1497,227 @@ export default function AdminPanel() {
         </TabsContent>
 
         {/* ================================================================
-            TAB: Usage Analytics
+            TAB: Adoption Dashboard
             ================================================================ */}
         <TabsContent value="usage">
           <div className="space-y-6 pt-2">
-            <SectionHeading icon={Activity}>Platform Usage — Last 30 Days</SectionHeading>
+            <SectionHeading icon={Activity}>Adoption Dashboard</SectionHeading>
 
-            {!usageData ? (
-              <Card className="bg-white"><CardContent><p className="py-8 text-center text-sm text-slate-400">Loading usage data...</p></CardContent></Card>
+            {!adoptionData ? (
+              <Card className="bg-white"><CardContent><p className="py-8 text-center text-sm text-slate-400">Loading adoption data...</p></CardContent></Card>
             ) : (
               <>
-                {/* Summary KPIs */}
-                <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                {/* ---- 1. Adoption KPI Cards ---- */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                   {[
-                    { label: "Total Requests", value: usageData.totals.total_requests_30d, color: "text-slate-800" },
-                    { label: "Registered Requests", value: usageData.totals.registered_requests_30d, color: "text-indigo-600" },
-                    { label: "Guest Requests", value: usageData.totals.guest_requests_30d, color: "text-orange-500" },
-                    { label: "Unique Registered", value: usageData.totals.unique_registered_30d, color: "text-indigo-600" },
-                    { label: "Unique Guests (IPs)", value: usageData.totals.unique_guests_30d, color: "text-orange-500" },
-                  ].map((kpi) => (
-                    <Card key={kpi.label} className="bg-white">
-                      <CardContent className="p-3 text-center">
-                        <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">{kpi.label}</div>
-                        <div className={`text-xl font-bold ${kpi.color}`}>{kpi.value?.toLocaleString() ?? 0}</div>
+                    {
+                      label: "Registered Users",
+                      value: adoptionData.kpis.total_registered,
+                      icon: <Users className="size-4 text-indigo-500" />,
+                      color: "text-indigo-700",
+                      bg: "bg-indigo-50 border-indigo-100",
+                      sub: null,
+                    },
+                    {
+                      label: "Active (7 days)",
+                      value: adoptionData.kpis.active_7d,
+                      icon: <UserCheck className="size-4 text-emerald-500" />,
+                      color: "text-emerald-700",
+                      bg: "bg-emerald-50 border-emerald-100",
+                      sub: adoptionData.kpis.active_prev_7d,
+                    },
+                    {
+                      label: "Active (30 days)",
+                      value: adoptionData.kpis.active_30d,
+                      icon: <HeartPulse className="size-4 text-violet-500" />,
+                      color: "text-violet-700",
+                      bg: "bg-violet-50 border-violet-100",
+                      sub: adoptionData.kpis.active_prev_30d,
+                    },
+                    {
+                      label: "Sessions Today",
+                      value: adoptionData.kpis.sessions_today,
+                      icon: <Activity className="size-4 text-amber-500" />,
+                      color: "text-amber-700",
+                      bg: "bg-amber-50 border-amber-100",
+                      sub: adoptionData.kpis.sessions_yesterday,
+                    },
+                  ].map((card) => (
+                    <Card key={card.label} className={`border ${card.bg}`}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">{card.label}</span>
+                          {card.icon}
+                        </div>
+                        <div className={`text-2xl font-bold ${card.color}`}>
+                          {card.value?.toLocaleString() ?? 0}
+                        </div>
+                        {card.sub != null && (
+                          <div className="mt-1">
+                            <TrendBadge current={card.value ?? 0} previous={card.sub ?? 0} />
+                          </div>
+                        )}
                       </CardContent>
                     </Card>
                   ))}
                 </div>
 
-                {/* Daily unique users line chart */}
+                {/* ---- 2. Usage Trend Chart (DAU + Page Views, 30 days) ---- */}
                 <Card className="bg-white">
                   <CardContent className="p-4">
-                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                      <Eye className="size-3.5" /> Daily Unique Visitors (last 30 days)
+                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-4 flex items-center gap-1.5">
+                      <TrendingUp className="size-3.5" /> Usage Trend — Last 30 Days
                     </h3>
-                    {(() => {
-                      const daily = usageData.daily.slice().reverse();
-                      const chartData = daily.map((d) => ({
+                    {adoptionData.daily_trend.length === 0 ? (
+                      <p className="text-xs text-slate-400 py-6 text-center">No data yet</p>
+                    ) : (() => {
+                      const chartData = adoptionData.daily_trend.map((d) => ({
                         date: d.day.slice(5),
-                        registered: d.unique_registered,
-                        guests: d.unique_guests,
-                        total: d.unique_registered + d.unique_guests,
+                        "Active Users": d.dau,
+                        "Page Views": d.page_views,
                       }));
-                      // Growth indicator: compare last 15 days vs previous 15 days
-                      const mid = Math.floor(daily.length / 2);
-                      const recentTotal = daily.slice(mid).reduce((s, d) => s + d.unique_registered + d.unique_guests, 0);
-                      const prevTotal = daily.slice(0, mid).reduce((s, d) => s + d.unique_registered + d.unique_guests, 0);
-                      const growthPct = prevTotal > 0 ? ((recentTotal - prevTotal) / prevTotal) * 100 : 0;
-                      const growthSign = growthPct > 0 ? "+" : "";
-                      const growthColor = growthPct > 0 ? "text-emerald-600" : growthPct < 0 ? "text-red-500" : "text-slate-400";
-
                       return (
-                        <>
-                          <div className="flex items-center gap-3 mb-3">
-                            <span className={`text-xs font-semibold ${growthColor}`}>
-                              {growthSign}{growthPct.toFixed(1)}% vs previous {mid} days
-                            </span>
-                            {growthPct > 0 ? (
-                              <TrendingUp className="size-3.5 text-emerald-500" />
-                            ) : growthPct < 0 ? (
-                              <TrendingDown className="size-3.5 text-red-400" />
-                            ) : (
-                              <Minus className="size-3.5 text-slate-400" />
-                            )}
-                          </div>
-                          <ResponsiveContainer width="100%" height={260}>
-                            <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                              <XAxis
-                                dataKey="date"
-                                tick={{ fontSize: 10, fill: "#94a3b8" }}
-                                axisLine={{ stroke: "#cbd5e1" }}
-                                tickLine={false}
-                              />
-                              <YAxis
-                                tick={{ fontSize: 10, fill: "#94a3b8" }}
-                                axisLine={false}
-                                tickLine={false}
-                                allowDecimals={false}
-                              />
-                              <Tooltip
-                                contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0" }}
-                                labelStyle={{ fontWeight: 600 }}
-                              />
-                              <Legend
-                                iconType="circle"
-                                iconSize={8}
-                                wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
-                              />
-                              <Line
-                                type="monotone"
-                                dataKey="total"
-                                name="Total"
-                                stroke="#334155"
-                                strokeWidth={2}
-                                dot={false}
-                                strokeDasharray="5 3"
-                              />
-                              <Line
-                                type="monotone"
-                                dataKey="registered"
-                                name="Registered"
-                                stroke="#6366f1"
-                                strokeWidth={2}
-                                dot={{ r: 2, fill: "#6366f1" }}
-                              />
-                              <Line
-                                type="monotone"
-                                dataKey="guests"
-                                name="Guests"
-                                stroke="#64748b"
-                                strokeWidth={2}
-                                dot={{ r: 2, fill: "#64748b" }}
-                              />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </>
-                      );
-                    })()}
-                  </CardContent>
-                </Card>
-
-                {/* Monthly unique visitors stacked bar chart */}
-                <Card className="bg-white">
-                  <CardContent className="p-4">
-                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                      <BarChart3 className="size-3.5" /> Monthly Unique Visitors
-                    </h3>
-                    {(() => {
-                      // Aggregate daily data into months
-                      const monthMap = new Map<string, { registered: number; guests: number }>();
-                      for (const d of usageData.daily) {
-                        const month = d.day.slice(0, 7); // "YYYY-MM"
-                        const existing = monthMap.get(month) || { registered: 0, guests: 0 };
-                        existing.registered += d.unique_registered;
-                        existing.guests += d.unique_guests;
-                        monthMap.set(month, existing);
-                      }
-                      const monthlyData = Array.from(monthMap.entries())
-                        .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([month, vals]) => ({
-                          month,
-                          registered: vals.registered,
-                          guests: vals.guests,
-                          total: vals.registered + vals.guests,
-                        }));
-
-                      if (monthlyData.length === 0) {
-                        return <p className="text-xs text-slate-400 py-4 text-center">No monthly data available</p>;
-                      }
-
-                      return (
-                        <ResponsiveContainer width="100%" height={220}>
-                          <BarChart data={monthlyData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                        <ResponsiveContainer width="100%" height={280}>
+                          <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                             <XAxis
-                              dataKey="month"
+                              dataKey="date"
                               tick={{ fontSize: 10, fill: "#94a3b8" }}
                               axisLine={{ stroke: "#cbd5e1" }}
                               tickLine={false}
                             />
                             <YAxis
+                              yAxisId="left"
                               tick={{ fontSize: 10, fill: "#94a3b8" }}
                               axisLine={false}
                               tickLine={false}
                               allowDecimals={false}
+                              label={{ value: "Active Users", angle: -90, position: "insideLeft", style: { fontSize: 10, fill: "#94a3b8" } }}
+                            />
+                            <YAxis
+                              yAxisId="right"
+                              orientation="right"
+                              tick={{ fontSize: 10, fill: "#94a3b8" }}
+                              axisLine={false}
+                              tickLine={false}
+                              allowDecimals={false}
+                              label={{ value: "Page Views", angle: 90, position: "insideRight", style: { fontSize: 10, fill: "#94a3b8" } }}
                             />
                             <Tooltip
                               contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0" }}
                               labelStyle={{ fontWeight: 600 }}
                             />
                             <Legend
-                              iconType="square"
+                              iconType="circle"
                               iconSize={8}
                               wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
                             />
-                            <Bar dataKey="registered" name="Registered" stackId="visitors" fill="#6366f1" radius={[0, 0, 0, 0]} />
-                            <Bar dataKey="guests" name="Guests" stackId="visitors" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-                          </BarChart>
+                            <Line
+                              yAxisId="left"
+                              type="monotone"
+                              dataKey="Active Users"
+                              stroke="#6366f1"
+                              strokeWidth={2.5}
+                              dot={{ r: 2.5, fill: "#6366f1" }}
+                              activeDot={{ r: 4 }}
+                            />
+                            <Line
+                              yAxisId="right"
+                              type="monotone"
+                              dataKey="Page Views"
+                              stroke="#94a3b8"
+                              strokeWidth={1.5}
+                              dot={false}
+                              strokeDasharray="4 3"
+                            />
+                          </LineChart>
                         </ResponsiveContainer>
                       );
                     })()}
                   </CardContent>
                 </Card>
 
-                {/* Daily chart as simple bar */}
-                <Card className="bg-white">
-                  <CardContent className="p-4">
-                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                      <BarChart3 className="size-3.5" /> Daily Requests (last 30 days)
-                    </h3>
-                    <div className="space-y-1">
-                      {usageData.daily.slice(0, 14).map((d) => {
-                        const total = d.registered_requests + d.guest_requests;
-                        const maxTotal = Math.max(...usageData.daily.map(x => x.registered_requests + x.guest_requests), 1);
-                        const regPct = total > 0 ? (d.registered_requests / maxTotal) * 100 : 0;
-                        const guestPct = total > 0 ? (d.guest_requests / maxTotal) * 100 : 0;
-                        return (
-                          <div key={d.day} className="flex items-center gap-2">
-                            <span className="text-[10px] text-slate-400 font-mono w-20 shrink-0">{d.day.slice(5)}</span>
-                            <div className="flex-1 flex h-4 rounded overflow-hidden bg-slate-50">
-                              <div className="bg-indigo-400 rounded-l" style={{ width: `${regPct}%` }} title={`${d.registered_requests} registered`} />
-                              <div className="bg-orange-300" style={{ width: `${guestPct}%` }} title={`${d.guest_requests} guest`} />
-                            </div>
-                            <span className="text-[10px] text-slate-500 font-mono w-12 text-right">{total}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div className="flex items-center gap-4 mt-3 text-[10px] text-slate-400">
-                      <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded bg-indigo-400" /> Registered</span>
-                      <span className="flex items-center gap-1"><span className="inline-block w-3 h-2 rounded bg-orange-300" /> Guest</span>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Two columns: Top Pages + Top Users */}
+                {/* ---- 3. Feature Usage + Top Users (side by side) ---- */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Top Pages */}
+                  {/* Feature Breakdown (bar chart) */}
                   <Card className="bg-white">
                     <CardContent className="p-4">
                       <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                        <Globe className="size-3.5" /> Most Used Features (7d)
+                        <BarChart3 className="size-3.5" /> Feature Usage (last 7 days)
                       </h3>
-                      <div className="space-y-1.5">
-                        {usageData.top_pages.map((p, i) => {
-                          const maxReq = usageData.top_pages[0]?.requests || 1;
-                          return (
-                            <div key={i} className="flex items-center gap-2">
-                              <span className="text-xs text-slate-600 truncate flex-1">{p.page}</span>
-                              <div className="w-24 h-3 bg-slate-50 rounded overflow-hidden">
-                                <div className="h-full bg-indigo-200 rounded" style={{ width: `${(p.requests / maxReq) * 100}%` }} />
-                              </div>
-                              <span className="text-[10px] text-slate-400 font-mono w-10 text-right">{p.requests}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      {adoptionData.features.length === 0 ? (
+                        <p className="text-xs text-slate-400 py-6 text-center">No feature data yet</p>
+                      ) : (() => {
+                        const barData = adoptionData.features.slice(0, 10).map((f) => ({
+                          feature: f.feature,
+                          Requests: f.requests,
+                          Users: f.unique_users,
+                        }));
+                        return (
+                          <ResponsiveContainer width="100%" height={Math.max(200, barData.length * 36)}>
+                            <BarChart data={barData} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                              <XAxis type="number" tick={{ fontSize: 10, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                              <YAxis
+                                dataKey="feature"
+                                type="category"
+                                width={120}
+                                tick={{ fontSize: 10, fill: "#64748b" }}
+                                axisLine={false}
+                                tickLine={false}
+                              />
+                              <Tooltip
+                                contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0" }}
+                              />
+                              <Bar dataKey="Requests" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={18} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        );
+                      })()}
                     </CardContent>
                   </Card>
 
-                  {/* Top Registered Users */}
+                  {/* Top Users table */}
                   <Card className="bg-white">
                     <CardContent className="p-4">
                       <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                        <Users className="size-3.5" /> Top Registered Users (7d)
+                        <Crown className="size-3.5" /> Top Users (last 30 days)
                       </h3>
-                      <div className="space-y-1.5">
-                        {usageData.top_registered.map((u, i) => (
-                          <div key={i} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0">
-                            <span className="text-xs text-indigo-600 font-medium truncate">{u.user_email}</span>
-                            <div className="flex items-center gap-3 text-[10px] text-slate-400 shrink-0">
-                              <span>{u.unique_pages} pages</span>
-                              <span className="font-mono font-semibold text-slate-600">{u.requests} req</span>
-                            </div>
-                          </div>
-                        ))}
-                        {usageData.top_registered.length === 0 && <p className="text-xs text-slate-400 py-2 text-center">No registered activity</p>}
-                      </div>
+                      {adoptionData.top_users.length === 0 ? (
+                        <p className="text-xs text-slate-400 py-6 text-center">No user activity yet</p>
+                      ) : (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-[10px]">Email</TableHead>
+                              <TableHead className="text-[10px] text-right">Days Active</TableHead>
+                              <TableHead className="text-[10px] text-right">Requests</TableHead>
+                              <TableHead className="text-[10px] text-right">Last Active</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {adoptionData.top_users.map((u, i) => (
+                              <TableRow key={i}>
+                                <TableCell className="text-xs text-indigo-600 font-medium truncate max-w-[180px]">
+                                  {u.email}
+                                </TableCell>
+                                <TableCell className="text-xs text-right font-mono">
+                                  {u.session_days}
+                                </TableCell>
+                                <TableCell className="text-xs text-right font-mono text-slate-500">
+                                  {u.total_requests.toLocaleString()}
+                                </TableCell>
+                                <TableCell className="text-[10px] text-right text-slate-400">
+                                  {toBelgianTime(u.last_active)}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      )}
                     </CardContent>
                   </Card>
                 </div>
-
-                {/* Guest Visitors */}
-                <Card className="bg-white">
-                  <CardContent className="p-4">
-                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                      <Globe className="size-3.5 text-orange-500" /> Guest Visitors (7d)
-                    </h3>
-                    {usageData.top_guests.length === 0 ? (
-                      <p className="text-xs text-slate-400 py-4 text-center">No guest traffic recorded yet. Guest tracking started this session — check back tomorrow.</p>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {usageData.top_guests.map((g, i) => (
-                          <div key={i} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0">
-                            <span className="inline-flex items-center gap-1.5">
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 text-[9px] font-semibold">
-                                <Globe className="size-2.5" /> {g.ip.replace("anon:", "")}
-                              </span>
-                            </span>
-                            <div className="flex items-center gap-3 text-[10px] text-slate-400 shrink-0">
-                              <span>{g.unique_pages} pages</span>
-                              <span className="font-mono font-semibold text-slate-600">{g.requests} req</span>
-                              <span>{g.last_seen?.slice(0, 16).replace("T", " ")}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
               </>
             )}
           </div>
@@ -1844,12 +1837,12 @@ export default function AdminPanel() {
                               </TableCell>
                               <TableCell className="text-sm text-slate-500">
                                 {u.created_at
-                                  ? new Date(u.created_at).toLocaleDateString()
+                                  ? toBelgianDate(u.created_at)
                                   : "--"}
                               </TableCell>
                               <TableCell className="text-sm text-slate-500">
                                 {act
-                                  ? new Date(act.last_active).toLocaleString()
+                                  ? toBelgianTime(act.last_active)
                                   : "--"}
                               </TableCell>
                               <TableCell className="text-right font-mono text-sm">
@@ -2342,14 +2335,12 @@ export default function AdminPanel() {
                               </span>
                               <span>
                                 Created{" "}
-                                {new Date(poll.created_at).toLocaleDateString()}
+                                {toBelgianDate(poll.created_at)}
                               </span>
                               {poll.archived_at && (
                                 <span>
                                   Archived{" "}
-                                  {new Date(
-                                    poll.archived_at
-                                  ).toLocaleDateString()}
+                                  {toBelgianDate(poll.archived_at)}
                                 </span>
                               )}
                             </div>
@@ -2532,61 +2523,33 @@ export default function AdminPanel() {
         </TabsContent>
 
         {/* ================================================================
-            TAB 5: Activity Timeline
+            TAB 5: Recent Activity (grouped by user, Belgian timezone)
             ================================================================ */}
         <TabsContent value="activity">
           <div className="space-y-4 pt-2">
-            <SectionHeading icon={Clock}>Activity Timeline</SectionHeading>
+            <SectionHeading icon={Clock}>Recent Activity</SectionHeading>
+            <p className="text-xs text-slate-400 -mt-2 mb-2">Last 50 actions, grouped by user. All times in Europe/Brussels (CET/CEST).</p>
 
-            {/* Guest vs Registered summary */}
-            {activityLog.length > 0 && (() => {
-              const anonEntries = activityLog.filter(e => e.user_email?.startsWith("anon:"));
-              const authEntries = activityLog.filter(e => e.user_email && !e.user_email.startsWith("anon:"));
-              const uniqueGuests = new Set(anonEntries.map(e => e.user_email)).size;
-              const uniqueRegistered = new Set(authEntries.map(e => e.user_email)).size;
-              return (
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-                  <Card className="bg-white"><CardContent className="p-3 text-center">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Registered Users</div>
-                    <div className="text-lg font-bold text-indigo-600">{uniqueRegistered}</div>
-                    <div className="text-[10px] text-slate-400">{authEntries.length} requests</div>
-                  </CardContent></Card>
-                  <Card className="bg-white"><CardContent className="p-3 text-center">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Guest Visitors</div>
-                    <div className="text-lg font-bold text-orange-500">{uniqueGuests}</div>
-                    <div className="text-[10px] text-slate-400">{anonEntries.length} requests</div>
-                  </CardContent></Card>
-                  <Card className="bg-white"><CardContent className="p-3 text-center">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Total Requests</div>
-                    <div className="text-lg font-bold text-slate-800">{activityLog.length}</div>
-                    <div className="text-[10px] text-slate-400">last 200 shown</div>
-                  </CardContent></Card>
-                  <Card className="bg-white"><CardContent className="p-3 text-center">
-                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Guest %</div>
-                    <div className="text-lg font-bold text-orange-500">{activityLog.length > 0 ? Math.round(anonEntries.length / activityLog.length * 100) : 0}%</div>
-                    <div className="text-[10px] text-slate-400">of total traffic</div>
-                  </CardContent></Card>
-                </div>
-              );
-            })()}
-
-            {activityLog.length === 0 ? (
+            {!adoptionData || adoptionData.recent.length === 0 ? (
               <Card className="bg-white">
                 <CardContent>
                   <p className="py-8 text-center text-sm text-slate-400">No activity recorded yet.</p>
                 </CardContent>
               </Card>
             ) : (() => {
-              // Group by date
-              const grouped: Record<string, ActivityEntry[]> = {};
-              activityLog.forEach((entry) => {
-                const date = entry.created_at?.slice(0, 10) || "Unknown";
-                if (!grouped[date]) grouped[date] = [];
-                grouped[date].push(entry);
-              });
-              const dates = Object.keys(grouped).sort().reverse();
+              // Group recent activity by user
+              type RecentEntry = AdoptionData["recent"][number];
+              const byUser = new Map<string, RecentEntry[]>();
+              for (const entry of adoptionData.recent) {
+                const key = entry.user_email || "unknown";
+                if (!byUser.has(key)) byUser.set(key, []);
+                byUser.get(key)!.push(entry);
+              }
+              // Sort users by most recent action first
+              const userGroups = Array.from(byUser.entries()).sort(
+                (a, b) => (b[1][0]?.created_at_be || "").localeCompare(a[1][0]?.created_at_be || "")
+              );
 
-              // Friendly endpoint label
               function endpointLabel(ep: string): { label: string; icon: React.ReactNode; color: string } {
                 if (ep.includes("/company/") && ep.includes("/financials")) return { label: "Viewed financials", icon: <BarChart3 className="size-3.5" />, color: "text-indigo-600 bg-indigo-50" };
                 if (ep.includes("/company/") && ep.includes("/structure")) return { label: "Viewed structure", icon: <Users className="size-3.5" />, color: "text-purple-600 bg-purple-50" };
@@ -2596,96 +2559,71 @@ export default function AdminPanel() {
                 if (ep.includes("/favourites")) return { label: "Managed favourites", icon: <CircleCheck className="size-3.5" />, color: "text-pink-600 bg-pink-50" };
                 if (ep.includes("/dashboard")) return { label: "Viewed dashboard", icon: <Globe className="size-3.5" />, color: "text-slate-600 bg-slate-50" };
                 if (ep.includes("/feedback")) return { label: "Sent feedback", icon: <MessageSquare className="size-3.5" />, color: "text-orange-600 bg-orange-50" };
-                if (ep.includes("/stats")) return { label: "Viewed stats", icon: <TrendingUp className="size-3.5" />, color: "text-cyan-600 bg-cyan-50" };
                 if (ep.includes("/staatsblad")) return { label: "Loaded publications", icon: <Database className="size-3.5" />, color: "text-teal-600 bg-teal-50" };
-                if (ep.includes("/nbb")) return { label: "Loaded NBB data", icon: <Database className="size-3.5" />, color: "text-violet-600 bg-violet-50" };
+                if (ep.includes("/nbb") || ep.includes("/load")) return { label: "Loaded NBB data", icon: <Database className="size-3.5" />, color: "text-violet-600 bg-violet-50" };
+                if (ep.includes("/ai") || ep.includes("/enrich")) return { label: "AI Insights", icon: <Activity className="size-3.5" />, color: "text-fuchsia-600 bg-fuchsia-50" };
+                if (ep.includes("/export")) return { label: "Exported data", icon: <ArrowUpRight className="size-3.5" />, color: "text-cyan-600 bg-cyan-50" };
                 return { label: ep.replace("/api/", ""), icon: <Globe className="size-3.5" />, color: "text-slate-500 bg-slate-50" };
               }
 
-              function formatTime(ts: string): string {
-                try { return new Date(ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; }
-              }
-
-              function formatDate(d: string): string {
-                try {
-                  const dt = new Date(d + "T00:00:00");
-                  const today = new Date(); today.setHours(0,0,0,0);
-                  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-                  if (dt.getTime() === today.getTime()) return "Today";
-                  if (dt.getTime() === yesterday.getTime()) return "Yesterday";
-                  return dt.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-                } catch { return d; }
-              }
-
               return (
-                <div className="space-y-6">
-                  {dates.map((date) => (
-                    <div key={date}>
-                      {/* Date header */}
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                          {formatDate(date)}
-                        </div>
-                        <div className="h-px flex-1 bg-slate-200" />
-                        <span className="text-[10px] text-slate-400 font-mono">{grouped[date].length} events</span>
-                      </div>
+                <div className="space-y-4">
+                  {userGroups.map(([userEmail, entries]) => {
+                    const isGuest = userEmail.startsWith("anon:");
+                    const displayName = isGuest
+                      ? `Guest ${userEmail.replace("anon:", "").split(".").slice(0, 2).join(".")}...`
+                      : userEmail;
+                    return (
+                      <Card key={userEmail} className="bg-white">
+                        <CardContent className="p-4">
+                          {/* User header */}
+                          <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
+                            <div className={`shrink-0 p-1.5 rounded-full ${isGuest ? "bg-orange-50" : "bg-indigo-50"}`}>
+                              {isGuest
+                                ? <Globe className="size-3.5 text-orange-500" />
+                                : <UserCheck className="size-3.5 text-indigo-500" />
+                              }
+                            </div>
+                            <span className={`text-xs font-semibold ${isGuest ? "text-orange-600" : "text-indigo-600"}`}>
+                              {displayName}
+                            </span>
+                            <span className="text-[10px] text-slate-400 ml-auto">
+                              {entries.length} action{entries.length !== 1 ? "s" : ""}
+                            </span>
+                          </div>
 
-                      {/* Timeline entries */}
-                      <div className="relative pl-6">
-                        {/* Vertical line */}
-                        <div className="absolute left-[9px] top-2 bottom-2 w-px bg-slate-200" />
-
-                        <div className="space-y-1">
-                          {grouped[date].map((entry, i) => {
-                            const info = endpointLabel(entry.endpoint);
-                            return (
-                              <div key={`${date}-${i}`} className="relative flex items-start gap-3 py-1.5 group">
-                                {/* Dot */}
-                                <div className={`absolute -left-6 top-2.5 w-[7px] h-[7px] rounded-full border-2 border-white ${
-                                  i === 0 && date === dates[0] ? "bg-indigo-500" : "bg-slate-300"
-                                }`} />
-
-                                {/* Icon */}
-                                <div className={`shrink-0 p-1 rounded-md ${info.color}`}>
-                                  {info.icon}
-                                </div>
-
-                                {/* Content */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs font-medium text-slate-800">{info.label}</span>
-                                    <span className="text-[10px] text-slate-400 font-mono truncate max-w-[200px]">
-                                      {entry.endpoint.replace("/api/", "")}
-                                    </span>
+                          {/* Activity entries */}
+                          <div className="space-y-1.5">
+                            {entries.map((entry, i) => {
+                              const info = endpointLabel(entry.endpoint);
+                              // created_at_be is already in Brussels time from the backend
+                              const timeStr = entry.created_at_be
+                                ? toBelgianTime(entry.created_at_be)
+                                : "";
+                              return (
+                                <div key={i} className="flex items-center gap-2.5 py-1">
+                                  <div className={`shrink-0 p-1 rounded-md ${info.color}`}>
+                                    {info.icon}
                                   </div>
-                                  <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5">
-                                    {entry.user_email?.startsWith("anon:") ? (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 text-[9px] font-semibold">
-                                        <Globe className="size-2.5" /> Guest {entry.user_email.replace("anon:", "").split(".").slice(0, 2).join(".")}…
-                                      </span>
-                                    ) : (
-                                      <span>{entry.user_email?.split("@")[0] || "unknown"}</span>
-                                    )}
-                                    <span className="text-slate-300">·</span>
-                                    {formatTime(entry.created_at)}
-                                  </div>
+                                  <span className="text-xs text-slate-700 flex-1 min-w-0 truncate">{info.label}</span>
+                                  <span className={`shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                    entry.method === "POST" ? "bg-amber-50 text-amber-600" :
+                                    entry.method === "DELETE" ? "bg-rose-50 text-rose-500" :
+                                    "bg-slate-50 text-slate-400"
+                                  }`}>
+                                    {entry.method}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono shrink-0 w-28 text-right">
+                                    {timeStr}
+                                  </span>
                                 </div>
-
-                                {/* Method badge */}
-                                <span className={`shrink-0 text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                                  entry.method === "POST" ? "bg-amber-50 text-amber-600" :
-                                  entry.method === "DELETE" ? "bg-rose-50 text-rose-500" :
-                                  "bg-slate-50 text-slate-400"
-                                }`}>
-                                  {entry.method}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                              );
+                            })}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
               );
             })()}
@@ -2791,12 +2729,9 @@ export default function AdminPanel() {
                           {paymentsData.payments.map((p) => (
                             <TableRow key={p.id}>
                               <TableCell className="text-xs text-slate-500 font-mono whitespace-nowrap">
-                                {new Date(p.created).toLocaleDateString()}{" "}
+                                {toBelgianDate(p.created)}{" "}
                                 <span className="text-slate-400">
-                                  {new Date(p.created).toLocaleTimeString([], {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
+                                  {toBelgianTimeOnly(p.created)}
                                 </span>
                               </TableCell>
                               <TableCell className="text-xs text-slate-600 max-w-[200px] truncate">

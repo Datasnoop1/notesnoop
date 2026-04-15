@@ -7,6 +7,7 @@ from typing import Optional
 
 import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from db import fetch_all, fetch_one, execute, get_connection, put_connection, get_conn
 from auth import get_current_user, optional_user
@@ -1647,6 +1648,20 @@ def _ensure_enrichment_table():
             """)
         except Exception:
             pass  # column already exists or DB doesn't support IF NOT EXISTS
+    # AI insights feedback table
+    execute("""
+        CREATE TABLE IF NOT EXISTS ai_insights_feedback (
+            id SERIAL PRIMARY KEY,
+            enterprise_number VARCHAR(10) NOT NULL,
+            user_email TEXT,
+            overall TEXT NOT NULL,
+            website_correct BOOLEAN,
+            linkedin_correct BOOLEAN,
+            insight_correct BOOLEAN,
+            comment TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
     _enrichment_table_ensured = True
 
 
@@ -1983,3 +1998,55 @@ async def generate_ai_insights(cbe: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail=insights["error"])
 
     return insights
+
+
+# ---------------------------------------------------------------------------
+# POST /api/companies/{cbe}/ai-insights/feedback
+# ---------------------------------------------------------------------------
+
+class InsightsFeedbackBody(BaseModel):
+    overall: str  # "up" or "down"
+    websiteCorrect: Optional[bool] = None
+    linkedinCorrect: Optional[bool] = None
+    insightCorrect: Optional[bool] = None
+    comment: Optional[str] = None
+
+
+@router.post("/{cbe}/ai-insights/feedback")
+async def submit_insights_feedback(cbe: str, body: InsightsFeedbackBody, user=Depends(optional_user)):
+    """Submit user feedback on AI-generated insights."""
+    _ensure_enrichment_table()
+    cbe = cbe.strip().replace(".", "").zfill(10)
+
+    if body.overall not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="overall must be 'up' or 'down'")
+
+    email = user.get("email") if user else None
+
+    try:
+        execute(
+            """INSERT INTO ai_insights_feedback
+               (enterprise_number, user_email, overall, website_correct, linkedin_correct, insight_correct, comment)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (cbe, email, body.overall, body.websiteCorrect, body.linkedinCorrect, body.insightCorrect, body.comment),
+        )
+
+        # If 3+ users flagged "down", clear cached insights to force regeneration
+        if body.overall == "down":
+            row = fetch_one(
+                """SELECT COUNT(DISTINCT COALESCE(user_email, 'anon')) AS cnt
+                   FROM ai_insights_feedback
+                   WHERE enterprise_number = %s AND overall = 'down'""",
+                (cbe,),
+            )
+            if row and row["cnt"] >= 3:
+                execute(
+                    "UPDATE company_enrichment SET ai_insights = NULL WHERE enterprise_number = %s",
+                    (cbe,),
+                )
+                logger.info("Cleared cached ai_insights for %s after %s down votes", cbe, row["cnt"])
+
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error("Failed to submit insights feedback for %s: %s", cbe, e)
+        raise HTTPException(status_code=500, detail="Failed to submit feedback")

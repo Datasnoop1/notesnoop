@@ -723,3 +723,6 @@ export interface AiInsights {
 
 export const generateAiInsights = (cbe: string) =>
   apiFetch<AiInsights>(`/api/companies/${cbe}/ai-insights`, { method: "POST" });
+
+export const submitInsightsFeedback = (cbe: string, feedback: { overall: string; websiteCorrect?: boolean; linkedinCorrect?: boolean; insightCorrect?: boolean; comment?: string }) =>
+  apiFetch<{ status: string }>(`/api/companies/${cbe}/ai-insights/feedback`, { method: "POST", body: JSON.stringify(feedback) });
