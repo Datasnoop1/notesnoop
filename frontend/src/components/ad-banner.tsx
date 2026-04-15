@@ -35,7 +35,7 @@ export default function AdBanner() {
     <>
       <Script
         async
-        src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1044006073519514"
+        src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1315269218347333"
         crossOrigin="anonymous"
         strategy="lazyOnload"
       />
@@ -44,7 +44,7 @@ export default function AdBanner() {
           <ins
             className="adsbygoogle"
             style={{ display: "block" }}
-            data-ad-client="ca-pub-1044006073519514"
+            data-ad-client="ca-pub-1315269218347333"
             data-ad-slot="4592689614"
             data-ad-format="auto"
             data-full-width-responsive="true"
