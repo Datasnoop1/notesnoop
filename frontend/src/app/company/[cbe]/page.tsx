@@ -62,8 +62,18 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
+  FileSpreadsheet,
+  FileDown,
 } from "lucide-react";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { derivePnlData, deriveCashFlowData, deriveBalanceSheetData, deriveCreditData } from "@/lib/export/data";
+import type { ExportData } from "@/lib/export/types";
 import dynamic from "next/dynamic";
 
 const NetworkGraph = dynamic(() => import("@/components/network-graph"), {
@@ -547,6 +557,54 @@ export default function CompanyDetailPage(props: {
     [cbe, benchmark]
   );
 
+  /* ── Full profile export handlers ── */
+  const [exporting, setExporting] = useState(false);
+
+  const buildExportData = useCallback((): ExportData | null => {
+    if (!detail) return null;
+    const summary = financials?.summary ?? [];
+    return {
+      detail: detail as unknown as ExportData["detail"],
+      cbe,
+      pnl: derivePnlData(summary as any),
+      cashFlow: deriveCashFlowData(summary as any),
+      balanceSheet: deriveBalanceSheetData(summary as any),
+      credit: deriveCreditData(summary as any),
+      administrators: (structure?.administrators ?? []) as any,
+      shareholders: (structure?.shareholders ?? []) as any,
+      participatingInterests: (structure?.participating_interests ?? []) as any,
+      benchmark: benchmark as any,
+    };
+  }, [detail, financials, structure, benchmark, cbe]);
+
+  const handleExportExcel = useCallback(async () => {
+    const data = buildExportData();
+    if (!data) return;
+    setExporting(true);
+    try {
+      const { generateExcelReport } = await import("@/lib/export/excel");
+      await generateExcelReport(data);
+    } catch (err) {
+      console.error("Excel export failed:", err);
+    } finally {
+      setExporting(false);
+    }
+  }, [buildExportData]);
+
+  const handleExportPdf = useCallback(async () => {
+    const data = buildExportData();
+    if (!data) return;
+    setExporting(true);
+    try {
+      const { generatePdfReport } = await import("@/lib/export/pdf");
+      await generatePdfReport(data);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+    } finally {
+      setExporting(false);
+    }
+  }, [buildExportData]);
+
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-[1200px] px-4">
@@ -680,6 +738,26 @@ export default function CompanyDetailPage(props: {
               <Scale className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
               Compare
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                disabled={exporting}
+                className="inline-flex items-center h-9 md:h-7 text-[11px] text-slate-500 border border-slate-200 hover:border-slate-300 px-2.5 md:px-2 rounded-md bg-white cursor-pointer"
+              >
+                {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <FileDown className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />}
+                Export
+                <ChevronDown className="w-3 h-3 ml-0.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExportExcel} className="text-xs cursor-pointer">
+                  <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-600" />
+                  Export to Excel
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportPdf} className="text-xs cursor-pointer">
+                  <FileText className="w-4 h-4 mr-2 text-rose-500" />
+                  Export to PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
