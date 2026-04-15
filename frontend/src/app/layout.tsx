@@ -15,7 +15,7 @@ const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans" });
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 
 export const metadata: Metadata = {
-  title: "Data Peak — Belgian Company Intelligence",
+  title: "Datasnoop — Belgian Company Intelligence",
   description:
     "Screen Belgian companies by sector, revenue, EBITDA, and more. KBO registry + NBB annual accounts.",
 };

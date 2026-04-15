@@ -320,7 +320,7 @@ interface FilterPreset {
   unit: string;
 }
 
-const PRESETS_KEY = "datapeak_screener_presets";
+const PRESETS_KEY = "datasnoop_screener_presets";
 
 function loadPresets(): FilterPreset[] {
   if (typeof window === "undefined") return [];

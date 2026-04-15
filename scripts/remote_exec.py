@@ -11,7 +11,7 @@ USER = os.getenv("HETZNER_USER", "root")
 PASS = os.getenv("HETZNER_PASS", "")
 
 
-SSH_KEY = os.path.expanduser("~/.ssh/hetzner_leadpeek")
+SSH_KEY = os.path.expanduser("~/.ssh/hetzner_datasnoop")
 
 
 def run(cmd, timeout=120):

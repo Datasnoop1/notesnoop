@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
-const COOKIE_CONSENT_KEY = "datapeak_cookie_consent";
+const COOKIE_CONSENT_KEY = "datasnoop_cookie_consent";
 
 export default function CookieBanner() {
   const [visible, setVisible] = useState(false);

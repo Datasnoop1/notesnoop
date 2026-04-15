@@ -20,7 +20,7 @@ STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 # Price IDs — create these in Stripe Dashboard > Products
 # For now we create a checkout session with a custom price
 MONTHLY_PRICE = 4900  # €49.00 in cents
-PRODUCT_NAME = "Data Peak Pro"
+PRODUCT_NAME = "Datasnoop Pro"
 
 
 class CheckoutRequest(BaseModel):
@@ -50,8 +50,8 @@ async def create_checkout(body: CheckoutRequest, user=Depends(get_current_user))
                 "quantity": 1,
             }],
             mode="subscription",
-            success_url="https://datapeak.invm.be/account?payment=success",
-            cancel_url="https://datapeak.invm.be/account?payment=cancelled",
+            success_url="https://datasnoop.be/account?payment=success",
+            cancel_url="https://datasnoop.be/account?payment=cancelled",
             customer_email=user.get("email"),
             metadata={"user_id": user.get("id"), "email": user.get("email")},
         )
@@ -75,14 +75,14 @@ async def create_donation(body: DonationRequest, user=Depends(optional_user)):
             line_items=[{
                 "price_data": {
                     "currency": "eur",
-                    "product_data": {"name": "Data Peak — Support Us"},
+                    "product_data": {"name": "Datasnoop — Support Us"},
                     "unit_amount": amount,
                 },
                 "quantity": 1,
             }],
             mode="payment",
-            success_url="https://datapeak.invm.be/?donated=true",
-            cancel_url="https://datapeak.invm.be/",
+            success_url="https://datasnoop.be/?donated=true",
+            cancel_url="https://datasnoop.be/",
             customer_email=user.get("email") if user else None,
         )
         return {"checkout_url": session.url, "session_id": session.id}

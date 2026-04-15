@@ -1,7 +1,7 @@
 """Simple in-memory rate limiter for FastAPI.
 
 Uses a sliding window counter per IP address. No external dependencies.
-Designed for single-process deployments (which Data Peak uses).
+Designed for single-process deployments (which Datasnoop uses).
 """
 
 import time

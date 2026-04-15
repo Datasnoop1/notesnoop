@@ -53,7 +53,7 @@ export default function Dashboard() {
       {/* Beta notice */}
       <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-4 py-3">
         <p className="text-sm text-slate-600">
-          <span className="font-semibold text-indigo-600">Data Peak is in beta.</span>{" "}
+          <span className="font-semibold text-indigo-600">Datasnoop is in beta.</span>{" "}
           We are actively building out our database and adding new features. We appreciate your feedback and tips — use the bug report or suggestion buttons anytime.
         </p>
       </div>

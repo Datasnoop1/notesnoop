@@ -19,14 +19,14 @@ export default function FontSwitcher() {
   const [active, setActive] = useState("geist");
 
   useEffect(() => {
-    const saved = localStorage.getItem("datapeak_font") || "geist";
+    const saved = localStorage.getItem("datasnoop_font") || "geist";
     setActive(saved);
   }, []);
 
   function applyFont(fontId: string) {
     const css = FONT_MAP[fontId] || FONT_MAP.geist;
     document.body.style.fontFamily = `${css}, system-ui, sans-serif`;
-    localStorage.setItem("datapeak_font", fontId);
+    localStorage.setItem("datasnoop_font", fontId);
     setActive(fontId);
   }
 

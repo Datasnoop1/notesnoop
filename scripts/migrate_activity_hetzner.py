@@ -2,7 +2,7 @@
 
 import io, os, csv, time, sqlite3, psycopg2
 
-HETZNER_URL = "postgresql://leadpeek:${HETZNER_PG_PASS}@62.238.14.150:5432/leadpeek"
+HETZNER_URL = "postgresql://datasnoop:${HETZNER_PG_PASS}@62.238.14.150:5432/datasnoop"
 SQLITE_PATH = os.path.join(os.path.dirname(__file__), "..", "db", "belgian_companies.db")
 CHUNK = 50_000
 

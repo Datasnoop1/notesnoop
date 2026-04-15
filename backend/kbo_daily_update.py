@@ -4,7 +4,7 @@ Downloads the latest update ZIPs from kbopub.economie.fgov.be,
 applies deletes + inserts to the live database, and refreshes company_info.
 
 Run daily via cron:
-  0 6 * * * cd /opt/leadpeek/backend && python kbo_daily_update.py >> /var/log/kbo_update.log 2>&1
+  0 6 * * * cd /opt/datasnoop/backend && python kbo_daily_update.py >> /var/log/kbo_update.log 2>&1
 """
 
 import csv
@@ -78,7 +78,7 @@ def discover_update_zips():
         session = requests.Session()
         # The KBO open data portal requires a session
         resp = session.get(KBO_DATA, timeout=30, headers={
-            "User-Agent": "Mozilla/5.0 (DataPeak KBO Updater)"
+            "User-Agent": "Mozilla/5.0 (Datasnoop KBO Updater)"
         })
         resp.raise_for_status()
 
@@ -108,7 +108,7 @@ def download_zip(url, dest_dir):
     dest = os.path.join(dest_dir, filename)
     log.info(f"Downloading {filename}...")
     resp = requests.get(url, timeout=120, stream=True, headers={
-        "User-Agent": "Mozilla/5.0 (DataPeak KBO Updater)"
+        "User-Agent": "Mozilla/5.0 (Datasnoop KBO Updater)"
     })
     resp.raise_for_status()
     with open(dest, "wb") as f:

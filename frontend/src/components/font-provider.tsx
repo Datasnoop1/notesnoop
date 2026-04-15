@@ -10,7 +10,7 @@ const FONT_MAP: Record<string, string> = {
 
 export default function FontProvider() {
   useEffect(() => {
-    const saved = localStorage.getItem("datapeak_font") || "geist";
+    const saved = localStorage.getItem("datasnoop_font") || "geist";
     const css = FONT_MAP[saved] || FONT_MAP.geist;
     document.body.style.fontFamily = `${css}, system-ui, sans-serif`;
   }, []);

@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { BarChart3 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-const STORAGE_PREFIX = "datapeak_poll_";
+const STORAGE_PREFIX = "datasnoop_poll_";
 
 interface ActivePoll {
   id: number;

@@ -1,4 +1,4 @@
-"""Data Peak FastAPI backend — Belgian company intelligence API."""
+"""Datasnoop FastAPI backend — Belgian company intelligence API."""
 
 import logging
 import os
@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Data Peak API",
+    title="Datasnoop API",
     description="Belgian company intelligence — KBO registry + NBB annual accounts",
     version="0.1.0",
     docs_url=None,
@@ -35,7 +35,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://datapeak.invm.be", "http://localhost:3000"],
+    allow_origins=["https://datapeak.invm.be", "https://datasnoop.be", "https://datasnoop.eu", "https://www.datasnoop.be", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type"],
@@ -153,7 +153,7 @@ app.include_router(staatsblad.router)
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "ok", "service": "datapeak-api"}
+    return {"status": "ok", "service": "datasnoop-api"}
 
 
 # ---------------------------------------------------------------------------

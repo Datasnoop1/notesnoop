@@ -80,7 +80,7 @@ function FeedbackDialog({
             <p className="text-sm text-slate-500">
               {type === "bug"
                 ? "Describe what went wrong and we'll look into it."
-                : "Tell us what would make Data Peak better."}
+                : "Tell us what would make Datasnoop better."}
             </p>
           </div>
 
@@ -172,7 +172,7 @@ function DonateButton() {
         <div className="space-y-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">
-              Support Data Peak
+              Support Datasnoop
             </h2>
             <p className="text-sm text-slate-500">
               Help us keep improving!

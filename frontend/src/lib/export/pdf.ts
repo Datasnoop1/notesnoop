@@ -293,7 +293,7 @@ export async function generatePdfReport(data: ExportData) {
     doc.setFontSize(7);
     doc.setTextColor(...PDF.textMuted);
     doc.text(
-      `Data Peak  ·  ${name}  ·  Page ${i}/${pageCount}`,
+      `Datasnoop  ·  ${name}  ·  Page ${i}/${pageCount}`,
       pageWidth / 2,
       doc.internal.pageSize.getHeight() - 7,
       { align: "center" }

@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Privacy Policy - Data Peak",
-  description: "Data Peak privacy policy. How we collect, use, and protect your data.",
+  title: "Privacy Policy - Datasnoop",
+  description: "Datasnoop privacy policy. How we collect, use, and protect your data.",
 };
 
 export default function PrivacyPolicyPage() {
@@ -16,10 +16,10 @@ export default function PrivacyPolicyPage() {
         <section>
           <h2 className="text-lg font-semibold text-slate-800 mb-2">1. Controller</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Data Peak (&quot;we&quot;, &quot;us&quot;, &quot;our&quot;) is the data controller for personal data
+            Datasnoop (&quot;we&quot;, &quot;us&quot;, &quot;our&quot;) is the data controller for personal data
             processed through this website. You can contact us at{" "}
-            <a href="mailto:datapeak@invm.be" className="text-indigo-600 hover:underline">
-              datapeak@invm.be
+            <a href="mailto:info@datasnoop.be" className="text-indigo-600 hover:underline">
+              info@datasnoop.be
             </a>.
           </p>
         </section>
@@ -51,7 +51,7 @@ export default function PrivacyPolicyPage() {
         <section>
           <h2 className="text-lg font-semibold text-slate-800 mb-2">3. Data Sources Displayed on This Platform</h2>
           <p className="text-sm text-slate-600 leading-relaxed mb-2">
-            Data Peak aggregates and displays information from the following publicly available government data sources:
+            Datasnoop aggregates and displays information from the following publicly available government data sources:
           </p>
           <ul className="list-disc pl-5 text-sm text-slate-600 space-y-1">
             <li>
@@ -68,7 +68,7 @@ export default function PrivacyPolicyPage() {
             </li>
           </ul>
           <p className="text-sm text-slate-600 leading-relaxed mt-2">
-            All of these data sources are publicly available. Data Peak does not collect, scrape, or process private or
+            All of these data sources are publicly available. Datasnoop does not collect, scrape, or process private or
             non-public personal data from any source.
           </p>
         </section>
@@ -124,8 +124,8 @@ export default function PrivacyPolicyPage() {
           </ul>
           <p className="text-sm text-slate-600 leading-relaxed mt-2">
             To exercise any of these rights, please contact us at{" "}
-            <a href="mailto:datapeak@invm.be" className="text-indigo-600 hover:underline">
-              datapeak@invm.be
+            <a href="mailto:info@datasnoop.be" className="text-indigo-600 hover:underline">
+              info@datasnoop.be
             </a>. We will respond within 30 days.
           </p>
         </section>
@@ -135,8 +135,8 @@ export default function PrivacyPolicyPage() {
           <h2 className="text-lg font-semibold text-slate-800 mb-2">8. Account Deletion</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
             You may request deletion of your account and all associated personal data at any time by emailing{" "}
-            <a href="mailto:datapeak@invm.be" className="text-indigo-600 hover:underline">
-              datapeak@invm.be
+            <a href="mailto:info@datasnoop.be" className="text-indigo-600 hover:underline">
+              info@datasnoop.be
             </a>. Upon receiving your request, we will delete your account data within a reasonable timeframe and confirm
             deletion by email.
           </p>
@@ -167,8 +167,8 @@ export default function PrivacyPolicyPage() {
           <h2 className="text-lg font-semibold text-slate-800 mb-2">11. Contact</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
             For any questions or concerns about this privacy policy or our data practices, please contact us at{" "}
-            <a href="mailto:datapeak@invm.be" className="text-indigo-600 hover:underline">
-              datapeak@invm.be
+            <a href="mailto:info@datasnoop.be" className="text-indigo-600 hover:underline">
+              info@datasnoop.be
             </a>.
           </p>
         </section>
@@ -176,7 +176,7 @@ export default function PrivacyPolicyPage() {
         {/* Back link */}
         <div className="pt-4 border-t border-slate-200">
           <Link href="/" className="text-sm text-indigo-600 hover:underline">
-            &larr; Back to Data Peak
+            &larr; Back to Datasnoop
           </Link>
         </div>
       </div>

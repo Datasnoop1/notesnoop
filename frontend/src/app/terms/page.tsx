@@ -1,8 +1,8 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Terms of Use - Data Peak",
-  description: "Data Peak terms of use. Conditions governing your use of the platform.",
+  title: "Terms of Use - Datasnoop",
+  description: "Datasnoop terms of use. Conditions governing your use of the platform.",
 };
 
 export default function TermsOfUsePage() {
@@ -16,7 +16,7 @@ export default function TermsOfUsePage() {
         <section>
           <h2 className="text-lg font-semibold text-slate-800 mb-2">1. Acceptance of Terms</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            By accessing or using Data Peak (&quot;the Service&quot;), you agree to be bound by these Terms of Use. If
+            By accessing or using Datasnoop (&quot;the Service&quot;), you agree to be bound by these Terms of Use. If
             you do not agree to these terms, you must not access or use the Service. We reserve the right to modify
             these terms at any time without prior notice. Your continued use of the Service after any modifications
             constitutes acceptance of the updated terms.
@@ -27,7 +27,7 @@ export default function TermsOfUsePage() {
         <section>
           <h2 className="text-lg font-semibold text-slate-800 mb-2">2. Description of Service</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Data Peak is a platform that aggregates and displays publicly available data from Belgian government
+            Datasnoop is a platform that aggregates and displays publicly available data from Belgian government
             registries, including the KBO/BCE (Kruispuntbank van Ondernemingen), NBB/BNB (Nationale Bank van
             Belgi&euml;), and the Belgisch Staatsblad. The Service is provided for informational purposes only.
           </p>
@@ -38,7 +38,7 @@ export default function TermsOfUsePage() {
           <h2 className="text-lg font-semibold text-slate-800 mb-2">3. No Warranty</h2>
           <p className="text-sm text-slate-600 leading-relaxed font-medium bg-amber-50 border border-amber-200 rounded-md px-4 py-3">
             THE SERVICE AND ALL DATA, CONTENT, AND MATERIALS AVAILABLE THROUGH IT ARE PROVIDED &quot;AS IS&quot; AND
-            &quot;AS AVAILABLE&quot; WITHOUT ANY WARRANTY OF ANY KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY. DATA PEAK
+            &quot;AS AVAILABLE&quot; WITHOUT ANY WARRANTY OF ANY KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY. DATASNOOP
             EXPRESSLY DISCLAIMS ALL WARRANTIES, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR
             A PARTICULAR PURPOSE, ACCURACY, COMPLETENESS, RELIABILITY, AVAILABILITY, TIMELINESS, AND NON-INFRINGEMENT.
             WE DO NOT WARRANT THAT THE DATA DISPLAYED IS ACCURATE, COMPLETE, CURRENT, OR ERROR-FREE.
@@ -49,11 +49,11 @@ export default function TermsOfUsePage() {
         <section>
           <h2 className="text-lg font-semibold text-slate-800 mb-2">4. Limitation of Liability</h2>
           <p className="text-sm text-slate-600 leading-relaxed font-medium bg-amber-50 border border-amber-200 rounded-md px-4 py-3">
-            TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, DATA PEAK, ITS OWNERS, OPERATORS, EMPLOYEES, AGENTS,
+            TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, DATASNOOP, ITS OWNERS, OPERATORS, EMPLOYEES, AGENTS,
             AND AFFILIATES SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR
             EXEMPLARY DAMAGES ARISING OUT OF OR IN CONNECTION WITH YOUR USE OF, OR INABILITY TO USE, THE SERVICE. THIS
             INCLUDES BUT IS NOT LIMITED TO DAMAGES FOR LOSS OF PROFITS, REVENUE, DATA, BUSINESS OPPORTUNITIES, OR
-            GOODWILL, EVEN IF DATA PEAK HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. YOU ASSUME ALL RISK
+            GOODWILL, EVEN IF DATASNOOP HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. YOU ASSUME ALL RISK
             ASSOCIATED WITH YOUR USE OF THE SERVICE AND ANY DECISIONS MADE BASED ON THE DATA OR INFORMATION PROVIDED.
           </p>
         </section>
@@ -62,7 +62,7 @@ export default function TermsOfUsePage() {
         <section>
           <h2 className="text-lg font-semibold text-slate-800 mb-2">5. Data Accuracy</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            The financial and corporate data displayed on Data Peak is sourced from publicly available government
+            The financial and corporate data displayed on Datasnoop is sourced from publicly available government
             registries. While we strive to present this data faithfully, we do not guarantee its accuracy, completeness,
             or timeliness. Data may contain errors, delays, omissions, or discrepancies resulting from the source
             registries, data processing, or transmission. You should independently verify any data obtained through the
@@ -100,7 +100,7 @@ export default function TermsOfUsePage() {
           <p className="text-sm text-slate-600 leading-relaxed">
             The underlying data displayed on the Service is sourced from public government registries and remains in the
             public domain. The platform design, user interface, software code, branding, and any original content
-            created by Data Peak are the proprietary property of Data Peak and are protected by applicable intellectual
+            created by Datasnoop are the proprietary property of Datasnoop and are protected by applicable intellectual
             property laws. You may not copy, reproduce, distribute, or create derivative works from the platform design
             or software without our express written permission.
           </p>
@@ -115,7 +115,7 @@ export default function TermsOfUsePage() {
           <ul className="list-disc pl-5 text-sm text-slate-600 space-y-1">
             <li>Use automated tools, bots, scrapers, or crawlers to access, extract, or download data from the Service.</li>
             <li>Redistribute, republish, resell, or sublicense any data obtained from the Service without our express written permission.</li>
-            <li>Use the data for commercial purposes without obtaining a commercial licence from Data Peak.</li>
+            <li>Use the data for commercial purposes without obtaining a commercial licence from Datasnoop.</li>
             <li>Attempt to reverse-engineer, decompile, or disassemble any part of the Service.</li>
             <li>Interfere with or disrupt the Service or its infrastructure.</li>
             <li>Use the Service for any unlawful purpose or in violation of any applicable laws or regulations.</li>
@@ -127,7 +127,7 @@ export default function TermsOfUsePage() {
         <section>
           <h2 className="text-lg font-semibold text-slate-800 mb-2">10. Indemnification</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            You agree to indemnify, defend, and hold harmless Data Peak, its owners, operators, employees, agents, and
+            You agree to indemnify, defend, and hold harmless Datasnoop, its owners, operators, employees, agents, and
             affiliates from and against any and all claims, liabilities, damages, losses, costs, and expenses (including
             reasonable legal fees) arising out of or in connection with: (a) your use of or access to the Service;
             (b) your violation of these Terms of Use; (c) your violation of any third-party rights; or (d) any decisions
@@ -159,8 +159,8 @@ export default function TermsOfUsePage() {
           <h2 className="text-lg font-semibold text-slate-800 mb-2">13. Contact</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
             For any questions about these Terms of Use, please contact us at{" "}
-            <a href="mailto:datapeak@invm.be" className="text-indigo-600 hover:underline">
-              datapeak@invm.be
+            <a href="mailto:info@datasnoop.be" className="text-indigo-600 hover:underline">
+              info@datasnoop.be
             </a>.
           </p>
         </section>
@@ -168,7 +168,7 @@ export default function TermsOfUsePage() {
         {/* Back link */}
         <div className="pt-4 border-t border-slate-200">
           <Link href="/" className="text-sm text-indigo-600 hover:underline">
-            &larr; Back to Data Peak
+            &larr; Back to Datasnoop
           </Link>
         </div>
       </div>

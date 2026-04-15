@@ -58,7 +58,7 @@ function download(buffer: ExcelJS.Buffer, name: string) {
 
 export async function generateExcelReport(data: ExportData) {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Data Peak";
+  wb.creator = "Datasnoop";
   wb.created = new Date();
 
   const name = data.detail.name || fmtCbe(data.cbe);

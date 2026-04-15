@@ -110,9 +110,9 @@ export default function Nav() {
         <div className="flex items-center justify-between h-16">
           {/* Brand */}
           <Link href="/" className="flex items-center gap-2.5 group">
-            <img src="/logo.svg" alt="Data Peak" width={28} height={28} className="shrink-0 group-hover:scale-105 transition-transform" />
+            <img src="/logo.svg" alt="Datasnoop" width={28} height={28} className="shrink-0 group-hover:scale-105 transition-transform" />
             <span className="text-base font-semibold text-slate-900 tracking-tight">
-              Data Peak
+              Datasnoop
             </span>
             <span className="text-[7px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
           </Link>
@@ -252,8 +252,8 @@ export default function Nav() {
               </SheetTrigger>
               <SheetContent side="left" className="w-64">
                 <SheetTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
-                  <img src="/logo.svg" alt="Data Peak" width={22} height={22} />
-                  Data Peak
+                  <img src="/logo.svg" alt="Datasnoop" width={22} height={22} />
+                  Datasnoop
                 </SheetTitle>
                 <nav className="mt-6 flex flex-col gap-1">
                   {MOBILE_NAV.map((item) => (

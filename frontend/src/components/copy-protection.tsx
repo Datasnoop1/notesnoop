@@ -59,7 +59,7 @@ export default function CopyProtection() {
 
     // Console warning
     console.log(
-      "%cData Peak — Protected Content",
+      "%cDatasnoop — Protected Content",
       "color: #4f46e5; font-size: 16px; font-weight: bold;"
     );
     console.log(

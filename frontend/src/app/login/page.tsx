@@ -75,7 +75,7 @@ export default function LoginPage() {
   }
 
   const titles: Record<Mode, string> = {
-    login: "Sign in to Data Peak",
+    login: "Sign in to Datasnoop",
     signup: "Create your account",
     forgot: "Reset your password",
   };
@@ -92,7 +92,7 @@ export default function LoginPage() {
         <CardContent className="pt-6 pb-5 px-6">
           {/* Header */}
           <div className="text-center mb-5">
-            <Image src="/logo.svg" alt="Data Peak" width={40} height={40} className="mx-auto mb-3" />
+            <Image src="/logo.svg" alt="Datasnoop" width={40} height={40} className="mx-auto mb-3" />
             <h1 className="text-xl font-bold text-slate-900">
               {titles[mode]}
             </h1>

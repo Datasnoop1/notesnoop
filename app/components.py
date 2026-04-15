@@ -103,7 +103,7 @@ def topbar(active=""):
     hdr_left, hdr_right = st.columns([6, 2])
     with hdr_left:
         st.markdown(
-            '<div class="app-brand">LeadPeek</div>'
+            '<div class="app-brand">Datasnoop</div>'
             '<div class="app-brand-sub">Belgian company intelligence</div>',
             unsafe_allow_html=True)
     with hdr_right:
