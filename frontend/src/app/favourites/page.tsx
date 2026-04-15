@@ -26,8 +26,10 @@ import {
   removeProjectMember,
   deleteFavouriteProject,
   getPeopleFavourites,
+  addPeopleFavourite,
   removePeopleFavourite,
   searchCompanies,
+  searchPeople,
   getCustomers,
   getSuppliers,
   uploadCustomers,
@@ -37,6 +39,7 @@ import {
   type FavouriteItem,
   type FavouriteProject,
   type PeopleFavourite,
+  type PersonResult,
   type SearchResult,
   type CustomerSupplierItem,
   type CsUploadResult,
@@ -438,23 +441,23 @@ function CsTab({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Two input methods side by side */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Paste CBE numbers */}
-        <div className="space-y-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Paste CBE numbers</div>
+        <div className="flex flex-col">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Paste CBE numbers</div>
           <textarea
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
             placeholder={"One per line or comma-separated:\n0403.101.811\n0404202677\n0439 819 279"}
-            className="w-full h-28 px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-slate-300"
+            className="w-full flex-1 min-h-[7.5rem] px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-slate-300"
             disabled={uploading}
           />
           <button
             onClick={handleTextSubmit}
             disabled={uploading || !textInput.trim()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-start"
           >
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
             {uploading ? "Processing..." : "Match companies"}
@@ -462,50 +465,53 @@ function CsTab({
         </div>
 
         {/* Upload file */}
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          className={`relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 transition-colors ${
-            dragOver
-              ? "border-indigo-400 bg-indigo-50"
-              : "border-slate-200 bg-slate-50/50 hover:border-slate-300"
-          }`}
-        >
-          {uploading ? (
-            <div className="flex items-center gap-2">
-              <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
-              <span className="text-sm text-slate-600">Processing...</span>
-            </div>
-          ) : (
-            <>
-              <FileSpreadsheet className="h-6 w-6 text-slate-300 mb-1.5" />
-              <p className="text-xs font-medium text-slate-600">
-                Drag & drop Excel / CSV
-              </p>
-              <p className="text-[10px] text-slate-400 mt-0.5 mb-2">
-                First column = CBE numbers
-              </p>
-              <label>
-                <input
-                  type="file"
-                  accept=".csv,.xlsx,.xls,.tsv,.txt"
-                  onChange={handleFileInput}
-                  className="hidden"
-                />
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md cursor-pointer transition-colors">
-                  <Upload className="h-3.5 w-3.5" />
-                  Browse
-                </span>
-              </label>
-            </>
-          )}
+        <div className="flex flex-col">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Upload file</div>
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            className={`flex-1 min-h-[7.5rem] flex flex-col items-center justify-center rounded-lg border border-dashed px-4 transition-colors ${
+              dragOver
+                ? "border-indigo-400 bg-indigo-50"
+                : "border-slate-200 bg-slate-50/30 hover:border-slate-300"
+            }`}
+          >
+            {uploading ? (
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
+                <span className="text-sm text-slate-600">Processing...</span>
+              </div>
+            ) : (
+              <>
+                <FileSpreadsheet className="h-5 w-5 text-slate-300 mb-1.5" />
+                <p className="text-xs font-medium text-slate-600">
+                  Drag & drop Excel / CSV
+                </p>
+                <p className="text-[10px] text-slate-400 mt-0.5 mb-2">
+                  First column = CBE numbers
+                </p>
+                <label>
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls,.tsv,.txt"
+                    onChange={handleFileInput}
+                    className="hidden"
+                  />
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg cursor-pointer transition-colors">
+                    <Upload className="h-3.5 w-3.5" />
+                    Browse
+                  </span>
+                </label>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Upload result banner */}
       {uploadResult && (
-        <div className="flex items-center justify-between rounded-md bg-emerald-50 border border-emerald-200 px-4 py-2.5">
+        <div className="flex items-center justify-between rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2.5">
           <div className="text-sm text-emerald-800">
             <span className="font-semibold">{uploadResult.matched}</span> {uploadResult.matched === 1 ? "company" : "companies"} matched
             {uploadResult.not_found > 0 && (
