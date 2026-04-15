@@ -10,52 +10,75 @@
     </linearGradient>
   </defs>
 
-  <!-- Magnifying glass -->
-  <line x1="72" y1="72" x2="88" y2="90" stroke="#94a3b8" stroke-width="6.5" stroke-linecap="round"/>
-  <circle cx="56" cy="56" r="24" fill="#f8fafc" stroke="#64748b" stroke-width="4.5"/>
-  <path d="M43 46 Q47 40 54 43" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+  <!-- Magnifying glass — behind the dog -->
+  <line x1="68" y1="76" x2="84" y2="94" stroke="#b0b8c4" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="52" cy="60" r="26" fill="#f8fafc" stroke="#78869b" stroke-width="4"/>
+  <path d="M39 50 Q43 44 50 47" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" opacity="0.5"/>
 
-  <!-- Ear left -->
-  <ellipse cx="24" cy="34" rx="7" ry="14" fill="#d97706" transform="rotate(-10 24 34)"/>
+  <!-- Dog head — single clean path outline -->
+  <!-- Silhouette: round head, left floppy ear drooping down, right ear perked up slightly -->
+  <path d="
+    M 22 50
+    Q 14 42 12 30
+    Q 10 18 18 16
+    Q 22 15 24 22
+    Q 26 28 28 30
+    Q 32 14 40 8
+    Q 48 3 56 8
+    Q 60 10 62 16
+    Q 66 14 70 18
+    Q 74 22 72 30
+    Q 70 36 66 38
+    Q 72 42 72 50
+    Q 72 58 64 62
+    Q 56 66 46 66
+    Q 34 66 26 60
+    Q 22 56 22 50
+    Z
+  " fill="url(#da1)"/>
 
-  <!-- Head -->
-  <circle cx="40" cy="26" r="21" fill="url(#da1)"/>
+  <!-- Inner ear shading — left ear (floppy) -->
+  <path d="
+    M 18 18
+    Q 20 17 22 22
+    Q 24 28 26 30
+    Q 24 28 20 26
+    Q 16 24 16 20
+    Z
+  " fill="#d97706" opacity="0.6"/>
 
-  <!-- Ear right -->
-  <ellipse cx="58" cy="28" rx="7" ry="13" fill="#ea580c" transform="rotate(15 58 28)"/>
+  <!-- Inner ear shading — right ear -->
+  <path d="
+    M 66 18
+    Q 70 20 70 26
+    Q 70 32 66 36
+    Q 68 28 66 22
+    Z
+  " fill="#d97706" opacity="0.6"/>
 
-  <!-- Snout -->
-  <ellipse cx="56" cy="34" rx="11" ry="7.5" fill="#fcd34d"/>
+  <!-- Muzzle area — lighter -->
+  <ellipse cx="50" cy="48" rx="14" ry="10" fill="#fcd34d" opacity="0.85"/>
 
-  <!-- Nose -->
-  <ellipse cx="65" cy="32" rx="4.5" ry="3.5" fill="#1e293b"/>
-  <ellipse cx="63.5" cy="30.8" rx="1.8" ry="1" fill="#fff" opacity="0.3"/>
+  <!-- Nose — solid and clear -->
+  <ellipse cx="50" cy="42" rx="5" ry="3.8" fill="#292524"/>
+  <ellipse cx="48.5" cy="41" rx="1.8" ry="1" fill="white" opacity="0.25"/>
 
   <!-- Left eye — open -->
-  <circle cx="34" cy="22" r="5.5" fill="white"/>
-  <circle cx="36.5" cy="22" r="3.2" fill="#1e293b"/>
-  <circle cx="37.5" cy="21" r="1.3" fill="white"/>
+  <circle cx="36" cy="30" r="5.5" fill="white"/>
+  <circle cx="38" cy="30.5" r="3.5" fill="#292524"/>
+  <circle cx="39.2" cy="29.5" r="1.4" fill="white"/>
 
   <!-- Right eye — winking -->
-  <path d="M47 21 Q51.5 17 56 21" fill="none" stroke="#1e293b" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M54 30 Q58 26 62 30" fill="none" stroke="#292524" stroke-width="2.2" stroke-linecap="round"/>
 
-  <!-- Eyebrow -->
-  <path d="M28.5 15.5 Q34 12 39.5 15" fill="none" stroke="#92400e" stroke-width="1.6" stroke-linecap="round"/>
-
-  <!-- Smirk -->
-  <path d="M54 38.5 Q59 42 65 37.5" fill="none" stroke="#92400e" stroke-width="1.4" stroke-linecap="round"/>
-
-  <!-- Paw on glass -->
-  <ellipse cx="38" cy="48" rx="7" ry="4.5" fill="#fbbf24"/>
-  <circle cx="33.5" cy="46.5" r="2.2" fill="#f59e0b"/>
-  <circle cx="37" cy="45.5" r="2.2" fill="#f59e0b"/>
-  <circle cx="40.5" cy="46.5" r="2.2" fill="#f59e0b"/>
+  <!-- Mouth — subtle smirk -->
+  <path d="M44 52 Q50 56 56 52" fill="none" stroke="#92400e" stroke-width="1.3" stroke-linecap="round"/>
 
   <!-- Wordmark -->
-  <text x="108" y="52" font-family="'Baloo 2', 'Nunito', 'Segoe UI', sans-serif" font-size="44" font-weight="800" letter-spacing="-0.5" fill="#1e293b">
+  <text x="104" y="52" font-family="'Baloo 2', 'Nunito', 'Segoe UI', sans-serif" font-size="44" font-weight="800" letter-spacing="-0.5" fill="#1e293b">
     data<tspan fill="url(#da2)">snoop</tspan>
   </text>
-  <text x="110" y="74" font-family="'Inter', 'Segoe UI', sans-serif" font-size="12.5" font-weight="500" letter-spacing="2.5" fill="#94a3b8">
+  <text x="106" y="74" font-family="'Inter', 'Segoe UI', sans-serif" font-size="12.5" font-weight="500" letter-spacing="2.5" fill="#94a3b8">
     BELGIAN COMPANY INTELLIGENCE
   </text>
 </svg>

@@ -19,33 +19,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase";
 import FeedbackButtons from "@/components/feedback-buttons";
+import LanguageSwitcher from "@/components/language-switcher";
+import { useTranslation } from "@/components/language-provider";
 import { getNotifications, markNotificationsRead } from "@/lib/api";
 import type { FavNotification } from "@/lib/api";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
-const NAV_LINKS = [
-  { label: "Screener", href: "/screener" },
-  { label: "Favourites", href: "/favourites" },
-  { label: "Compare", href: "/compare" },
-  { label: "Aggregate", href: "/aggregate" },
-];
-
-const SEARCH_ITEMS = [
-  { label: "Company", href: "/company", desc: "Search by name or CBE number", icon: Building },
-  { label: "People", href: "/people", desc: "Find administrators & shareholders", icon: UserSearch },
-];
-
-const MOBILE_NAV = [
-  { label: "Screener", href: "/screener" },
-  { label: "Search", href: "/search" },
-  { label: "Favourites", href: "/favourites" },
-  { label: "Compare", href: "/compare" },
-  { label: "Aggregate", href: "/aggregate" },
-];
-
 export default function Nav() {
   const pathname = usePathname();
   const router = useRouter();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [notifCount, setNotifCount] = useState(0);
@@ -53,6 +36,21 @@ export default function Nav() {
   const [showNotifs, setShowNotifs] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+
+  const NAV_LINKS = [
+    { label: t("nav.screener"), href: "/screener" },
+    { label: t("nav.favourites"), href: "/favourites" },
+    { label: t("nav.compare"), href: "/compare" },
+    { label: t("nav.aggregate"), href: "/aggregate" },
+  ];
+
+  const MOBILE_NAV = [
+    { label: t("nav.screener"), href: "/screener" },
+    { label: t("nav.search"), href: "/search" },
+    { label: t("nav.favourites"), href: "/favourites" },
+    { label: t("nav.compare"), href: "/compare" },
+    { label: t("nav.aggregate"), href: "/aggregate" },
+  ];
 
   useEffect(() => {
     const supabase = createClient();
@@ -128,7 +126,7 @@ export default function Nav() {
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
               }`}
             >
-              Screener
+              {t("nav.screener")}
             </Link>
 
             {/* Search */}
@@ -141,7 +139,7 @@ export default function Nav() {
               }`}
             >
               <Search className="w-3.5 h-3.5" />
-              Search
+              {t("nav.search")}
             </Link>
 
             {/* Remaining nav links */}
@@ -188,10 +186,10 @@ export default function Nav() {
                 {showNotifs && (
                   <div className="absolute right-0 mt-1 w-72 bg-white border rounded-xl shadow-xl shadow-slate-200/50 z-50 max-h-64 overflow-y-auto">
                     <div className="px-3 py-2.5 border-b text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-                      Data Updates
+                      {t("nav.dataUpdates")}
                     </div>
                     {notifs.length === 0 ? (
-                      <div className="px-3 py-5 text-xs text-slate-400 text-center">No new updates</div>
+                      <div className="px-3 py-5 text-xs text-slate-400 text-center">{t("nav.noNewUpdates")}</div>
                     ) : (
                       notifs.map((n, i) => (
                         <a
@@ -212,6 +210,10 @@ export default function Nav() {
               </div>
             )}
 
+            <div className="hidden md:block">
+              <LanguageSwitcher />
+            </div>
+
             <div className="hidden md:block w-px h-5 bg-slate-200" />
 
             {user ? (
@@ -227,18 +229,18 @@ export default function Nav() {
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuItem onClick={() => router.push("/account")} className="cursor-pointer">
                     <User className="w-4 h-4 mr-2" />
-                    Account settings
+                    {t("nav.accountSettings")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
                     <LogOut className="w-4 h-4 mr-2" />
-                    Sign out
+                    {t("nav.signOut")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
               <Link href="/login">
                 <Button variant="outline" size="sm" className="hidden md:inline-flex text-[13px]">
-                  Sign in
+                  {t("nav.signIn")}
                 </Button>
               </Link>
             )}
@@ -275,7 +277,7 @@ export default function Nav() {
                       onClick={() => { handleSignOut(); setOpen(false); }}
                       className="px-3 py-2.5 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 text-left mt-4"
                     >
-                      Sign out
+                      {t("nav.signOut")}
                     </button>
                   ) : (
                     <Link
@@ -283,7 +285,7 @@ export default function Nav() {
                       onClick={() => setOpen(false)}
                       className="px-3 py-2.5 rounded-md text-sm font-medium text-indigo-600 hover:bg-indigo-50 mt-4"
                     >
-                      Sign in
+                      {t("nav.signIn")}
                     </Link>
                   )}
                 </nav>

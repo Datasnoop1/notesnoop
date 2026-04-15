@@ -1,0 +1,208 @@
+{
+  "nav": {
+    "screener": "Screener",
+    "search": "Search",
+    "favourites": "Favourites",
+    "compare": "Compare",
+    "aggregate": "Aggregate",
+    "signIn": "Sign in",
+    "signOut": "Sign out",
+    "accountSettings": "Account settings",
+    "dataUpdates": "Data Updates",
+    "noNewUpdates": "No new updates",
+    "newFyData": "New FY{year} data loaded {date}"
+  },
+
+  "home": {
+    "betaNotice": "Datasnoop is in beta.",
+    "betaBody": "We are actively building out our database and adding new features. We appreciate your feedback and tips -- use the bug report or suggestion buttons anytime.",
+    "searchTitle": "Search Companies & People",
+    "searchDesc": "Search by name, CBE number, or person -- companies and administrators in one view",
+    "quickAccess": "Quick Access",
+    "whatsNew": "What's New",
+    "marketStats": "Market Statistics",
+    "marketStatsDesc": "Sector benchmarks, margin distributions, revenue trends, and province breakdowns across 170K+ Belgian companies",
+    "explore": "Explore",
+    "snapshotDate": "Snapshot Date",
+
+    "kpi": {
+      "activeEnterprises": "Active Enterprises",
+      "companiesWithFinancials": "Companies with Financials",
+      "filingsLoaded": "Filings Loaded",
+      "administratorsIndexed": "Administrators Indexed"
+    },
+
+    "quickAccessCards": {
+      "screenerTitle": "Screener",
+      "screenerDesc": "Filter by sector, revenue, EBITDA, FTE, region",
+      "companyTitle": "Company",
+      "companyDesc": "Search by name or CBE -- financials, structure, filings",
+      "statsTitle": "Stats",
+      "statsDesc": "Sector benchmarks, margins, leverage, geography",
+      "peopleTitle": "People",
+      "peopleDesc": "Find administrators and shareholders by name"
+    },
+
+    "whatsNewItems": {
+      "unifiedSearch": "Unified Search",
+      "unifiedSearchDesc": "Search companies and people in one place",
+      "sectorBenchmarking": "Sector Benchmarking",
+      "sectorBenchmarkingDesc": "See how a company ranks within its sector",
+      "smartFilters": "Smart Filters",
+      "smartFiltersDesc": "Save and load your screener filter presets",
+      "dataAlerts": "Data Alerts",
+      "dataAlertsDesc": "Get notified when your favourite companies have new data",
+      "customerSupplierLists": "Customer & Supplier Lists",
+      "customerSupplierListsDesc": "Upload or paste CBE numbers to build lists",
+      "fullExport": "Full Export",
+      "fullExportDesc": "Download complete company profiles as Excel or PDF"
+    }
+  },
+
+  "login": {
+    "signInTitle": "Sign in to Datasnoop",
+    "createAccountTitle": "Create your account",
+    "resetPasswordTitle": "Reset your password",
+    "subtitle": "Belgian Company Intelligence",
+    "resetSubtitle": "Enter your email and we'll send you a reset link",
+    "email": "Email",
+    "emailPlaceholder": "you@company.com",
+    "password": "Password",
+    "passwordPlaceholder": "Min 6 characters",
+    "signInButton": "Sign in",
+    "createAccountButton": "Create account",
+    "sendResetLink": "Send reset link",
+    "pleaseWait": "Please wait...",
+    "continueWithGoogle": "Continue with Google",
+    "continueWithLinkedIn": "Continue with LinkedIn",
+    "or": "or",
+    "forgotPassword": "Forgot password?",
+    "noAccount": "No account?",
+    "signUp": "Sign up",
+    "alreadyHaveAccount": "Already have an account?",
+    "rememberPassword": "Remember your password?",
+    "termsNotice": "By signing up you agree to our",
+    "termsOfUse": "Terms of Use",
+    "and": "and",
+    "privacyPolicy": "Privacy Policy",
+    "checkEmailReset": "Check your email for a password reset link.",
+    "checkEmailConfirm": "Check your email for a confirmation link."
+  },
+
+  "search": {
+    "placeholder": "Search companies and people...",
+    "hint": "Search by company name, CBE number, or person name",
+    "topResults": "Top Results",
+    "allCompanies": "All Companies",
+    "allPeople": "All People",
+    "noResults": "No results found for \"{query}\"",
+    "browseCompanies": "Browse Companies",
+    "browseCompaniesDesc": "Search by name or CBE number",
+    "browsePeople": "Browse People",
+    "browsePeopleDesc": "Find administrators & shareholders",
+    "roles": "{count} roles",
+    "holdings": "{count} holdings",
+    "companies": "{count} cos."
+  },
+
+  "screener": {
+    "title": "Screener",
+    "filters": "Filters",
+    "sector": "Sector",
+    "province": "Province",
+    "zipcode": "Zipcode",
+    "legalForm": "Legal Form",
+    "revenueRange": "Revenue Range",
+    "ebitdaRange": "EBITDA Range",
+    "fteRange": "FTE Range",
+    "foundedAfter": "Founded After",
+    "applyFilters": "Apply Filters",
+    "resetFilters": "Reset Filters",
+    "results": "Results",
+    "exportExcel": "Export to Excel",
+    "columns": {
+      "name": "Company Name",
+      "cbe": "CBE",
+      "sector": "Sector",
+      "municipality": "Municipality",
+      "revenue": "Revenue",
+      "ebitda": "EBITDA",
+      "margin": "Margin",
+      "fte": "FTE"
+    }
+  },
+
+  "company": {
+    "tabs": {
+      "overview": "Overview",
+      "financials": "Financials",
+      "structure": "Structure",
+      "administrators": "Administrators",
+      "publications": "Publications",
+      "credit": "Credit"
+    },
+    "legalForm": "Legal Form",
+    "address": "Address",
+    "naceCode": "NACE Code",
+    "foundingDate": "Founding Date",
+    "revenue": "Revenue",
+    "ebitda": "EBITDA",
+    "margin": "Margin",
+    "netProfit": "Net Profit",
+    "equity": "Equity",
+    "debt": "Debt",
+    "fte": "FTE",
+    "fiscalYear": "Fiscal Year"
+  },
+
+  "favourites": {
+    "title": "Favourites",
+    "tabs": {
+      "companies": "Companies",
+      "projects": "Projects"
+    },
+    "addToProject": "Add to Project",
+    "createProject": "Create Project",
+    "uploadList": "Upload List",
+    "noFavourites": "No favourites yet"
+  },
+
+  "compare": {
+    "title": "Compare",
+    "emptyState": "Add companies to compare their financials side by side",
+    "addCompany": "Add Company"
+  },
+
+  "aggregate": {
+    "title": "Aggregate",
+    "emptyState": "Select companies to see aggregated financials",
+    "addCompanies": "Add Companies"
+  },
+
+  "account": {
+    "title": "Account Settings",
+    "profile": "Profile",
+    "subscription": "Subscription",
+    "preferences": "Preferences"
+  },
+
+  "footer": {
+    "dataSources": "Data sources: KBO/BCE (Kruispuntbank van Ondernemingen) -- NBB/BNB (Nationale Bank van Belgie) -- Belgisch Staatsblad",
+    "privacyPolicy": "Privacy Policy",
+    "termsOfUse": "Terms of Use"
+  },
+
+  "common": {
+    "loading": "Loading...",
+    "noData": "No data",
+    "error": "An error occurred",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "save": "Save",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "download": "Download",
+    "export": "Export"
+  }
+}

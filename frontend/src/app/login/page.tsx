@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { useTranslation } from "@/components/language-provider";
 import { Lock } from "lucide-react";
 import Link from "next/link";
 
@@ -17,6 +18,7 @@ type Mode = "login" | "signup" | "forgot";
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
+  const { t } = useTranslation();
 
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
@@ -44,7 +46,7 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        setMessage("Check your email for a password reset link.");
+        setMessage(t("login.checkEmailReset"));
       }
     } else if (mode === "login") {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -58,7 +60,7 @@ export default function LoginPage() {
       if (error) {
         setError(error.message);
       } else {
-        setMessage("Check your email for a confirmation link.");
+        setMessage(t("login.checkEmailConfirm"));
       }
     }
     setLoading(false);
@@ -80,15 +82,15 @@ export default function LoginPage() {
   }
 
   const titles: Record<Mode, string> = {
-    login: "Sign in to Datasnoop",
-    signup: "Create your account",
-    forgot: "Reset your password",
+    login: t("login.signInTitle"),
+    signup: t("login.createAccountTitle"),
+    forgot: t("login.resetPasswordTitle"),
   };
 
   const buttonLabels: Record<Mode, string> = {
-    login: "Sign in",
-    signup: "Create account",
-    forgot: "Send reset link",
+    login: t("login.signInButton"),
+    signup: t("login.createAccountButton"),
+    forgot: t("login.sendResetLink"),
   };
 
   return (
@@ -103,8 +105,8 @@ export default function LoginPage() {
             </h1>
             <p className="text-xs text-slate-500 mt-1">
               {mode === "forgot"
-                ? "Enter your email and we'll send you a reset link"
-                : "Belgian Company Intelligence"}
+                ? t("login.resetSubtitle")
+                : t("login.subtitle")}
             </p>
           </div>
 
@@ -124,7 +126,7 @@ export default function LoginPage() {
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                   </svg>
-                  Continue with Google
+                  {t("login.continueWithGoogle")}
                 </Button>
                 <Button
                   variant="outline"
@@ -135,14 +137,14 @@ export default function LoginPage() {
                   <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24" fill="#0A66C2">
                     <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
                   </svg>
-                  Continue with LinkedIn
+                  {t("login.continueWithLinkedIn")}
                 </Button>
               </div>
 
               <div className="relative my-3">
                 <Separator />
                 <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-3 text-xs text-slate-400">
-                  or
+                  {t("login.or")}
                 </span>
               </div>
             </>
@@ -151,11 +153,11 @@ export default function LoginPage() {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t("login.email")}</Label>
               <Input
                 id="email"
                 type="email"
-                placeholder="you@company.com"
+                placeholder={t("login.emailPlaceholder")}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -164,11 +166,11 @@ export default function LoginPage() {
 
             {mode !== "forgot" && (
               <div>
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t("login.password")}</Label>
                 <Input
                   id="password"
                   type="password"
-                  placeholder={mode === "signup" ? "Min 6 characters" : ""}
+                  placeholder={mode === "signup" ? t("login.passwordPlaceholder") : ""}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
@@ -193,17 +195,17 @@ export default function LoginPage() {
               className="w-full bg-indigo-600 hover:bg-indigo-700"
               disabled={loading}
             >
-              {loading ? "Please wait..." : buttonLabels[mode]}
+              {loading ? t("login.pleaseWait") : buttonLabels[mode]}
             </Button>
           </form>
 
           {/* Terms notice (signup mode) */}
           {mode === "signup" && (
             <p className="text-center text-[11px] text-slate-400 mt-3">
-              By signing up you agree to our{" "}
-              <Link href="/terms" className="text-indigo-600 hover:underline">Terms of Use</Link>
-              {" "}and{" "}
-              <Link href="/privacy" className="text-indigo-600 hover:underline">Privacy Policy</Link>.
+              {t("login.termsNotice")}{" "}
+              <Link href="/terms" className="text-indigo-600 hover:underline">{t("login.termsOfUse")}</Link>
+              {" "}{t("login.and")}{" "}
+              <Link href="/privacy" className="text-indigo-600 hover:underline">{t("login.privacyPolicy")}</Link>.
             </p>
           )}
 
@@ -215,29 +217,29 @@ export default function LoginPage() {
                   onClick={() => switchMode("forgot")}
                   className="text-indigo-600 hover:underline font-medium block mx-auto"
                 >
-                  Forgot password?
+                  {t("login.forgotPassword")}
                 </button>
                 <p>
-                  No account?{" "}
+                  {t("login.noAccount")}{" "}
                   <button onClick={() => switchMode("signup")} className="text-indigo-600 hover:underline font-medium">
-                    Sign up
+                    {t("login.signUp")}
                   </button>
                 </p>
               </>
             )}
             {mode === "signup" && (
               <p>
-                Already have an account?{" "}
+                {t("login.alreadyHaveAccount")}{" "}
                 <button onClick={() => switchMode("login")} className="text-indigo-600 hover:underline font-medium">
-                  Sign in
+                  {t("login.signInButton")}
                 </button>
               </p>
             )}
             {mode === "forgot" && (
               <p>
-                Remember your password?{" "}
+                {t("login.rememberPassword")}{" "}
                 <button onClick={() => switchMode("login")} className="text-indigo-600 hover:underline font-medium">
-                  Sign in
+                  {t("login.signInButton")}
                 </button>
               </p>
             )}

@@ -1,0 +1,208 @@
+{
+  "nav": {
+    "screener": "Screener",
+    "search": "Zoeken",
+    "favourites": "Favorieten",
+    "compare": "Vergelijken",
+    "aggregate": "Aggregeren",
+    "signIn": "Aanmelden",
+    "signOut": "Afmelden",
+    "accountSettings": "Accountinstellingen",
+    "dataUpdates": "Data-updates",
+    "noNewUpdates": "Geen nieuwe updates",
+    "newFyData": "Nieuwe BJ{year}-gegevens geladen op {date}"
+  },
+
+  "home": {
+    "betaNotice": "Datasnoop is in beta.",
+    "betaBody": "We bouwen actief aan onze database en voegen nieuwe functies toe. We waarderen je feedback en tips -- gebruik de bugrapport- of suggestieknoppen wanneer je wilt.",
+    "searchTitle": "Zoek bedrijven & personen",
+    "searchDesc": "Zoek op naam, KBO-nummer of persoon -- bedrijven en bestuurders in een overzicht",
+    "quickAccess": "Snelle toegang",
+    "whatsNew": "Wat is nieuw",
+    "marketStats": "Marktstatistieken",
+    "marketStatsDesc": "Sectorbenchmarks, margeverdeling, omzettrends en provinciale overzichten voor meer dan 170K Belgische bedrijven",
+    "explore": "Verkennen",
+    "snapshotDate": "Peildatum",
+
+    "kpi": {
+      "activeEnterprises": "Actieve ondernemingen",
+      "companiesWithFinancials": "Bedrijven met jaarrekening",
+      "filingsLoaded": "Jaarrekeningen geladen",
+      "administratorsIndexed": "Bestuurders geindexeerd"
+    },
+
+    "quickAccessCards": {
+      "screenerTitle": "Screener",
+      "screenerDesc": "Filter op sector, omzet, EBITDA, VTE, regio",
+      "companyTitle": "Bedrijf",
+      "companyDesc": "Zoek op naam of KBO -- jaarrekening, structuur, publicaties",
+      "statsTitle": "Statistieken",
+      "statsDesc": "Sectorbenchmarks, marges, schuldgraad, geografie",
+      "peopleTitle": "Personen",
+      "peopleDesc": "Zoek bestuurders en aandeelhouders op naam"
+    },
+
+    "whatsNewItems": {
+      "unifiedSearch": "Gecombineerd zoeken",
+      "unifiedSearchDesc": "Zoek bedrijven en personen op een plaats",
+      "sectorBenchmarking": "Sectorbenchmarking",
+      "sectorBenchmarkingDesc": "Bekijk hoe een bedrijf scoort binnen zijn sector",
+      "smartFilters": "Slimme filters",
+      "smartFiltersDesc": "Bewaar en laad je screener-filterinstellingen",
+      "dataAlerts": "Data-alerts",
+      "dataAlertsDesc": "Ontvang een melding wanneer je favoriete bedrijven nieuwe data hebben",
+      "customerSupplierLists": "Klanten- & leverancierslijsten",
+      "customerSupplierListsDesc": "Upload of plak KBO-nummers om lijsten samen te stellen",
+      "fullExport": "Volledige export",
+      "fullExportDesc": "Download complete bedrijfsprofielen als Excel of PDF"
+    }
+  },
+
+  "login": {
+    "signInTitle": "Aanmelden bij Datasnoop",
+    "createAccountTitle": "Maak je account aan",
+    "resetPasswordTitle": "Wachtwoord herstellen",
+    "subtitle": "Belgische bedrijfsinformatie",
+    "resetSubtitle": "Voer je e-mailadres in en we sturen een herstelkoppeling",
+    "email": "E-mail",
+    "emailPlaceholder": "jij@bedrijf.be",
+    "password": "Wachtwoord",
+    "passwordPlaceholder": "Minimaal 6 tekens",
+    "signInButton": "Aanmelden",
+    "createAccountButton": "Account aanmaken",
+    "sendResetLink": "Herstelkoppeling versturen",
+    "pleaseWait": "Even geduld...",
+    "continueWithGoogle": "Doorgaan met Google",
+    "continueWithLinkedIn": "Doorgaan met LinkedIn",
+    "or": "of",
+    "forgotPassword": "Wachtwoord vergeten?",
+    "noAccount": "Nog geen account?",
+    "signUp": "Registreren",
+    "alreadyHaveAccount": "Heb je al een account?",
+    "rememberPassword": "Weet je je wachtwoord nog?",
+    "termsNotice": "Door je te registreren ga je akkoord met onze",
+    "termsOfUse": "Gebruiksvoorwaarden",
+    "and": "en",
+    "privacyPolicy": "Privacybeleid",
+    "checkEmailReset": "Controleer je e-mail voor een herstelkoppeling.",
+    "checkEmailConfirm": "Controleer je e-mail voor een bevestigingskoppeling."
+  },
+
+  "search": {
+    "placeholder": "Zoek bedrijven en personen...",
+    "hint": "Zoek op bedrijfsnaam, KBO-nummer of persoonsnaam",
+    "topResults": "Beste resultaten",
+    "allCompanies": "Alle bedrijven",
+    "allPeople": "Alle personen",
+    "noResults": "Geen resultaten gevonden voor \"{query}\"",
+    "browseCompanies": "Bedrijven doorzoeken",
+    "browseCompaniesDesc": "Zoek op naam of KBO-nummer",
+    "browsePeople": "Personen doorzoeken",
+    "browsePeopleDesc": "Zoek bestuurders & aandeelhouders",
+    "roles": "{count} functies",
+    "holdings": "{count} belangen",
+    "companies": "{count} bedr."
+  },
+
+  "screener": {
+    "title": "Screener",
+    "filters": "Filters",
+    "sector": "Sector",
+    "province": "Provincie",
+    "zipcode": "Postcode",
+    "legalForm": "Rechtsvorm",
+    "revenueRange": "Omzetbereik",
+    "ebitdaRange": "EBITDA-bereik",
+    "fteRange": "VTE-bereik",
+    "foundedAfter": "Opgericht na",
+    "applyFilters": "Filters toepassen",
+    "resetFilters": "Filters wissen",
+    "results": "Resultaten",
+    "exportExcel": "Exporteren naar Excel",
+    "columns": {
+      "name": "Bedrijfsnaam",
+      "cbe": "KBO",
+      "sector": "Sector",
+      "municipality": "Gemeente",
+      "revenue": "Omzet",
+      "ebitda": "EBITDA",
+      "margin": "Marge",
+      "fte": "VTE"
+    }
+  },
+
+  "company": {
+    "tabs": {
+      "overview": "Overzicht",
+      "financials": "Jaarrekening",
+      "structure": "Structuur",
+      "administrators": "Bestuurders",
+      "publications": "Publicaties",
+      "credit": "Krediet"
+    },
+    "legalForm": "Rechtsvorm",
+    "address": "Adres",
+    "naceCode": "NACE-code",
+    "foundingDate": "Oprichtingsdatum",
+    "revenue": "Omzet",
+    "ebitda": "EBITDA",
+    "margin": "Marge",
+    "netProfit": "Nettoresultaat",
+    "equity": "Eigen vermogen",
+    "debt": "Schulden",
+    "fte": "VTE",
+    "fiscalYear": "Boekjaar"
+  },
+
+  "favourites": {
+    "title": "Favorieten",
+    "tabs": {
+      "companies": "Bedrijven",
+      "projects": "Projecten"
+    },
+    "addToProject": "Toevoegen aan project",
+    "createProject": "Project aanmaken",
+    "uploadList": "Lijst uploaden",
+    "noFavourites": "Nog geen favorieten"
+  },
+
+  "compare": {
+    "title": "Vergelijken",
+    "emptyState": "Voeg bedrijven toe om hun jaarrekeningen naast elkaar te vergelijken",
+    "addCompany": "Bedrijf toevoegen"
+  },
+
+  "aggregate": {
+    "title": "Aggregeren",
+    "emptyState": "Selecteer bedrijven om geaggregeerde cijfers te bekijken",
+    "addCompanies": "Bedrijven toevoegen"
+  },
+
+  "account": {
+    "title": "Accountinstellingen",
+    "profile": "Profiel",
+    "subscription": "Abonnement",
+    "preferences": "Voorkeuren"
+  },
+
+  "footer": {
+    "dataSources": "Databronnen: KBO/BCE (Kruispuntbank van Ondernemingen) -- NBB/BNB (Nationale Bank van Belgie) -- Belgisch Staatsblad",
+    "privacyPolicy": "Privacybeleid",
+    "termsOfUse": "Gebruiksvoorwaarden"
+  },
+
+  "common": {
+    "loading": "Laden...",
+    "noData": "Geen gegevens",
+    "error": "Er is een fout opgetreden",
+    "retry": "Opnieuw proberen",
+    "cancel": "Annuleren",
+    "save": "Opslaan",
+    "close": "Sluiten",
+    "back": "Terug",
+    "next": "Volgende",
+    "download": "Downloaden",
+    "export": "Exporteren"
+  }
+}

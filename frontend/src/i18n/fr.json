@@ -1,0 +1,208 @@
+{
+  "nav": {
+    "screener": "Screener",
+    "search": "Rechercher",
+    "favourites": "Favoris",
+    "compare": "Comparer",
+    "aggregate": "Agreger",
+    "signIn": "Se connecter",
+    "signOut": "Se deconnecter",
+    "accountSettings": "Parametres du compte",
+    "dataUpdates": "Mises a jour",
+    "noNewUpdates": "Pas de nouvelles mises a jour",
+    "newFyData": "Nouvelles donnees EX{year} chargees le {date}"
+  },
+
+  "home": {
+    "betaNotice": "Datasnoop est en beta.",
+    "betaBody": "Nous developpons activement notre base de donnees et ajoutons de nouvelles fonctionnalites. Nous apprecions vos retours et suggestions -- utilisez les boutons de rapport de bug ou de suggestion a tout moment.",
+    "searchTitle": "Rechercher entreprises & personnes",
+    "searchDesc": "Recherchez par nom, numero BCE ou personne -- entreprises et administrateurs dans une seule vue",
+    "quickAccess": "Acces rapide",
+    "whatsNew": "Nouveautes",
+    "marketStats": "Statistiques du marche",
+    "marketStatsDesc": "Benchmarks sectoriels, distributions de marges, tendances de chiffre d'affaires et repartitions provinciales pour plus de 170K entreprises belges",
+    "explore": "Explorer",
+    "snapshotDate": "Date de reference",
+
+    "kpi": {
+      "activeEnterprises": "Entreprises actives",
+      "companiesWithFinancials": "Entreprises avec comptes annuels",
+      "filingsLoaded": "Comptes annuels charges",
+      "administratorsIndexed": "Administrateurs indexes"
+    },
+
+    "quickAccessCards": {
+      "screenerTitle": "Screener",
+      "screenerDesc": "Filtrez par secteur, CA, EBITDA, ETP, region",
+      "companyTitle": "Entreprise",
+      "companyDesc": "Recherchez par nom ou BCE -- comptes, structure, publications",
+      "statsTitle": "Statistiques",
+      "statsDesc": "Benchmarks sectoriels, marges, endettement, geographie",
+      "peopleTitle": "Personnes",
+      "peopleDesc": "Recherchez administrateurs et actionnaires par nom"
+    },
+
+    "whatsNewItems": {
+      "unifiedSearch": "Recherche unifiee",
+      "unifiedSearchDesc": "Recherchez entreprises et personnes en un seul endroit",
+      "sectorBenchmarking": "Benchmark sectoriel",
+      "sectorBenchmarkingDesc": "Voyez comment une entreprise se classe dans son secteur",
+      "smartFilters": "Filtres intelligents",
+      "smartFiltersDesc": "Sauvegardez et chargez vos preselections de filtres",
+      "dataAlerts": "Alertes donnees",
+      "dataAlertsDesc": "Soyez notifie quand vos entreprises favorites ont de nouvelles donnees",
+      "customerSupplierLists": "Listes clients & fournisseurs",
+      "customerSupplierListsDesc": "Telechargez ou collez des numeros BCE pour constituer des listes",
+      "fullExport": "Export complet",
+      "fullExportDesc": "Telechargez des profils d'entreprise complets en Excel ou PDF"
+    }
+  },
+
+  "login": {
+    "signInTitle": "Se connecter a Datasnoop",
+    "createAccountTitle": "Creez votre compte",
+    "resetPasswordTitle": "Reinitialiser le mot de passe",
+    "subtitle": "Intelligence d'entreprise belge",
+    "resetSubtitle": "Entrez votre email et nous vous enverrons un lien de reinitialisation",
+    "email": "E-mail",
+    "emailPlaceholder": "vous@entreprise.be",
+    "password": "Mot de passe",
+    "passwordPlaceholder": "6 caracteres minimum",
+    "signInButton": "Se connecter",
+    "createAccountButton": "Creer le compte",
+    "sendResetLink": "Envoyer le lien",
+    "pleaseWait": "Veuillez patienter...",
+    "continueWithGoogle": "Continuer avec Google",
+    "continueWithLinkedIn": "Continuer avec LinkedIn",
+    "or": "ou",
+    "forgotPassword": "Mot de passe oublie ?",
+    "noAccount": "Pas de compte ?",
+    "signUp": "S'inscrire",
+    "alreadyHaveAccount": "Vous avez deja un compte ?",
+    "rememberPassword": "Vous vous souvenez de votre mot de passe ?",
+    "termsNotice": "En vous inscrivant, vous acceptez nos",
+    "termsOfUse": "Conditions d'utilisation",
+    "and": "et",
+    "privacyPolicy": "Politique de confidentialite",
+    "checkEmailReset": "Verifiez votre email pour un lien de reinitialisation.",
+    "checkEmailConfirm": "Verifiez votre email pour un lien de confirmation."
+  },
+
+  "search": {
+    "placeholder": "Rechercher entreprises et personnes...",
+    "hint": "Recherchez par nom d'entreprise, numero BCE ou nom de personne",
+    "topResults": "Meilleurs resultats",
+    "allCompanies": "Toutes les entreprises",
+    "allPeople": "Toutes les personnes",
+    "noResults": "Aucun resultat pour \"{query}\"",
+    "browseCompanies": "Parcourir les entreprises",
+    "browseCompaniesDesc": "Recherchez par nom ou numero BCE",
+    "browsePeople": "Parcourir les personnes",
+    "browsePeopleDesc": "Recherchez administrateurs & actionnaires",
+    "roles": "{count} fonctions",
+    "holdings": "{count} participations",
+    "companies": "{count} entr."
+  },
+
+  "screener": {
+    "title": "Screener",
+    "filters": "Filtres",
+    "sector": "Secteur",
+    "province": "Province",
+    "zipcode": "Code postal",
+    "legalForm": "Forme juridique",
+    "revenueRange": "Fourchette de CA",
+    "ebitdaRange": "Fourchette EBITDA",
+    "fteRange": "Fourchette ETP",
+    "foundedAfter": "Fondee apres",
+    "applyFilters": "Appliquer les filtres",
+    "resetFilters": "Reinitialiser les filtres",
+    "results": "Resultats",
+    "exportExcel": "Exporter en Excel",
+    "columns": {
+      "name": "Nom de l'entreprise",
+      "cbe": "BCE",
+      "sector": "Secteur",
+      "municipality": "Commune",
+      "revenue": "Chiffre d'affaires",
+      "ebitda": "EBITDA",
+      "margin": "Marge",
+      "fte": "ETP"
+    }
+  },
+
+  "company": {
+    "tabs": {
+      "overview": "Apercu",
+      "financials": "Comptes annuels",
+      "structure": "Structure",
+      "administrators": "Administrateurs",
+      "publications": "Publications",
+      "credit": "Credit"
+    },
+    "legalForm": "Forme juridique",
+    "address": "Adresse",
+    "naceCode": "Code NACE",
+    "foundingDate": "Date de creation",
+    "revenue": "Chiffre d'affaires",
+    "ebitda": "EBITDA",
+    "margin": "Marge",
+    "netProfit": "Resultat net",
+    "equity": "Capitaux propres",
+    "debt": "Dettes",
+    "fte": "ETP",
+    "fiscalYear": "Exercice"
+  },
+
+  "favourites": {
+    "title": "Favoris",
+    "tabs": {
+      "companies": "Entreprises",
+      "projects": "Projets"
+    },
+    "addToProject": "Ajouter au projet",
+    "createProject": "Creer un projet",
+    "uploadList": "Telecharger la liste",
+    "noFavourites": "Pas encore de favoris"
+  },
+
+  "compare": {
+    "title": "Comparer",
+    "emptyState": "Ajoutez des entreprises pour comparer leurs comptes cote a cote",
+    "addCompany": "Ajouter une entreprise"
+  },
+
+  "aggregate": {
+    "title": "Agreger",
+    "emptyState": "Selectionnez des entreprises pour voir les chiffres agreges",
+    "addCompanies": "Ajouter des entreprises"
+  },
+
+  "account": {
+    "title": "Parametres du compte",
+    "profile": "Profil",
+    "subscription": "Abonnement",
+    "preferences": "Preferences"
+  },
+
+  "footer": {
+    "dataSources": "Sources de donnees : KBO/BCE (Banque-Carrefour des Entreprises) -- NBB/BNB (Banque Nationale de Belgique) -- Moniteur belge",
+    "privacyPolicy": "Politique de confidentialite",
+    "termsOfUse": "Conditions d'utilisation"
+  },
+
+  "common": {
+    "loading": "Chargement...",
+    "noData": "Pas de donnees",
+    "error": "Une erreur est survenue",
+    "retry": "Reessayer",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "close": "Fermer",
+    "back": "Retour",
+    "next": "Suivant",
+    "download": "Telecharger",
+    "export": "Exporter"
+  }
+}

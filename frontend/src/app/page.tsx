@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getDashboard, type DashboardKPIs } from "@/lib/api";
 import { fmtNumber } from "@/lib/format";
+import { useTranslation } from "@/components/language-provider";
 import {
   Building2,
   BarChart3,
@@ -23,33 +24,33 @@ function Skeleton({ className = "" }: { className?: string }) {
   return <div className={`animate-pulse bg-slate-200 rounded ${className}`} />;
 }
 
-const KPI_META = [
-  { key: "enterprise_count" as const, label: "Active Enterprises", icon: Building2 },
-  { key: "financial_count" as const, label: "Companies with Financials", icon: BarChart3 },
-  { key: "filing_count" as const, label: "Filings Loaded", icon: FileText },
-  { key: "admin_count" as const, label: "Administrators Indexed", icon: Users },
-];
-
-const WHATS_NEW = [
-  { label: "Unified Search", desc: "Search companies and people in one place", color: "bg-indigo-400" },
-  { label: "Sector Benchmarking", desc: "See how a company ranks within its sector", color: "bg-emerald-400" },
-  { label: "Smart Filters", desc: "Save and load your screener filter presets", color: "bg-amber-400" },
-  { label: "Data Alerts", desc: "Get notified when your favourite companies have new data", color: "bg-rose-400" },
-  { label: "Customer & Supplier Lists", desc: "Upload or paste CBE numbers to build lists", color: "bg-sky-400" },
-  { label: "Full Export", desc: "Download complete company profiles as Excel or PDF", color: "bg-violet-400" },
-];
-
-const QUICK_ACCESS = [
-  { href: "/screener", title: "Screener", desc: "Filter by sector, revenue, EBITDA, FTE, region", icon: Search },
-  { href: "/company", title: "Company", desc: "Search by name or CBE -- financials, structure, filings", icon: Building },
-  { href: "/stats", title: "Stats", desc: "Sector benchmarks, margins, leverage, geography", icon: BarChart },
-  { href: "/people", title: "People", desc: "Find administrators and shareholders by name", icon: UserSearch },
-];
-
-
 export default function Dashboard() {
+  const { t } = useTranslation();
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const KPI_META = [
+    { key: "enterprise_count" as const, label: t("home.kpi.activeEnterprises"), icon: Building2 },
+    { key: "financial_count" as const, label: t("home.kpi.companiesWithFinancials"), icon: BarChart3 },
+    { key: "filing_count" as const, label: t("home.kpi.filingsLoaded"), icon: FileText },
+    { key: "admin_count" as const, label: t("home.kpi.administratorsIndexed"), icon: Users },
+  ];
+
+  const WHATS_NEW = [
+    { label: t("home.whatsNewItems.unifiedSearch"), desc: t("home.whatsNewItems.unifiedSearchDesc"), color: "bg-indigo-400" },
+    { label: t("home.whatsNewItems.sectorBenchmarking"), desc: t("home.whatsNewItems.sectorBenchmarkingDesc"), color: "bg-emerald-400" },
+    { label: t("home.whatsNewItems.smartFilters"), desc: t("home.whatsNewItems.smartFiltersDesc"), color: "bg-amber-400" },
+    { label: t("home.whatsNewItems.dataAlerts"), desc: t("home.whatsNewItems.dataAlertsDesc"), color: "bg-rose-400" },
+    { label: t("home.whatsNewItems.customerSupplierLists"), desc: t("home.whatsNewItems.customerSupplierListsDesc"), color: "bg-sky-400" },
+    { label: t("home.whatsNewItems.fullExport"), desc: t("home.whatsNewItems.fullExportDesc"), color: "bg-violet-400" },
+  ];
+
+  const QUICK_ACCESS = [
+    { href: "/screener", title: t("home.quickAccessCards.screenerTitle"), desc: t("home.quickAccessCards.screenerDesc"), icon: Search },
+    { href: "/company", title: t("home.quickAccessCards.companyTitle"), desc: t("home.quickAccessCards.companyDesc"), icon: Building },
+    { href: "/stats", title: t("home.quickAccessCards.statsTitle"), desc: t("home.quickAccessCards.statsDesc"), icon: BarChart },
+    { href: "/people", title: t("home.quickAccessCards.peopleTitle"), desc: t("home.quickAccessCards.peopleDesc"), icon: UserSearch },
+  ];
 
   useEffect(() => {
     getDashboard()
@@ -63,8 +64,8 @@ export default function Dashboard() {
       {/* Beta notice */}
       <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-4 py-3">
         <p className="text-sm text-slate-600">
-          <span className="font-semibold text-indigo-600">Datasnoop is in beta.</span>{" "}
-          We are actively building out our database and adding new features. We appreciate your feedback and tips — use the bug report or suggestion buttons anytime.
+          <span className="font-semibold text-indigo-600">{t("home.betaNotice")}</span>{" "}
+          {t("home.betaBody")}
         </p>
       </div>
 
@@ -77,8 +78,8 @@ export default function Dashboard() {
                 <Search className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-slate-900">Search Companies & People</h3>
-                <p className="text-xs text-slate-400 mt-0.5">Search by name, CBE number, or person — companies and administrators in one view</p>
+                <h3 className="text-sm font-semibold text-slate-900">{t("home.searchTitle")}</h3>
+                <p className="text-xs text-slate-400 mt-0.5">{t("home.searchDesc")}</p>
               </div>
             </div>
           </CardContent>
@@ -113,7 +114,7 @@ export default function Dashboard() {
               <>
                 <Calendar className="w-4 h-4 text-indigo-500 mx-auto mb-1" />
                 <div className="text-xl font-bold text-slate-900">{kpis?.snapshot_date || "—"}</div>
-                <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-0.5">Snapshot Date</div>
+                <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-0.5">{t("home.snapshotDate")}</div>
               </>
             )}
           </CardContent>
@@ -123,7 +124,7 @@ export default function Dashboard() {
 
       {/* Quick Access */}
       <div>
-        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-3">Quick Access</h2>
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-3">{t("home.quickAccess")}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {QUICK_ACCESS.map((item) => {
             const Icon = item.icon;
@@ -150,7 +151,7 @@ export default function Dashboard() {
           <CardContent className="pt-4 pb-4">
             <div className="flex items-center gap-2 mb-3">
               <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
-              <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">What&apos;s New</h2>
+              <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">{t("home.whatsNew")}</h2>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
               {WHATS_NEW.map((item) => (
@@ -176,11 +177,11 @@ export default function Dashboard() {
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <BarChart className="h-4 w-4 text-indigo-500" />
-                    <h3 className="text-sm font-semibold text-slate-900">Market Statistics</h3>
+                    <h3 className="text-sm font-semibold text-slate-900">{t("home.marketStats")}</h3>
                   </div>
-                  <p className="text-xs text-slate-500">Sector benchmarks, margin distributions, revenue trends, and province breakdowns across 170K+ Belgian companies</p>
+                  <p className="text-xs text-slate-500">{t("home.marketStatsDesc")}</p>
                 </div>
-                <span className="text-xs text-indigo-500 font-medium shrink-0 ml-4">Explore →</span>
+                <span className="text-xs text-indigo-500 font-medium shrink-0 ml-4">{t("home.explore")} →</span>
               </div>
             </CardContent>
           </Card>
