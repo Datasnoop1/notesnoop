@@ -112,12 +112,14 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [isFullscreen]);
 
-  // Refit graph when toggling fullscreen
+  // Configure force spacing + refit on data/mode change
   useEffect(() => {
     if (graphRef.current) {
+      graphRef.current.d3Force("charge")?.strength(-200);
+      graphRef.current.d3Force("link")?.distance(120);
       setTimeout(() => graphRef.current?.zoomToFit(400), 100);
     }
-  }, [isFullscreen]);
+  }, [graphData, isFullscreen]);
 
   const handleNodeClick = useCallback(
     (node: { id?: string }) => {
@@ -342,8 +344,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
               nodeRelSize={6}
               d3VelocityDecay={0.3}
               d3AlphaDecay={0.02}
-              linkDistance={120}
-              dagLevelDistance={80}
+              cooldownTicks={100}
               linkDirectionalArrowLength={4}
               linkDirectionalArrowRelPos={1}
               linkLabel={(link: { label?: string }) => link.label || ""}
