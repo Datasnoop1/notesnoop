@@ -297,6 +297,34 @@ export function InsightsOverlay({
                   content={insights.company_history}
                 />
 
+                {/* Key Management */}
+                {insights.key_management && insights.key_management.length > 0 && (
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Users className="h-4 w-4 text-slate-400" />
+                      <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Key Management</h4>
+                    </div>
+                    <div className="space-y-1.5">
+                      {insights.key_management.map((person, i) => (
+                        <div key={i} className="flex items-center gap-2 text-sm">
+                          <span className="font-medium text-slate-700">{person.name}</span>
+                          {person.role && <span className="text-xs text-slate-400">— {person.role}</span>}
+                          {person.linkedin_url && (
+                            <a
+                              href={person.linkedin_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-auto text-blue-500 hover:text-blue-700 transition-colors"
+                            >
+                              <Linkedin className="h-3.5 w-3.5" />
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Links */}
                 {(insights.website_url || insights.linkedin_url) && (
                   <div className="flex flex-wrap gap-3 pt-2">

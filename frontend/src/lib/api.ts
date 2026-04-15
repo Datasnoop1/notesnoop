@@ -716,6 +716,7 @@ export interface AiInsights {
   target_customers: string;
   competitive_position: string;
   company_history: string;
+  key_management?: { name: string; role: string; linkedin_url: string }[];
   website_url: string;
   linkedin_url: string;
 }
