@@ -89,7 +89,7 @@ app.add_middleware(ActivityLogMiddleware)
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Rate limiting keyed by authenticated user email or client IP."""
 
-    SEARCH_PATHS = ("/api/companies/search", "/api/people/search")
+    SEARCH_PATHS = ("/api/companies/search", "/api/companies/semantic-search", "/api/people/search")
 
     def _get_rate_key(self, request: Request) -> str:
         """Get rate limit key: prefer auth user email, fall back to real IP."""

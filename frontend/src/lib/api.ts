@@ -230,6 +230,9 @@ export interface CompanyNetwork {
 export const searchCompanies = (q: string) =>
   apiFetch<SearchResult[]>(`/api/companies/search?q=${encodeURIComponent(q)}`);
 
+export const semanticSearch = (q: string) =>
+  apiFetch<SearchResult[]>(`/api/companies/semantic-search?q=${encodeURIComponent(q)}`);
+
 export const getCompanyDetail = (cbe: string) =>
   apiFetch<CompanyDetail>(`/api/companies/${cbe}`);
 
