@@ -157,6 +157,17 @@ async def health_check():
     return {"status": "ok", "service": "datasnoop-api"}
 
 
+@app.get("/api/site-config")
+async def public_site_config():
+    """Public endpoint returning site configuration (logo path, etc.)."""
+    from db import fetch_one
+    try:
+        row = fetch_one("SELECT value FROM meta WHERE variable = 'site_logo'")
+        return {"site_logo": row["value"] if row else "/logo.svg"}
+    except Exception:
+        return {"site_logo": "/logo.svg"}
+
+
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------

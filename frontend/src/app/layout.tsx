@@ -39,10 +39,12 @@ export default function RootLayout({
               {children}
             </div>
           </main>
-          <AdBanner />
-          <BrandSurvey />
-          <CookieBanner />
-          <FooterTranslated />
+          <div className="no-print">
+            <AdBanner />
+            <BrandSurvey />
+            <CookieBanner />
+            <FooterTranslated />
+          </div>
         </LanguageProvider>
       </body>
     </html>

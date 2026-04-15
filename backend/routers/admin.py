@@ -532,3 +532,55 @@ async def admin_payments(user=Depends(_require_admin)):
     except Exception as e:
         logger.exception("Admin payments failed")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Site configuration (logo, etc.)
+# ---------------------------------------------------------------------------
+
+_SITE_CONFIG_DEFAULTS = {
+    "site_logo": "/logo.svg",
+}
+
+
+@router.get("/site-config")
+async def get_site_config(user=Depends(_require_admin)):
+    """Return current site configuration from the meta table."""
+    try:
+        config = {}
+        for key, default in _SITE_CONFIG_DEFAULTS.items():
+            row = fetch_one(
+                "SELECT value FROM meta WHERE variable = %s", (key,)
+            )
+            config[key] = row["value"] if row else default
+        return config
+    except Exception as e:
+        logger.exception("Get site config failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class SiteConfigUpdate(BaseModel):
+    site_logo: Optional[str] = None
+
+
+@router.put("/site-config")
+async def update_site_config(body: SiteConfigUpdate, user=Depends(_require_admin)):
+    """Update site configuration values in the meta table."""
+    try:
+        updated = {}
+        if body.site_logo is not None:
+            execute(
+                "INSERT INTO meta (variable, value) VALUES (%s, %s) "
+                "ON CONFLICT (variable) DO UPDATE SET value = EXCLUDED.value",
+                ("site_logo", body.site_logo),
+            )
+            updated["site_logo"] = body.site_logo
+
+        if not updated:
+            raise HTTPException(status_code=400, detail="No fields to update")
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Update site config failed")
+        raise HTTPException(status_code=500, detail=str(e))

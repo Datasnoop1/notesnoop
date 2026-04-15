@@ -27,6 +27,10 @@ function fmtRatio(v: number | null, suffix = "x"): string {
 }
 
 export async function generatePdfReport(data: ExportData) {
+  // Yield to the event loop so the caller's loading spinner renders
+  // before we block the main thread with synchronous PDF generation.
+  await new Promise((r) => setTimeout(r, 0));
+
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const name = data.detail.name || fmtCbe(data.cbe);
   const pageWidth = doc.internal.pageSize.getWidth();

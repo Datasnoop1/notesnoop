@@ -145,3 +145,47 @@
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* ── Print styles ──────────────────────────────────────────────────── */
+@media print {
+  /* Hide chrome: nav, footer, ads, banners, overlays */
+  nav,
+  footer,
+  header,
+  .no-print,
+  [data-radix-popper-content-wrapper] {
+    display: none !important;
+  }
+
+  /* Clean background */
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Remove layout padding/max-width so content fills the page */
+  main {
+    padding: 0 !important;
+  }
+  main > div {
+    max-width: none !important;
+    padding: 0.5rem !important;
+  }
+
+  /* Keep tables readable */
+  table {
+    font-size: 9pt !important;
+    page-break-inside: auto;
+  }
+  tr {
+    page-break-inside: avoid;
+  }
+
+  /* Re-enable text selection so printed PDFs have selectable text */
+  [data-protected] table,
+  [data-protected] .font-mono {
+    -webkit-user-select: auto !important;
+    user-select: auto !important;
+  }
+}

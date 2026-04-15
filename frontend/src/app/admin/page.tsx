@@ -71,6 +71,8 @@ import {
   Crown,
   Layers,
   Save,
+  Check,
+  Image,
 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -452,6 +454,8 @@ export default function AdminPanel() {
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
   const [tierSaving, setTierSaving] = useState<string | null>(null);
   const [tierToggling, setTierToggling] = useState(false);
+  const [siteLogo, setSiteLogo] = useState<string>("/logo.svg");
+  const [logoSaving, setLogoSaving] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -459,7 +463,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -473,6 +477,7 @@ export default function AdminPanel() {
         adminFetch<typeof usageData>("/api/admin/usage").catch(() => null),
         adminFetch<PaymentsData>("/api/admin/payments").catch(() => null),
         adminFetch<TierConfig[]>("/api/admin/tiers").catch(() => [] as TierConfig[]),
+        adminFetch<{ site_logo: string }>("/api/admin/site-config").catch(() => ({ site_logo: "/logo.svg" })),
       ]);
       setStats(s);
       setUsers(u);
@@ -485,6 +490,7 @@ export default function AdminPanel() {
       setUsageData(usage as typeof usageData);
       setPaymentsData(pay);
       setTiers(tc);
+      if (sc?.site_logo) setSiteLogo(sc.site_logo);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -2844,16 +2850,95 @@ export default function AdminPanel() {
             TAB 6: Settings
             ================================================================ */}
         <TabsContent value="settings">
-          <div className="pt-2">
+          <div className="pt-2 space-y-6">
+            {/* Site Logo */}
             <Card className="bg-white">
               <CardContent>
-                <div className="py-12 text-center">
-                  <Settings className="size-8 text-slate-300 mx-auto mb-3" />
-                  <h3 className="text-sm font-semibold text-slate-700 mb-1">
-                    Platform Settings
-                  </h3>
+                <SectionHeading icon={Image}>Site Logo</SectionHeading>
+                <p className="text-sm text-slate-500 mb-4">
+                  Choose which logo appears in the header across the platform.
+                </p>
+
+                {/* Current logo preview */}
+                <div className="flex items-center gap-3 mb-6 p-3 bg-slate-50 rounded-lg border border-slate-200">
+                  <img
+                    src={siteLogo}
+                    alt="Current logo"
+                    className="w-10 h-10 object-contain"
+                  />
+                  <div>
+                    <div className="text-xs font-semibold text-slate-700">
+                      Active logo
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-mono">
+                      {siteLogo}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Logo grid */}
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-3">
+                  {[
+                    { path: "/logo.svg", label: "Mountain peak" },
+                    { path: "/logos/dog-a-warm.svg", label: "Dog - warm" },
+                    { path: "/logos/dog-b-indigo.svg", label: "Dog - indigo" },
+                    { path: "/logos/dog-c-teal.svg", label: "Dog - teal" },
+                    { path: "/logos/datasnoop-logo-1-magnifier.svg", label: "Magnifier" },
+                    { path: "/logos/datasnoop-logo-2-eye.svg", label: "Eye" },
+                    { path: "/logos/datasnoop-logo-3-radar.svg", label: "Radar" },
+                  ].map((logo) => {
+                    const isActive = siteLogo === logo.path;
+                    return (
+                      <button
+                        key={logo.path}
+                        disabled={logoSaving}
+                        onClick={async () => {
+                          setLogoSaving(true);
+                          try {
+                            await adminFetch("/api/admin/site-config", {
+                              method: "PUT",
+                              body: JSON.stringify({ site_logo: logo.path }),
+                            });
+                            setSiteLogo(logo.path);
+                          } catch {
+                            // silently fail
+                          } finally {
+                            setLogoSaving(false);
+                          }
+                        }}
+                        className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${
+                          isActive
+                            ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200"
+                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                        } ${logoSaving ? "opacity-50 cursor-wait" : "cursor-pointer"}`}
+                      >
+                        {isActive && (
+                          <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center">
+                            <Check className="w-3 h-3" />
+                          </div>
+                        )}
+                        <img
+                          src={logo.path}
+                          alt={logo.label}
+                          className="w-[60px] h-[60px] object-contain"
+                        />
+                        <span className="text-[10px] font-medium text-slate-500 text-center leading-tight">
+                          {logo.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Placeholder for future settings */}
+            <Card className="bg-white">
+              <CardContent>
+                <div className="py-8 text-center">
+                  <Settings className="size-7 text-slate-300 mx-auto mb-2" />
                   <p className="text-sm text-slate-400">
-                    Configuration options will be available here in a future update.
+                    More configuration options coming soon.
                   </p>
                 </div>
               </CardContent>

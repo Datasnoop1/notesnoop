@@ -25,6 +25,8 @@ import { getNotifications, markNotificationsRead } from "@/lib/api";
 import type { FavNotification } from "@/lib/api";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+
 export default function Nav() {
   const pathname = usePathname();
   const router = useRouter();
@@ -36,6 +38,7 @@ export default function Nav() {
   const [showNotifs, setShowNotifs] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const [logoPath, setLogoPath] = useState("/logo.svg");
 
   const NAV_LINKS = [
     { label: t("nav.screener"), href: "/screener" },
@@ -76,6 +79,16 @@ export default function Nav() {
       .catch(() => {});
   }, [user]);
 
+  // Fetch site logo from public config (once on mount)
+  useEffect(() => {
+    fetch(`${API_BASE}/api/site-config`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.site_logo) setLogoPath(data.site_logo);
+      })
+      .catch(() => {});
+  }, []);
+
   // Close search dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -108,7 +121,7 @@ export default function Nav() {
         <div className="flex items-center justify-between h-16">
           {/* Brand */}
           <Link href="/" className="flex items-center gap-2.5 group">
-            <img src="/logo.svg" alt="Datasnoop" width={28} height={28} className="shrink-0 group-hover:scale-105 transition-transform" />
+            <img src={logoPath} alt="Datasnoop" width={28} height={28} className="shrink-0 group-hover:scale-105 transition-transform" />
             <span className="text-base font-semibold text-slate-900 tracking-tight">
               Datasnoop
             </span>
@@ -251,7 +264,7 @@ export default function Nav() {
               </SheetTrigger>
               <SheetContent side="left" className="w-64">
                 <SheetTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
-                  <img src="/logo.svg" alt="Datasnoop" width={22} height={22} />
+                  <img src={logoPath} alt="Datasnoop" width={22} height={22} />
                   Datasnoop
                 </SheetTitle>
                 <nav className="mt-6 flex flex-col gap-1">

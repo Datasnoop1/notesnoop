@@ -10,7 +10,7 @@ interface ExportButtonsProps {
 
 export default function ExportButtons({ onExportCSV, onPrint, label = "Export" }: ExportButtonsProps) {
   return (
-    <div className="flex gap-1">
+    <div className="flex gap-1 no-print">
       {onExportCSV && (
         <Button variant="outline" size="sm" onClick={onExportCSV} className="text-[10px] h-7 px-2">
           <Download className="w-3 h-3 mr-1" /> CSV
