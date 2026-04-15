@@ -59,7 +59,9 @@ interface PnlRow {
   fte: number | null;
 }
 
-const MAX_COMPANIES = 5;
+const DEFAULT_MAX = 5;
+const LOAD_MORE_STEP = 5;
+const ABSOLUTE_MAX = 20;
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -230,6 +232,7 @@ const RATIO_LINES: CompareLine[] = [
 export default function ComparePage() {
   const { t } = useTranslation();
   const [companies, setCompanies] = useState<CompanyColumn[]>([]);
+  const [maxCompanies, setMaxCompanies] = useState(DEFAULT_MAX);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -280,7 +283,7 @@ export default function ComparePage() {
   // Add a company to the comparison
   const addCompany = useCallback(
     async (cbe: string, name: string) => {
-      if (companies.length >= MAX_COMPANIES) return;
+      if (companies.length >= maxCompanies) return;
       if (companies.some((c) => c.cbe === cbe)) return;
 
       setQuery("");
@@ -379,7 +382,7 @@ export default function ComparePage() {
         const existing = new Set(companies.map((c) => c.cbe));
         const toAdd = project.members
           .filter((m) => !existing.has(m.enterprise_number))
-          .slice(0, MAX_COMPANIES - companies.length);
+          .slice(0, maxCompanies - companies.length);
 
         for (const m of toAdd) {
           await addCompany(m.enterprise_number, m.name || m.enterprise_number);
@@ -613,7 +616,7 @@ export default function ComparePage() {
           {t("compare.title")}
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          {t("compare.subtitle", { max: String(MAX_COMPANIES) })}
+          {t("compare.subtitle", { max: String(maxCompanies) })}
         </p>
       </div>
 
@@ -629,7 +632,7 @@ export default function ComparePage() {
                 handleSearch(e.target.value)
               }
               className="pl-9"
-              disabled={companies.length >= MAX_COMPANIES}
+              disabled={companies.length >= maxCompanies}
             />
             {searching && (
               <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 animate-spin" />
@@ -695,14 +698,14 @@ export default function ComparePage() {
           <FavouritesDialog
             existingCbes={existingCbes}
             onAdd={addCompany}
-            max={MAX_COMPANIES}
+            max={maxCompanies}
           />
           <div className="relative" ref={projectMenuRef}>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowProjectMenu((p) => !p)}
-              disabled={loadingProject || companies.length >= MAX_COMPANIES}
+              disabled={loadingProject || companies.length >= maxCompanies}
             >
               {loadingProject ? (
                 <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
@@ -749,9 +752,17 @@ export default function ComparePage() {
           </div>
         </div>
 
-        {companies.length >= MAX_COMPANIES && (
+        {companies.length >= maxCompanies && maxCompanies < ABSOLUTE_MAX && (
+          <button
+            onClick={() => setMaxCompanies((prev) => Math.min(prev + LOAD_MORE_STEP, ABSOLUTE_MAX))}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors self-center"
+          >
+            + Load more slots
+          </button>
+        )}
+        {companies.length >= maxCompanies && maxCompanies >= ABSOLUTE_MAX && (
           <span className="text-xs text-slate-400 self-center">
-            {t("compare.maxReached", { max: String(MAX_COMPANIES) })}
+            Maximum {ABSOLUTE_MAX} companies
           </span>
         )}
       </div>
