@@ -185,6 +185,44 @@ async def search_companies(q: str = Query(..., min_length=1)):
                         LIMIT 20
                     """, (nq, nq))
 
+            # Address fallback: search by street, city, or zipcode when
+            # name-based search returned few results
+            if len(rows) < 5 and len(query) >= 2:
+                remaining = 20 - len(rows)
+                existing_cbes = {r["enterprise_number"] for r in rows}
+                like_q = f"%{query}%"
+                # Check if query looks like a pure zipcode (4-digit Belgian postal code)
+                zip_q = query if query.isdigit() and len(query) == 4 else None
+                addr_rows = fetch_all("""
+                    SELECT ci.enterprise_number, ci.name,
+                           e.status, e.juridical_form AS "jf_label", ci.city,
+                           COALESCE(nl.description, ci.nace_code) AS "sector", e.start_date,
+                           fl.revenue, fl.ebitda,
+                           CASE WHEN fl.revenue > 0 THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1) END AS "ebitda_margin_pct",
+                           fl.fte_total, fl.fiscal_year
+                    FROM address a
+                    JOIN company_info ci ON ci.enterprise_number = a.entity_number
+                    JOIN enterprise e ON e.enterprise_number = a.entity_number
+                    LEFT JOIN financial_latest fl ON fl.enterprise_number = a.entity_number
+                    LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+                    WHERE a.type_of_address = 'REGO'
+                      AND (
+                          a.street_nl ILIKE %s
+                          OR a.street_fr ILIKE %s
+                          OR a.municipality_nl ILIKE %s
+                          OR a.municipality_fr ILIKE %s
+                          OR (%s IS NOT NULL AND a.zipcode = %s)
+                      )
+                    ORDER BY ci.name
+                    LIMIT %s
+                """, (like_q, like_q, like_q, like_q, zip_q, zip_q, remaining + 10))
+                for r in addr_rows:
+                    if r["enterprise_number"] not in existing_cbes:
+                        rows.append(r)
+                        existing_cbes.add(r["enterprise_number"])
+                        if len(rows) >= 20:
+                            break
+
         return [_serialize_row(r) for r in rows]
     except Exception as e:
         logger.exception("Company search failed")
