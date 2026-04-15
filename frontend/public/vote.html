@@ -19,8 +19,8 @@
     .header h1{font-size:clamp(1.5rem,4vw,2.2rem);font-weight:800;letter-spacing:-.03em;line-height:1.2;margin-bottom:.4rem}
     .header .sub{font-size:.95rem;color:#64748b}
 
-    .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1rem}
-    @media(max-width:720px){.grid{grid-template-columns:repeat(3,1fr);gap:.75rem}}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}
+    @media(max-width:720px){.grid{grid-template-columns:repeat(2,1fr);gap:.75rem}}
     @media(max-width:440px){.grid{grid-template-columns:repeat(2,1fr);gap:.6rem}}
 
     .card{background:#fff;border-radius:14px;border:2px solid #e2e8f0;padding:.75rem .75rem .6rem;text-align:center;cursor:pointer;transition:transform .2s,box-shadow .2s,border-color .2s}
@@ -28,9 +28,7 @@
     .card.chosen{border-color:#6366f1;box-shadow:0 0 0 3px #c7d2fe}
     .card.voted:not(.chosen){opacity:.5}
     .card.disabled{cursor:default}
-    .card .icon{position:relative;width:80px;height:80px;margin:0 auto .4rem}
-    .card .icon .glass{position:absolute;bottom:0;right:0;width:52px;height:52px;opacity:.85}
-    .card .icon img{position:absolute;top:0;left:0;width:56px;height:56px}
+    .card img{width:72px;height:72px;margin:0 auto .4rem;display:block}
     .card .name{font-size:.78rem;font-weight:600;color:#334155;margin-bottom:.3rem}
     .card .tag{display:none;font-size:.6rem;font-weight:600;color:#4f46e5;background:#eef2ff;padding:1px 8px;border-radius:999px;margin:0 auto}
     .card.chosen .tag{display:inline-block}
@@ -61,26 +59,14 @@
   var API='', KEY='datasnoop_dog_vote', app=document.getElementById('app');
 
   var DOGS=[
-    {id:'Golden',      file:'/logos/dogs/01-golden.svg',     name:'Golden Retriever'},
-    {id:'Beagle',      file:'/logos/dogs/02-beagle.svg',     name:'Beagle'},
-    {id:'Shiba',       file:'/logos/dogs/03-shiba.svg',      name:'Shiba Inu'},
-    {id:'Husky',       file:'/logos/dogs/04-husky.svg',      name:'Husky'},
-    {id:'Pug',         file:'/logos/dogs/05-pug.svg',        name:'Pug'},
-    {id:'Corgi',       file:'/logos/dogs/06-corgi.svg',      name:'Corgi'},
-    {id:'Frenchie',    file:'/logos/dogs/07-frenchie.svg',   name:'French Bulldog'},
-    {id:'Dalmatian',   file:'/logos/dogs/08-dalmatian.svg',  name:'Dalmatian'},
-    {id:'Shepherd',    file:'/logos/dogs/09-shepherd.svg',   name:'German Shepherd'},
-    {id:'Labrador',    file:'/logos/dogs/10-labrador.svg',   name:'Chocolate Lab'},
-    {id:'Bloodhound',  file:'/logos/dogs/11-bloodhound.svg', name:'Bloodhound'},
-    {id:'Poodle',      file:'/logos/dogs/12-poodle.svg',     name:'Poodle'},
-    {id:'Collie',      file:'/logos/dogs/13-collie.svg',     name:'Border Collie'},
-    {id:'Dachshund',   file:'/logos/dogs/14-dachshund.svg',  name:'Dachshund'},
-    {id:'Chihuahua',   file:'/logos/dogs/15-chihuahua.svg',  name:'Chihuahua'},
-    {id:'Samoyed',     file:'/logos/dogs/16-samoyed.svg',    name:'Samoyed'},
-    {id:'Scottie',     file:'/logos/dogs/17-scottie.svg',    name:'Scottie'},
-    {id:'JackRussell', file:'/logos/dogs/18-jackrussell.svg',name:'Jack Russell'},
-    {id:'Bulldog',     file:'/logos/dogs/19-bulldog.svg',    name:'English Bulldog'},
-    {id:'Kawaii',      file:'/logos/dogs/20-kawaii.svg',      name:'Kawaii'}
+    {id:'Sniffer',   file:'/logos/marks/01-sniffer.svg',   name:'The Sniffer'},
+    {id:'Peeker',    file:'/logos/marks/02-peeker.svg',    name:'The Peeker'},
+    {id:'Monocle',   file:'/logos/marks/03-monocle.svg',   name:'Monocle'},
+    {id:'Sitting',   file:'/logos/marks/04-sitting.svg',   name:'Sitting Scout'},
+    {id:'Badge',     file:'/logos/marks/05-badge.svg',     name:'Badge'},
+    {id:'Wink',      file:'/logos/marks/06-wink.svg',      name:'The Wink'},
+    {id:'Detective', file:'/logos/marks/07-detective.svg',  name:'Detective'},
+    {id:'Compact',   file:'/logos/marks/08-compact.svg',   name:'Compact'}
   ];
 
   var state={poll:null,results:null,voted:null,submitting:false};
@@ -99,7 +85,7 @@
       var cnt=results?(results.votes[d.id]||0):0;
       var cls='card'+(voted?' voted disabled':'')+(chosen?' chosen':'');
       h+='<div class="'+cls+'" '+(voted?'':'onclick="vote(\''+d.id+'\')"')+'>';
-      h+='<div class="icon"><img src="'+d.file+'" alt="'+d.name+'"><svg class="glass" viewBox="0 0 52 52" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="22" cy="22" r="19" fill="#f1f5f9" stroke="#94a3b8" stroke-width="3.5"/><line x1="36" y1="36" x2="48" y2="48" stroke="#94a3b8" stroke-width="4" stroke-linecap="round"/><path d="M13 16 Q16 12 21 14" stroke="white" stroke-width="1.8" stroke-linecap="round" opacity=".5"/></svg></div>';
+      h+='<img src="'+d.file+'" alt="'+d.name+'">';
       h+='<div class="name">'+d.name+'</div>';
       if(chosen) h+='<div class="tag">Your pick</div>';
       if(voted&&results){

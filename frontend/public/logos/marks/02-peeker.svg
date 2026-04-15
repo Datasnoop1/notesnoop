@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <!-- Dog peeking over magnifying glass — front-facing silhouette -->
+  <!-- Magnifying glass -->
+  <circle cx="40" cy="50" r="24" fill="none" stroke="#1e293b" stroke-width="5"/>
+  <line x1="58" y1="68" x2="70" y2="78" stroke="#1e293b" stroke-width="5.5" stroke-linecap="round"/>
+
+  <!-- Dog head — peeking over the top rim of the glass -->
+  <path d="
+    M18 34
+    Q12 22 8 12 Q8 4 14 4 Q18 4 20 10 Q22 16 22 22
+    Q26 14 34 10 Q40 8 46 10
+    Q54 14 58 22
+    Q58 16 60 10 Q62 4 66 4 Q72 4 72 12 Q68 22 62 34
+    Q58 36 54 32 Q48 28 40 28 Q32 28 26 32 Q22 36 18 34 Z
+  " fill="#1e293b"/>
+
+  <!-- Eyes — white cutouts -->
+  <circle cx="32" cy="22" r="4.5" fill="white"/>
+  <circle cx="48" cy="22" r="4.5" fill="white"/>
+  <circle cx="34" cy="22.5" r="2.2" fill="#1e293b"/>
+  <circle cx="50" cy="22.5" r="2.2" fill="#1e293b"/>
+
+  <!-- Nose -->
+  <ellipse cx="40" cy="30" rx="3" ry="2" fill="white"/>
+
+  <!-- Paw on glass rim -->
+  <path d="M26 36 Q28 34 34 36 Q36 38 34 40 Q30 40 26 38 Z" fill="#1e293b"/>
+  <circle cx="28" cy="35" r="1.5" fill="#1e293b"/>
+  <circle cx="31" cy="34.5" r="1.5" fill="#1e293b"/>
+</svg>

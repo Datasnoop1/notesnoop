@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <!-- Dog sitting upright holding magnifying glass — full body silhouette -->
+  <!-- Magnifying glass held up -->
+  <circle cx="58" cy="22" r="14" fill="none" stroke="#1e293b" stroke-width="4"/>
+  <line x1="48" y1="32" x2="42" y2="40" stroke="#1e293b" stroke-width="4" stroke-linecap="round"/>
+  <!-- Lens -->
+  <circle cx="58" cy="22" r="10" fill="white" opacity="0.08"/>
+
+  <!-- Body — sitting dog silhouette -->
+  <path d="
+    M24 78 Q20 78 20 74 L20 58 Q20 48 26 42
+    Q28 38 28 34
+    Q22 28 18 18 Q16 10 22 8 Q26 8 28 14
+    Q30 8 34 6 Q40 4 46 8 Q50 12 50 18
+    Q54 10 58 10 Q62 12 60 18 Q56 26 52 30
+    Q52 36 54 40
+    Q58 46 58 54 L58 74 Q58 78 54 78
+    Q50 78 50 74 L50 66 Q46 72 40 74 Q34 72 30 66 L30 74 Q30 78 26 78 Z
+  " fill="#1e293b"/>
+
+  <!-- Eyes -->
+  <circle cx="34" cy="18" r="3.5" fill="white"/>
+  <circle cx="46" cy="18" r="3.5" fill="white"/>
+  <circle cx="35.5" cy="18.5" r="1.8" fill="#1e293b"/>
+  <circle cx="47.5" cy="18.5" r="1.8" fill="#1e293b"/>
+
+  <!-- Nose -->
+  <ellipse cx="40" cy="24" rx="3" ry="2" fill="white"/>
+
+  <!-- Chest patch -->
+  <ellipse cx="40" cy="50" rx="8" ry="10" fill="white" opacity="0.1"/>
+</svg>

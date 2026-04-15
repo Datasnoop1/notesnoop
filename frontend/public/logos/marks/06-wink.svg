@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <!-- Minimal dog head + magnifying glass side by side — winking -->
+  <!-- Dog head -->
+  <circle cx="32" cy="36" r="24" fill="#1e293b"/>
+  <!-- Floppy ears -->
+  <ellipse cx="12" cy="28" rx="8" ry="14" fill="#1e293b" transform="rotate(-8 12 28)"/>
+  <ellipse cx="52" cy="26" rx="7" ry="12" fill="#1e293b" transform="rotate(12 52 26)"/>
+
+  <!-- Left eye — open -->
+  <circle cx="24" cy="32" r="4.5" fill="white"/>
+  <circle cx="26" cy="32.5" r="2.2" fill="#1e293b"/>
+
+  <!-- Right eye — winking -->
+  <path d="M36 32 Q40 28 44 32" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- Nose -->
+  <ellipse cx="32" cy="40" rx="3.5" ry="2.5" fill="white"/>
+
+  <!-- Smirk -->
+  <path d="M28 46 Q34 50 40 45" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- Magnifying glass — held to the right -->
+  <circle cx="60" cy="52" r="14" fill="none" stroke="#1e293b" stroke-width="4.5"/>
+  <line x1="70" y1="62" x2="78" y2="72" stroke="#1e293b" stroke-width="5" stroke-linecap="round"/>
+  <!-- Lens -->
+  <circle cx="60" cy="52" r="10.5" fill="white" opacity="0.06"/>
+  <path d="M53 46 Q56 43 59 46" fill="none" stroke="white" stroke-width="1.2" stroke-linecap="round" opacity="0.15"/>
+
+  <!-- Paw reaching toward glass -->
+  <path d="M48 48 Q52 46 56 48 Q54 50 50 50 Z" fill="#1e293b"/>
+</svg>

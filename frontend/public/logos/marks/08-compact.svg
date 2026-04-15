@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80">
+  <!-- Most compact version: dog head overlapping glass, unified shape -->
+  <!-- Magnifying glass body -->
+  <circle cx="46" cy="46" r="26" fill="#1e293b"/>
+  <circle cx="46" cy="46" r="21" fill="white"/>
+  <line x1="64" y1="64" x2="76" y2="76" stroke="#1e293b" stroke-width="7" stroke-linecap="round"/>
+
+  <!-- Dog head — top left, overlapping the glass rim -->
+  <circle cx="28" cy="28" r="20" fill="#1e293b"/>
+  <!-- Ears -->
+  <ellipse cx="12" cy="18" rx="7" ry="12" fill="#1e293b" transform="rotate(-10 12 18)"/>
+  <ellipse cx="44" cy="16" rx="6" ry="10" fill="#1e293b" transform="rotate(10 44 16)"/>
+
+  <!-- Eyes -->
+  <circle cx="22" cy="26" r="3.5" fill="white"/>
+  <circle cx="34" cy="24" r="3.5" fill="white"/>
+  <circle cx="23.2" cy="26.5" r="1.8" fill="#1e293b"/>
+  <circle cx="35.2" cy="24.5" r="1.8" fill="#1e293b"/>
+
+  <!-- Nose -->
+  <ellipse cx="28" cy="32" rx="3" ry="2" fill="white"/>
+
+  <!-- Tiny smile -->
+  <path d="M24 36 Q28 39 32 36" fill="none" stroke="white" stroke-width="1.2" stroke-linecap="round" opacity="0.5"/>
+</svg>
