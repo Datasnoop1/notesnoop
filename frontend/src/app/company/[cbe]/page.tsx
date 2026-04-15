@@ -1654,17 +1654,15 @@ export default function CompanyDetailPage(props: {
                 <div className="space-y-4">
                   {/* ── Core Metrics Summary ── */}
                   {latestPnl && (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
                       {[
                         { label: "Revenue", value: fmtEur(latestPnl.revenue), sub: growthPill(revGrowth), icon: <DollarSign className="h-3 w-3" /> },
-                        { label: "Rev. Growth", value: revGrowth != null ? `${revGrowth > 0 ? "+" : ""}${revGrowth.toFixed(1)}%` : "—", sub: null, icon: <TrendingUp className="h-3 w-3" /> },
                         { label: "Gross Margin", value: marginPill(grossMarginPct), sub: null, icon: <Percent className="h-3 w-3" /> },
                         { label: "EBITDA", value: fmtEur(latestPnl.ebitda), sub: growthPill(ebitdaGrowth), icon: <BarChart3 className="h-3 w-3" /> },
                         { label: "EBITDA %", value: marginPill(ebitdaPct), sub: null, icon: <Percent className="h-3 w-3" /> },
-                        { label: "EBITDA Growth", value: ebitdaGrowth != null ? `${ebitdaGrowth > 0 ? "+" : ""}${ebitdaGrowth.toFixed(1)}%` : "—", sub: null, icon: <TrendingUp className="h-3 w-3" /> },
                         { label: "EBIT", value: fmtEur(latestPnl.ebit), sub: growthPill(ebitGrowth), icon: <Activity className="h-3 w-3" /> },
                         { label: "EBIT %", value: marginPill(ebitPct), sub: null, icon: <Percent className="h-3 w-3" /> },
-                        { label: "EBIT Growth", value: ebitGrowth != null ? `${ebitGrowth > 0 ? "+" : ""}${ebitGrowth.toFixed(1)}%` : "—", sub: null, icon: <TrendingUp className="h-3 w-3" /> },
+                        { label: "Net Profit", value: fmtEur(latestPnl.netProfit), sub: null, icon: <DollarSign className="h-3 w-3" /> },
                       ].map((m, i) => (
                         <div key={i} className="rounded-lg border border-slate-100 bg-white p-2.5 text-center">
                           <div className="flex items-center justify-center gap-1 text-[9px] text-slate-400 uppercase tracking-wider mb-1">
