@@ -76,14 +76,23 @@ app.add_middleware(ActivityLogMiddleware)
 # ---------------------------------------------------------------------------
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Per-IP rate limiting with tiered limits by endpoint type."""
+    """Rate limiting keyed by authenticated user email or client IP."""
 
-    # Heavy endpoints: 5/min
-    HEAVY_PREFIXES = ("/api/companies/", "/api/staatsblad/")
-    HEAVY_METHODS = ("POST",)
-
-    # Search endpoints: 30/min
     SEARCH_PATHS = ("/api/companies/search", "/api/people/search")
+
+    def _get_rate_key(self, request: Request) -> str:
+        """Get rate limit key: prefer auth user email, fall back to real IP."""
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            try:
+                from auth import _decode_token
+                payload = _decode_token(auth[7:])
+                email = payload.get("email")
+                if email:
+                    return f"user:{email}"
+            except Exception:
+                pass
+        return f"ip:{get_client_ip(request)}"
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -92,18 +101,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/api/"):
             return await call_next(request)
 
-        ip = get_client_ip(request)
+        key = self._get_rate_key(request)
 
         try:
-            # Heavy operations (NBB load, publication scrape)
-            if method == "POST" and any(path.startswith(p) for p in self.HEAVY_PREFIXES):
-                limiter.check(ip, max_requests=20, window_seconds=60)
-            # Search endpoints
-            elif any(path.startswith(p) for p in self.SEARCH_PATHS):
-                limiter.check(ip, max_requests=30, window_seconds=60)
-            # All other API calls
+            # Search endpoints: 60/min per user
+            if any(path.startswith(p) for p in self.SEARCH_PATHS):
+                limiter.check(key, max_requests=60, window_seconds=60)
+            # All other API calls: 200/min per user
             else:
-                limiter.check(ip, max_requests=120, window_seconds=60)
+                limiter.check(key, max_requests=200, window_seconds=60)
         except Exception as e:
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=429, content={"detail": str(e.detail) if hasattr(e, "detail") else "Rate limit exceeded"})
