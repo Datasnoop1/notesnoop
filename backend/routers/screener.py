@@ -28,7 +28,7 @@ async def nace_suggestions(q: str = Query("", min_length=1)):
         FROM nace_lookup
         WHERE nace_code ILIKE %s OR description ILIKE %s
         ORDER BY company_count DESC NULLS LAST
-        LIMIT 20
+        LIMIT 50
     """, (f"%{q}%", f"%{q}%"))
     return rows
 
