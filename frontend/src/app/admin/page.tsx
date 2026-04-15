@@ -23,6 +23,18 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase";
 import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
+import {
   Gauge,
   Users,
   MessageSquare,
@@ -1362,6 +1374,162 @@ export default function AdminPanel() {
                     </Card>
                   ))}
                 </div>
+
+                {/* Daily unique users line chart */}
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <Eye className="size-3.5" /> Daily Unique Visitors (last 30 days)
+                    </h3>
+                    {(() => {
+                      const daily = usageData.daily.slice().reverse();
+                      const chartData = daily.map((d) => ({
+                        date: d.day.slice(5),
+                        registered: d.unique_registered,
+                        guests: d.unique_guests,
+                        total: d.unique_registered + d.unique_guests,
+                      }));
+                      // Growth indicator: compare last 15 days vs previous 15 days
+                      const mid = Math.floor(daily.length / 2);
+                      const recentTotal = daily.slice(mid).reduce((s, d) => s + d.unique_registered + d.unique_guests, 0);
+                      const prevTotal = daily.slice(0, mid).reduce((s, d) => s + d.unique_registered + d.unique_guests, 0);
+                      const growthPct = prevTotal > 0 ? ((recentTotal - prevTotal) / prevTotal) * 100 : 0;
+                      const growthSign = growthPct > 0 ? "+" : "";
+                      const growthColor = growthPct > 0 ? "text-emerald-600" : growthPct < 0 ? "text-red-500" : "text-slate-400";
+
+                      return (
+                        <>
+                          <div className="flex items-center gap-3 mb-3">
+                            <span className={`text-xs font-semibold ${growthColor}`}>
+                              {growthSign}{growthPct.toFixed(1)}% vs previous {mid} days
+                            </span>
+                            {growthPct > 0 ? (
+                              <TrendingUp className="size-3.5 text-emerald-500" />
+                            ) : growthPct < 0 ? (
+                              <TrendingDown className="size-3.5 text-red-400" />
+                            ) : (
+                              <Minus className="size-3.5 text-slate-400" />
+                            )}
+                          </div>
+                          <ResponsiveContainer width="100%" height={260}>
+                            <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                              <XAxis
+                                dataKey="date"
+                                tick={{ fontSize: 10, fill: "#94a3b8" }}
+                                axisLine={{ stroke: "#cbd5e1" }}
+                                tickLine={false}
+                              />
+                              <YAxis
+                                tick={{ fontSize: 10, fill: "#94a3b8" }}
+                                axisLine={false}
+                                tickLine={false}
+                                allowDecimals={false}
+                              />
+                              <Tooltip
+                                contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0" }}
+                                labelStyle={{ fontWeight: 600 }}
+                              />
+                              <Legend
+                                iconType="circle"
+                                iconSize={8}
+                                wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="total"
+                                name="Total"
+                                stroke="#334155"
+                                strokeWidth={2}
+                                dot={false}
+                                strokeDasharray="5 3"
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="registered"
+                                name="Registered"
+                                stroke="#6366f1"
+                                strokeWidth={2}
+                                dot={{ r: 2, fill: "#6366f1" }}
+                              />
+                              <Line
+                                type="monotone"
+                                dataKey="guests"
+                                name="Guests"
+                                stroke="#64748b"
+                                strokeWidth={2}
+                                dot={{ r: 2, fill: "#64748b" }}
+                              />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+
+                {/* Monthly unique visitors stacked bar chart */}
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <BarChart3 className="size-3.5" /> Monthly Unique Visitors
+                    </h3>
+                    {(() => {
+                      // Aggregate daily data into months
+                      const monthMap = new Map<string, { registered: number; guests: number }>();
+                      for (const d of usageData.daily) {
+                        const month = d.day.slice(0, 7); // "YYYY-MM"
+                        const existing = monthMap.get(month) || { registered: 0, guests: 0 };
+                        existing.registered += d.unique_registered;
+                        existing.guests += d.unique_guests;
+                        monthMap.set(month, existing);
+                      }
+                      const monthlyData = Array.from(monthMap.entries())
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([month, vals]) => ({
+                          month,
+                          registered: vals.registered,
+                          guests: vals.guests,
+                          total: vals.registered + vals.guests,
+                        }));
+
+                      if (monthlyData.length === 0) {
+                        return <p className="text-xs text-slate-400 py-4 text-center">No monthly data available</p>;
+                      }
+
+                      return (
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart data={monthlyData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                            <XAxis
+                              dataKey="month"
+                              tick={{ fontSize: 10, fill: "#94a3b8" }}
+                              axisLine={{ stroke: "#cbd5e1" }}
+                              tickLine={false}
+                            />
+                            <YAxis
+                              tick={{ fontSize: 10, fill: "#94a3b8" }}
+                              axisLine={false}
+                              tickLine={false}
+                              allowDecimals={false}
+                            />
+                            <Tooltip
+                              contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0" }}
+                              labelStyle={{ fontWeight: 600 }}
+                            />
+                            <Legend
+                              iconType="square"
+                              iconSize={8}
+                              wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+                            />
+                            <Bar dataKey="registered" name="Registered" stackId="visitors" fill="#6366f1" radius={[0, 0, 0, 0]} />
+                            <Bar dataKey="guests" name="Guests" stackId="visitors" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
 
                 {/* Daily chart as simple bar */}
                 <Card className="bg-white">
