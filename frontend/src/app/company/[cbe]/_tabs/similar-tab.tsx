@@ -14,17 +14,39 @@ import {
 import { Users, Scale, Loader2 } from "lucide-react";
 import { fmtEur, fmtNumber } from "@/lib/format";
 import { useRouter } from "next/navigation";
+import type { SimilarCompany } from "@/lib/api";
 
-/* ---------- Component ---------- */
+/* ---------- Types ---------- */
+
+type SortKey = "name" | "revenue" | "ebitda" | "fte_total" | "ebit" | "net_profit" | "equity" | "total_assets" | "personnel_costs" | "ebitda_margin" | "equity_ratio";
 
 interface SimilarTabProps {
-  sortedSimilar: { enterprise_number: string; name: string; city: string; revenue: number | null; ebitda: number | null; fte_total: number | null; fiscal_year: number }[] | null;
-  similarSort: { key: "name" | "revenue" | "ebitda" | "fte_total"; direction: "asc" | "desc" };
-  setSimilarSort: (sort: { key: "name" | "revenue" | "ebitda" | "fte_total"; direction: "asc" | "desc" }) => void;
+  sortedSimilar: SimilarCompany[] | null;
+  similarSort: { key: SortKey; direction: "asc" | "desc" };
+  setSimilarSort: (sort: { key: SortKey; direction: "asc" | "desc" }) => void;
   cbe: string;
   financials: { summary: { fiscal_year: number; revenue: number | null }[] } | null;
   similarCompanies: unknown[] | null;
 }
+
+/* ---------- Helpers ---------- */
+
+function fmtPct(v: number | null | undefined): string {
+  if (v == null || isNaN(v)) return "\u2014";
+  return `${v.toFixed(1)}%`;
+}
+
+function computeMargin(ebitda: number | null, revenue: number | null): number | null {
+  if (ebitda == null || !revenue) return null;
+  return (ebitda / revenue) * 100;
+}
+
+function computeEquityRatio(equity: number | null, totalAssets: number | null): number | null {
+  if (equity == null || !totalAssets) return null;
+  return (equity / totalAssets) * 100;
+}
+
+/* ---------- Component ---------- */
 
 export function SimilarTab({
   sortedSimilar,
@@ -61,7 +83,7 @@ export function SimilarTab({
     : 0;
   const barMax = Math.max(maxRevenue, thisRevenue, 1);
 
-  const handleSort = (key: "name" | "revenue" | "ebitda" | "fte_total") => {
+  const handleSort = (key: SortKey) => {
     setSimilarSort(
       similarSort.key === key
         ? { key, direction: similarSort.direction === "asc" ? "desc" : "asc" }
@@ -69,16 +91,19 @@ export function SimilarTab({
     );
   };
 
-  const sortArrow = (key: "name" | "revenue" | "ebitda" | "fte_total") =>
+  const sortArrow = (key: SortKey) =>
     similarSort.key === key ? (similarSort.direction === "asc" ? " \u25B2" : " \u25BC") : "";
 
-  const sortHeaderCls = (key: "name" | "revenue" | "ebitda" | "fte_total") =>
-    `text-[10px] uppercase tracking-wider py-2 cursor-pointer hover:text-indigo-600 select-none ${similarSort.key === key ? "text-indigo-600 font-bold" : "font-semibold text-slate-500"}`;
+  const sortHeaderCls = (key: SortKey) =>
+    `text-[10px] uppercase tracking-wider py-2 cursor-pointer hover:text-indigo-600 select-none whitespace-nowrap ${similarSort.key === key ? "text-indigo-600 font-bold" : "font-semibold text-slate-500"}`;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2">Similar Companies</h3>
+        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2">
+          Similar Companies
+          <span className="ml-2 text-[10px] font-normal text-slate-400">({sortedSimilar.length})</span>
+        </h3>
         <Button
           variant="outline"
           size="sm"
@@ -94,28 +119,36 @@ export function SimilarTab({
           Compare all
         </Button>
       </div>
-      <div className="rounded-xl border border-slate-200 overflow-hidden">
+      <div className="rounded-xl border border-slate-200 overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow className="bg-slate-50/80">
-              <TableHead className={sortHeaderCls("name")} onClick={() => handleSort("name")}>Company{sortArrow("name")}</TableHead>
-              <TableHead className="text-[10px] uppercase tracking-wider font-semibold text-slate-500 py-2">City</TableHead>
+              <TableHead className={`${sortHeaderCls("name")} sticky left-0 bg-slate-50/80 z-10`} onClick={() => handleSort("name")}>Company{sortArrow("name")}</TableHead>
               <TableHead className={`${sortHeaderCls("revenue")} min-w-[180px]`} onClick={() => handleSort("revenue")}>Revenue{sortArrow("revenue")}</TableHead>
               <TableHead className={`${sortHeaderCls("ebitda")} text-right`} onClick={() => handleSort("ebitda")}>EBITDA{sortArrow("ebitda")}</TableHead>
+              <TableHead className={`${sortHeaderCls("ebitda_margin")} text-right`} onClick={() => handleSort("ebitda_margin")}>Margin %{sortArrow("ebitda_margin")}</TableHead>
+              <TableHead className={`${sortHeaderCls("ebit")} text-right`} onClick={() => handleSort("ebit")}>EBIT{sortArrow("ebit")}</TableHead>
+              <TableHead className={`${sortHeaderCls("net_profit")} text-right`} onClick={() => handleSort("net_profit")}>Net Profit{sortArrow("net_profit")}</TableHead>
+              <TableHead className={`${sortHeaderCls("equity")} text-right`} onClick={() => handleSort("equity")}>Equity{sortArrow("equity")}</TableHead>
+              <TableHead className={`${sortHeaderCls("total_assets")} text-right`} onClick={() => handleSort("total_assets")}>Total Assets{sortArrow("total_assets")}</TableHead>
+              <TableHead className={`${sortHeaderCls("equity_ratio")} text-right`} onClick={() => handleSort("equity_ratio")}>Equity %{sortArrow("equity_ratio")}</TableHead>
               <TableHead className={`${sortHeaderCls("fte_total")} text-right`} onClick={() => handleSort("fte_total")}>FTE{sortArrow("fte_total")}</TableHead>
+              <TableHead className={`${sortHeaderCls("personnel_costs")} text-right`} onClick={() => handleSort("personnel_costs")}>Staff Costs{sortArrow("personnel_costs")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sortedSimilar.map((sc) => {
               const revPct = sc.revenue != null ? Math.max(0, (sc.revenue / barMax) * 100) : 0;
+              const margin = computeMargin(sc.ebitda, sc.revenue);
+              const eqRatio = computeEquityRatio(sc.equity, sc.total_assets);
               return (
               <TableRow key={sc.enterprise_number} className="hover:bg-slate-50/50">
-                <TableCell className="py-2">
-                  <Link href={`/company/${sc.enterprise_number}`} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline">
+                <TableCell className="py-2 sticky left-0 bg-white z-10">
+                  <Link href={`/company/${sc.enterprise_number}`} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline whitespace-nowrap">
                     {sc.name}
                   </Link>
+                  <div className="text-[10px] text-slate-400">{sc.city || "\u2014"}</div>
                 </TableCell>
-                <TableCell className="text-xs text-slate-500 py-2">{sc.city || "\u2014"}</TableCell>
                 <TableCell className="py-2">
                   <div className="flex items-center gap-2">
                     <div className="flex-1 h-4 bg-slate-50 rounded-full overflow-hidden">
@@ -125,12 +158,19 @@ export function SimilarTab({
                       />
                     </div>
                     <span className="text-xs text-slate-700 font-mono shrink-0 min-w-[60px] text-right">
-                      {sc.revenue != null ? fmtEur(sc.revenue) : "\u2014"}
+                      {fmtEur(sc.revenue)}
                     </span>
                   </div>
                 </TableCell>
-                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{sc.ebitda != null ? fmtEur(sc.ebitda) : "\u2014"}</TableCell>
+                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.ebitda)}</TableCell>
+                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtPct(margin)}</TableCell>
+                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.ebit)}</TableCell>
+                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.net_profit)}</TableCell>
+                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.equity)}</TableCell>
+                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.total_assets)}</TableCell>
+                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtPct(eqRatio)}</TableCell>
                 <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{sc.fte_total != null ? fmtNumber(sc.fte_total) : "\u2014"}</TableCell>
+                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.personnel_costs)}</TableCell>
               </TableRow>
               );
             })}

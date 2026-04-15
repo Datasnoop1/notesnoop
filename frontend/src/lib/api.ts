@@ -586,8 +586,23 @@ export interface SectorBenchmark {
 export const getSectorBenchmark = (cbe: string) =>
   apiFetch<SectorBenchmark>(`/api/companies/${cbe}/sector-benchmark`);
 
+export interface SimilarCompany {
+  enterprise_number: string;
+  name: string;
+  city: string;
+  revenue: number | null;
+  ebitda: number | null;
+  fte_total: number | null;
+  fiscal_year: number;
+  ebit: number | null;
+  net_profit: number | null;
+  equity: number | null;
+  total_assets: number | null;
+  personnel_costs: number | null;
+}
+
 export const getSimilarCompanies = (cbe: string) =>
-  apiFetch<{ enterprise_number: string; name: string; city: string; revenue: number | null; ebitda: number | null; fte_total: number | null; fiscal_year: number }[]>(`/api/companies/${cbe}/similar`);
+  apiFetch<SimilarCompany[]>(`/api/companies/${cbe}/similar`);
 
 // ── AI Enrichment ─────────────────────────────────────────
 export const enrichCompany = (cbe: string) =>
@@ -600,6 +615,7 @@ export const getEnrichment = (cbe: string) =>
     website_summary: string | null;
     linkedin_summary: string | null;
     website_url: string | null;
+    ai_insights: string | null;
   } | null>(`/api/companies/${cbe}/enrichment`);
 
 export const enrichPerson = (name: string) =>
@@ -692,3 +708,17 @@ export const getPersonFailedCompanies = (name: string) =>
   apiFetch<PersonCompaniesResponse>(
     `/api/graveyard/person/${encodeURIComponent(name)}/companies`
   );
+
+// ── AI Insights (structured multi-step pipeline) ─────────
+export interface AiInsights {
+  business_description: string;
+  products_services: string;
+  target_customers: string;
+  competitive_position: string;
+  company_history: string;
+  website_url: string;
+  linkedin_url: string;
+}
+
+export const generateAiInsights = (cbe: string) =>
+  apiFetch<AiInsights>(`/api/companies/${cbe}/ai-insights`, { method: "POST" });

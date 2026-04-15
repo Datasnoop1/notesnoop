@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import fetch_all, fetch_one, execute, get_connection, put_connection, get_conn
 from auth import get_current_user, optional_user
-from ai_client import ai_complete
+from ai_client import ai_complete, ai_insights_pipeline
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/companies", tags=["companies"])
@@ -1305,7 +1305,9 @@ async def get_similar_companies(cbe: str):
             rev_max = float(revenue) * 10.0
             rows = fetch_all("""
                 SELECT ci.enterprise_number, ci.name, ci.city,
-                       fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
+                       fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
+                       fl.ebit, fl.net_profit, fl.equity,
+                       fl.total_assets, fl.personnel_costs
                 FROM company_info ci
                 JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
                 WHERE ci.nace_code = %s
@@ -1313,19 +1315,21 @@ async def get_similar_companies(cbe: str):
                   AND fl.revenue IS NOT NULL
                   AND fl.revenue BETWEEN %s AND %s
                 ORDER BY ABS(fl.revenue - %s)
-                LIMIT 50
+                LIMIT 100
             """, (nace, cbe, rev_min, rev_max, float(revenue)))
         else:
             # No revenue data — just return companies in the same sector
             rows = fetch_all("""
                 SELECT ci.enterprise_number, ci.name, ci.city,
-                       fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
+                       fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
+                       fl.ebit, fl.net_profit, fl.equity,
+                       fl.total_assets, fl.personnel_costs
                 FROM company_info ci
                 LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
                 WHERE ci.nace_code = %s
                   AND ci.enterprise_number != %s
                 ORDER BY fl.revenue DESC NULLS LAST
-                LIMIT 50
+                LIMIT 100
             """, (nace, cbe))
 
         return [_serialize_row(r) for r in rows]
@@ -1635,8 +1639,8 @@ def _ensure_enrichment_table():
             generated_at TIMESTAMP DEFAULT NOW()
         )
     """)
-    # Add website/LinkedIn scraping columns (idempotent)
-    for col in ("website_summary", "linkedin_summary", "website_url"):
+    # Add website/LinkedIn scraping columns + ai_insights (idempotent)
+    for col in ("website_summary", "linkedin_summary", "website_url", "ai_insights"):
         try:
             execute(f"""
                 ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS {col} TEXT
@@ -1732,7 +1736,7 @@ async def get_enrichment(cbe: str, user=Depends(optional_user)):
     cbe = cbe.strip().replace(".", "").zfill(10)
 
     row = fetch_one("""
-        SELECT summary, generated_at, website_summary, linkedin_summary, website_url
+        SELECT summary, generated_at, website_summary, linkedin_summary, website_url, ai_insights
         FROM company_enrichment
         WHERE enterprise_number = %s
     """, (cbe,))
@@ -1943,3 +1947,39 @@ async def scrape_company_linkedin(cbe: str, user=Depends(get_current_user)):
         "specialties": extracted.get("specialties", "none found"),
         "linkedin_url": linkedin_url,
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /api/companies/{cbe}/ai-insights
+# ---------------------------------------------------------------------------
+
+@router.post("/{cbe}/ai-insights")
+async def generate_ai_insights(cbe: str, user=Depends(get_current_user)):
+    """Generate structured AI company insights via a multi-step LLM pipeline.
+
+    Step 1 (cheap): Discover website + LinkedIn URLs
+    Step 2 (Grok):  Scrape & generate structured insights
+    Step 3 (cheap): Review & validate output
+    Step 4:         Store validated result in database
+    """
+    _ensure_enrichment_table()
+    cbe = cbe.strip().replace(".", "").zfill(10)
+
+    conn_helpers = {
+        "fetch_one": fetch_one,
+        "execute": execute,
+    }
+
+    try:
+        insights = await ai_insights_pipeline(cbe, conn_helpers)
+    except Exception as e:
+        logger.exception("AI insights pipeline failed for %s", cbe)
+        raise HTTPException(
+            status_code=503,
+            detail=f"AI insights generation failed: {str(e)}",
+        )
+
+    if insights.get("error"):
+        raise HTTPException(status_code=404, detail=insights["error"])
+
+    return insights

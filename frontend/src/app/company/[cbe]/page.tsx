@@ -26,8 +26,9 @@ import {
   getPersonEnrichment,
   scrapeCompanyWebsite,
   scrapeCompanyLinkedIn,
+  generateAiInsights,
 } from "@/lib/api";
-import type { SectorBenchmark } from "@/lib/api";
+import type { SectorBenchmark, SimilarCompany, AiInsights } from "@/lib/api";
 import { fmtCbe } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import {
@@ -42,6 +43,7 @@ import {
   CheckCircle2,
   XCircle,
   Scale,
+  Sparkles,
 } from "lucide-react";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
 import {
@@ -68,6 +70,7 @@ import { StructureTab } from "./_tabs/structure-tab";
 import { PublicationsTab } from "./_tabs/publications-tab";
 import { BenchmarkTab } from "./_tabs/benchmark-tab";
 import { SimilarTab } from "./_tabs/similar-tab";
+import { InsightsOverlay } from "./_tabs/insights-overlay";
 
 const NetworkGraph = dynamic(() => import("@/components/network-graph"), {
   ssr: false,
@@ -104,8 +107,8 @@ export default function CompanyDetailPage(props: {
   const [financials, setFinancials] = useState<FinancialsData | null>(null);
   const [structure, setStructure] = useState<StructureData | null>(null);
   const [benchmark, setBenchmark] = useState<SectorBenchmark | null>(null);
-  const [similarCompanies, setSimilarCompanies] = useState<{ enterprise_number: string; name: string; city: string; revenue: number | null; ebitda: number | null; fte_total: number | null; fiscal_year: number }[] | null>(null);
-  const [similarSort, setSimilarSort] = useState<{ key: "name" | "revenue" | "ebitda" | "fte_total"; direction: "asc" | "desc" }>({ key: "revenue", direction: "desc" });
+  const [similarCompanies, setSimilarCompanies] = useState<SimilarCompany[] | null>(null);
+  const [similarSort, setSimilarSort] = useState<{ key: "name" | "revenue" | "ebitda" | "fte_total" | "ebit" | "net_profit" | "equity" | "total_assets" | "personnel_costs" | "ebitda_margin" | "equity_ratio"; direction: "asc" | "desc" }>({ key: "revenue", direction: "desc" });
   const [loading, setLoading] = useState(true);
   const [isFavourite, setIsFavourite] = useState(false);
   const [activeTab, setActiveTab] = useState("summary");
@@ -134,6 +137,11 @@ export default function CompanyDetailPage(props: {
   const [linkedinScrape, setLinkedinScrape] = useState<{ summary: string; employee_count: string; industry: string; specialties: string; linkedin_url: string } | null>(null);
   const [linkedinScrapeLoading, setLinkedinScrapeLoading] = useState(false);
   const [linkedinError, setLinkedinError] = useState<string | null>(null);
+
+  /* -- AI Insights overlay state -- */
+  const [aiInsights, setAiInsights] = useState<AiInsights | null>(null);
+  const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
+  const [showInsightsOverlay, setShowInsightsOverlay] = useState(false);
 
   /* -- Collapsible section state -- */
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -188,6 +196,19 @@ export default function CompanyDetailPage(props: {
             }
           } catch {
             // linkedin_summary wasn't valid JSON -- skip
+          }
+        }
+        // Restore existing AI insights
+        if (data && data.ai_insights) {
+          try {
+            const parsed = typeof data.ai_insights === "string"
+              ? JSON.parse(data.ai_insights)
+              : data.ai_insights;
+            if (parsed && typeof parsed === "object") {
+              setAiInsights(parsed as AiInsights);
+            }
+          } catch {
+            // ai_insights wasn't valid JSON -- skip
           }
         }
       })
@@ -406,6 +427,20 @@ export default function CompanyDetailPage(props: {
     }
   }, [cbe]);
 
+  const handleGenerateInsights = useCallback(async () => {
+    setAiInsightsLoading(true);
+    setShowInsightsOverlay(true);
+    try {
+      const result = await generateAiInsights(cbe);
+      setAiInsights(result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      console.error("AI insights generation failed:", msg);
+    } finally {
+      setAiInsightsLoading(false);
+    }
+  }, [cbe]);
+
   const handleEnrichPerson = useCallback(async (name: string) => {
     if (personEnrichments[name]?.summary || personEnrichments[name]?.loading) return;
     setPersonEnrichments((prev) => ({
@@ -494,15 +529,24 @@ export default function CompanyDetailPage(props: {
   /* Sorted similar companies -- must be before early returns (rules of hooks) */
   const sortedSimilar = useMemo(() => {
     if (!similarCompanies) return null;
-    const list = similarCompanies.slice(0, 50);
+    const list = similarCompanies.slice(0, 100);
+    const computeValue = (row: SimilarCompany, key: string): number | null => {
+      if (key === "ebitda_margin") {
+        return row.ebitda != null && row.revenue ? (row.ebitda / row.revenue) * 100 : null;
+      }
+      if (key === "equity_ratio") {
+        return row.equity != null && row.total_assets ? (row.equity / row.total_assets) * 100 : null;
+      }
+      return (row as unknown as Record<string, number | null>)[key] ?? null;
+    };
     return [...list].sort((a, b) => {
       const { key, direction } = similarSort;
       const dir = direction === "asc" ? 1 : -1;
       if (key === "name") {
         return dir * (a.name ?? "").localeCompare(b.name ?? "");
       }
-      const aVal = a[key] ?? -Infinity;
-      const bVal = b[key] ?? -Infinity;
+      const aVal = computeValue(a, key) ?? -Infinity;
+      const bVal = computeValue(b, key) ?? -Infinity;
       return dir * (aVal - bVal);
     });
   }, [similarCompanies, similarSort]);
@@ -632,6 +676,20 @@ export default function CompanyDetailPage(props: {
             <Button
               variant="outline"
               size="sm"
+              onClick={() => aiInsights ? setShowInsightsOverlay(true) : handleGenerateInsights()}
+              title="AI Insights"
+              className={`h-9 md:h-7 text-[11px] border-slate-200 hover:border-indigo-300 px-2.5 md:px-2 ${aiInsights ? "text-indigo-500 border-indigo-200" : "text-slate-500"}`}
+            >
+              {aiInsightsLoading ? (
+                <Loader2 className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1 animate-spin" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
+              )}
+              <span className="hidden sm:inline">AI Insights</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => {
                 // Switch to similar tab and lazy-load if needed
                 if (!similarCompanies) {
@@ -685,6 +743,16 @@ export default function CompanyDetailPage(props: {
 
         {/* KPI cards */}
       </div>
+
+      {/* AI Insights overlay */}
+      <InsightsOverlay
+        open={showInsightsOverlay}
+        onClose={() => setShowInsightsOverlay(false)}
+        insights={aiInsights}
+        loading={aiInsightsLoading}
+        companyName={detail.name || fmtCbe(cbe)}
+        onGenerate={handleGenerateInsights}
+      />
 
       {/* Auto-load overlay (centered) */}
       {loadOverlay && (

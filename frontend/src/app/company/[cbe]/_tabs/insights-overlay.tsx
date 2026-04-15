@@ -1,0 +1,331 @@
+"use client";
+
+import React, { useEffect, useState } from "react";
+import {
+  X,
+  Sparkles,
+  Building2,
+  ShoppingBag,
+  Users,
+  Trophy,
+  Clock,
+  Globe,
+  Link2 as Linkedin,
+  Loader2,
+  CheckCircle2,
+  ExternalLink,
+} from "lucide-react";
+import type { AiInsights } from "@/lib/api";
+
+/* ---------- Types ---------- */
+
+interface InsightsOverlayProps {
+  open: boolean;
+  onClose: () => void;
+  insights: AiInsights | null;
+  loading: boolean;
+  companyName: string;
+  onGenerate: () => void;
+}
+
+/* ---------- Step indicator ---------- */
+
+type StepStatus = "pending" | "active" | "done";
+
+interface PipelineStep {
+  label: string;
+  status: StepStatus;
+}
+
+function StepIndicator({ steps }: { steps: PipelineStep[] }) {
+  return (
+    <div className="space-y-3">
+      {steps.map((step, i) => (
+        <div key={i} className="flex items-center gap-3">
+          {step.status === "done" ? (
+            <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
+          ) : step.status === "active" ? (
+            <Loader2 className="h-4 w-4 animate-spin text-indigo-500 shrink-0" />
+          ) : (
+            <div className="h-4 w-4 rounded-full border-2 border-slate-200 shrink-0" />
+          )}
+          <span
+            className={`text-sm ${
+              step.status === "active"
+                ? "text-indigo-600 font-medium"
+                : step.status === "done"
+                ? "text-slate-500"
+                : "text-slate-400"
+            }`}
+          >
+            {step.label}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ---------- Section card ---------- */
+
+function InsightSection({
+  icon,
+  title,
+  content,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  content: string;
+}) {
+  if (!content) return null;
+  return (
+    <div className="rounded-lg border border-slate-100 bg-slate-50/50 p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-indigo-500">{icon}</span>
+        <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+          {title}
+        </h4>
+      </div>
+      <p className="text-sm text-slate-700 leading-relaxed">{content}</p>
+    </div>
+  );
+}
+
+/* ---------- Main component ---------- */
+
+export function InsightsOverlay({
+  open,
+  onClose,
+  insights,
+  loading,
+  companyName,
+  onGenerate,
+}: InsightsOverlayProps) {
+  /* Animated pipeline steps while loading */
+  const [steps, setSteps] = useState<PipelineStep[]>([
+    { label: "Finding company website & LinkedIn...", status: "pending" },
+    { label: "Scraping & generating insights...", status: "pending" },
+    { label: "Reviewing & validating...", status: "pending" },
+  ]);
+  const [elapsed, setElapsed] = useState(0);
+  const [startTime, setStartTime] = useState<number | null>(null);
+
+  /* Progress simulation: advance steps based on elapsed time */
+  useEffect(() => {
+    if (!loading) {
+      // When loading stops, mark all steps done
+      setSteps((prev) => prev.map((s) => ({ ...s, status: "done" as StepStatus })));
+      setStartTime(null);
+      return;
+    }
+
+    setStartTime(Date.now());
+    setElapsed(0);
+
+    // Initial state: step 1 active
+    setSteps([
+      { label: "Finding company website & LinkedIn...", status: "active" },
+      { label: "Scraping & generating insights...", status: "pending" },
+      { label: "Reviewing & validating...", status: "pending" },
+    ]);
+
+    // Advance to step 2 after ~5s
+    const t1 = setTimeout(() => {
+      setSteps([
+        { label: "Finding company website & LinkedIn...", status: "done" },
+        { label: "Scraping & generating insights...", status: "active" },
+        { label: "Reviewing & validating...", status: "pending" },
+      ]);
+    }, 5000);
+
+    // Advance to step 3 after ~20s
+    const t2 = setTimeout(() => {
+      setSteps([
+        { label: "Finding company website & LinkedIn...", status: "done" },
+        { label: "Scraping & generating insights...", status: "done" },
+        { label: "Reviewing & validating...", status: "active" },
+      ]);
+    }, 20000);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [loading]);
+
+  /* Elapsed timer */
+  useEffect(() => {
+    if (!startTime) return;
+    const interval = setInterval(
+      () => setElapsed(Math.floor((Date.now() - startTime) / 1000)),
+      1000,
+    );
+    return () => clearInterval(interval);
+  }, [startTime]);
+
+  /* Close on Escape key */
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/20 backdrop-blur-[2px]"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div
+          className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 backdrop-blur-sm px-6 py-4 rounded-t-2xl">
+            <div className="flex items-center gap-2.5">
+              <div className="h-8 w-8 rounded-lg bg-indigo-50 flex items-center justify-center">
+                <Sparkles className="h-4 w-4 text-indigo-500" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">
+                  AI Insights
+                </h3>
+                <p className="text-[11px] text-slate-400">{companyName}</p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="p-6">
+            {/* Loading state */}
+            {loading && !insights && (
+              <div className="py-4">
+                <StepIndicator steps={steps} />
+                <div className="mt-6 pt-4 border-t border-slate-100">
+                  <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 rounded-full animate-pulse"
+                      style={{
+                        width: `${Math.min(95, elapsed * 1.5)}%`,
+                        transition: "width 1s ease",
+                      }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1.5">
+                    <span>{elapsed}s elapsed</span>
+                    <span className="flex items-center gap-1">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                      Working...
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Insights display */}
+            {insights && (
+              <div className="space-y-3">
+                <InsightSection
+                  icon={<Building2 className="h-4 w-4" />}
+                  title="What they do"
+                  content={insights.business_description}
+                />
+                <InsightSection
+                  icon={<ShoppingBag className="h-4 w-4" />}
+                  title="Products & Services"
+                  content={insights.products_services}
+                />
+                <InsightSection
+                  icon={<Users className="h-4 w-4" />}
+                  title="Target Customers"
+                  content={insights.target_customers}
+                />
+                <InsightSection
+                  icon={<Trophy className="h-4 w-4" />}
+                  title="Market Position"
+                  content={insights.competitive_position}
+                />
+                <InsightSection
+                  icon={<Clock className="h-4 w-4" />}
+                  title="Company History"
+                  content={insights.company_history}
+                />
+
+                {/* Links */}
+                {(insights.website_url || insights.linkedin_url) && (
+                  <div className="flex flex-wrap gap-3 pt-2">
+                    {insights.website_url && (
+                      <a
+                        href={
+                          insights.website_url.startsWith("http")
+                            ? insights.website_url
+                            : `https://${insights.website_url}`
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 transition-colors rounded-md border border-indigo-100 bg-indigo-50/50 px-3 py-1.5"
+                      >
+                        <Globe className="h-3.5 w-3.5" />
+                        Website
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                    {insights.linkedin_url && (
+                      <a
+                        href={insights.linkedin_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 transition-colors rounded-md border border-blue-100 bg-blue-50/50 px-3 py-1.5"
+                      >
+                        <Linkedin className="h-3.5 w-3.5" />
+                        LinkedIn
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Empty state — no insights, not loading */}
+            {!insights && !loading && (
+              <div className="py-8 text-center">
+                <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-indigo-50 flex items-center justify-center">
+                  <Sparkles className="h-6 w-6 text-indigo-400" />
+                </div>
+                <p className="text-sm text-slate-600 mb-1">
+                  No AI insights available yet
+                </p>
+                <p className="text-xs text-slate-400 mb-4">
+                  Generate a structured company intelligence brief using AI
+                </p>
+                <button
+                  onClick={onGenerate}
+                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Generate Insights
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
