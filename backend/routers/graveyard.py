@@ -164,7 +164,6 @@ async def repeat_offenders(
                   AND a.name IS NOT NULL
                   AND TRIM(a.name) != ''
                   AND e.juridical_situation NOT IN ('000','001','002','003','090','100')
-                  AND e.type_of_enterprise = '1'
                 GROUP BY UPPER(TRIM(a.name))
                 HAVING COUNT(DISTINCT a.enterprise_number) >= %s
                 ORDER BY failed_count DESC
@@ -179,8 +178,7 @@ async def repeat_offenders(
                      JOIN enterprise e2 ON e2.enterprise_number = a2.enterprise_number
                      WHERE UPPER(TRIM(a2.name)) = fa.norm_name
                        AND a2.person_type = 'natural'
-                       AND e2.juridical_situation IN ('000','001','002','003','090','100')
-                       AND e2.type_of_enterprise = '1'),
+                       AND e2.juridical_situation IN ('000','001','002','003','090','100')),
                     0
                 ) AS active_count
             FROM failed_admins fa
@@ -248,7 +246,6 @@ async def person_failed_companies(name: str):
             WHERE UPPER(TRIM(a.name)) = UPPER(TRIM(%s))
               AND a.person_type = 'natural'
               AND e.juridical_situation NOT IN ('000','001','002','003','090','100')
-              AND e.type_of_enterprise = '1'
             ORDER BY a.mandate_start DESC NULLS LAST
         """, (name,))
 
@@ -272,7 +269,6 @@ async def person_failed_companies(name: str):
             WHERE UPPER(TRIM(a.name)) = UPPER(TRIM(%s))
               AND a.person_type = 'natural'
               AND e.juridical_situation IN ('000','001','002','003','090','100')
-              AND e.type_of_enterprise = '1'
             ORDER BY a.mandate_start DESC NULLS LAST
         """, (name,))
 
