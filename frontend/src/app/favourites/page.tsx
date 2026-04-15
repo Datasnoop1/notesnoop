@@ -370,29 +370,15 @@ function CsTab({
 
   return (
     <div className="space-y-4">
-      {/* Input mode toggle */}
-      <div className="flex gap-1 mb-2">
-        <button
-          onClick={() => setInputMode("text")}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${inputMode === "text" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-        >
-          Paste CBE numbers
-        </button>
-        <button
-          onClick={() => setInputMode("file")}
-          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${inputMode === "file" ? "bg-indigo-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
-        >
-          Upload file
-        </button>
-      </div>
-
-      {inputMode === "text" ? (
-        /* Text input zone */
+      {/* Two input methods side by side */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Paste CBE numbers */}
         <div className="space-y-2">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Paste CBE numbers</div>
           <textarea
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
-            placeholder={"Paste CBE numbers here — one per line, or separated by commas:\n0403.101.811\n0404202677\n0439 819 279"}
+            placeholder={"One per line or comma-separated:\n0403.101.811\n0404202677\n0439 819 279"}
             className="w-full h-28 px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-slate-300"
             disabled={uploading}
           />
@@ -405,13 +391,13 @@ function CsTab({
             {uploading ? "Processing..." : "Match companies"}
           </button>
         </div>
-      ) : (
-        /* File upload zone */
+
+        {/* Upload file */}
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
-          className={`relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed py-8 px-4 transition-colors ${
+          className={`relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 transition-colors ${
             dragOver
               ? "border-indigo-400 bg-indigo-50"
               : "border-slate-200 bg-slate-50/50 hover:border-slate-300"
@@ -420,16 +406,16 @@ function CsTab({
           {uploading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
-              <span className="text-sm text-slate-600">Processing file...</span>
+              <span className="text-sm text-slate-600">Processing...</span>
             </div>
           ) : (
             <>
-              <FileSpreadsheet className="h-8 w-8 text-slate-300 mb-2" />
-              <p className="text-sm font-medium text-slate-600">
-                Drag & drop an Excel or CSV file
+              <FileSpreadsheet className="h-6 w-6 text-slate-300 mb-1.5" />
+              <p className="text-xs font-medium text-slate-600">
+                Drag & drop Excel / CSV
               </p>
-              <p className="text-xs text-slate-400 mt-1 mb-3">
-                First column should contain CBE numbers
+              <p className="text-[10px] text-slate-400 mt-0.5 mb-2">
+                First column = CBE numbers
               </p>
               <label>
                 <input
@@ -440,13 +426,13 @@ function CsTab({
                 />
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md cursor-pointer transition-colors">
                   <Upload className="h-3.5 w-3.5" />
-                  Browse files
+                  Browse
                 </span>
               </label>
             </>
           )}
         </div>
-      )}
+      </div>
 
       {/* Upload result banner */}
       {uploadResult && (
