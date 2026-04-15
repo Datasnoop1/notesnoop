@@ -384,6 +384,22 @@ function renderValueCellsWithDeltas(
   return cells;
 }
 
+/* ---------- generic CSV export helper ---------- */
+
+function downloadCsv(filename: string, headers: string[], rows: (string | number | null)[][]) {
+  const csvContent = [
+    headers.join(","),
+    ...rows.map((r) => r.map((v) => (v == null ? "" : String(v).includes(",") ? `"${v}"` : v)).join(",")),
+  ].join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /* ---------- main component ---------- */
 
 export default function CompanyDetailPage(props: {
@@ -2098,8 +2114,22 @@ export default function CompanyDetailPage(props: {
               );
             }
 
+            function exportAdminsCsv() {
+              const all = [...currentAdmins, ...pastAdmins];
+              const headers = ["Name", "Role", "Status", "Start", "End", "Identifier"];
+              const now = new Date();
+              const rows = all.map(a => {
+                const active = !a.mandate_end || a.mandate_end === "" || new Date(a.mandate_end) > now;
+                return [a.name, a.role_label || a.role, active ? "Active" : "Ended", a.mandate_start || "", a.mandate_end || "", a.identifier || ""];
+              });
+              downloadCsv(`${detail?.name || cbe}_administrators.csv`, headers, rows);
+            }
+
             return (
               <div className="space-y-4">
+                <div className="flex items-center justify-end">
+                  <ExportButtons onExportCSV={exportAdminsCsv} onPrint={() => window.print()} />
+                </div>
                 {/* Current Administrators */}
                 {currentAdmins.length > 0 && (
                   <div>
@@ -2270,7 +2300,18 @@ export default function CompanyDetailPage(props: {
               No structure data available for this company.
             </p>
           ) : (
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className="space-y-3">
+              <div className="flex items-center justify-end">
+                <ExportButtons onExportCSV={() => {
+                  const headers = ["Type", "Name", "Ownership %", "Country/Type", "Identifier", "Fiscal Year"];
+                  const rows = [
+                    ...structure.shareholders.map(s => ["Shareholder", s.name, s.ownership_pct != null ? s.ownership_pct.toFixed(1) : "", s.shareholder_type || "", s.identifier || "", s.fiscal_year || ""]),
+                    ...structure.participating_interests.map(p => ["Subsidiary", p.name, p.ownership_pct != null ? p.ownership_pct.toFixed(1) : "", p.country || "", p.identifier || "", p.fiscal_year || ""]),
+                  ];
+                  downloadCsv(`${detail?.name || cbe}_structure.csv`, headers, rows);
+                }} onPrint={() => window.print()} />
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
               {/* Left column: collapsible cards */}
               <div className="space-y-3">
                   {/* Shareholders (collapsible) */}
@@ -2465,6 +2506,7 @@ export default function CompanyDetailPage(props: {
                 )}
               </div>
             </div>
+            </div>
           )}
         </TabsContent>
 
@@ -2600,13 +2642,37 @@ export default function CompanyDetailPage(props: {
               { label: "ROE", value: fmtRatio(latest.roe, "%"), colorFn: roeColor, raw: latest.roe, formula: "Net Profit / Equity × 100", detail: `${fmtEur(lr.net_profit)} / ${fmtEur(lr.equity)}` },
             ];
 
+            function exportCreditCsv() {
+              const headers = ["Metric", ...chronologicalRatios.map(r => `FY${r.fiscal_year}`)];
+              const lines = [
+                { label: "Net Debt / EBITDA", key: "netDebtEbitda" },
+                { label: "Debt / Equity", key: "debtEquity" },
+                { label: "Equity Ratio %", key: "equityRatio" },
+                { label: "Interest Coverage", key: "interestCoverage" },
+                { label: "Cash / ST Debt", key: "cashStDebt" },
+                { label: "DSCR", key: "dscr" },
+                { label: "ROE %", key: "roe" },
+                { label: "EBITDA Margin %", key: "ebitdaMargin" },
+                { label: "DSO (days)", key: "dso" },
+                { label: "DPO (days)", key: "dpo" },
+              ];
+              const rows = lines.map(l => [l.label, ...chronologicalRatios.map(r => {
+                const v = (r as any)[l.key];
+                return v != null && isFinite(v) ? v.toFixed(1) : "";
+              })]);
+              downloadCsv(`${detail?.name || cbe}_credit.csv`, headers, rows);
+            }
+
             return (
               <div className="space-y-6">
                 {/* Key Metrics Cards */}
                 <div>
-                  <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-purple-500 pl-2">
-                    Key Ratios (FY{latest.fiscal_year})
-                  </h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-purple-500 pl-2">
+                      Key Ratios (FY{latest.fiscal_year})
+                    </h3>
+                    <ExportButtons onExportCSV={exportCreditCsv} onPrint={() => window.print()} />
+                  </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2">
                     {metricCards.map((m) => (
                       <FormulaTooltip key={m.label} formula={m.formula} detail={m.detail}>
@@ -2843,9 +2909,16 @@ export default function CompanyDetailPage(props: {
             </div>
           ) : (
             <div>
-              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-slate-400 pl-2">
-                Staatsblad Publications ({structure.staatsblad_publications.length})
-              </h3>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-slate-400 pl-2">
+                  Staatsblad Publications ({structure.staatsblad_publications.length})
+                </h3>
+                <ExportButtons onExportCSV={() => {
+                  const headers = ["Date", "Type", "Reference", "PDF URL"];
+                  const rows = structure.staatsblad_publications.map(p => [p.pub_date, p.pub_type || "", p.reference || "", p.pdf_url ? `https://www.ejustice.just.fgov.be${p.pdf_url}` : ""]);
+                  downloadCsv(`${detail?.name || cbe}_publications.csv`, headers, rows);
+                }} onPrint={() => window.print()} />
+              </div>
               <div className="rounded-lg border overflow-x-auto bg-white">
                 <table className="w-full">
                   <thead>
