@@ -2,6 +2,16 @@ import { createClient } from "./supabase";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
+/** Custom event fired when the backend returns a 429 tier limit response. */
+export interface LimitExceededDetail {
+  tier: "guest" | "registered";
+  limitType: string;
+  limit: number;
+  used: number;
+}
+
+export const LIMIT_EXCEEDED_EVENT = "datasnoop:limit-exceeded";
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -23,6 +33,26 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (!res.ok) {
+    // Check for tier limit exceeded (429 with limit_exceeded detail)
+    if (res.status === 429 && typeof window !== "undefined") {
+      try {
+        const body = await res.clone().json();
+        if (body.detail === "limit_exceeded") {
+          window.dispatchEvent(
+            new CustomEvent(LIMIT_EXCEEDED_EVENT, {
+              detail: {
+                tier: body.tier,
+                limitType: body.limit_type,
+                limit: body.limit,
+                used: body.used,
+              } satisfies LimitExceededDetail,
+            })
+          );
+        }
+      } catch {
+        // JSON parsing failed — fall through to generic error
+      }
+    }
     const text = await res.text().catch(() => "");
     throw new Error(`API ${res.status}: ${text || res.statusText}`);
   }

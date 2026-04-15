@@ -9,7 +9,7 @@ from typing import Optional
 
 import stripe
 
-from db import fetch_all, fetch_one, execute
+from db import fetch_all, fetch_one, execute, refresh_all_normalized_names
 from auth import get_current_user
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
@@ -197,9 +197,9 @@ class RoleUpdate(BaseModel):
 
 @router.post("/users/{email}/role")
 async def set_user_role(email: str, body: RoleUpdate, user=Depends(_require_admin)):
-    """Set a user's role (admin/user/blocked)."""
-    if body.role not in ("admin", "user", "blocked"):
-        raise HTTPException(status_code=400, detail="Role must be admin, user, or blocked")
+    """Set a user's role (admin/user/pro/blocked)."""
+    if body.role not in ("admin", "user", "pro", "blocked"):
+        raise HTTPException(status_code=400, detail="Role must be admin, user, pro, or blocked")
     try:
         execute(
             """INSERT INTO user_roles (email, role) VALUES (%s, %s)
@@ -725,4 +725,24 @@ async def update_site_config(body: SiteConfigUpdate, user=Depends(_require_admin
         raise
     except Exception as e:
         logger.exception("Update site config failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Name normalization (for fuzzy matching)
+# ---------------------------------------------------------------------------
+
+@router.post("/normalize-names")
+async def normalize_names(user=Depends(_require_admin)):
+    """Re-normalize all company names for fuzzy matching.
+
+    Strips Belgian legal suffixes (NV, SA, BVBA, SRL, etc.), lowercases,
+    and collapses whitespace into the name_normalized column.
+    Useful after KBO data refreshes.
+    """
+    try:
+        count = refresh_all_normalized_names()
+        return {"status": "completed", "rows_updated": count}
+    except Exception as e:
+        logger.exception("Name normalization failed")
         raise HTTPException(status_code=500, detail=str(e))

@@ -701,7 +701,7 @@ export default function CompanyDetailPage(props: {
               size="sm"
               onClick={() => aiInsights ? setShowInsightsOverlay(true) : handleGenerateInsights()}
               title="AI Insights"
-              className={`h-9 md:h-7 text-[11px] border-slate-200 hover:border-indigo-300 px-2.5 md:px-2 ${aiInsights ? "text-indigo-500 border-indigo-200" : "text-slate-500"}`}
+              className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${aiInsights ? "bg-indigo-50 border-indigo-400" : ""}`}
             >
               {aiInsightsLoading ? (
                 <Loader2 className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1 animate-spin" />

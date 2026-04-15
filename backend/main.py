@@ -2,14 +2,17 @@
 
 import logging
 import os
+import time
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard
 from rate_limit import limiter, get_client_ip
+from db import ensure_trgm_setup
 
 load_dotenv()
 
@@ -81,6 +84,193 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(ActivityLogMiddleware)
+
+# ---------------------------------------------------------------------------
+# Tier-based usage limit middleware
+# ---------------------------------------------------------------------------
+
+# Cache tier config in memory, refresh every 60 seconds
+_tier_cache: dict = {}
+_tier_cache_ts: float = 0.0
+_TIER_CACHE_TTL = 60.0
+
+
+def _get_tier_config() -> dict:
+    """Return {tier_name: row_dict} from tier_config table, cached."""
+    global _tier_cache, _tier_cache_ts
+    now = time.time()
+    if _tier_cache and (now - _tier_cache_ts) < _TIER_CACHE_TTL:
+        return _tier_cache
+    try:
+        from db import fetch_all
+        rows = fetch_all("SELECT * FROM tier_config")
+        _tier_cache = {r["tier"]: r for r in rows}
+        _tier_cache_ts = now
+    except Exception:
+        pass  # keep stale cache on error
+    return _tier_cache
+
+
+def _classify_endpoint(path: str) -> str | None:
+    """Map an API path to a tier limit column name, or None if not limited."""
+    if "/search" in path:
+        return "searches_per_day"
+    if "/enrich" in path or "/ai-insights" in path or "/scrape-" in path:
+        return "ai_enrichments_per_day"
+    if "/export" in path:
+        return "export_per_day"
+    # Match /api/companies/<cbe> but NOT sub-resources like /financials, /structure
+    # These are individual company detail page views
+    import re
+    if re.match(r"^/api/companies/\d{10}$", path):
+        return "company_views_per_day"
+    return None
+
+
+class TierLimitMiddleware(BaseHTTPMiddleware):
+    """Enforce daily usage limits per user tier (guest / registered / premium)."""
+
+    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/site-config")
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
+        # Only check API paths, skip static/admin/health
+        if not path.startswith("/api/") or path in self.SKIP_PATHS:
+            return await call_next(request)
+
+        # Skip admin endpoints entirely
+        if "/admin/" in path:
+            return await call_next(request)
+
+        # Only check GET-like reads + POST for enrichment/export
+        limit_type = _classify_endpoint(path)
+        if limit_type is None:
+            return await call_next(request)
+
+        # Load tier config; if not available or disabled, pass through
+        tiers = _get_tier_config()
+        if not tiers:
+            return await call_next(request)
+
+        # Check if any tier has enabled=True (master switch)
+        any_enabled = any(t.get("enabled") for t in tiers.values())
+        if not any_enabled:
+            return await call_next(request)
+
+        # Determine user tier
+        tier = "guest"
+        email = None
+        auth = request.headers.get("authorization", "")
+        if auth.startswith("Bearer "):
+            try:
+                from auth import _decode_token
+                payload = _decode_token(auth[7:])
+                email = payload.get("email")
+                if email:
+                    tier = "registered"
+                    # Check for premium role
+                    try:
+                        from db import fetch_one
+                        role_row = fetch_one(
+                            "SELECT role FROM user_roles WHERE email = %s", (email,)
+                        )
+                        if role_row and role_row["role"] == "premium":
+                            tier = "premium"
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # Get the config for this tier
+        tier_cfg = tiers.get(tier)
+        if not tier_cfg or not tier_cfg.get("enabled"):
+            return await call_next(request)
+
+        # Get the limit for this endpoint type
+        limit = tier_cfg.get(limit_type, -1)
+        if limit is None or limit == -1:
+            # -1 = unlimited
+            return await call_next(request)
+        if limit == 0:
+            # 0 = feature disabled for this tier
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": "limit_exceeded",
+                    "tier": tier,
+                    "limit_type": limit_type,
+                    "limit": 0,
+                    "used": 0,
+                },
+            )
+
+        # Count today's usage from activity_log
+        try:
+            from db import fetch_one as db_fetch_one
+
+            # Build the user label used in activity_log
+            user_label = email or f"anon:{get_client_ip(request)}"
+
+            # Map limit_type to actual endpoint patterns for counting
+            if limit_type == "searches_per_day":
+                pattern = "%/search%"
+            elif limit_type == "ai_enrichments_per_day":
+                pattern = "%enrich%"  # matches /enrich, /enrichment, /ai-insights
+            elif limit_type == "export_per_day":
+                pattern = "%export%"
+            elif limit_type == "company_views_per_day":
+                pattern = "/api/companies/___________"  # dummy, use regex below
+            else:
+                return await call_next(request)
+
+            if limit_type == "company_views_per_day":
+                row = db_fetch_one(
+                    """SELECT COUNT(*) AS cnt FROM activity_log
+                       WHERE user_email = %s
+                         AND endpoint ~ '^/api/companies/[0-9]{10}$'
+                         AND created_at >= CURRENT_DATE""",
+                    (user_label,),
+                )
+            elif limit_type == "ai_enrichments_per_day":
+                row = db_fetch_one(
+                    """SELECT COUNT(*) AS cnt FROM activity_log
+                       WHERE user_email = %s
+                         AND (endpoint LIKE %s OR endpoint LIKE '%%/ai-insights%%' OR endpoint LIKE '%%/scrape-%%')
+                         AND created_at >= CURRENT_DATE""",
+                    (user_label, pattern),
+                )
+            else:
+                row = db_fetch_one(
+                    """SELECT COUNT(*) AS cnt FROM activity_log
+                       WHERE user_email = %s
+                         AND endpoint LIKE %s
+                         AND created_at >= CURRENT_DATE""",
+                    (user_label, pattern),
+                )
+
+            used = row["cnt"] if row else 0
+
+            if used >= limit:
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "detail": "limit_exceeded",
+                        "tier": tier,
+                        "limit_type": limit_type,
+                        "limit": limit,
+                        "used": used,
+                    },
+                )
+        except Exception:
+            # If counting fails, don't block the request
+            logger.exception("Tier limit check failed")
+            pass
+
+        return await call_next(request)
+
+
+app.add_middleware(TierLimitMiddleware)
 
 # ---------------------------------------------------------------------------
 # Rate limiting middleware
@@ -167,6 +357,20 @@ async def public_site_config():
         return {"site_logo": row["value"] if row else "/logos/dog-telescope.jpg"}
     except Exception:
         return {"site_logo": "/logos/dog-telescope.jpg"}
+
+
+# ---------------------------------------------------------------------------
+# Startup: run migrations
+# ---------------------------------------------------------------------------
+
+
+@app.on_event("startup")
+async def startup_migrations():
+    """Run idempotent database migrations on startup."""
+    try:
+        ensure_trgm_setup()
+    except Exception:
+        logger.exception("pg_trgm startup migration failed (non-fatal)")
 
 
 # ---------------------------------------------------------------------------

@@ -85,6 +85,58 @@ def _extract_json(text: str) -> dict | None:
     return None
 
 
+def _summarize_feedback(fetch_all, cbe: str) -> dict:
+    """Query ai_insights_feedback and build a summary for prompt injection.
+
+    Returns a dict with:
+        - ``text``: human-readable summary string (empty if no feedback)
+        - ``website_flagged``: True if any user marked website as incorrect
+        - ``linkedin_flagged``: True if any user marked LinkedIn as incorrect
+        - ``old_website_url``: the website URL from the previous insight (if any)
+    """
+    rows = fetch_all(
+        """SELECT overall, website_correct, linkedin_correct, insight_correct, comment
+           FROM ai_insights_feedback
+           WHERE enterprise_number = %s
+           ORDER BY created_at DESC""",
+        (cbe,),
+    )
+    if not rows:
+        return {"text": "", "website_flagged": False, "linkedin_flagged": False, "old_website_url": ""}
+
+    total = len(rows)
+    down_count = sum(1 for r in rows if r.get("overall") == "down")
+    up_count = total - down_count
+    website_wrong = sum(1 for r in rows if r.get("website_correct") is False)
+    website_right = sum(1 for r in rows if r.get("website_correct") is True)
+    linkedin_wrong = sum(1 for r in rows if r.get("linkedin_correct") is False)
+    linkedin_right = sum(1 for r in rows if r.get("linkedin_correct") is True)
+    insight_wrong = sum(1 for r in rows if r.get("insight_correct") is False)
+    insight_right = sum(1 for r in rows if r.get("insight_correct") is True)
+
+    parts = []
+    if down_count:
+        parts.append(f"Previous AI insight was flagged as incorrect by {down_count} user(s) (and approved by {up_count}).")
+    if website_wrong:
+        parts.append(f"Website URL was marked wrong by {website_wrong} user(s), correct by {website_right}.")
+    if linkedin_wrong:
+        parts.append(f"LinkedIn URL was marked wrong by {linkedin_wrong} user(s), correct by {linkedin_right}.")
+    if insight_wrong:
+        parts.append(f"Insight content was marked wrong by {insight_wrong} user(s), correct by {insight_right}.")
+
+    # Collect user comments (most recent first, max 3)
+    comments = [r["comment"] for r in rows if r.get("comment")]
+    if comments:
+        parts.append("User comments: " + " | ".join(comments[:3]))
+
+    return {
+        "text": " ".join(parts),
+        "website_flagged": website_wrong > 0,
+        "linkedin_flagged": linkedin_wrong > 0,
+        "old_website_url": "",
+    }
+
+
 async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
     """Multi-step AI pipeline to generate structured company insights.
 
@@ -93,13 +145,14 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
     cbe : str
         The 10-digit enterprise number.
     conn_helpers : dict
-        Must contain ``fetch_one`` and ``execute`` callables.
+        Must contain ``fetch_one``, ``fetch_all``, and ``execute`` callables.
 
     Returns a dict with structured insight fields, suitable for JSON storage.
     """
     from scraper import scrape_url, _strip_html, slugify_company_name
 
     fetch_one = conn_helpers["fetch_one"]
+    fetch_all = conn_helpers.get("fetch_all", lambda q, p: [])
     execute = conn_helpers["execute"]
 
     # ── Gather company context from DB ──────────────────────────
@@ -137,6 +190,23 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         LIMIT 1
     """, (cbe,))
     known_website = (contact_row.get("value", "").strip() if contact_row else "") or ""
+
+    # ── Gather user feedback on previous attempts ──────────────
+    feedback = _summarize_feedback(fetch_all, cbe)
+    feedback_text = feedback["text"]
+
+    # If users flagged the website, grab the old URL from the previous insight
+    if feedback["website_flagged"]:
+        prev_insight_row = fetch_one(
+            "SELECT ai_insights FROM company_enrichment WHERE enterprise_number = %s",
+            (cbe,),
+        )
+        if prev_insight_row and prev_insight_row.get("ai_insights"):
+            try:
+                prev = json.loads(prev_insight_row["ai_insights"]) if isinstance(prev_insight_row["ai_insights"], str) else prev_insight_row["ai_insights"]
+                feedback["old_website_url"] = prev.get("website_url", "")
+            except (json.JSONDecodeError, TypeError):
+                pass
 
     # ── STEP 1: URL Discovery (cheap model) ─────────────────────
     website_url = known_website
@@ -226,6 +296,14 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             "If at least 2 of these 5 checks match, return true. Otherwise false.\n"
             'Return ONLY JSON: {"match": true/false, "reason": "brief explanation"}'
         )
+        # Inject feedback about previously wrong website
+        if feedback["website_flagged"]:
+            old_url = feedback.get("old_website_url", "")
+            flag_note = "\n\nNote: A previous attempt"
+            if old_url:
+                flag_note += f" found website {old_url} but"
+            flag_note += " users flagged the website as incorrect. Please be extra careful in verifying the website."
+            verify_prompt += flag_note
         verify_resp = await ai_complete(
             verify_prompt,
             system="You are a data validation assistant. Be strict — if unsure, return false.",
@@ -298,6 +376,14 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         "Return ONLY valid JSON, no markdown fences."
     )
 
+    # Inject user feedback into insight prompt
+    if feedback_text:
+        insight_prompt += (
+            f"\n--- User feedback on previous attempt ---\n"
+            f"{feedback_text}\n"
+            "Please take this feedback into account and avoid the same mistakes.\n"
+        )
+
     insight_system = (
         "You are a private equity analyst creating a company intelligence brief. "
         "You must NEVER include financial figures (revenue, EBITDA, margins, profit, "
@@ -366,6 +452,14 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         "Return the same JSON with any corrections, or return it unchanged if it looks good. "
         "Return ONLY valid JSON, no markdown fences."
     )
+
+    # Inject user feedback into review prompt
+    if feedback_text:
+        review_prompt += (
+            f"\n--- User feedback on previous attempt ---\n"
+            f"{feedback_text}\n"
+            "Pay special attention to the issues flagged by users.\n"
+        )
 
     review_resp = await ai_complete(
         review_prompt,
