@@ -701,6 +701,22 @@ export default function CompanyDetailPage(props: {
     }
   }, [buildExportData]);
 
+  /* Sorted similar companies — must be before early returns (rules of hooks) */
+  const sortedSimilar = useMemo(() => {
+    if (!similarCompanies) return null;
+    const list = similarCompanies.slice(0, 50);
+    return [...list].sort((a, b) => {
+      const { key, direction } = similarSort;
+      const dir = direction === "asc" ? 1 : -1;
+      if (key === "name") {
+        return dir * (a.name ?? "").localeCompare(b.name ?? "");
+      }
+      const aVal = a[key] ?? -Infinity;
+      const bVal = b[key] ?? -Infinity;
+      return dir * (aVal - bVal);
+    });
+  }, [similarCompanies, similarSort]);
+
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-[1200px] px-4">
@@ -739,22 +755,6 @@ export default function CompanyDetailPage(props: {
     Revenue: r.revenue,
     EBITDA: r.ebitda,
   }));
-
-  /* Sorted similar companies (client-side, up to 50) */
-  const sortedSimilar = useMemo(() => {
-    if (!similarCompanies) return null;
-    const list = similarCompanies.slice(0, 50);
-    return [...list].sort((a, b) => {
-      const { key, direction } = similarSort;
-      const dir = direction === "asc" ? 1 : -1;
-      if (key === "name") {
-        return dir * (a.name ?? "").localeCompare(b.name ?? "");
-      }
-      const aVal = a[key] ?? -Infinity;
-      const bVal = b[key] ?? -Infinity;
-      return dir * (aVal - bVal);
-    });
-  }, [similarCompanies, similarSort]);
 
   return (
     <div className="mx-auto w-full max-w-[1200px] px-4 py-4">
