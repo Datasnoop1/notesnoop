@@ -57,7 +57,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
   const [data, setData] = useState<NetworkData | null>(null);
   const [loading, setLoading] = useState(true);
   const [depth, setDepth] = useState(2);
-  const [deepMode, setDeepMode] = useState(false);
+  const [deepMode, setDeepMode] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [ForceGraph, setForceGraph] = useState<typeof import("react-force-graph-2d").default | null>(null);
 
@@ -274,7 +274,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                     : "bg-white text-slate-600 hover:bg-slate-50"
                 }`}
               >
-                Standard
+                Simple
               </button>
               <button
                 onClick={() => setDeepMode(true)}
@@ -284,7 +284,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                     : "bg-white text-slate-600 hover:bg-slate-50"
                 }`}
               >
-                Deep Network
+                Deep
               </button>
             </div>
 
