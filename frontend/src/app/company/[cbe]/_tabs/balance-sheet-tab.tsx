@@ -1,0 +1,229 @@
+"use client";
+
+import React from "react";
+import ExportButtons from "@/components/export-buttons";
+import { fmtEur } from "@/lib/format";
+import { renderDelta, renderDeltaHeaders } from "../helpers";
+import type { FinancialsData } from "../types";
+
+/* ---------- Props ---------- */
+
+interface BalanceSheetTabProps {
+  financials: FinancialsData | null;
+  cbe: string;
+  companyName: string | null;
+  collapsedSections: Record<string, boolean>;
+  toggleSection: (key: string) => void;
+}
+
+/* ---------- Component ---------- */
+
+export function BalanceSheetTab({
+  financials,
+  cbe,
+  companyName,
+  collapsedSections,
+  toggleSection,
+}: BalanceSheetTabProps) {
+  if (!financials || financials.summary.length === 0) {
+    return (
+      <p className="py-8 text-center text-sm text-slate-500">
+        No financial data available for this company.
+      </p>
+    );
+  }
+
+  const sorted = [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year);
+  const chronological = [...sorted].reverse();
+
+  // Helper: format value, red if negative
+  const fmtCell = (v: number | null) => {
+    if (v == null) return <span className="text-slate-300">{"\u2014"}</span>;
+    const formatted = fmtEur(v);
+    return v < 0 ? <span className="text-rose-400">{formatted}</span> : <>{formatted}</>;
+  };
+
+  // Build derived rows per year
+  const bsRows = sorted.map((row) => {
+    const fixedAssets = row.fixed_assets ?? null;
+    const totalAssets = row.total_assets ?? null;
+    const currentAssets = totalAssets != null && fixedAssets != null ? totalAssets - fixedAssets : null;
+    const inventories = row.inventories ?? null;
+    const tradeReceivables = row.trade_receivables ?? null;
+    const cash = row.cash ?? null;
+    const currentInvestments = row.current_investments ?? null;
+    const otherCurrentAssets = currentAssets != null
+      ? currentAssets - (inventories ?? 0) - (tradeReceivables ?? 0) - (cash ?? 0) - (currentInvestments ?? 0)
+      : null;
+
+    const equity = row.equity ?? null;
+    const ltDebt = row.lt_debt ?? null;
+    const ltFinDebt = row.lt_financial_debt ?? null;
+    const totalLE = totalAssets; // must balance
+    const totalNonCurrentLiab = ltDebt;
+    const totalCurrentLiab = totalLE != null && equity != null && ltDebt != null
+      ? totalLE - equity - ltDebt
+      : null;
+    const stFinDebt = row.st_financial_debt ?? null;
+    const tradePayables = row.trade_payables ?? null;
+    const otherCurrentLiab = totalCurrentLiab != null
+      ? totalCurrentLiab - (stFinDebt ?? 0) - (tradePayables ?? 0)
+      : null;
+
+    return {
+      fiscal_year: row.fiscal_year,
+      fixedAssets,
+      totalNonCurrentAssets: fixedAssets,
+      currentAssets,
+      inventories,
+      tradeReceivables,
+      cash,
+      currentInvestments,
+      otherCurrentAssets: otherCurrentAssets != null && Math.abs(otherCurrentAssets) > 0.5 ? otherCurrentAssets : null,
+      totalCurrentAssets: currentAssets,
+      totalAssets,
+      equity,
+      ltDebt,
+      ltFinDebt,
+      totalNonCurrentLiab,
+      tradePayables,
+      stFinDebt,
+      otherCurrentLiab: otherCurrentLiab != null && Math.abs(otherCurrentLiab) > 0.5 ? otherCurrentLiab : null,
+      totalCurrentLiab,
+      totalLE: totalAssets,
+    };
+  });
+  const chronologicalBs = [...bsRows].reverse();
+
+  type BSLine = {
+    label: string;
+    key: keyof (typeof bsRows)[0];
+    bold?: boolean;
+    indent?: boolean;
+    topBorder?: boolean;
+    doubleBorder?: boolean;
+    section?: string;
+    subIndent?: boolean;
+    group?: string;
+  };
+
+  const lines: BSLine[] = [
+    // ASSETS
+    { label: "Tangible Fixed Assets", key: "fixedAssets", indent: true, section: "NON-CURRENT ASSETS" },
+    { label: "Total Non-Current Assets (20/28)", key: "totalNonCurrentAssets", bold: true, topBorder: true },
+    { label: "Inventories (3)", key: "inventories", indent: true, section: "CURRENT ASSETS", group: "bs_ca" },
+    { label: "Trade Receivables (40/41)", key: "tradeReceivables", indent: true, group: "bs_ca" },
+    { label: "Cash & Cash Equivalents (54/58)", key: "cash", indent: true, group: "bs_ca" },
+    { label: "Short-term Investments (50/53)", key: "currentInvestments", indent: true, group: "bs_ca" },
+    { label: "Other Current Assets", key: "otherCurrentAssets", indent: true, group: "bs_ca" },
+    { label: "Total Current Assets", key: "totalCurrentAssets", bold: true, topBorder: true },
+    { label: "TOTAL ASSETS (20/58)", key: "totalAssets", bold: true, doubleBorder: true },
+    // EQUITY & LIABILITIES
+    { label: "Total Equity (10/15)", key: "equity", bold: true, section: "EQUITY" },
+    { label: "Long-term Debt (17)", key: "ltDebt", indent: true, section: "NON-CURRENT LIABILITIES" },
+    { label: "of which: Financial Debt (170/4)", key: "ltFinDebt", subIndent: true },
+    { label: "Total Non-Current Liabilities", key: "totalNonCurrentLiab", bold: true, topBorder: true },
+    { label: "Trade Payables (44)", key: "tradePayables", indent: true, section: "CURRENT LIABILITIES", group: "bs_cl" },
+    { label: "Short-term Financial Debt (43)", key: "stFinDebt", indent: true, group: "bs_cl" },
+    { label: "Other Current Liabilities", key: "otherCurrentLiab", indent: true, group: "bs_cl" },
+    { label: "Total Current Liabilities", key: "totalCurrentLiab", bold: true, topBorder: true },
+    { label: "TOTAL EQUITY + LIABILITIES", key: "totalLE", bold: true, doubleBorder: true },
+  ];
+
+  let lastSection = "";
+
+  function exportBsCsv() {
+    const headers = ["Line Item", ...sorted.map(r => `FY${r.fiscal_year}`)];
+    const csvLines = lines.map(line => {
+      const cells = bsRows.map(r => {
+        const v = r[line.key];
+        if (v == null) return "";
+        return String(v);
+      });
+      return [line.label, ...cells].join(",");
+    });
+    const blob = new Blob([headers.join(",") + "\n" + csvLines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${companyName || cbe}_balance_sheet.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
+          Balance Sheet
+        </h3>
+        <div className="flex items-center gap-2">
+          <button onClick={() => toggleSection("bs_ca")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_ca ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+            {collapsedSections.bs_ca ? "\u25b8 Current Assets grouped" : "\u25be Current Assets expanded"}
+          </button>
+          <button onClick={() => toggleSection("bs_cl")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_cl ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+            {collapsedSections.bs_cl ? "\u25b8 Current Liab. grouped" : "\u25be Current Liab. expanded"}
+          </button>
+          <ExportButtons
+            onExportCSV={exportBsCsv}
+            onPrint={() => window.print()}
+          />
+        </div>
+      </div>
+      <div className="rounded-lg border overflow-x-auto bg-white">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[260px]">Line Item</th>
+              {renderDeltaHeaders(chronological.map(r => r.fiscal_year))}
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((line) => {
+              if (line.group && collapsedSections[line.group]) return null;
+
+              const showSection = line.section && line.section !== lastSection;
+              if (line.section) lastSection = line.section;
+              return (
+                <React.Fragment key={line.key + (line.section || "")}>
+                  {showSection && (
+                    <tr>
+                      <td colSpan={chronological.length * 2} className="px-4 pt-3 pb-1">
+                        <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
+                      </td>
+                    </tr>
+                  )}
+                  <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
+                    <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""} ${line.subIndent ? "pl-12 text-slate-400 italic" : ""}`}>
+                      {line.label}
+                    </td>
+                    {chronologicalBs.map((r, colIdx) => {
+                      const prevRow = colIdx > 0 ? chronologicalBs[colIdx - 1] : null;
+                      const currentVal = r[line.key] as number | null;
+                      const prevVal = prevRow ? (prevRow[line.key] as number | null) : null;
+                      return (
+                        <React.Fragment key={`bs-${r.fiscal_year}-${line.key}`}>
+                          {colIdx > 0 && (
+                            <td className="px-1 py-1 text-center align-top">
+                              {renderDelta(currentVal, prevVal)}
+                            </td>
+                          )}
+                          <td className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                            {fmtCell(r[line.key] as number | null)}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tr>
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-1 text-[10px] text-slate-400 italic">
+        Rubric references in parentheses per Belgian GAAP. Current Liabilities = Total - Equity - LT Debt. Other items are residual calculations.
+      </p>
+    </div>
+  );
+}
