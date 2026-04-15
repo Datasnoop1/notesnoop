@@ -343,7 +343,7 @@ export default function ComparePage() {
         );
       }
     },
-    [companies]
+    [companies, maxCompanies]
   );
 
   // ── Load from project ───────────────────────────────────────
@@ -379,19 +379,85 @@ export default function ComparePage() {
       setShowProjectMenu(false);
       setLoadingProject(true);
       try {
-        const existing = new Set(companies.map((c) => c.cbe));
-        const toAdd = project.members
-          .filter((m) => !existing.has(m.enterprise_number))
-          .slice(0, maxCompanies - companies.length);
+        // Use functional updater to read current state and avoid stale closure.
+        // We collect which members to add inside the updater, then fetch data
+        // for all of them in parallel.
+        let toAdd: { cbe: string; name: string }[] = [];
 
-        for (const m of toAdd) {
-          await addCompany(m.enterprise_number, m.name || m.enterprise_number);
-        }
+        setCompanies((prev) => {
+          const existingCbes = new Set(prev.map((c) => c.cbe));
+          const slots = maxCompanies - prev.length;
+          toAdd = project.members
+            .filter((m) => !existingCbes.has(m.enterprise_number))
+            .slice(0, slots)
+            .map((m) => ({ cbe: m.enterprise_number, name: m.name || m.enterprise_number }));
+
+          if (toAdd.length === 0) return prev;
+
+          // Add all placeholder entries at once
+          const newEntries: CompanyColumn[] = toAdd.map((m) => ({
+            cbe: m.cbe,
+            name: m.name,
+            detail: null,
+            financials: null,
+            loading: true,
+          }));
+          return [...prev, ...newEntries];
+        });
+
+        // Fetch data for all new companies in parallel
+        await Promise.all(
+          toAdd.map(async (m) => {
+            try {
+              const [detail, finData] = await Promise.all([
+                getCompanyDetail(m.cbe),
+                getCompanyFinancials(m.cbe),
+              ]);
+              let latest =
+                finData.summary.length > 0
+                  ? finData.summary[finData.summary.length - 1]
+                  : null;
+
+              // Auto-load from NBB if no financials
+              if (!latest) {
+                try {
+                  const loadResult = await loadCompanyNBB(m.cbe);
+                  if (loadResult.rubrics_loaded > 0) {
+                    const newFin = await getCompanyFinancials(m.cbe);
+                    latest = newFin.summary.length > 0
+                      ? newFin.summary[newFin.summary.length - 1]
+                      : null;
+                  }
+                } catch {
+                  // NBB load failed — continue with no data
+                }
+              }
+
+              setCompanies((prev) =>
+                prev.map((c) =>
+                  c.cbe === m.cbe
+                    ? {
+                        ...c,
+                        detail,
+                        name: detail.name || m.name,
+                        financials: latest,
+                        loading: false,
+                      }
+                    : c
+                )
+              );
+            } catch {
+              setCompanies((prev) =>
+                prev.map((c) => (c.cbe === m.cbe ? { ...c, loading: false } : c))
+              );
+            }
+          })
+        );
       } finally {
         setLoadingProject(false);
       }
     },
-    [companies, addCompany]
+    [maxCompanies]
   );
 
   // Remove a company
