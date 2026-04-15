@@ -121,7 +121,7 @@ export default function Nav() {
         <div className="flex items-center justify-between h-16">
           {/* Brand */}
           <Link href="/" className="flex items-center gap-2.5 group">
-            <img src={logoPath} alt="Datasnoop" width={28} height={28} className="shrink-0 group-hover:scale-105 transition-transform" />
+            <img src={logoPath} alt="Datasnoop" width={38} height={38} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/0" />
             <span className="text-base font-semibold text-slate-900 tracking-tight">
               Datasnoop
             </span>
@@ -264,7 +264,7 @@ export default function Nav() {
               </SheetTrigger>
               <SheetContent side="left" className="w-64">
                 <SheetTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
-                  <img src={logoPath} alt="Datasnoop" width={22} height={22} />
+                  <img src={logoPath} alt="Datasnoop" width={32} height={32} />
                   Datasnoop
                 </SheetTitle>
                 <nav className="mt-6 flex flex-col gap-1">
