@@ -55,6 +55,7 @@ import {
   ArrowDownRight,
   Minus,
   Building2,
+  CreditCard,
 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -123,6 +124,22 @@ interface ActivityEntry {
   endpoint: string;
   method: string;
   created_at: string;
+}
+
+interface StripePayment {
+  id: string;
+  amount: number;
+  currency: string;
+  status: string;
+  email: string | null;
+  created: string;
+  mode: string;
+}
+
+interface PaymentsData {
+  payments: StripePayment[];
+  total_revenue: number;
+  currency: string;
 }
 
 interface Insights {
@@ -403,6 +420,7 @@ export default function AdminPanel() {
     top_guests: { ip: string; requests: number; unique_pages: number; last_seen: string }[];
     totals: { total_requests_30d: number; guest_requests_30d: number; registered_requests_30d: number; unique_registered_30d: number; unique_guests_30d: number };
   } | null>(null);
+  const [paymentsData, setPaymentsData] = useState<PaymentsData | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -410,7 +428,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins, usage, pay] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -422,6 +440,7 @@ export default function AdminPanel() {
         adminFetch<ActivityEntry[]>("/api/admin/activity").catch(() => [] as ActivityEntry[]),
         adminFetch<Insights>("/api/admin/insights").catch(() => null),
         adminFetch<typeof usageData>("/api/admin/usage").catch(() => null),
+        adminFetch<PaymentsData>("/api/admin/payments").catch(() => null),
       ]);
       setStats(s);
       setUsers(u);
@@ -432,6 +451,7 @@ export default function AdminPanel() {
       setActivityLog(alog);
       setInsights(ins);
       setUsageData(usage as typeof usageData);
+      setPaymentsData(pay);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -821,6 +841,10 @@ export default function AdminPanel() {
           <TabsTrigger value="activity">
             <Clock className="size-3.5 mr-1.5" />
             Activity
+          </TabsTrigger>
+          <TabsTrigger value="revenue">
+            <CreditCard className="size-3.5 mr-1.5" />
+            Revenue
           </TabsTrigger>
           <TabsTrigger value="settings">
             <Settings className="size-3.5 mr-1.5" />
@@ -2253,6 +2277,160 @@ export default function AdminPanel() {
                 </div>
               );
             })()}
+          </div>
+        </TabsContent>
+
+        {/* ================================================================
+            TAB: Revenue (Stripe Payments)
+            ================================================================ */}
+        <TabsContent value="revenue">
+          <div className="space-y-6 pt-2">
+            <SectionHeading icon={CreditCard}>Stripe Payments</SectionHeading>
+
+            {!paymentsData ? (
+              <Card className="bg-white">
+                <CardContent>
+                  <p className="py-8 text-center text-sm text-slate-400">
+                    Loading payment data...
+                  </p>
+                </CardContent>
+              </Card>
+            ) : paymentsData.payments.length === 0 ? (
+              <Card className="bg-white">
+                <CardContent>
+                  <div className="py-12 text-center">
+                    <CreditCard className="size-8 text-slate-300 mx-auto mb-3" />
+                    <h3 className="text-sm font-semibold text-slate-700 mb-1">
+                      No Payments Yet
+                    </h3>
+                    <p className="text-sm text-slate-400">
+                      Stripe payments will appear here once customers complete checkout.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* Revenue KPIs */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <Card className="bg-white">
+                    <CardContent className="p-3 text-center">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
+                        Total Revenue
+                      </div>
+                      <div className="text-xl font-bold text-emerald-600">
+                        {(paymentsData.total_revenue / 100).toLocaleString("en", {
+                          style: "currency",
+                          currency: paymentsData.currency,
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-white">
+                    <CardContent className="p-3 text-center">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
+                        Total Payments
+                      </div>
+                      <div className="text-xl font-bold text-slate-800">
+                        {paymentsData.payments.length}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-white">
+                    <CardContent className="p-3 text-center">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
+                        Successful
+                      </div>
+                      <div className="text-xl font-bold text-emerald-600">
+                        {paymentsData.payments.filter((p) => p.status === "paid").length}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="bg-white">
+                    <CardContent className="p-3 text-center">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
+                        Subscriptions
+                      </div>
+                      <div className="text-xl font-bold text-indigo-600">
+                        {paymentsData.payments.filter((p) => p.mode === "subscription").length}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Recent payments table */}
+                <Card className="bg-white">
+                  <CardContent className="p-4">
+                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                      <CreditCard className="size-3.5" /> Recent Payments
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-[11px]">Date</TableHead>
+                            <TableHead className="text-[11px]">Email</TableHead>
+                            <TableHead className="text-[11px]">Amount</TableHead>
+                            <TableHead className="text-[11px]">Type</TableHead>
+                            <TableHead className="text-[11px]">Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {paymentsData.payments.map((p) => (
+                            <TableRow key={p.id}>
+                              <TableCell className="text-xs text-slate-500 font-mono whitespace-nowrap">
+                                {new Date(p.created).toLocaleDateString()}{" "}
+                                <span className="text-slate-400">
+                                  {new Date(p.created).toLocaleTimeString([], {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-xs text-slate-600 max-w-[200px] truncate">
+                                {p.email || <span className="text-slate-300">--</span>}
+                              </TableCell>
+                              <TableCell className="text-xs font-mono font-semibold text-slate-800">
+                                {(p.amount / 100).toLocaleString("en", {
+                                  style: "currency",
+                                  currency: p.currency,
+                                })}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant="secondary"
+                                  className={`text-[10px] ${
+                                    p.mode === "subscription"
+                                      ? "bg-indigo-50 text-indigo-600"
+                                      : "bg-slate-100 text-slate-600"
+                                  }`}
+                                >
+                                  {p.mode === "subscription" ? "Subscription" : "One-time"}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant="secondary"
+                                  className={`text-[10px] ${
+                                    p.status === "paid"
+                                      ? "bg-emerald-50 text-emerald-600"
+                                      : p.status === "unpaid"
+                                        ? "bg-amber-50 text-amber-600"
+                                        : "bg-slate-100 text-slate-500"
+                                  }`}
+                                >
+                                  {p.status}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </div>
         </TabsContent>
 

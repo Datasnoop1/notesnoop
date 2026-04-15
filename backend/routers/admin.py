@@ -1,12 +1,18 @@
 """Admin router — user management, usage stats, feedback review."""
 
+import os
 import logging
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 
+import stripe
+
 from db import fetch_all, fetch_one, execute
 from auth import get_current_user
+
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -484,4 +490,45 @@ async def platform_usage(user=Depends(_require_admin)):
         }
     except Exception as e:
         logger.exception("Usage analytics failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/payments")
+async def admin_payments(user=Depends(_require_admin)):
+    """List recent Stripe payments for the admin dashboard."""
+    if not stripe.api_key:
+        return {"payments": [], "total_revenue": 0, "currency": "eur"}
+
+    try:
+        sessions = stripe.checkout.Session.list(limit=20)
+        payments = []
+        total_revenue = 0
+
+        for s in sessions.data:
+            amount = s.amount_total or 0
+            currency = s.currency or "eur"
+            status = s.payment_status or s.status or "unknown"
+            email = s.customer_email or (s.customer_details.email if s.customer_details else None)
+            created = datetime.fromtimestamp(s.created, tz=timezone.utc).isoformat()
+
+            payments.append({
+                "id": s.id,
+                "amount": amount,
+                "currency": currency,
+                "status": status,
+                "email": email or None,
+                "created": created,
+                "mode": s.mode,  # "payment" or "subscription"
+            })
+
+            if status == "paid":
+                total_revenue += amount
+
+        return {
+            "payments": payments,
+            "total_revenue": total_revenue,
+            "currency": "eur",
+        }
+    except Exception as e:
+        logger.exception("Admin payments failed")
         raise HTTPException(status_code=500, detail=str(e))
