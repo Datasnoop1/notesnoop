@@ -931,6 +931,18 @@ async def update_costs(body: CostUpdateBody, user=Depends(_require_admin)):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/admin/embed-all — batch-embed companies with AI insights
+# ---------------------------------------------------------------------------
+
+@router.post("/embed-all")
+async def admin_embed_all(user=Depends(_require_admin)):
+    """Generate embeddings for all companies with AI insights that don't have one yet."""
+    from embeddings import batch_embed_all
+    result = await batch_embed_all(limit=500)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Site configuration (logo, etc.)
 # ---------------------------------------------------------------------------
 

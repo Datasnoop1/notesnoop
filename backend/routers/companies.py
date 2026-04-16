@@ -2588,7 +2588,52 @@ async def generate_ai_insights(cbe: str, user=Depends(get_current_user)):
     if insights.get("error"):
         raise HTTPException(status_code=404, detail=insights["error"])
 
+    # Auto-generate embedding in background (non-blocking)
+    try:
+        from embeddings import embed_company
+        await embed_company(cbe, force=True)
+        logger.info("Auto-embedded company %s after AI insights generation", cbe)
+    except Exception as e:
+        logger.warning("Auto-embedding failed for %s (non-fatal): %s", cbe, e)
+
     return insights
+
+
+# ---------------------------------------------------------------------------
+# GET /api/companies/{cbe}/semantic-similar
+# ---------------------------------------------------------------------------
+
+@router.get("/{cbe}/semantic-similar")
+async def semantic_similar_companies(cbe: str, limit: int = Query(20, ge=1, le=50)):
+    """Find companies with similar business descriptions using vector embeddings."""
+    from embeddings import find_similar_by_embedding, ensure_embedding_table
+    ensure_embedding_table()
+    cbe = cbe.strip().replace(".", "")
+
+    results = await find_similar_by_embedding(cbe, limit=limit)
+    if not results:
+        return []
+
+    # Enrich with financial data
+    cbes = [r["enterprise_number"] for r in results]
+    if cbes:
+        placeholders = ",".join(["%s"] * len(cbes))
+        financials = fetch_all(f"""
+            SELECT enterprise_number, revenue, ebitda, fte_total, fiscal_year
+            FROM financial_latest
+            WHERE enterprise_number IN ({placeholders})
+        """, tuple(cbes))
+        fin_map = {r["enterprise_number"]: r for r in financials}
+
+        for r in results:
+            fin = fin_map.get(r["enterprise_number"], {})
+            r["revenue"] = float(fin["revenue"]) if fin.get("revenue") else None
+            r["ebitda"] = float(fin["ebitda"]) if fin.get("ebitda") else None
+            r["fte_total"] = float(fin["fte_total"]) if fin.get("fte_total") else None
+            r["fiscal_year"] = fin.get("fiscal_year")
+            r["similarity"] = round(float(r.get("similarity", 0)), 4)
+
+    return results
 
 
 # ---------------------------------------------------------------------------
