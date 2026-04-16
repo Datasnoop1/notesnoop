@@ -515,8 +515,18 @@ async def traction_dashboard(user=Depends(_require_admin)):
             if not r: return {}
             return {k: (float(v) if isinstance(v, decimal.Decimal) else str(v) if isinstance(v, (dt.date, dt.datetime)) else v) for k, v in r.items()}
 
-        # KPIs: unique guests and registered users across time windows
-        kpis = _ser1(fetch_one("""
+        # Admin emails to exclude from traction metrics
+        admin_rows = fetch_all("SELECT email FROM user_roles WHERE role = 'admin'")
+        admin_emails = [r["email"] for r in admin_rows] if admin_rows else []
+        admin_filter = ""
+        admin_params: list = []
+        if admin_emails:
+            placeholders = ",".join(["%s"] * len(admin_emails))
+            admin_filter = f" AND user_email NOT IN ({placeholders})"
+            admin_params = list(admin_emails)
+
+        # KPIs: unique guests and registered users across time windows (excl admins)
+        kpis = _ser1(fetch_one(f"""
             SELECT
                 COUNT(DISTINCT user_email) FILTER (WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '1 day') AS guests_today,
                 COUNT(DISTINCT user_email) FILTER (WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days') AS guests_7d,
@@ -528,10 +538,11 @@ async def traction_dashboard(user=Depends(_require_admin)):
                 COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS requests_7d,
                 COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS requests_30d
             FROM activity_log
-        """))
+            WHERE 1=1 {admin_filter}
+        """, tuple(admin_params) or None))
 
         # Engagement: avg pages per guest per day (7d)
-        engagement = _ser1(fetch_one("""
+        engagement = _ser1(fetch_one(f"""
             SELECT
                 ROUND(AVG(pages)::numeric, 1) AS avg_pages_per_guest,
                 ROUND(AVG(reqs)::numeric, 1) AS avg_requests_per_guest,
@@ -539,26 +550,39 @@ async def traction_dashboard(user=Depends(_require_admin)):
             FROM (
                 SELECT user_email, COUNT(DISTINCT endpoint) AS pages, COUNT(*) AS reqs
                 FROM activity_log
-                WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days'
+                WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days' {admin_filter}
                 GROUP BY user_email
             ) sub
-        """))
+        """, tuple(admin_params) or None))
 
-        # Daily trend: unique guests + registered (30d)
-        daily_trend = _ser(fetch_all("""
+        # Daily trend: unique guests + registered (30d, excl admins)
+        daily_trend = _ser(fetch_all(f"""
             SELECT
                 created_at::date AS day,
                 COUNT(DISTINCT user_email) FILTER (WHERE user_email LIKE 'anon:%%') AS unique_guests,
                 COUNT(DISTINCT user_email) FILTER (WHERE user_email NOT LIKE 'anon:%%') AS unique_registered,
                 COUNT(*) AS total_requests
             FROM activity_log
-            WHERE created_at > NOW() - INTERVAL '30 days'
+            WHERE created_at > NOW() - INTERVAL '30 days' {admin_filter}
             GROUP BY created_at::date
             ORDER BY day ASC
-        """))
+        """, tuple(admin_params) or None))
 
-        # Guest behavior: top pages visited by guests (7d)
-        guest_pages = _ser(fetch_all("""
+        # Hourly usage today (excl admins)
+        hourly_today = _ser(fetch_all(f"""
+            SELECT
+                EXTRACT(HOUR FROM created_at AT TIME ZONE 'Europe/Brussels') AS hour,
+                COUNT(*) AS requests,
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email LIKE 'anon:%%') AS guests,
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email NOT LIKE 'anon:%%') AS registered
+            FROM activity_log
+            WHERE created_at::date = CURRENT_DATE {admin_filter}
+            GROUP BY 1
+            ORDER BY 1
+        """, tuple(admin_params) or None))
+
+        # Guest behavior: top pages visited by guests (7d, excl admins)
+        guest_pages = _ser(fetch_all(f"""
             SELECT
                 CASE
                     WHEN endpoint LIKE '%%/search%%' THEN 'Search'
@@ -579,14 +603,14 @@ async def traction_dashboard(user=Depends(_require_admin)):
                 COUNT(*) AS requests,
                 COUNT(DISTINCT user_email) AS unique_guests
             FROM activity_log
-            WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days'
+            WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days' {admin_filter}
             GROUP BY 1
             ORDER BY unique_guests DESC
             LIMIT 15
-        """))
+        """, tuple(admin_params) or None))
 
-        # Registered user behavior: same breakdown
-        registered_pages = _ser(fetch_all("""
+        # Registered user behavior: same breakdown (excl admins)
+        registered_pages = _ser(fetch_all(f"""
             SELECT
                 CASE
                     WHEN endpoint LIKE '%%/search%%' THEN 'Search'
@@ -607,11 +631,11 @@ async def traction_dashboard(user=Depends(_require_admin)):
                 COUNT(*) AS requests,
                 COUNT(DISTINCT user_email) AS unique_users
             FROM activity_log
-            WHERE user_email NOT LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days'
+            WHERE user_email NOT LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days' {admin_filter}
             GROUP BY 1
             ORDER BY unique_users DESC
             LIMIT 15
-        """))
+        """, tuple(admin_params) or None))
 
         # New user signups per day (30d)
         signups = _ser(fetch_all("""
@@ -622,22 +646,22 @@ async def traction_dashboard(user=Depends(_require_admin)):
             ORDER BY day ASC
         """))
 
-        # Stickiness: users who came back multiple days (7d)
-        stickiness = _ser(fetch_all("""
+        # Stickiness: users who came back multiple days (7d, excl admins)
+        stickiness = _ser(fetch_all(f"""
             SELECT days_active, COUNT(*) AS user_count
             FROM (
                 SELECT user_email, COUNT(DISTINCT created_at::date) AS days_active
                 FROM activity_log
                 WHERE created_at > NOW() - INTERVAL '7 days'
-                  AND user_email NOT LIKE 'anon:%%'
+                  AND user_email NOT LIKE 'anon:%%' {admin_filter}
                 GROUP BY user_email
             ) sub
             GROUP BY days_active
             ORDER BY days_active
-        """))
+        """, tuple(admin_params) or None))
 
         # Most engaged guests: top 10 by pages visited
-        top_guests = _ser(fetch_all("""
+        top_guests = _ser(fetch_all(f"""
             SELECT
                 REPLACE(user_email, 'anon:', '') AS ip,
                 COUNT(DISTINCT endpoint) AS unique_pages,
@@ -645,16 +669,17 @@ async def traction_dashboard(user=Depends(_require_admin)):
                 MIN(created_at) AS first_seen,
                 MAX(created_at) AS last_seen
             FROM activity_log
-            WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days'
+            WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days' {admin_filter}
             GROUP BY user_email
             ORDER BY unique_pages DESC
             LIMIT 10
-        """))
+        """, tuple(admin_params) or None))
 
         return {
             "kpis": kpis,
             "engagement": engagement,
             "daily_trend": daily_trend,
+            "hourly_today": hourly_today,
             "guest_pages": guest_pages,
             "registered_pages": registered_pages,
             "signups": signups,

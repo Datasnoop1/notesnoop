@@ -1846,34 +1846,26 @@ async def get_similar_companies_ai(cbe: str, user=Depends(get_current_user)):
     if not target:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    # Fetch candidates — broaden search if exact NACE+revenue match is too narrow
+    # Fetch all NACE peers with financials — no revenue filter, AI ranks for relevance
     nace = target.get("nace_code") or ""
-    revenue = target.get("revenue")
     if not nace:
         return []
 
-    candidates = []
+    candidates = fetch_all("""
+        SELECT ci.enterprise_number, ci.name, ci.city,
+               fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
+               COALESCE(nl.description, ci.nace_code) AS nace_desc
+        FROM company_info ci
+        JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+        LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+        WHERE ci.nace_code = %s AND ci.enterprise_number != %s
+        ORDER BY fl.revenue DESC NULLS LAST
+        LIMIT 50
+    """, (nace, cbe))
 
-    # Step 1: exact NACE + revenue range
-    if revenue and revenue > 0:
-        rev_min = float(revenue) * 0.1
-        rev_max = float(revenue) * 10.0
-        candidates = fetch_all("""
-            SELECT ci.enterprise_number, ci.name, ci.city,
-                   fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
-                   COALESCE(nl.description, ci.nace_code) AS nace_desc
-            FROM company_info ci
-            JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
-            LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
-            WHERE ci.nace_code = %s AND ci.enterprise_number != %s
-              AND fl.revenue IS NOT NULL AND fl.revenue BETWEEN %s AND %s
-            ORDER BY ABS(fl.revenue - %s) LIMIT 30
-        """, (nace, cbe, rev_min, rev_max, float(revenue)))
-
-    # Step 2: if <10 results, broaden to NACE 2-digit prefix (same sector family)
+    # If <10 in exact NACE, broaden to 2-digit prefix
     if len(candidates) < 10:
-        existing_cbes = {c["enterprise_number"] for c in candidates}
-        nace_prefix = nace[:2]
+        existing = {c["enterprise_number"] for c in candidates}
         broader = fetch_all("""
             SELECT ci.enterprise_number, ci.name, ci.city,
                    fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
@@ -1882,13 +1874,13 @@ async def get_similar_companies_ai(cbe: str, user=Depends(get_current_user)):
             JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
             LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
             WHERE ci.nace_code LIKE %s AND ci.enterprise_number != %s
-              AND fl.revenue IS NOT NULL
-            ORDER BY ABS(fl.revenue - %s) LIMIT 30
-        """, (f"{nace_prefix}%", cbe, float(revenue or 0)))
+            ORDER BY fl.revenue DESC NULLS LAST
+            LIMIT 50
+        """, (f"{nace[:2]}%", cbe))
         for b in broader:
-            if b["enterprise_number"] not in existing_cbes and len(candidates) < 30:
+            if b["enterprise_number"] not in existing and len(candidates) < 50:
                 candidates.append(b)
-                existing_cbes.add(b["enterprise_number"])
+                existing.add(b["enterprise_number"])
 
     if not candidates:
         return []

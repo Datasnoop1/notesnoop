@@ -197,6 +197,7 @@ interface TractionData {
   kpis: Record<string, number>;
   engagement: Record<string, number>;
   daily_trend: { day: string; unique_guests: number; unique_registered: number; total_requests: number }[];
+  hourly_today: { hour: number; requests: number; guests: number; registered: number }[];
   guest_pages: { feature: string; requests: number; unique_guests: number }[];
   registered_pages: { feature: string; requests: number; unique_users: number }[];
   signups: { day: string; new_users: number }[];
@@ -1124,6 +1125,26 @@ export default function AdminPanel() {
                           <Legend wrapperStyle={{ fontSize: 11 }} />
                           <Bar dataKey="unique_guests" name="Guests" fill="#818cf8" stackId="a" />
                           <Bar dataKey="unique_registered" name="Registered" fill="#34d399" stackId="a" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Hourly usage today */}
+                {tractionData.hourly_today && tractionData.hourly_today.length > 0 && (
+                  <Card className="bg-white">
+                    <CardContent className="pt-4 pb-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Today&apos;s Usage by Hour (excl. admins)</h3>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={tractionData.hourly_today}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="hour" tick={{ fontSize: 10 }} tickFormatter={(h: number) => `${h}:00`} />
+                          <YAxis tick={{ fontSize: 10 }} />
+                          <Tooltip contentStyle={{ fontSize: 11 }} labelFormatter={(h: number) => `${h}:00 - ${h + 1}:00`} />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Bar dataKey="guests" name="Guests" fill="#818cf8" stackId="a" />
+                          <Bar dataKey="registered" name="Registered" fill="#34d399" stackId="a" />
                         </BarChart>
                       </ResponsiveContainer>
                     </CardContent>
