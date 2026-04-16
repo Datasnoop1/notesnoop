@@ -85,14 +85,14 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col bg-slate-50 font-sans">
+      <body className="min-h-full flex flex-col bg-white font-sans">
         <LanguageProvider>
           <LimitProvider>
             <FontProvider />
             <CopyProtection />
             <Nav />
             <main className="flex-1" data-protected>
-              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+              <div className="w-full max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
                 {children}
               </div>
             </main>

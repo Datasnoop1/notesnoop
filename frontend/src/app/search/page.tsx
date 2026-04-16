@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -21,7 +22,9 @@ import { Search, Building, Users, Loader2, ArrowRight, Star } from "lucide-react
 
 export default function UnifiedSearchPage() {
   const { t } = useTranslation();
-  const [query, setQuery] = useState("");
+  const searchParams = useSearchParams();
+  const initialQ = searchParams.get("q") ?? "";
+  const [query, setQuery] = useState(initialQ);
   const [companies, setCompanies] = useState<SearchResult[]>([]);
   const [people, setPeople] = useState<PersonResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -103,6 +106,11 @@ export default function UnifiedSearchPage() {
         setLoading(false);
       }
     }, 300);
+  }, []);
+
+  useEffect(() => {
+    if (initialQ.trim().length >= 2) doSearch(initialQ);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
