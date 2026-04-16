@@ -66,8 +66,16 @@ async def screener(
     params = []
 
     if nace:
-        conditions.append("ci.nace_code LIKE %s")
-        params.append(f"{nace}%")
+        nace_codes = [c.strip() for c in nace.split(",") if c.strip()]
+        if len(nace_codes) == 1:
+            conditions.append("ci.nace_code LIKE %s")
+            params.append(f"{nace_codes[0]}%")
+        elif nace_codes:
+            nace_conds = []
+            for code in nace_codes:
+                nace_conds.append("ci.nace_code LIKE %s")
+                params.append(f"{code}%")
+            conditions.append(f"({' OR '.join(nace_conds)})")
     if zipcode:
         conditions.append("ci.zipcode LIKE %s")
         params.append(f"{zipcode}%")

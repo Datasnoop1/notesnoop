@@ -361,6 +361,8 @@ def main():
     if run_nbb:
         nbb_date = args.nbb_date or str(date.today() - timedelta(days=1))
         run_nbb_extract(conn, nbb_date, dry_run=args.dry_run)
+        if not args.dry_run:
+            rebuild_materialized_tables(conn)
 
     if catchup:
         run_nbb_catchup(

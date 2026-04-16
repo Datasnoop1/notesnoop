@@ -105,6 +105,26 @@ def execute(sql: str, params: tuple | list = None):
         put_connection(conn)
 
 
+@contextmanager
+def transaction():
+    """Context manager for multi-statement transactions.
+
+    Yields (conn, cursor). Commits on clean exit, rolls back on exception.
+    Use this for operations that need atomicity across multiple statements.
+    """
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        yield conn, cur
+        conn.commit()
+        cur.close()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        put_connection(conn)
+
+
 # ---------------------------------------------------------------------------
 # pg_trgm fuzzy matching migration
 # ---------------------------------------------------------------------------

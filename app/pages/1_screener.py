@@ -350,18 +350,7 @@ if selected_cbe:
 
         if hist.empty:
             st.info("No financial data loaded yet.")
-            if st.button("\U0001f4e5 Load financials from NBB", type="primary"):
-                with st.spinner("Loading..."):
-                    try:
-                        from nbb_client import NBBClient
-                        from nbb_loader import load_company as _lc
-                        conn2 = _conn()
-                        _lc(conn2, NBBClient(), selected_cbe, since_year=2020)
-                        conn2.close()
-                        st.cache_data.clear()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(str(e))
+            st.info("Use the [DataSnoop web app](https://datasnoop.be) to load financials for this company.")
         else:
             # KPI strip
             latest = hist.iloc[-1]

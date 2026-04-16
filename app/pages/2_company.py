@@ -907,18 +907,7 @@ def _rubric_table(line_defs, rubric_df, years):
 with t_fin:
     if hist.empty:
         st.info("No financial data loaded for this company yet.")
-        if st.button("📥 Load financials from NBB", type="primary"):
-            with st.spinner("Fetching from NBB CBSO…"):
-                try:
-                    from nbb_client import NBBClient
-                    from nbb_loader import load_company as _lc
-                    conn2 = get_connection()
-                    _lc(conn2, NBBClient(), selected_cbe, since_year=2020)
-                    conn2.close()
-                    st.cache_data.clear()
-                    st.rerun()
-                except Exception as e:
-                    st.error(str(e))
+        st.info("Use the [DataSnoop web app](https://datasnoop.be) to load financials for this company.")
     else:
         # History summary table
         st.markdown('<div class="section-title">Key financials by year</div>', unsafe_allow_html=True)
@@ -1291,24 +1280,7 @@ with t_struct:
 
     if not has_struct:
         st.info("No structure data loaded yet.")
-        if st.button("🏢 Load structure from NBB", type="primary", key="load_struct"):
-            with st.spinner("Fetching…"):
-                try:
-                    from nbb_client import NBBClient
-                    from nbb_loader import store_structure_data
-                    client = NBBClient()
-                    filing = client.get_latest_filing_json(selected_cbe)
-                    if filing:
-                        conn2 = get_connection()
-                        store_structure_data(conn2, filing, selected_cbe,
-                                             filing.get("ReferenceNumber", ""), None)
-                        conn2.close()
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.warning("No filing data available from NBB.")
-                except Exception as e:
-                    st.error(str(e))
+        st.info("Use the [DataSnoop web app](https://datasnoop.be) to load structure data for this company.")
     else:
         import random
 
@@ -1690,24 +1662,7 @@ with t_network:
 
     if not has_struct_net:
         st.info("No structure data loaded yet.")
-        if st.button("🏢 Load structure from NBB", type="primary", key="load_struct_net"):
-            with st.spinner("Fetching…"):
-                try:
-                    from nbb_client import NBBClient
-                    from nbb_loader import store_structure_data
-                    client = NBBClient()
-                    filing = client.get_latest_filing_json(selected_cbe)
-                    if filing:
-                        conn2 = get_connection()
-                        store_structure_data(conn2, filing, selected_cbe,
-                                             filing.get("ReferenceNumber", ""), None)
-                        conn2.close()
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.warning("No filing data available from NBB.")
-                except Exception as e:
-                    st.error(str(e))
+        st.info("Use the [DataSnoop web app](https://datasnoop.be) to load structure data for this company.")
     else:
         # ── Depth slider ────────────────────────────────────────────────────
         import random
@@ -1851,20 +1806,7 @@ with t_network:
 with t_legal:
     if sb_pubs.empty:
         st.info("No Staatsblad publications loaded yet.")
-        if st.button("📰 Load publications", type="primary", key="load_sb"):
-            with st.spinner("Fetching…"):
-                try:
-                    from staatsblad import load_staatsblad as _lsb
-                    conn2 = get_connection()
-                    cnt = _lsb(conn2, selected_cbe)
-                    conn2.close()
-                    if cnt:
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.warning("No publications found in the Official Gazette.")
-                except Exception as e:
-                    st.error(str(e))
+        st.info("Use the [DataSnoop web app](https://datasnoop.be) to load publications for this company.")
     else:
         PUB_ICONS = {
             "ONTSLAGEN - BENOEMINGEN": "👤",

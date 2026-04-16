@@ -22,7 +22,7 @@ from bs4 import BeautifulSoup
 
 # Add parent to path so we can import db module
 sys.path.insert(0, os.path.dirname(__file__))
-from db import get_conn, execute, fetch_one, fetch_all
+from db import get_conn, execute, fetch_one, fetch_all, transaction
 
 logging.basicConfig(
     level=logging.INFO,
@@ -125,9 +125,8 @@ def open_csv_from_zip(zf, filename):
     return csv.DictReader(text)
 
 
-def apply_deletes(zf, filename, table_name):
+def apply_deletes(cur, zf, filename, table_name):
     """Delete rows from table based on entity numbers in a delete CSV."""
-    import zipfile
     reader = open_csv_from_zip(zf, filename)
     del_count = 0
 
@@ -139,17 +138,16 @@ def apply_deletes(zf, filename, table_name):
             batch.append(strip_dots(row[pk_csv]))
             if len(batch) >= BATCH_SIZE:
                 placeholders = ",".join(["%s"] * len(batch))
-                execute(f"DELETE FROM {table_name} WHERE {pk_col} IN ({placeholders})", tuple(batch))
+                cur.execute(f"DELETE FROM {table_name} WHERE {pk_col} IN ({placeholders})", tuple(batch))
                 del_count += len(batch)
                 batch.clear()
         if batch:
             placeholders = ",".join(["%s"] * len(batch))
-            execute(f"DELETE FROM {table_name} WHERE {pk_col} IN ({placeholders})", tuple(batch))
+            cur.execute(f"DELETE FROM {table_name} WHERE {pk_col} IN ({placeholders})", tuple(batch))
             del_count += len(batch)
     elif table_name == "code":
         pass  # Full replacement
     else:
-        # Delete all rows for affected entity numbers
         entity_col = "EntityNumber"
         numbers = set()
         for row in reader:
@@ -158,107 +156,122 @@ def apply_deletes(zf, filename, table_name):
         for i in range(0, len(numbers), BATCH_SIZE):
             chunk = numbers[i:i + BATCH_SIZE]
             placeholders = ",".join(["%s"] * len(chunk))
-            execute(f"DELETE FROM {table_name} WHERE entity_number IN ({placeholders})", tuple(chunk))
+            cur.execute(f"DELETE FROM {table_name} WHERE entity_number IN ({placeholders})", tuple(chunk))
             del_count += len(chunk)
 
     return del_count
 
 
-def apply_inserts(zf, filename, table_name):
-    """Insert rows from an insert CSV into the table."""
-    reader = open_csv_from_zip(zf, filename)
+def _batch_insert(cur, sql, reader, row_mapper):
+    """Batch-insert CSV rows using executemany. Returns row count."""
     count = 0
+    batch = []
+    for row in reader:
+        batch.append(row_mapper(row))
+        if len(batch) >= BATCH_SIZE:
+            cur.executemany(sql, batch)
+            count += len(batch)
+            batch.clear()
+    if batch:
+        cur.executemany(sql, batch)
+        count += len(batch)
+    return count
+
+
+def apply_inserts(cur, zf, filename, table_name):
+    """Insert rows from an insert CSV using batched executemany."""
+    reader = open_csv_from_zip(zf, filename)
 
     if table_name == "enterprise":
-        for row in reader:
-            execute("""
-                INSERT INTO enterprise (enterprise_number, status, juridical_situation, type_of_enterprise, juridical_form, juridical_form_cac, start_date)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (enterprise_number) DO UPDATE SET
-                    status = EXCLUDED.status, juridical_situation = EXCLUDED.juridical_situation,
-                    type_of_enterprise = EXCLUDED.type_of_enterprise, juridical_form = EXCLUDED.juridical_form,
-                    juridical_form_cac = EXCLUDED.juridical_form_cac, start_date = EXCLUDED.start_date
-            """, (strip_dots(row["EnterpriseNumber"]), row["Status"], row["JuridicalSituation"],
-                  row["TypeOfEnterprise"], row.get("JuridicalForm") or None,
-                  row.get("JuridicalFormCAC") or None, convert_date(row["StartDate"])))
-            count += 1
+        return _batch_insert(cur, """
+            INSERT INTO enterprise (enterprise_number, status, juridical_situation, type_of_enterprise, juridical_form, juridical_form_cac, start_date)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (enterprise_number) DO UPDATE SET
+                status = EXCLUDED.status, juridical_situation = EXCLUDED.juridical_situation,
+                type_of_enterprise = EXCLUDED.type_of_enterprise, juridical_form = EXCLUDED.juridical_form,
+                juridical_form_cac = EXCLUDED.juridical_form_cac, start_date = EXCLUDED.start_date
+        """, reader, lambda r: (
+            strip_dots(r["EnterpriseNumber"]), r["Status"], r["JuridicalSituation"],
+            r["TypeOfEnterprise"], r.get("JuridicalForm") or None,
+            r.get("JuridicalFormCAC") or None, convert_date(r["StartDate"])
+        ))
 
-    elif table_name == "denomination":
-        for row in reader:
-            execute("""
-                INSERT INTO denomination (entity_number, language, type_of_denomination, denomination)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
-            """, (strip_dots(row["EntityNumber"]), row["Language"], row["TypeOfDenomination"], row["Denomination"]))
-            count += 1
+    if table_name == "denomination":
+        return _batch_insert(cur, """
+            INSERT INTO denomination (entity_number, language, type_of_denomination, denomination)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+        """, reader, lambda r: (
+            strip_dots(r["EntityNumber"]), r["Language"], r["TypeOfDenomination"], r["Denomination"]
+        ))
 
-    elif table_name == "address":
-        for row in reader:
-            execute("""
-                INSERT INTO address (entity_number, type_of_address, country_nl, country_fr, zipcode, municipality_nl, municipality_fr, street_nl, street_fr, house_number, box, extra_address_info, date_striking_off)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
-            """, (strip_dots(row["EntityNumber"]), row["TypeOfAddress"],
-                  row.get("CountryNL") or None, row.get("CountryFR") or None,
-                  row.get("Zipcode") or None, row.get("MunicipalityNL") or None,
-                  row.get("MunicipalityFR") or None, row.get("StreetNL") or None,
-                  row.get("StreetFR") or None, row.get("HouseNumber") or None,
-                  row.get("Box") or None, row.get("ExtraAddressInfo") or None,
-                  convert_date(row.get("DateStrikingOff", "")) or None))
-            count += 1
+    if table_name == "address":
+        return _batch_insert(cur, """
+            INSERT INTO address (entity_number, type_of_address, country_nl, country_fr, zipcode, municipality_nl, municipality_fr, street_nl, street_fr, house_number, box, extra_address_info, date_striking_off)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+        """, reader, lambda r: (
+            strip_dots(r["EntityNumber"]), r["TypeOfAddress"],
+            r.get("CountryNL") or None, r.get("CountryFR") or None,
+            r.get("Zipcode") or None, r.get("MunicipalityNL") or None,
+            r.get("MunicipalityFR") or None, r.get("StreetNL") or None,
+            r.get("StreetFR") or None, r.get("HouseNumber") or None,
+            r.get("Box") or None, r.get("ExtraAddressInfo") or None,
+            convert_date(r.get("DateStrikingOff", "")) or None
+        ))
 
-    elif table_name == "activity":
-        for row in reader:
-            execute("""
-                INSERT INTO activity (entity_number, activity_group, nace_version, nace_code, classification)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
-            """, (strip_dots(row["EntityNumber"]), row["ActivityGroup"],
-                  row["NaceVersion"], row["NaceCode"], row["Classification"]))
-            count += 1
+    if table_name == "activity":
+        return _batch_insert(cur, """
+            INSERT INTO activity (entity_number, activity_group, nace_version, nace_code, classification)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+        """, reader, lambda r: (
+            strip_dots(r["EntityNumber"]), r["ActivityGroup"],
+            r["NaceVersion"], r["NaceCode"], r["Classification"]
+        ))
 
-    elif table_name == "contact":
-        for row in reader:
-            execute("""
-                INSERT INTO contact (entity_number, entity_contact, contact_type, value)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT DO NOTHING
-            """, (strip_dots(row["EntityNumber"]), row["EntityContact"],
-                  row["ContactType"], row["Value"]))
-            count += 1
+    if table_name == "contact":
+        return _batch_insert(cur, """
+            INSERT INTO contact (entity_number, entity_contact, contact_type, value)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+        """, reader, lambda r: (
+            strip_dots(r["EntityNumber"]), r["EntityContact"],
+            r["ContactType"], r["Value"]
+        ))
 
-    elif table_name == "establishment":
-        for row in reader:
-            execute("""
-                INSERT INTO establishment (establishment_number, start_date, enterprise_number)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (establishment_number) DO UPDATE SET
-                    start_date = EXCLUDED.start_date, enterprise_number = EXCLUDED.enterprise_number
-            """, (strip_dots(row["EstablishmentNumber"]), convert_date(row["StartDate"]),
-                  strip_dots(row["EnterpriseNumber"])))
-            count += 1
+    if table_name == "establishment":
+        return _batch_insert(cur, """
+            INSERT INTO establishment (establishment_number, start_date, enterprise_number)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (establishment_number) DO UPDATE SET
+                start_date = EXCLUDED.start_date, enterprise_number = EXCLUDED.enterprise_number
+        """, reader, lambda r: (
+            strip_dots(r["EstablishmentNumber"]), convert_date(r["StartDate"]),
+            strip_dots(r["EnterpriseNumber"])
+        ))
 
-    elif table_name == "branch":
-        for row in reader:
-            execute("""
-                INSERT INTO branch (id, start_date, enterprise_number)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (id) DO UPDATE SET
-                    start_date = EXCLUDED.start_date, enterprise_number = EXCLUDED.enterprise_number
-            """, (strip_dots(row["Id"]), convert_date(row["StartDate"]),
-                  strip_dots(row["EnterpriseNumber"])))
-            count += 1
+    if table_name == "branch":
+        return _batch_insert(cur, """
+            INSERT INTO branch (id, start_date, enterprise_number)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                start_date = EXCLUDED.start_date, enterprise_number = EXCLUDED.enterprise_number
+        """, reader, lambda r: (
+            strip_dots(r["Id"]), convert_date(r["StartDate"]),
+            strip_dots(r["EnterpriseNumber"])
+        ))
 
-    elif table_name == "code":
-        execute("DELETE FROM code")
-        for row in reader:
-            execute("""
-                INSERT INTO code (category, code, language, description)
-                VALUES (%s, %s, %s, %s)
-            """, (row["Category"], row["Code"], row["Language"], row["Description"]))
-            count += 1
+    if table_name == "code":
+        cur.execute("DELETE FROM code")
+        return _batch_insert(cur, """
+            INSERT INTO code (category, code, language, description)
+            VALUES (%s, %s, %s, %s)
+        """, reader, lambda r: (
+            r["Category"], r["Code"], r["Language"], r["Description"]
+        ))
 
-    return count
+    return 0
 
 
 def refresh_company_info():
@@ -294,7 +307,7 @@ def refresh_company_info():
 
 
 def process_zip(zip_path):
-    """Apply a single update ZIP to the PostgreSQL database."""
+    """Apply a single update ZIP to the PostgreSQL database atomically."""
     import zipfile
 
     with zipfile.ZipFile(zip_path) as zf:
@@ -311,7 +324,7 @@ def process_zip(zip_path):
 
         extract_number = int(meta.get("ExtractNumber", 0))
 
-        # Check if already applied
+        # Check if already applied (outside transaction — read-only)
         row = fetch_one("SELECT 1 AS done FROM kbo_extract_log WHERE extract_number = %s", (extract_number,))
         if row:
             log.info(f"Extract {extract_number} already applied — skipping")
@@ -335,29 +348,31 @@ def process_zip(zip_path):
             elif base == "code.csv":
                 insert_files["code"] = name
 
-        all_tables = sorted(set(list(delete_files) + list(insert_files)))
-        for table in all_tables:
-            if table not in TABLE_MAP:
-                log.warning(f"Unknown table '{table}' — skipping")
-                continue
+        # Process all tables in a single transaction for atomicity
+        with transaction() as (conn, cur):
+            all_tables = sorted(set(list(delete_files) + list(insert_files)))
+            for table in all_tables:
+                if table not in TABLE_MAP:
+                    log.warning(f"Unknown table '{table}' — skipping")
+                    continue
 
-            t1 = time.time()
-            del_count = 0
-            ins_count = 0
+                t1 = time.time()
+                del_count = 0
+                ins_count = 0
 
-            if table in delete_files:
-                del_count = apply_deletes(zf, delete_files[table], table)
+                if table in delete_files:
+                    del_count = apply_deletes(cur, zf, delete_files[table], table)
 
-            if table in insert_files:
-                ins_count = apply_inserts(zf, insert_files[table], table)
+                if table in insert_files:
+                    ins_count = apply_inserts(cur, zf, insert_files[table], table)
 
-            log.info(f"  {table}: -{del_count:,} +{ins_count:,} ({time.time() - t1:.1f}s)")
+                log.info(f"  {table}: -{del_count:,} +{ins_count:,} ({time.time() - t1:.1f}s)")
 
-        # Log extract as applied
-        execute(
-            "INSERT INTO kbo_extract_log (extract_number, extract_type) VALUES (%s, %s) ON CONFLICT DO NOTHING",
-            (extract_number, meta.get("ExtractType", "update")),
-        )
+            # Log extract as applied (within same transaction)
+            cur.execute(
+                "INSERT INTO kbo_extract_log (extract_number, extract_type) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (extract_number, meta.get("ExtractType", "update")),
+            )
         return True
 
 

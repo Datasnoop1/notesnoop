@@ -357,6 +357,7 @@ export default function ScreenerPage() {
   const naceContainerRef = useRef<HTMLDivElement>(null);
   const naceInputRef = useRef<HTMLInputElement>(null);
   const [naceDropdownStyle, setNaceDropdownStyle] = useState<React.CSSProperties>({});
+  const [naceInput, setNaceInput] = useState("");
 
   /* Debounced fetch ref */
   const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -473,10 +474,37 @@ export default function ScreenerPage() {
     [scheduleFetch]
   );
 
+  const selectedNaces = useMemo(() =>
+    filters.nace ? filters.nace.split(",").filter(Boolean) : [],
+    [filters.nace]
+  );
+
+  const addNace = useCallback((code: string) => {
+    setFilters((prev) => {
+      const codes = prev.nace ? prev.nace.split(",").filter(Boolean) : [];
+      if (codes.includes(code)) return prev;
+      const next = { ...prev, nace: [...codes, code].join(",") };
+      scheduleFetch(next);
+      return next;
+    });
+    setNaceInput("");
+    setNaceSuggestions([]);
+  }, [scheduleFetch]);
+
+  const removeNace = useCallback((code: string) => {
+    setFilters((prev) => {
+      const codes = prev.nace ? prev.nace.split(",").filter(Boolean) : [];
+      const next = { ...prev, nace: codes.filter(c => c !== code).join(",") };
+      scheduleFetch(next);
+      return next;
+    });
+  }, [scheduleFetch]);
+
   const resetFilters = useCallback(() => {
     setFilters(DEFAULT_FILTERS);
     setUnit("M");
     setNameSearch("");
+    setNaceInput("");
     setNaceSuggestions([]);
     setNaceOpen(false);
     doFetch(DEFAULT_FILTERS);
@@ -682,20 +710,32 @@ export default function ScreenerPage() {
             </div>
           )}
 
-          {/* NACE */}
+          {/* NACE (multi-select with chips) */}
           <div className="space-y-1" ref={naceContainerRef}>
             <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <Tag className="w-3 h-3 inline mr-1" />
               {t("screener.naceSector")}
             </Label>
+            {selectedNaces.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {selectedNaces.map((code) => (
+                  <span key={code} className="inline-flex items-center gap-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-indigo-100">
+                    {code}
+                    <button type="button" onClick={() => removeNace(code)} className="hover:text-indigo-900 ml-0.5">
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="relative">
               <Input
                 ref={naceInputRef}
                 className="h-7 text-xs"
-                placeholder={t("screener.naceCodeOrName")}
-                value={filters.nace}
+                placeholder={selectedNaces.length ? "Add another..." : t("screener.naceCodeOrName")}
+                value={naceInput}
                 onChange={(e) => {
-                  updateFilter("nace", e.target.value);
+                  setNaceInput(e.target.value);
                   fetchNaceSuggestions(e.target.value);
                   updateNaceDropdownPosition();
                 }}
@@ -706,12 +746,12 @@ export default function ScreenerPage() {
               />
               {naceOpen && naceSuggestions.length > 0 && typeof document !== "undefined" && createPortal(
                 <div className="z-[100] bg-white border border-slate-200 rounded-lg shadow-2xl max-h-[60vh] overflow-y-auto" style={naceDropdownStyle}>
-                  {naceSuggestions.map((s) => (
+                  {naceSuggestions.filter((s) => !selectedNaces.includes(s.nace_code)).map((s) => (
                     <button
                       key={s.nace_code}
                       className="w-full text-left px-2 py-1.5 text-[11px] hover:bg-indigo-50 border-b border-slate-50 last:border-0"
                       onClick={() => {
-                        updateFilter("nace", s.nace_code);
+                        addNace(s.nace_code);
                         setNaceOpen(false);
                       }}
                     >
