@@ -497,8 +497,8 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         url_source_website = "KBO"
         logger.info("URL discovery for %s: website from KBO contact table — %s", name, website_url)
 
-    # ── Try DuckDuckGo search first (free, no API key) ──────────
-    # If user flagged website as wrong previously, use Zenrows (Google) instead
+    # ── Try DuckDuckGo search for WEBSITE only ──────────────────
+    # LinkedIn discovery happens later: website HTML → search → slug
     use_zenrows = feedback.get("website_flagged", False)
 
     if not website_url:
@@ -513,14 +513,11 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
                 website_url = search_results["website_url"]
                 url_source_website = search_source
                 logger.info("URL discovery for %s: website from %s — %s", name, search_source, website_url)
-            if search_results.get("linkedin_url"):
-                linkedin_url = search_results["linkedin_url"]
-                url_source_linkedin = search_source
-                logger.info("URL discovery for %s: LinkedIn from %s — %s", name, search_source, linkedin_url)
+            # Don't grab LinkedIn from search yet — website HTML is checked first
         except Exception as e:
             logger.warning("Search failed for %s, falling back to LLM: %s", name, e)
 
-    # ── LLM fallback (only if Google didn't find a website) ──────
+    # ── LLM fallback (only if search didn't find a website) ──────
     if not website_url:
         url_prompt = (
             f"Given a Belgian company:\n"
@@ -570,27 +567,12 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
                     linkedin_url = parsed.get("linkedin_url", "") or ""
                     url_source_linkedin = "LLM"
 
-    if not linkedin_url:
-        # Build LinkedIn URL from company name slug
-        slug = slugify_company_name(name)
-        if slug:
-            linkedin_url = f"https://www.linkedin.com/company/{slug}"
-            if not url_source_linkedin:
-                url_source_linkedin = "slug"
-
     # Ensure scheme on website URL
     if website_url and not website_url.startswith("http"):
         website_url = "https://" + website_url
 
-    logger.info(
-        "URL discovery summary for %s: website=%s (source=%s), linkedin=%s (source=%s)",
-        name,
-        website_url or "(none)", url_source_website or "none",
-        linkedin_url or "(none)", url_source_linkedin or "none",
-    )
-
     # ══════════════════════════════════════════════════════════════
-    # Scrape website and LinkedIn
+    # Scrape website → extract LinkedIn from HTML → then search
     # ══════════════════════════════════════════════════════════════
     website_text = ""
     linkedin_text = ""
@@ -600,15 +582,38 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             html = await scrape_url(website_url)
             if html:
                 website_text = _strip_html(html, max_chars=8000)
-                # Extract LinkedIn from website HTML (footer links etc.) — more reliable than slug
-                if not linkedin_url or url_source_linkedin == "slug":
-                    found_li = _extract_linkedin_from_html(html)
-                    if found_li:
-                        linkedin_url = found_li
-                        url_source_linkedin = "website"
-                        logger.info("URL discovery for %s: LinkedIn found on company website — %s", name, found_li)
+                # Extract LinkedIn from website HTML (footer links, social icons)
+                found_li = _extract_linkedin_from_html(html)
+                if found_li:
+                    linkedin_url = found_li
+                    url_source_linkedin = "website"
+                    logger.info("URL discovery for %s: LinkedIn found on company website — %s", name, found_li)
         except Exception as e:
             logger.warning("Website scrape failed for %s: %s", website_url, e)
+
+    # ── LinkedIn search only if website didn't have it ────────────
+    if not linkedin_url:
+        try:
+            search_results = await duckduckgo_search_url(name, city=city)
+            if search_results.get("linkedin_url"):
+                linkedin_url = search_results["linkedin_url"]
+                url_source_linkedin = "DuckDuckGo"
+                logger.info("URL discovery for %s: LinkedIn from DuckDuckGo — %s", name, linkedin_url)
+        except Exception as e:
+            logger.warning("LinkedIn DuckDuckGo search failed for %s: %s", name, e)
+
+    if not linkedin_url:
+        slug = slugify_company_name(name)
+        if slug:
+            linkedin_url = f"https://www.linkedin.com/company/{slug}"
+            url_source_linkedin = "slug"
+
+    logger.info(
+        "URL discovery summary for %s: website=%s (source=%s), linkedin=%s (source=%s)",
+        name,
+        website_url or "(none)", url_source_website or "none",
+        linkedin_url or "(none)", url_source_linkedin or "none",
+    )
 
     if linkedin_url:
         try:
