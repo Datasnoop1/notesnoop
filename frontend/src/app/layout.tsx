@@ -53,7 +53,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${dmSans.variable} ${geist.variable} h-full antialiased`}>
       <head>
-        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1315269218347333" crossOrigin="anonymous" />
+        {/* AdSense script loaded via AdBanner component — no duplicate here */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
