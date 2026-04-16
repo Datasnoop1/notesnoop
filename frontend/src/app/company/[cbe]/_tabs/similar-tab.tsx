@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Loader2, Scale, RefreshCw, Heart, CheckSquare, Square } from "lucide-react";
+import { Sparkles, Loader2, Scale, RefreshCw, Heart, CheckSquare, Square, FolderPlus, ChevronDown } from "lucide-react";
 import { fmtEur, fmtNumber } from "@/lib/format";
 import { useTranslation } from "@/components/language-provider";
 import { useRouter } from "next/navigation";
@@ -48,6 +48,10 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [addingFavs, setAddingFavs] = useState(false);
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
+  const [projects, setProjects] = useState<{ id: number; name: string }[]>([]);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [addingToProject, setAddingToProject] = useState(false);
   const triggered = useRef(false);
 
   const toggleSelect = (ent: string) => setSelected((prev) => {
@@ -69,6 +73,41 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
       setSelected(new Set());
     } catch { /* ignore */ }
     finally { setAddingFavs(false); }
+  };
+  const loadProjects = async () => {
+    try {
+      const { getFavouriteProjects } = await import("@/lib/api");
+      const data = await getFavouriteProjects();
+      setProjects(data.map((p) => ({ id: p.id, name: p.name })));
+    } catch { /* ignore */ }
+  };
+  const addSelectedToProject = async (projectId: number) => {
+    if (selected.size === 0) return;
+    setAddingToProject(true);
+    try {
+      const { addProjectMember } = await import("@/lib/api");
+      for (const ent of selected) {
+        await addProjectMember(projectId, ent);
+      }
+      setSelected(new Set());
+      setShowProjectMenu(false);
+    } catch { /* ignore */ }
+    finally { setAddingToProject(false); }
+  };
+  const createProjectAndAdd = async () => {
+    if (!newProjectName.trim() || selected.size === 0) return;
+    setAddingToProject(true);
+    try {
+      const { createFavouriteProject, addProjectMember } = await import("@/lib/api");
+      const proj = await createFavouriteProject(newProjectName.trim());
+      for (const ent of selected) {
+        await addProjectMember(proj.id, ent);
+      }
+      setSelected(new Set());
+      setShowProjectMenu(false);
+      setNewProjectName("");
+    } catch { /* ignore */ }
+    finally { setAddingToProject(false); }
   };
 
   const loadSimilar = async () => {
@@ -183,8 +222,49 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
             className="inline-flex items-center gap-1 h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-100 disabled:opacity-50 transition-colors bg-white"
           >
             {addingFavs ? <Loader2 className="w-3 h-3 animate-spin" /> : <Heart className="w-3 h-3" />}
-            Add to favourites
+            Favourites
           </button>
+          <div className="relative">
+            <button
+              onClick={() => { setShowProjectMenu(!showProjectMenu); if (!showProjectMenu) loadProjects(); }}
+              className="inline-flex items-center gap-1 h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-100 transition-colors bg-white"
+            >
+              <FolderPlus className="w-3 h-3" />
+              Project
+              <ChevronDown className="w-2.5 h-2.5" />
+            </button>
+            {showProjectMenu && (
+              <div className="absolute top-full right-0 mt-1 w-56 bg-white rounded-lg border border-slate-200 shadow-lg z-50 py-1">
+                {projects.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => addSelectedToProject(p.id)}
+                    disabled={addingToProject}
+                    className="w-full text-left px-3 py-1.5 text-[11px] text-slate-700 hover:bg-indigo-50 disabled:opacity-50"
+                  >
+                    {p.name}
+                  </button>
+                ))}
+                {projects.length > 0 && <div className="border-t border-slate-100 my-1" />}
+                <div className="px-2 py-1.5 flex gap-1">
+                  <input
+                    className="flex-1 h-6 text-[11px] border border-slate-200 rounded px-2 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    placeholder="New project name..."
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") createProjectAndAdd(); }}
+                  />
+                  <button
+                    onClick={createProjectAndAdd}
+                    disabled={!newProjectName.trim() || addingToProject}
+                    className="h-6 px-2 text-[10px] font-medium text-white bg-indigo-600 rounded disabled:opacity-40 hover:bg-indigo-700"
+                  >
+                    {addingToProject ? "..." : "Create"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -197,7 +277,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
             }}
           >
             <Scale className="w-3 h-3 mr-1" />
-            Compare selected
+            Compare
           </Button>
         </div>
       )}
