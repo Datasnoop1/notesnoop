@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { getCompanyNetwork, getDeepNetwork } from "@/lib/api";
 import type { DeepNetworkResponse } from "@/lib/api";
+import { useTranslation } from "@/components/language-provider";
 import { Card, CardContent } from "@/components/ui/card";
 import { Maximize2, Minimize2, AlertTriangle } from "lucide-react";
 
@@ -42,16 +43,17 @@ const DEPTH_COLORS: Record<number, string> = {
   4: "#c7d2fe", // indigo-200 — 4th degree
 };
 
-const DEPTH_LABELS: Record<number, string> = {
-  0: "Target",
-  1: "Direct",
-  2: "2nd degree",
-  3: "3rd degree",
-  4: "4th degree",
-};
-
 export default function NetworkGraph({ cbe, companyName }: Props) {
+  const { t } = useTranslation();
   const router = useRouter();
+
+  const DEPTH_LABELS: Record<number, string> = {
+    0: t("company.networkTab.target"),
+    1: t("company.networkTab.direct"),
+    2: t("company.networkTab.degree2"),
+    3: t("company.networkTab.degree3"),
+    4: t("company.networkTab.degree4"),
+  };
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<any>(null);
   const [data, setData] = useState<NetworkData | null>(null);
@@ -134,7 +136,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
     return (
       <Card>
         <CardContent className="py-12 text-center text-sm text-slate-400">
-          Loading network graph...
+          {t("company.networkTab.loading")}
         </CardContent>
       </Card>
     );
@@ -148,7 +150,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
     return (
       <Card>
         <CardContent className="py-12 text-center text-sm text-slate-400">
-          Loading graph renderer...
+          {t("company.networkTab.loadingRenderer")}
         </CardContent>
       </Card>
     );
@@ -215,30 +217,30 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
         <CardContent className={`pt-4 pb-2 ${isFullscreen ? "flex-1 flex flex-col" : ""}`}>
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-slate-700">
-              Corporate Network
+              {t("company.networkTab.title")}
             </h3>
             {!deepMode ? (
               <div className="flex gap-3 text-[11px] text-slate-500">
                 <span className="flex items-center gap-1">
                   <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block" />
-                  Company
+                  {t("company.networkTab.company")}
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block" />
-                  Shareholder
+                  {t("company.networkTab.shareholder")}
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block" />
-                  Subsidiary
+                  {t("company.networkTab.subsidiary")}
                 </span>
                 {/* Edge color legend */}
                 <span className="flex items-center gap-1 ml-2 border-l border-slate-200 pl-2">
                   <span className="w-4 h-0.5 bg-emerald-600 inline-block rounded" />
-                  SH link
+                  {t("company.networkTab.shLink")}
                 </span>
                 <span className="flex items-center gap-1">
                   <span className="w-4 h-0.5 bg-amber-600 inline-block rounded" />
-                  Sub link
+                  {t("company.networkTab.subLink")}
                 </span>
               </div>
             ) : (
@@ -261,7 +263,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
           {deepMode && data.truncated && (
             <div className="flex items-center gap-2 px-3 py-2 mb-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              Graph capped at 100 nodes. Reached depth {data.depth_reached ?? depth}. Some connections may be hidden.
+              {t("company.networkTab.truncationWarning").replace("{depth}", String(data.depth_reached ?? depth))}
             </div>
           )}
 
@@ -276,7 +278,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                     : "bg-white text-slate-600 hover:bg-slate-50"
                 }`}
               >
-                Simple
+                {t("company.networkTab.simple")}
               </button>
               <button
                 onClick={() => setDeepMode(true)}
@@ -286,13 +288,13 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                     : "bg-white text-slate-600 hover:bg-slate-50"
                 }`}
               >
-                Deep
+                {t("company.networkTab.deep")}
               </button>
             </div>
 
             <span className="text-[10px] text-slate-300">|</span>
 
-            <span className="text-xs text-slate-500 font-medium">Depth:</span>
+            <span className="text-xs text-slate-500 font-medium">{t("company.networkTab.depth")}</span>
             {(deepMode ? [1, 2, 3, 4] : [1, 2, 3]).map(d => (
               <button
                 key={d}
@@ -303,7 +305,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                     : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                 }`}
               >
-                {d === 1 ? "1st" : d === 2 ? "2nd" : d === 3 ? "3rd" : "4th"} degree
+                {t(`company.networkTab.degree${d}`)}
               </button>
             ))}
             <div className="ml-auto flex items-center gap-2">
@@ -315,16 +317,16 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                 }}
                 className="px-2.5 py-1 text-xs rounded-md font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
               >
-                Reset view
+                {t("company.networkTab.resetView")}
               </button>
               <button
                 onClick={() => setIsFullscreen((prev) => !prev)}
                 className="px-2.5 py-1 text-xs rounded-md font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 inline-flex items-center gap-1"
               >
                 {isFullscreen ? (
-                  <><Minimize2 className="h-3 w-3" /> Exit fullscreen</>
+                  <><Minimize2 className="h-3 w-3" /> {t("company.networkTab.exitFullscreen")}</>
                 ) : (
-                  <><Maximize2 className="h-3 w-3" /> Fullscreen</>
+                  <><Maximize2 className="h-3 w-3" /> {t("company.networkTab.fullscreen")}</>
                 )}
               </button>
             </div>
@@ -425,9 +427,9 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
             />
           </div>
           <p className="text-[11px] text-slate-400 mt-2 text-center">
-            Click a node to navigate to that company &middot; {data.nodes.length} nodes, {data.edges.length} connections
+            {t("company.networkTab.footer")} &middot; {t("company.networkTab.nodesConnections").replace("{nodes}", String(data.nodes.length)).replace("{connections}", String(data.edges.length))}
             {deepMode && data.depth_reached != null && ` \u00b7 Depth reached: ${data.depth_reached}`}
-            {isFullscreen && " \u00b7 Press Esc to exit fullscreen"}
+            {isFullscreen && ` \u00b7 ${t("company.networkTab.pressEsc")}`}
           </p>
         </CardContent>
       </Card>

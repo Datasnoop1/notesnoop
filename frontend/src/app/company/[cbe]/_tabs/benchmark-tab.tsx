@@ -2,6 +2,7 @@
 
 import React from "react";
 import { BarChart3, Shield, Loader2 } from "lucide-react";
+import { useTranslation } from "@/components/language-provider";
 import type { SectorBenchmark } from "@/lib/api";
 import type { CompanyDetail } from "../types";
 
@@ -13,11 +14,13 @@ interface BenchmarkTabProps {
 }
 
 export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
+  const { t } = useTranslation();
+
   if (!benchmark) {
     return (
       <div className="py-8 text-center">
         <Loader2 className="w-6 h-6 animate-spin text-indigo-500 mx-auto mb-2" />
-        <p className="text-sm text-slate-400">Loading sector benchmarks...</p>
+        <p className="text-sm text-slate-400">{t("company.benchmarkTab.loading")}</p>
       </div>
     );
   }
@@ -25,7 +28,7 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
   if (benchmark.error) {
     return (
       <p className="py-8 text-center text-sm text-slate-500">
-        {benchmark.error === "no_nace" ? "No NACE code assigned to this company." : "No financial data available for benchmarking."}
+        {benchmark.error === "no_nace" ? t("company.benchmarkTab.noNace") : t("company.benchmarkTab.noFinancials")}
       </p>
     );
   }
@@ -40,10 +43,10 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
   };
 
   const getQuartileLabel = (pct: number) => {
-    if (pct >= 75) return { label: "Top quartile", color: "text-emerald-600 bg-emerald-50 border-emerald-200", dot: "bg-emerald-500" };
-    if (pct >= 50) return { label: "Above median", color: "text-indigo-600 bg-indigo-50 border-indigo-200", dot: "bg-indigo-500" };
-    if (pct >= 25) return { label: "Below median", color: "text-amber-600 bg-amber-50 border-amber-200", dot: "bg-amber-500" };
-    return { label: "Bottom quartile", color: "text-rose-500 bg-rose-50 border-rose-200", dot: "bg-rose-400" };
+    if (pct >= 75) return { label: t("company.benchmarkTab.topQuartile"), color: "text-emerald-600 bg-emerald-50 border-emerald-200", dot: "bg-emerald-500" };
+    if (pct >= 50) return { label: t("company.benchmarkTab.aboveMedian"), color: "text-indigo-600 bg-indigo-50 border-indigo-200", dot: "bg-indigo-500" };
+    if (pct >= 25) return { label: t("company.benchmarkTab.belowMedian"), color: "text-amber-600 bg-amber-50 border-amber-200", dot: "bg-amber-500" };
+    return { label: t("company.benchmarkTab.bottomQuartile"), color: "text-rose-500 bg-rose-50 border-rose-200", dot: "bg-rose-400" };
   };
 
   // Score: average percentile across all metrics
@@ -60,10 +63,10 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
           <div>
             <div className="flex items-center gap-2 mb-1">
               <BarChart3 className="h-4 w-4 text-amber-500" />
-              <h3 className="text-sm font-semibold text-slate-800">Sector Performance</h3>
+              <h3 className="text-sm font-semibold text-slate-800">{t("company.benchmarkTab.title")}</h3>
             </div>
             <p className="text-xs text-slate-500">
-              vs. <span className="font-medium text-slate-700">{benchmark.peer_count.toLocaleString()}</span> companies in{" "}
+              {t("company.benchmarkTab.vs")} <span className="font-medium text-slate-700">{benchmark.peer_count.toLocaleString()}</span> {t("company.benchmarkTab.companiesIn")}{" "}
               <span className="font-medium text-slate-700">{benchmark.nace_label}</span>
             </p>
             <p className="text-[10px] text-slate-400 mt-0.5">NACE {benchmark.nace_code} · FY{benchmark.fiscal_year}</p>
@@ -72,7 +75,7 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
             <div className="text-2xl font-bold text-slate-800 font-mono">P{avgPercentile.toFixed(0)}</div>
             <span className={`inline-flex items-center gap-1.5 text-[10px] font-medium rounded-full border px-2 py-0.5 mt-1 ${overallQuartile.color}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${overallQuartile.dot}`} />
-              {overallQuartile.label} overall
+              {overallQuartile.label} {t("company.benchmarkTab.overall")}
             </span>
           </div>
         </div>
@@ -115,15 +118,15 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
               {/* Peer distribution */}
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-md bg-slate-50 py-1.5 px-1">
-                  <div className="text-[9px] text-slate-400 uppercase tracking-wider">P25</div>
+                  <div className="text-[9px] text-slate-400 uppercase tracking-wider">{t("company.benchmarkTab.p25")}</div>
                   <div className="text-[11px] font-mono font-medium text-slate-600">{fmtBenchVal(b.p25, b.format)}</div>
                 </div>
                 <div className="rounded-md bg-slate-50 py-1.5 px-1">
-                  <div className="text-[9px] text-slate-400 uppercase tracking-wider">Median</div>
+                  <div className="text-[9px] text-slate-400 uppercase tracking-wider">{t("company.benchmarkTab.median")}</div>
                   <div className="text-[11px] font-mono font-medium text-slate-600">{fmtBenchVal(b.median, b.format)}</div>
                 </div>
                 <div className="rounded-md bg-slate-50 py-1.5 px-1">
-                  <div className="text-[9px] text-slate-400 uppercase tracking-wider">P75</div>
+                  <div className="text-[9px] text-slate-400 uppercase tracking-wider">{t("company.benchmarkTab.p75")}</div>
                   <div className="text-[11px] font-mono font-medium text-slate-600">{fmtBenchVal(b.p75, b.format)}</div>
                 </div>
               </div>
@@ -134,7 +137,7 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
 
       <p className="text-[10px] text-slate-400 italic flex items-center gap-1.5">
         <Shield className="h-3 w-3" />
-        Percentile rankings within NACE {benchmark.nace_code}. P75 means outperforming 75% of peers. Overall score is the average percentile across all metrics.
+        {t("company.benchmarkTab.footnote").replace("{nace}", benchmark.nace_code)}
       </p>
     </div>
   );

@@ -2,6 +2,7 @@
 
 import React from "react";
 import ExportButtons from "@/components/export-buttons";
+import { useTranslation } from "@/components/language-provider";
 import { fmtEur } from "@/lib/format";
 import { renderDelta, renderDeltaHeaders } from "../helpers";
 import type { FinancialsData } from "../types";
@@ -25,10 +26,12 @@ export function CashFlowTab({
   collapsedSections,
   toggleSection,
 }: CashFlowTabProps) {
+  const { t } = useTranslation();
+
   if (!financials || financials.summary.length < 2) {
     return (
       <p className="py-8 text-center text-sm text-slate-500">
-        Need at least two years of financial data to derive cash flow.
+        {t("company.cf.noData")}
       </p>
     );
   }
@@ -104,27 +107,27 @@ export function CashFlowTab({
   };
 
   const lines: CFLine[] = [
-    { label: "EBITDA", key: "ebitda", section: "OPERATING ACTIVITIES" },
-    { label: "\u0394 Inventories", key: "deltaInv", indent: true, group: "cf_wc" },
-    { label: "\u0394 Trade Receivables", key: "deltaRec", indent: true, group: "cf_wc" },
-    { label: "\u0394 Trade Payables", key: "deltaPay", indent: true, group: "cf_wc" },
-    { label: "Change in Working Capital", key: "wcChange", bold: true, topBorder: true },
-    { label: "Cash from Operations", key: "cashFromOps", bold: true, topBorder: true },
-    { label: "CapEx (est.: \u0394 Fixed Assets + D&A)", key: "capex", indent: true, section: "INVESTING ACTIVITIES" },
-    { label: "Cash from Investing", key: "cashFromInvesting", bold: true, topBorder: true },
-    { label: "\u0394 Long-term Debt", key: "deltaLtDebt", indent: true, section: "FINANCING ACTIVITIES", group: "cf_fin" },
-    { label: "\u0394 Short-term Debt", key: "deltaStDebt", indent: true, group: "cf_fin" },
-    { label: "\u0394 Equity", key: "deltaEquity", indent: true, group: "cf_fin" },
-    { label: "Cash from Financing", key: "cashFromFinancing", bold: true, topBorder: true },
-    { label: "NET CASH CHANGE", key: "netCashChange", bold: true, doubleBorder: true },
-    { label: "Cash at Start of Year", key: "cashStart", indent: true },
-    { label: "Cash at End of Year", key: "cashEnd", indent: true },
+    { label: t("company.cf.ebitda"), key: "ebitda", section: t("company.cf.sectionOperating") },
+    { label: t("company.cf.deltaInventories"), key: "deltaInv", indent: true, group: "cf_wc" },
+    { label: t("company.cf.deltaTradeRec"), key: "deltaRec", indent: true, group: "cf_wc" },
+    { label: t("company.cf.deltaTradePay"), key: "deltaPay", indent: true, group: "cf_wc" },
+    { label: t("company.cf.wcChange"), key: "wcChange", bold: true, topBorder: true },
+    { label: t("company.cf.cashFromOps"), key: "cashFromOps", bold: true, topBorder: true },
+    { label: t("company.cf.capex"), key: "capex", indent: true, section: t("company.cf.sectionInvesting") },
+    { label: t("company.cf.cashFromInvesting"), key: "cashFromInvesting", bold: true, topBorder: true },
+    { label: t("company.cf.deltaLtDebt"), key: "deltaLtDebt", indent: true, section: t("company.cf.sectionFinancing"), group: "cf_fin" },
+    { label: t("company.cf.deltaStDebt"), key: "deltaStDebt", indent: true, group: "cf_fin" },
+    { label: t("company.cf.deltaEquity"), key: "deltaEquity", indent: true, group: "cf_fin" },
+    { label: t("company.cf.cashFromFinancing"), key: "cashFromFinancing", bold: true, topBorder: true },
+    { label: t("company.cf.netCashChange"), key: "netCashChange", bold: true, doubleBorder: true },
+    { label: t("company.cf.cashStart"), key: "cashStart", indent: true },
+    { label: t("company.cf.cashEnd"), key: "cashEnd", indent: true },
   ];
 
   let lastSection = "";
 
   function exportCfCsv() {
-    const headers = ["Line Item", ...cfRows.map(r => `FY${r.fiscal_year}`)];
+    const headers = [t("company.cf.lineItem"), ...cfRows.map(r => `FY${r.fiscal_year}`)];
     const csvLines = lines.map(line => {
       const cells = cfRowsDesc.map(r => {
         const v = r[line.key];
@@ -146,14 +149,14 @@ export function CashFlowTab({
     <div>
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-cyan-500 pl-2">
-          Derived Cash Flow Statement
+          {t("company.cf.title")}
         </h3>
         <div className="flex items-center gap-2">
           <button onClick={() => toggleSection("cf_wc")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.cf_wc ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
-            {collapsedSections.cf_wc ? "\u25b8 WC grouped" : "\u25be WC expanded"}
+            {collapsedSections.cf_wc ? `\u25b8 ${t("company.cf.wcGrouped")}` : `\u25be ${t("company.cf.wcExpanded")}`}
           </button>
           <button onClick={() => toggleSection("cf_fin")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.cf_fin ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
-            {collapsedSections.cf_fin ? "\u25b8 Financing grouped" : "\u25be Financing expanded"}
+            {collapsedSections.cf_fin ? `\u25b8 ${t("company.cf.finGrouped")}` : `\u25be ${t("company.cf.finExpanded")}`}
           </button>
           <ExportButtons onExportCSV={exportCfCsv} onPrint={() => window.print()} />
         </div>
@@ -162,7 +165,7 @@ export function CashFlowTab({
         <table className="w-full">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[260px]">Line Item</th>
+              <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[260px]">{t("company.cf.lineItem")}</th>
               {renderDeltaHeaders(cfRows.map(r => r.fiscal_year))}
             </tr>
           </thead>
@@ -210,8 +213,7 @@ export function CashFlowTab({
         </table>
       </div>
       <p className="mt-1 text-[10px] text-slate-400 italic">
-        All values derived. WC: increase in assets = cash outflow (negative), increase in payables = cash inflow (positive).
-        CapEx estimated as |delta fixed assets + D&A|. Cash = cash + short-term investments.
+        {t("company.cf.footnote")}
       </p>
     </div>
   );

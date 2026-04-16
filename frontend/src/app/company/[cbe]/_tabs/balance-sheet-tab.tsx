@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useTranslation } from "@/components/language-provider";
 import ExportButtons from "@/components/export-buttons";
 import { fmtEur } from "@/lib/format";
 import { renderDelta, renderDeltaHeaders } from "../helpers";
@@ -25,10 +26,12 @@ export function BalanceSheetTab({
   collapsedSections,
   toggleSection,
 }: BalanceSheetTabProps) {
+  const { t } = useTranslation();
+
   if (!financials || financials.summary.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-slate-500">
-        No financial data available for this company.
+        {t("company.bs.noData")}
       </p>
     );
   }
@@ -109,31 +112,31 @@ export function BalanceSheetTab({
 
   const lines: BSLine[] = [
     // ASSETS
-    { label: "Tangible Fixed Assets", key: "fixedAssets", indent: true, section: "NON-CURRENT ASSETS" },
-    { label: "Total Non-Current Assets (20/28)", key: "totalNonCurrentAssets", bold: true, topBorder: true },
-    { label: "Inventories (3)", key: "inventories", indent: true, section: "CURRENT ASSETS", group: "bs_ca" },
-    { label: "Trade Receivables (40/41)", key: "tradeReceivables", indent: true, group: "bs_ca" },
-    { label: "Cash & Cash Equivalents (54/58)", key: "cash", indent: true, group: "bs_ca" },
-    { label: "Short-term Investments (50/53)", key: "currentInvestments", indent: true, group: "bs_ca" },
-    { label: "Other Current Assets", key: "otherCurrentAssets", indent: true, group: "bs_ca" },
-    { label: "Total Current Assets", key: "totalCurrentAssets", bold: true, topBorder: true },
-    { label: "TOTAL ASSETS (20/58)", key: "totalAssets", bold: true, doubleBorder: true },
+    { label: t("company.bs.tangibleFixedAssets"), key: "fixedAssets", indent: true, section: t("company.bs.sectionNonCurrentAssets") },
+    { label: t("company.bs.totalNonCurrentAssets"), key: "totalNonCurrentAssets", bold: true, topBorder: true },
+    { label: t("company.bs.inventories"), key: "inventories", indent: true, section: t("company.bs.sectionCurrentAssets"), group: "bs_ca" },
+    { label: t("company.bs.tradeReceivables"), key: "tradeReceivables", indent: true, group: "bs_ca" },
+    { label: t("company.bs.cashEquivalents"), key: "cash", indent: true, group: "bs_ca" },
+    { label: t("company.bs.stInvestments"), key: "currentInvestments", indent: true, group: "bs_ca" },
+    { label: t("company.bs.otherCurrentAssets"), key: "otherCurrentAssets", indent: true, group: "bs_ca" },
+    { label: t("company.bs.totalCurrentAssets"), key: "totalCurrentAssets", bold: true, topBorder: true },
+    { label: t("company.bs.totalAssets"), key: "totalAssets", bold: true, doubleBorder: true },
     // EQUITY & LIABILITIES
-    { label: "Total Equity (10/15)", key: "equity", bold: true, section: "EQUITY" },
-    { label: "Long-term Debt (17)", key: "ltDebt", indent: true, section: "NON-CURRENT LIABILITIES" },
-    { label: "of which: Financial Debt (170/4)", key: "ltFinDebt", subIndent: true },
-    { label: "Total Non-Current Liabilities", key: "totalNonCurrentLiab", bold: true, topBorder: true },
-    { label: "Trade Payables (44)", key: "tradePayables", indent: true, section: "CURRENT LIABILITIES", group: "bs_cl" },
-    { label: "Short-term Financial Debt (43)", key: "stFinDebt", indent: true, group: "bs_cl" },
-    { label: "Other Current Liabilities", key: "otherCurrentLiab", indent: true, group: "bs_cl" },
-    { label: "Total Current Liabilities", key: "totalCurrentLiab", bold: true, topBorder: true },
-    { label: "TOTAL EQUITY + LIABILITIES", key: "totalLE", bold: true, doubleBorder: true },
+    { label: t("company.bs.totalEquity"), key: "equity", bold: true, section: t("company.bs.sectionEquity") },
+    { label: t("company.bs.ltDebt"), key: "ltDebt", indent: true, section: t("company.bs.sectionNonCurrentLiab") },
+    { label: t("company.bs.ltFinDebt"), key: "ltFinDebt", subIndent: true },
+    { label: t("company.bs.totalNonCurrentLiab"), key: "totalNonCurrentLiab", bold: true, topBorder: true },
+    { label: t("company.bs.tradePayables"), key: "tradePayables", indent: true, section: t("company.bs.sectionCurrentLiab"), group: "bs_cl" },
+    { label: t("company.bs.stFinDebt"), key: "stFinDebt", indent: true, group: "bs_cl" },
+    { label: t("company.bs.otherCurrentLiab"), key: "otherCurrentLiab", indent: true, group: "bs_cl" },
+    { label: t("company.bs.totalCurrentLiab"), key: "totalCurrentLiab", bold: true, topBorder: true },
+    { label: t("company.bs.totalEqLiab"), key: "totalLE", bold: true, doubleBorder: true },
   ];
 
   let lastSection = "";
 
   function exportBsCsv() {
-    const headers = ["Line Item", ...sorted.map(r => `FY${r.fiscal_year}`)];
+    const headers = [t("company.bs.lineItem"), ...sorted.map(r => `FY${r.fiscal_year}`)];
     const csvLines = lines.map(line => {
       const cells = bsRows.map(r => {
         const v = r[line.key];
@@ -155,14 +158,14 @@ export function BalanceSheetTab({
     <div>
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
-          Balance Sheet
+          {t("company.bs.title")}
         </h3>
         <div className="flex items-center gap-2">
           <button onClick={() => toggleSection("bs_ca")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_ca ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
-            {collapsedSections.bs_ca ? "\u25b8 Current Assets grouped" : "\u25be Current Assets expanded"}
+            {collapsedSections.bs_ca ? `\u25b8 ${t("company.bs.caGrouped")}` : `\u25be ${t("company.bs.caExpanded")}`}
           </button>
           <button onClick={() => toggleSection("bs_cl")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_cl ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
-            {collapsedSections.bs_cl ? "\u25b8 Current Liab. grouped" : "\u25be Current Liab. expanded"}
+            {collapsedSections.bs_cl ? `\u25b8 ${t("company.bs.clGrouped")}` : `\u25be ${t("company.bs.clExpanded")}`}
           </button>
           <ExportButtons
             onExportCSV={exportBsCsv}
@@ -174,7 +177,7 @@ export function BalanceSheetTab({
         <table className="w-full min-w-[500px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[120px] md:min-w-[260px]">Line Item</th>
+              <th className="px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[120px] md:min-w-[260px]">{t("company.bs.lineItem")}</th>
               {renderDeltaHeaders(chronological.map(r => r.fiscal_year))}
             </tr>
           </thead>
@@ -222,7 +225,7 @@ export function BalanceSheetTab({
         </table>
       </div>
       <p className="mt-1 text-[10px] text-slate-400 italic">
-        Rubric references in parentheses per Belgian GAAP. Current Liabilities = Total - Equity - LT Debt. Other items are residual calculations.
+        {t("company.bs.footnote")}
       </p>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useTranslation } from "@/components/language-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import ExportButtons from "@/components/export-buttons";
@@ -84,6 +85,8 @@ export function PnlTab({
   toggleSection,
   chartData,
 }: PnlTabProps) {
+  const { t } = useTranslation();
+
   if (!financials || financials.summary.length === 0) {
     return (
       <div className="py-8 text-center">
@@ -91,15 +94,15 @@ export function PnlTab({
           <div className="flex flex-col items-center gap-2">
             <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
             <p className="text-sm text-slate-500 animate-pulse">
-              Loading financial data from NBB... This may take a minute.
+              {t("company.pnl.loadingNbb")}
             </p>
           </div>
         ) : (
           <>
             <p className="text-sm text-slate-500 mb-4">
               {nbbResult === "no-data"
-                ? "No NBB filings found for this company."
-                : "No financial data available for this company."}
+                ? t("company.pnl.noFilings")
+                : t("company.pnl.noData")}
             </p>
             <Button
               variant="outline"
@@ -124,18 +127,18 @@ export function PnlTab({
               className={`text-indigo-600 border-indigo-300 hover:bg-indigo-50 ${nbbLoading ? "opacity-70 cursor-not-allowed" : ""}`}
             >
               <Download className="w-4 h-4 mr-2" />
-              {nbbResult === "no-data" ? "Retry from NBB" : "Load from NBB"}
+              {nbbResult === "no-data" ? t("company.pnl.retryNbb") : t("company.pnl.loadNbb")}
             </Button>
             {nbbResult === "success" && (
               <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-emerald-600">
                 <CheckCircle2 className="w-4 h-4" />
-                Data loaded successfully.
+                {t("company.pnl.dataLoaded")}
               </div>
             )}
             {nbbResult === "error" && (
               <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-rose-400">
                 <XCircle className="w-4 h-4" />
-                Failed to load data. The company may not have filings available.
+                {t("company.pnl.loadFailed")}
               </div>
             )}
           </>
@@ -214,19 +217,19 @@ export function PnlTab({
   const chronologicalPnl = [...pnlData].reverse();
 
   const lines: PnlLine[] = [
-    { label: "Revenue", key: "revenue", section: "REVENUE" },
-    { label: "Cost of Sales", key: "costOfSales", isCost: true, indent: true },
-    { label: "Gross Profit", key: "grossMargin", bold: true, topBorder: true },
-    { label: "Personnel Costs", key: "personnel", isCost: true, section: "OPERATING COSTS", indent: true, group: "pnl_opex" },
-    { label: "Depreciation & Amortization", key: "da", isCost: true, indent: true, group: "pnl_opex" },
-    { label: "Other Operating Costs", key: "otherOpCosts", isCost: true, indent: true, group: "pnl_opex" },
-    { label: "EBIT (Operating Profit)", key: "ebit", bold: true, topBorder: true, isKeyMetric: true },
-    { label: "Financial Charges", key: "finCharges", isCost: true, section: "FINANCIAL", indent: true },
-    { label: "Profit Before Tax", key: "pbt", bold: true, topBorder: true, isKeyMetric: true },
-    { label: "Tax", key: "tax", isCost: true, indent: true },
-    { label: "Net Profit", key: "netProfit", bold: true, doubleBorder: true, isKeyMetric: true },
-    { label: "EBITDA", key: "ebitda", bold: true, section: "EBITDA", topBorder: true, isKeyMetric: true },
-    { label: "EBITDA Margin", key: "ebitdaMarginPct", isPct: true },
+    { label: t("company.pnl.revenue"), key: "revenue", section: t("company.pnl.sectionRevenue") },
+    { label: t("company.pnl.costOfSales"), key: "costOfSales", isCost: true, indent: true },
+    { label: t("company.pnl.grossProfit"), key: "grossMargin", bold: true, topBorder: true },
+    { label: t("company.pnl.personnelCosts"), key: "personnel", isCost: true, section: t("company.pnl.sectionOpCosts"), indent: true, group: "pnl_opex" },
+    { label: t("company.pnl.da"), key: "da", isCost: true, indent: true, group: "pnl_opex" },
+    { label: t("company.pnl.otherOpCosts"), key: "otherOpCosts", isCost: true, indent: true, group: "pnl_opex" },
+    { label: t("company.pnl.ebitOp"), key: "ebit", bold: true, topBorder: true, isKeyMetric: true },
+    { label: t("company.pnl.financialCharges"), key: "finCharges", isCost: true, section: t("company.pnl.sectionFinancial"), indent: true },
+    { label: t("company.pnl.pbt"), key: "pbt", bold: true, topBorder: true, isKeyMetric: true },
+    { label: t("company.pnl.tax"), key: "tax", isCost: true, indent: true },
+    { label: t("company.pnl.netProfit"), key: "netProfit", bold: true, doubleBorder: true, isKeyMetric: true },
+    { label: t("company.pnl.ebitda"), key: "ebitda", bold: true, section: t("company.pnl.sectionEbitda"), topBorder: true, isKeyMetric: true },
+    { label: t("company.pnl.ebitdaMargin"), key: "ebitdaMarginPct", isPct: true },
   ];
 
   let lastSection = "";
@@ -286,13 +289,13 @@ export function PnlTab({
       {latestPnl && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
           {[
-            { label: "Revenue", value: fmtEur(latestPnl.revenue), sub: growthPill(revGrowth), icon: <DollarSign className="h-3 w-3" /> },
-            { label: "Gross Margin", value: marginPill(grossMarginPct), sub: null, icon: <Percent className="h-3 w-3" /> },
-            { label: "EBITDA", value: fmtEur(latestPnl.ebitda), sub: growthPill(ebitdaGrowth), icon: <BarChart3 className="h-3 w-3" /> },
-            { label: "EBITDA %", value: marginPill(ebitdaPct), sub: null, icon: <Percent className="h-3 w-3" /> },
-            { label: "EBIT", value: fmtEur(latestPnl.ebit), sub: growthPill(ebitGrowth), icon: <Activity className="h-3 w-3" /> },
-            { label: "EBIT %", value: marginPill(ebitPct), sub: null, icon: <Percent className="h-3 w-3" /> },
-            { label: "Net Profit", value: fmtEur(latestPnl.netProfit), sub: null, icon: <DollarSign className="h-3 w-3" /> },
+            { label: t("company.pnl.revenue"), value: fmtEur(latestPnl.revenue), sub: growthPill(revGrowth), icon: <DollarSign className="h-3 w-3" /> },
+            { label: t("company.pnl.grossMargin"), value: marginPill(grossMarginPct), sub: null, icon: <Percent className="h-3 w-3" /> },
+            { label: t("company.pnl.ebitda"), value: fmtEur(latestPnl.ebitda), sub: growthPill(ebitdaGrowth), icon: <BarChart3 className="h-3 w-3" /> },
+            { label: t("company.pnl.ebitdaPct"), value: marginPill(ebitdaPct), sub: null, icon: <Percent className="h-3 w-3" /> },
+            { label: t("company.ebit"), value: fmtEur(latestPnl.ebit), sub: growthPill(ebitGrowth), icon: <Activity className="h-3 w-3" /> },
+            { label: t("company.pnl.ebitPct"), value: marginPill(ebitPct), sub: null, icon: <Percent className="h-3 w-3" /> },
+            { label: t("company.pnl.netProfit"), value: fmtEur(latestPnl.netProfit), sub: null, icon: <DollarSign className="h-3 w-3" /> },
           ].map((m, i) => (
             <div key={i} className="rounded-lg border border-slate-100 bg-white p-2.5 text-center">
               <div className="flex items-center justify-center gap-1 text-[9px] text-slate-400 uppercase tracking-wider mb-1">
@@ -309,14 +312,14 @@ export function PnlTab({
       <div>
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
-          Income Statement
+          {t("company.pnl.title")}
         </h3>
         <div className="flex items-center gap-2">
           <button
             onClick={() => toggleSection("pnl_opex")}
             className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.pnl_opex ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}
           >
-            {collapsedSections.pnl_opex ? "\u25b8 OpEx grouped" : "\u25be OpEx expanded"}
+            {collapsedSections.pnl_opex ? `\u25b8 ${t("company.pnl.opexGrouped")}` : `\u25be ${t("company.pnl.opexExpanded")}`}
           </button>
           <ExportButtons
             onExportCSV={exportPnlCsv}
@@ -328,7 +331,7 @@ export function PnlTab({
         <table className="w-full min-w-[500px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[120px] md:min-w-[240px]">Line Item</th>
+              <th className="px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[120px] md:min-w-[240px]">{t("company.pnl.lineItem")}</th>
               {renderDeltaHeaders(chronological.map(r => r.fiscal_year))}
             </tr>
           </thead>
@@ -381,7 +384,7 @@ export function PnlTab({
         </table>
       </div>
       <p className="mt-1 text-[10px] text-slate-400 italic">
-        Gross Profit = rubric 9900. EBIT = rubric 9901. Net Profit = rubric 9904. Cost of Sales = Revenue - Gross Profit. Other Op. Costs = Gross Profit - Personnel - D&A - EBIT.
+        {t("company.pnl.footnote")}
       </p>
       </div>
 
@@ -390,7 +393,7 @@ export function PnlTab({
         <Card className="mt-4">
           <CardContent className="pt-3 pb-3">
             <h3 className="mb-3 text-xs font-semibold text-slate-700">
-              Revenue & EBITDA trend
+              {t("company.pnl.chartTitle")}
             </h3>
             <ResponsiveContainer width="100%" height={320}>
               <LineChart data={chartData}>

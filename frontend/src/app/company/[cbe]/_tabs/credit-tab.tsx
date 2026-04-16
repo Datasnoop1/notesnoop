@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useTranslation } from "@/components/language-provider";
 import ExportButtons from "@/components/export-buttons";
 import {
   Table,
@@ -93,10 +94,12 @@ interface CreditTabProps {
 }
 
 export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
+  const { t } = useTranslation();
+
   if (!financials || financials.summary.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-slate-500">
-        No financial data available for credit analysis.
+        {t("company.creditTab.noData")}
       </p>
     );
   }
@@ -153,13 +156,13 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
 
   const lr = latestRow; // shorthand for formula details
   const metricCards = [
-    { label: "Net Debt / EBITDA", value: fmtRatio(latest.netDebtEbitda), colorFn: leverageColor, raw: latest.netDebtEbitda, formula: "(LT Fin Debt + ST Fin Debt \u2212 Cash \u2212 Investments) / EBITDA", detail: `(${fmtEur(lr.lt_financial_debt)} + ${fmtEur(lr.st_financial_debt)} \u2212 ${fmtEur(lr.cash)} \u2212 ${fmtEur(lr.current_investments)}) / ${fmtEur(lr.ebitda)}` },
-    { label: "Debt / Equity", value: fmtRatio(latest.debtEquity), colorFn: debtEquityColor, raw: latest.debtEquity, formula: "(LT Fin Debt + ST Fin Debt) / Equity", detail: `(${fmtEur(lr.lt_financial_debt)} + ${fmtEur(lr.st_financial_debt)}) / ${fmtEur(lr.equity)}` },
-    { label: "Equity Ratio", value: fmtRatio(latest.equityRatio, "%"), colorFn: equityRatioColor, raw: latest.equityRatio, formula: "Equity / Total Assets \u00d7 100", detail: `${fmtEur(lr.equity)} / ${fmtEur(lr.total_assets)}` },
-    { label: "Interest Coverage", value: fmtRatio(latest.interestCoverage), colorFn: coverageColor, raw: latest.interestCoverage, formula: "EBIT / |Financial Charges|", detail: `${fmtEur(lr.ebit)} / ${fmtEur(lr.financial_charges)}` },
-    { label: "Cash / ST Debt", value: fmtRatio(latest.cashStDebt), colorFn: cashRatioColor, raw: latest.cashStDebt, formula: "(Cash + Investments) / ST Financial Debt", detail: `(${fmtEur(lr.cash)} + ${fmtEur(lr.current_investments)}) / ${fmtEur(lr.st_financial_debt)}` },
-    { label: "Debt Service", value: fmtRatio(latest.dscr), colorFn: dscrColor, raw: latest.dscr, formula: "EBITDA / (|Fin Charges| + ST Fin Debt)", detail: `${fmtEur(lr.ebitda)} / (${fmtEur(lr.financial_charges)} + ${fmtEur(lr.st_financial_debt)})` },
-    { label: "ROE", value: fmtRatio(latest.roe, "%"), colorFn: roeColor, raw: latest.roe, formula: "Net Profit / Equity \u00d7 100", detail: `${fmtEur(lr.net_profit)} / ${fmtEur(lr.equity)}` },
+    { label: t("company.creditTab.netDebtEbitda"), value: fmtRatio(latest.netDebtEbitda), colorFn: leverageColor, raw: latest.netDebtEbitda, formula: "(LT Fin Debt + ST Fin Debt \u2212 Cash \u2212 Investments) / EBITDA", detail: `(${fmtEur(lr.lt_financial_debt)} + ${fmtEur(lr.st_financial_debt)} \u2212 ${fmtEur(lr.cash)} \u2212 ${fmtEur(lr.current_investments)}) / ${fmtEur(lr.ebitda)}` },
+    { label: t("company.creditTab.debtEquity"), value: fmtRatio(latest.debtEquity), colorFn: debtEquityColor, raw: latest.debtEquity, formula: "(LT Fin Debt + ST Fin Debt) / Equity", detail: `(${fmtEur(lr.lt_financial_debt)} + ${fmtEur(lr.st_financial_debt)}) / ${fmtEur(lr.equity)}` },
+    { label: t("company.creditTab.equityRatio"), value: fmtRatio(latest.equityRatio, "%"), colorFn: equityRatioColor, raw: latest.equityRatio, formula: "Equity / Total Assets \u00d7 100", detail: `${fmtEur(lr.equity)} / ${fmtEur(lr.total_assets)}` },
+    { label: t("company.creditTab.interestCoverage"), value: fmtRatio(latest.interestCoverage), colorFn: coverageColor, raw: latest.interestCoverage, formula: "EBIT / |Financial Charges|", detail: `${fmtEur(lr.ebit)} / ${fmtEur(lr.financial_charges)}` },
+    { label: t("company.creditTab.cashStDebt"), value: fmtRatio(latest.cashStDebt), colorFn: cashRatioColor, raw: latest.cashStDebt, formula: "(Cash + Investments) / ST Financial Debt", detail: `(${fmtEur(lr.cash)} + ${fmtEur(lr.current_investments)}) / ${fmtEur(lr.st_financial_debt)}` },
+    { label: t("company.creditTab.debtService"), value: fmtRatio(latest.dscr), colorFn: dscrColor, raw: latest.dscr, formula: "EBITDA / (|Fin Charges| + ST Fin Debt)", detail: `${fmtEur(lr.ebitda)} / (${fmtEur(lr.financial_charges)} + ${fmtEur(lr.st_financial_debt)})` },
+    { label: t("company.creditTab.roe"), value: fmtRatio(latest.roe, "%"), colorFn: roeColor, raw: latest.roe, formula: "Net Profit / Equity \u00d7 100", detail: `${fmtEur(lr.net_profit)} / ${fmtEur(lr.equity)}` },
   ];
 
   function exportCreditCsv() {
@@ -189,7 +192,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
       <div>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-purple-500 pl-2">
-            Key Ratios (FY{latest.fiscal_year})
+            {`${t("company.creditTab.keyRatios")} (FY${latest.fiscal_year})`}
           </h3>
           <ExportButtons onExportCSV={exportCreditCsv} onPrint={() => window.print()} />
         </div>
@@ -208,13 +211,13 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
       {/* Leverage Ratios Table */}
       <div>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-red-500 pl-2">
-          Leverage
+          {t("company.creditTab.leverage")}
         </h3>
         <div className="rounded-lg border overflow-x-auto bg-white">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
-                <TableHead className="text-xs min-w-[160px]">Metric</TableHead>
+                <TableHead className="text-xs min-w-[160px]">{t("company.creditTab.metric")}</TableHead>
                 {chronologicalRatios.map((r) => (
                   <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[90px]">FY{r.fiscal_year}</TableHead>
                 ))}
@@ -222,37 +225,37 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
             </TableHeader>
             <TableBody>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="(LT Fin Debt + ST Fin Debt \u2212 Cash \u2212 Investments) / EBITDA">Net Debt / EBITDA</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="(LT Fin Debt + ST Fin Debt \u2212 Cash \u2212 Investments) / EBITDA">{t("company.creditTab.netDebtEbitda")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.netDebtEbitda)}</TableCell>
                 ))}
               </TableRow>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="(LT Fin Debt + ST Fin Debt) / Equity">Debt / Equity</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="(LT Fin Debt + ST Fin Debt) / Equity">{t("company.creditTab.debtEquity")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.debtEquity)}</TableCell>
                 ))}
               </TableRow>
               <TableRow className="bg-slate-50/50">
-                <TableCell className="text-xs text-slate-600 py-1 font-medium"><FormulaTooltip formula="Equity / Total Assets \u00d7 100">Equity Ratio (Equity / Assets)</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1 font-medium"><FormulaTooltip formula="Equity / Total Assets \u00d7 100">{t("company.creditTab.equityRatioFull")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className={`text-right font-mono text-xs py-1 font-medium ${r.equityRatio != null && r.equityRatio >= 40 ? "text-green-700" : r.equityRatio != null && r.equityRatio >= 20 ? "text-amber-700" : r.equityRatio != null ? "text-rose-500" : ""}`}>{fmtRatio(r.equityRatio, "%")}</TableCell>
                 ))}
               </TableRow>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="EBIT / |Financial Charges|">Interest Coverage</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="EBIT / |Financial Charges|">{t("company.creditTab.interestCoverage")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.interestCoverage)}</TableCell>
                 ))}
               </TableRow>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="LT Fin Debt + ST Fin Debt \u2212 Cash \u2212 Investments">Net Debt</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="LT Fin Debt + ST Fin Debt \u2212 Cash \u2212 Investments">{t("company.creditTab.netDebt")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(r.netDebt)}</TableCell>
                 ))}
               </TableRow>
               <TableRow className="bg-slate-50/50">
-                <TableCell className="text-xs text-slate-600 py-1 font-medium"><FormulaTooltip formula="EBITDA / (|Financial Charges| + ST Financial Debt)">Debt Service (DSCR)</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1 font-medium"><FormulaTooltip formula="EBITDA / (|Financial Charges| + ST Financial Debt)">{t("company.creditTab.debtService")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className={`text-right font-mono text-xs py-1 font-medium ${r.dscr != null && r.dscr >= 2 ? "text-green-700" : r.dscr != null && r.dscr >= 1.2 ? "text-amber-700" : r.dscr != null ? "text-rose-500" : ""}`}>{fmtRatio(r.dscr)}</TableCell>
                 ))}
@@ -265,13 +268,13 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
       {/* Liquidity */}
       <div>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-amber-500 pl-2">
-          Liquidity
+          {t("company.creditTab.liquidity")}
         </h3>
         <div className="rounded-lg border overflow-x-auto bg-white">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
-                <TableHead className="text-xs min-w-[160px]">Metric</TableHead>
+                <TableHead className="text-xs min-w-[160px]">{t("company.creditTab.metric")}</TableHead>
                 {chronologicalRatios.map((r) => (
                   <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[90px]">FY{r.fiscal_year}</TableHead>
                 ))}
@@ -279,13 +282,13 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
             </TableHeader>
             <TableBody>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="(Cash + Investments) / ST Financial Debt">Cash / ST Debt</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="(Cash + Investments) / ST Financial Debt">{t("company.creditTab.cashStDebt")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.cashStDebt)}</TableCell>
                 ))}
               </TableRow>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="Cash (54/58) + Current Investments (50/53)">Cash & Investments</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="Cash (54/58) + Current Investments (50/53)">{t("company.creditTab.cashInvestments")}</FormulaTooltip></TableCell>
                 {chronological.map((row) => (
                   <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">
                     {fmtEur(((row.cash ?? 0) + (row.current_investments ?? 0)) || null)}
@@ -293,7 +296,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
                 ))}
               </TableRow>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1">ST Financial Debt</TableCell>
+                <TableCell className="text-xs text-slate-600 py-1">{t("company.creditTab.stFinDebt")}</TableCell>
                 {chronological.map((row) => (
                   <TableCell key={row.fiscal_year} className="text-right font-mono text-xs py-1">{fmtEur(row.st_financial_debt)}</TableCell>
                 ))}
@@ -306,13 +309,13 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
       {/* Profitability */}
       <div>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
-          Profitability
+          {t("company.creditTab.profitability")}
         </h3>
         <div className="rounded-lg border overflow-x-auto bg-white">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
-                <TableHead className="text-xs min-w-[160px]">Metric</TableHead>
+                <TableHead className="text-xs min-w-[160px]">{t("company.creditTab.metric")}</TableHead>
                 {chronologicalRatios.map((r) => (
                   <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[90px]">FY{r.fiscal_year}</TableHead>
                 ))}
@@ -320,13 +323,13 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
             </TableHeader>
             <TableBody>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="EBITDA / Revenue \u00d7 100">EBITDA Margin</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="EBITDA / Revenue \u00d7 100">{t("company.creditTab.ebitdaMargin")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.ebitdaMargin, "%")}</TableCell>
                 ))}
               </TableRow>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="Net Profit / Total Equity \u00d7 100">ROE</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="Net Profit / Total Equity \u00d7 100">{t("company.creditTab.roe")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtRatio(r.roe, "%")}</TableCell>
                 ))}
@@ -339,13 +342,13 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
       {/* Working Capital */}
       <div>
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-blue-500 pl-2">
-          Working Capital
+          {t("company.creditTab.workingCapital")}
         </h3>
         <div className="rounded-lg border overflow-x-auto bg-white">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
-                <TableHead className="text-xs min-w-[160px]">Metric</TableHead>
+                <TableHead className="text-xs min-w-[160px]">{t("company.creditTab.metric")}</TableHead>
                 {chronologicalRatios.map((r) => (
                   <TableHead key={r.fiscal_year} className="text-right text-xs min-w-[90px]">FY{r.fiscal_year}</TableHead>
                 ))}
@@ -353,19 +356,19 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
             </TableHeader>
             <TableBody>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="Trade Receivables / Revenue \u00d7 365">DSO (days)</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="Trade Receivables / Revenue \u00d7 365">{t("company.creditTab.dso")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtDays(r.dso)}</TableCell>
                 ))}
               </TableRow>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="Trade Payables / Revenue \u00d7 365">DPO (days)</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="Trade Payables / Revenue \u00d7 365">{t("company.creditTab.dpo")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => (
                   <TableCell key={r.fiscal_year} className="text-right font-mono text-xs py-1">{fmtDays(r.dpo)}</TableCell>
                 ))}
               </TableRow>
               <TableRow>
-                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="DSO \u2212 DPO (lower is better)">Cash Conversion (DSO - DPO)</FormulaTooltip></TableCell>
+                <TableCell className="text-xs text-slate-600 py-1"><FormulaTooltip formula="DSO \u2212 DPO (lower is better)">{t("company.creditTab.cashConversion")}</FormulaTooltip></TableCell>
                 {chronologicalRatios.map((r) => {
                   const ccc = r.dso != null && r.dpo != null ? r.dso - r.dpo : null;
                   return (
@@ -379,7 +382,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
       </div>
 
       <p className="text-[10px] text-slate-400 italic">
-        Thresholds: Net Debt/EBITDA &lt;3x green, 3-5x amber, &gt;5x red. Interest Coverage &gt;3x green, 1.5-3x amber, &lt;1.5x red. DSCR &ge;2x green, 1.2-2x amber, &lt;1.2x red.
+        {t("company.creditTab.footnote")}
       </p>
     </div>
   );
