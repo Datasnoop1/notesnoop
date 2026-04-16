@@ -36,7 +36,7 @@ export function GoogleSearchLink({
       onClick={(e) => e.stopPropagation()}
     >
       {children}
-      <Icon className="h-3 w-3 text-slate-300 group-hover/gs:text-indigo-500 transition-colors shrink-0" />
+      <Icon className="h-3.5 w-3.5 text-indigo-400 group-hover/gs:text-indigo-600 transition-colors shrink-0" />
     </a>
   );
 }
@@ -65,10 +65,10 @@ export function SearchableText({
           target="_blank"
           rel="noopener noreferrer"
           title="Search Google"
-          className="text-slate-300 hover:text-indigo-500 transition-colors"
+          className="text-indigo-400 hover:text-indigo-600 transition-colors"
           onClick={(e) => e.stopPropagation()}
         >
-          <Search className="h-3 w-3" />
+          <Search className="h-3.5 w-3.5" />
         </a>
         {mapsQuery && (
           <a
@@ -76,10 +76,10 @@ export function SearchableText({
             target="_blank"
             rel="noopener noreferrer"
             title="View on Google Maps"
-            className="text-slate-300 hover:text-indigo-500 transition-colors"
+            className="text-indigo-400 hover:text-indigo-600 transition-colors"
             onClick={(e) => e.stopPropagation()}
           >
-            <MapPin className="h-3 w-3" />
+            <MapPin className="h-3.5 w-3.5" />
           </a>
         )}
       </span>
