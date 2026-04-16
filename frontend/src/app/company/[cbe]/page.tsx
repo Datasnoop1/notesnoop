@@ -49,6 +49,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
+import AdUnit from "@/components/ad-unit";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -881,6 +882,11 @@ export default function CompanyDetailPage(props: {
           </div>
         </>
       )}
+
+      {/* Ad placement: between header and tabs */}
+      <div className="mb-4 no-print">
+        <AdUnit slot="3722838377" format="fluid" className="rounded-lg" />
+      </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>

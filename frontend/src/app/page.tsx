@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import AdUnit from "@/components/ad-unit";
 import { Card, CardContent } from "@/components/ui/card";
 import { useTranslation } from "@/components/language-provider";
 import {
@@ -116,6 +117,9 @@ export default function Dashboard() {
           })}
         </div>
       </div>
+
+      {/* Ad placement: between quick access and stats */}
+      <AdUnit slot="3722838377" format="fluid" className="rounded-lg" />
 
       {/* Data Stats teaser */}
       <div>

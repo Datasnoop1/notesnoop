@@ -33,6 +33,7 @@ import {
   X,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
+import AdUnit from "@/components/ad-unit";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -1125,6 +1126,11 @@ export default function ScreenerPage() {
               );
             })}
           </div>
+        </div>
+
+        {/* Ad placement: above results */}
+        <div className="border-b border-slate-100 no-print">
+          <AdUnit slot="3722838377" format="horizontal" className="max-h-[90px] overflow-hidden" />
         </div>
 
         {/* Results table */}

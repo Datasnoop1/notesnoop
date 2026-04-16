@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import AdUnit from "@/components/ad-unit";
 import {
   Search,
   SlidersHorizontal,
@@ -112,6 +113,9 @@ export default function GuidePage() {
           );
         })}
       </div>
+
+      {/* Ad placement: end of guide */}
+      <AdUnit slot="3722838377" format="fluid" className="rounded-lg" />
 
       <div className="text-center py-4">
         <Link href="/" className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
