@@ -18,9 +18,33 @@ const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans" });
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 
 export const metadata: Metadata = {
-  title: "Datasnoop — Belgian Company Intelligence",
+  title: {
+    default: "DataSnoop — Belgian Company Intelligence",
+    template: "%s | DataSnoop",
+  },
   description:
-    "Screen Belgian companies by sector, revenue, EBITDA, and more. KBO registry + NBB annual accounts.",
+    "Screen 170K+ Belgian companies by sector, revenue, EBITDA, margins, and more. Combines KBO registry data with NBB annual accounts for PE deal sourcing and screening.",
+  metadataBase: new URL("https://datasnoop.be"),
+  openGraph: {
+    title: "DataSnoop — Belgian Company Intelligence",
+    description: "Screen 170K+ Belgian companies by financials, sector, and structure. Built for PE deal sourcing.",
+    url: "https://datasnoop.be",
+    siteName: "DataSnoop",
+    locale: "en_BE",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "DataSnoop — Belgian Company Intelligence",
+    description: "Screen 170K+ Belgian companies by financials, sector, and structure.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+  alternates: {
+    canonical: "https://datasnoop.be",
+  },
 };
 
 export default function RootLayout({
@@ -30,6 +54,36 @@ export default function RootLayout({
     <html lang="en" className={`${inter.variable} ${dmSans.variable} ${geist.variable} h-full antialiased`}>
       <head>
         <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-1315269218347333" crossOrigin="anonymous" />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: "DataSnoop",
+              url: "https://datasnoop.be",
+              description: "Belgian company intelligence platform combining KBO registry data with NBB annual accounts for PE deal sourcing and screening.",
+              potentialAction: {
+                "@type": "SearchAction",
+                target: "https://datasnoop.be/search?q={search_term_string}",
+                "query-input": "required name=search_term_string",
+              },
+            }),
+          }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "DataSnoop",
+              url: "https://datasnoop.be",
+              description: "Belgian company intelligence for PE deal sourcing",
+              sameAs: [],
+            }),
+          }}
+        />
       </head>
       <body className="min-h-full flex flex-col bg-slate-50 font-sans">
         <LanguageProvider>
