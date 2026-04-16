@@ -1,5 +1,6 @@
 """Admin router — user management, usage stats, feedback review."""
 
+import json
 import os
 import logging
 from datetime import datetime, timezone
@@ -876,20 +877,20 @@ async def admin_costs(user=Depends(_require_admin)):
         except Exception as e:
             logger.warning("OpenRouter usage fetch failed: %s", e)
 
-    # ── Fixed monthly costs (editable via POST /api/admin/costs) ──
-    cost_keys = {
-        "hosting_monthly_eur": 18.34,
-        "domains_yearly_eur": 25.0,
-        "zenrows_monthly_eur": 0.0,
-        "other_monthly_eur": 0.0,
-    }
-    for key in cost_keys:
-        row = fetch_one("SELECT value FROM meta WHERE variable = %s", (f"cost_{key}",))
-        if row:
-            try:
-                cost_keys[key] = float(row["value"])
-            except Exception:
-                pass
+    # ── Custom cost items (editable via POST /api/admin/costs) ──
+    cost_items = []
+    row = fetch_one("SELECT value FROM meta WHERE variable = 'cost_items'")
+    if row and row.get("value"):
+        try:
+            cost_items = json.loads(row["value"])
+        except Exception:
+            pass
+    if not cost_items:
+        # Default items if none configured yet
+        cost_items = [
+            {"name": "Hosting (Hetzner)", "amount": 18.34, "frequency": "monthly"},
+            {"name": "Domains", "amount": 25.00, "frequency": "yearly"},
+        ]
 
     # ── AI call counts (last 30 days) ──
     ai_calls = fetch_one("""
@@ -906,28 +907,23 @@ async def admin_costs(user=Depends(_require_admin)):
     return {
         "openrouter_usage_usd": openrouter_usage_usd,
         "openrouter_limit_usd": openrouter_limit_usd,
-        "fixed_costs": cost_keys,
+        "cost_items": cost_items,
         "ai_calls_30d": {k: int(v) if v else 0 for k, v in ai_calls.items()},
     }
 
 
-class CostUpdateBody(BaseModel):
-    hosting_monthly_eur: Optional[float] = None
-    domains_yearly_eur: Optional[float] = None
-    zenrows_monthly_eur: Optional[float] = None
-    other_monthly_eur: Optional[float] = None
+class CostItemsBody(BaseModel):
+    items: list[dict]  # [{"name": "Hosting", "amount": 18.34, "frequency": "monthly"}]
 
 
 @router.post("/costs")
-async def update_costs(body: CostUpdateBody, user=Depends(_require_admin)):
-    """Update fixed cost figures."""
-    updates = body.model_dump(exclude_none=True)
-    for key, value in updates.items():
-        execute(
-            "INSERT INTO meta (variable, value) VALUES (%s, %s) ON CONFLICT (variable) DO UPDATE SET value = EXCLUDED.value",
-            (f"cost_{key}", str(value)),
-        )
-    return {"status": "ok", "updated": list(updates.keys())}
+async def update_costs(body: CostItemsBody, user=Depends(_require_admin)):
+    """Save custom cost line items."""
+    execute(
+        "INSERT INTO meta (variable, value) VALUES (%s, %s) ON CONFLICT (variable) DO UPDATE SET value = EXCLUDED.value",
+        ("cost_items", json.dumps(body.items)),
+    )
+    return {"status": "ok", "count": len(body.items)}
 
 
 # ---------------------------------------------------------------------------

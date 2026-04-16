@@ -204,15 +204,16 @@ interface TractionData {
   top_guests: { ip: string; unique_pages: number; total_requests: number; first_seen: string; last_seen: string }[];
 }
 
+interface CostItem {
+  name: string;
+  amount: number;
+  frequency: "monthly" | "yearly" | "one-time";
+}
+
 interface CostsData {
   openrouter_usage_usd: number;
   openrouter_limit_usd: number;
-  fixed_costs: {
-    hosting_monthly_eur: number;
-    domains_yearly_eur: number;
-    zenrows_monthly_eur: number;
-    other_monthly_eur: number;
-  };
+  cost_items: CostItem[];
   ai_calls_30d: Record<string, number>;
 }
 
@@ -535,8 +536,11 @@ export default function AdminPanel() {
   const [adoptionData, setAdoptionData] = useState<AdoptionData | null>(null);
   const [tractionData, setTractionData] = useState<TractionData | null>(null);
   const [costsData, setCostsData] = useState<CostsData | null>(null);
-  const [costEdits, setCostEdits] = useState<Record<string, string>>({});
+  const [costItems, setCostItems] = useState<CostItem[]>([]);
   const [costSaving, setCostSaving] = useState(false);
+  const [newCostName, setNewCostName] = useState("");
+  const [newCostAmount, setNewCostAmount] = useState("");
+  const [newCostFreq, setNewCostFreq] = useState<"monthly" | "yearly" | "one-time">("monthly");
   const [paymentsData, setPaymentsData] = useState<PaymentsData | null>(null);
   const [tiers, setTiers] = useState<TierConfig[]>([]);
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
@@ -585,6 +589,7 @@ export default function AdminPanel() {
       setAdoptionData(adopt);
       setTractionData(trac);
       setCostsData(costs);
+      if (costs?.cost_items) setCostItems(costs.cost_items);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -2902,13 +2907,12 @@ export default function AdminPanel() {
             {(() => {
               const revEur = paymentsData ? paymentsData.total_revenue / 100 : 0;
               const orUsd = costsData?.openrouter_usage_usd ?? 0;
-              const orEur = orUsd * 0.92; // approximate USD→EUR
-              const fc = costsData?.fixed_costs;
-              const hostingM = fc?.hosting_monthly_eur ?? 18.34;
-              const domainsM = (fc?.domains_yearly_eur ?? 25) / 12;
-              const zenrowsM = fc?.zenrows_monthly_eur ?? 0;
-              const otherM = fc?.other_monthly_eur ?? 0;
-              const totalCostsM = orEur + hostingM + domainsM + zenrowsM + otherM;
+              const orEur = orUsd * 0.92;
+              const itemsMonthly = costItems.map((c) => ({
+                name: c.name,
+                monthly: c.frequency === "yearly" ? c.amount / 12 : c.frequency === "one-time" ? 0 : c.amount,
+              }));
+              const totalCostsM = orEur + itemsMonthly.reduce((s, c) => s + c.monthly, 0);
               const netM = revEur - totalCostsM;
               const eur = (v: number) => v.toLocaleString("en", { style: "currency", currency: "EUR", minimumFractionDigits: 2 });
               return (
@@ -2925,26 +2929,12 @@ export default function AdminPanel() {
                           <TableCell className="text-xs text-slate-600 py-1">OpenRouter (AI)</TableCell>
                           <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(orEur)}</TableCell>
                         </TableRow>
-                        <TableRow>
-                          <TableCell className="text-xs text-slate-600 py-1">Hosting (Hetzner)</TableCell>
-                          <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(hostingM)}</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell className="text-xs text-slate-600 py-1">Domains</TableCell>
-                          <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(domainsM)}</TableCell>
-                        </TableRow>
-                        {zenrowsM > 0 && (
-                          <TableRow>
-                            <TableCell className="text-xs text-slate-600 py-1">Zenrows</TableCell>
-                            <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(zenrowsM)}</TableCell>
+                        {itemsMonthly.filter((c) => c.monthly > 0).map((c) => (
+                          <TableRow key={c.name}>
+                            <TableCell className="text-xs text-slate-600 py-1">{c.name}</TableCell>
+                            <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(c.monthly)}</TableCell>
                           </TableRow>
-                        )}
-                        {otherM > 0 && (
-                          <TableRow>
-                            <TableCell className="text-xs text-slate-600 py-1">Other</TableCell>
-                            <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(otherM)}</TableCell>
-                          </TableRow>
-                        )}
+                        ))}
                         <TableRow className={netM >= 0 ? "bg-emerald-50/50" : "bg-rose-50/50"}>
                           <TableCell className="text-xs font-bold py-1.5">Net Result</TableCell>
                           <TableCell className={`text-sm font-mono text-right font-bold py-1.5 ${netM >= 0 ? "text-emerald-700" : "text-rose-600"}`}>{eur(netM)}</TableCell>
@@ -2977,41 +2967,105 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* ── Edit Fixed Costs ── */}
+            {/* ── Manage Cost Items ── */}
             {costsData && (
               <Card className="bg-white">
                 <CardContent className="p-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Edit Fixed Costs</h3>
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    {([
-                      ["hosting_monthly_eur", "Hosting (monthly)"],
-                      ["domains_yearly_eur", "Domains (yearly)"],
-                      ["zenrows_monthly_eur", "Zenrows (monthly)"],
-                      ["other_monthly_eur", "Other (monthly)"],
-                    ] as const).map(([key, label]) => (
-                      <div key={key}>
-                        <label className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">{label}</label>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Cost Items</h3>
+                  {/* Existing items */}
+                  <div className="space-y-2 mb-3">
+                    {costItems.map((item, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <Input
+                          className="h-7 text-xs flex-1"
+                          value={item.name}
+                          onChange={(e) => {
+                            const next = [...costItems];
+                            next[idx] = { ...next[idx], name: e.target.value };
+                            setCostItems(next);
+                          }}
+                        />
                         <Input
                           type="number"
                           step="0.01"
-                          className="h-7 text-xs font-mono"
-                          defaultValue={costsData.fixed_costs[key]}
-                          onChange={(e) => setCostEdits((prev) => ({ ...prev, [key]: e.target.value }))}
+                          className="h-7 text-xs font-mono w-24"
+                          value={item.amount}
+                          onChange={(e) => {
+                            const next = [...costItems];
+                            next[idx] = { ...next[idx], amount: parseFloat(e.target.value) || 0 };
+                            setCostItems(next);
+                          }}
                         />
+                        <select
+                          className="h-7 text-[10px] border rounded px-1 bg-white text-slate-600"
+                          value={item.frequency}
+                          onChange={(e) => {
+                            const next = [...costItems];
+                            next[idx] = { ...next[idx], frequency: e.target.value as CostItem["frequency"] };
+                            setCostItems(next);
+                          }}
+                        >
+                          <option value="monthly">Monthly</option>
+                          <option value="yearly">Yearly</option>
+                          <option value="one-time">One-time</option>
+                        </select>
+                        <button
+                          onClick={() => setCostItems(costItems.filter((_, i) => i !== idx))}
+                          className="text-slate-300 hover:text-rose-500 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     ))}
                   </div>
+                  {/* Add new item */}
+                  <div className="flex items-center gap-2 border-t border-slate-100 pt-2">
+                    <Input
+                      className="h-7 text-xs flex-1"
+                      placeholder="Cost name..."
+                      value={newCostName}
+                      onChange={(e) => setNewCostName(e.target.value)}
+                    />
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="h-7 text-xs font-mono w-24"
+                      placeholder="0.00"
+                      value={newCostAmount}
+                      onChange={(e) => setNewCostAmount(e.target.value)}
+                    />
+                    <select
+                      className="h-7 text-[10px] border rounded px-1 bg-white text-slate-600"
+                      value={newCostFreq}
+                      onChange={(e) => setNewCostFreq(e.target.value as CostItem["frequency"])}
+                    >
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                      <option value="one-time">One-time</option>
+                    </select>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[11px] px-2"
+                      disabled={!newCostName.trim() || !newCostAmount}
+                      onClick={() => {
+                        setCostItems([...costItems, { name: newCostName.trim(), amount: parseFloat(newCostAmount) || 0, frequency: newCostFreq }]);
+                        setNewCostName("");
+                        setNewCostAmount("");
+                      }}
+                    >
+                      + Add
+                    </Button>
+                  </div>
+                  {/* Save */}
                   <Button
                     size="sm"
                     className="mt-3 h-7 text-[11px]"
-                    disabled={costSaving || Object.keys(costEdits).length === 0}
+                    disabled={costSaving}
                     onClick={async () => {
                       setCostSaving(true);
                       try {
-                        const body: Record<string, number> = {};
-                        for (const [k, v] of Object.entries(costEdits)) body[k] = parseFloat(v);
-                        await adminFetch("/api/admin/costs", { method: "POST", body: JSON.stringify(body) });
-                        setCostEdits({});
+                        await adminFetch("/api/admin/costs", { method: "POST", body: JSON.stringify({ items: costItems }) });
                         loadData();
                       } catch { /* ignore */ }
                       finally { setCostSaving(false); }
