@@ -275,6 +275,55 @@ export const getCompanyStructure = (cbe: string) =>
 export const getCompanyNetwork = (cbe: string, maxDepth = 2) =>
   apiFetch<CompanyNetwork>(`/api/companies/${cbe}/network?max_depth=${maxDepth}`);
 
+// ── Valuation (Vlerick M&A Monitor) ──
+export interface ValuationSectorOption {
+  key: string;
+  label: string;
+}
+
+export interface ValuationYear {
+  fiscal_year: number | null;
+  ebitda: number | null;
+  financial_debt: number;
+  cash_and_equivalents: number;
+  net_debt: number;
+  by_size: { enterprise_value: number; equity_value: number | null };
+  by_sector: { enterprise_value: number; equity_value: number | null };
+}
+
+export interface ValuationProfile {
+  nace_code: string | null;
+  size_bracket: string;
+  size_bracket_label: string;
+  size_multiple: number;
+  vlerick_sector: string;
+  vlerick_sector_label: string;
+  vlerick_sector_source: "user_override" | "nace_mapping" | "fallback";
+  sector_multiple: number;
+  available_sectors: ValuationSectorOption[];
+}
+
+export interface ValuationReference {
+  data_year: number;
+  report: string;
+  publisher: string;
+  url: string;
+  note: string;
+}
+
+export interface ValuationData {
+  status: "ok" | "no_financial_data";
+  profile?: ValuationProfile;
+  years: ValuationYear[];
+  vlerick_reference: ValuationReference;
+  pro_memoria_note?: string;
+}
+
+export const getCompanyValuation = (cbe: string, sectorOverride?: string) => {
+  const qs = sectorOverride ? `?sector=${encodeURIComponent(sectorOverride)}` : "";
+  return apiFetch<ValuationData>(`/api/companies/${cbe}/valuation${qs}`);
+};
+
 // ── Deep Network (hidden connections through 3rd/4th degree) ──
 export interface DeepNetworkNode {
   id: string;

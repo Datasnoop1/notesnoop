@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from . import search, detail, financials, structure, network, similar, enrichment
+from . import search, detail, financials, structure, network, similar, enrichment, valuation
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
 router.include_router(search.router)
@@ -11,4 +11,5 @@ router.include_router(structure.router)
 router.include_router(network.router)
 router.include_router(similar.router)
 router.include_router(enrichment.router)
+router.include_router(valuation.router)
 router.include_router(detail.router)
