@@ -208,7 +208,25 @@
     "gatheringData": "Gathering data & loading...",
     "allDataAvailable": "All data is now available.",
     "mayTaketime": "This may take 30–60 seconds.",
-    "loadingGraph": "Loading graph..."
+    "loadingGraph": "Loading graph...",
+    "pubTitle": "Staatsblad Publications",
+    "pubNone": "No Staatsblad publications available.",
+    "pubLoadBtn": "Load from Staatsblad",
+    "pubLoading": "Loading publications...",
+    "pubAiAnalysis": "AI Analysis",
+    "pubRefresh": "Refresh",
+    "pubAnalyze": "Analyze publications",
+    "pubAnalyzing": "Analyzing...",
+    "pubNoResults": "No publications found for this company.",
+    "pubShowing": "Showing 50 of {count} publications.",
+    "similarTitle": "Similar Companies",
+    "similarNone": "No similar companies found in this sector",
+    "similarNoneHint": "This company may have a unique NACE code or no peers with comparable revenue",
+    "similarLoading": "Loading similar companies...",
+    "similarAiRank": "AI Rank",
+    "similarRanking": "Ranking...",
+    "similarAiEnhanced": "AI-enhanced",
+    "similarCompareAll": "Compare all"
   },
 
   "favourites": {
@@ -420,6 +438,34 @@
     "dataSources": "Data sources: KBO/BCE (Kruispuntbank van Ondernemingen) -- NBB/BNB (Nationale Bank van Belgie) -- Belgisch Staatsblad",
     "privacyPolicy": "Privacy Policy",
     "termsOfUse": "Terms of Use"
+  },
+
+  "guide": {
+    "title": "User Guide",
+    "intro": "DataSnoop is a Belgian company intelligence platform combining KBO registry data with NBB annual accounts. This guide covers every feature.",
+    "backToDashboard": "Back to Dashboard",
+    "searchTitle": "Search",
+    "searchBody": "Search for any Belgian company by name, CBE number, or keyword. Results appear instantly as you type, powered by trigram fuzzy matching. Click any result to open the full company profile.",
+    "screenerTitle": "Screener",
+    "screenerBody": "Filter the entire database by financial metrics: revenue, EBIT, EBITDA, FTE, margin, leverage, and YoY growth rates. Select multiple NACE codes to screen across sectors. Save your filter presets for quick re-use. Export results to CSV.",
+    "companyTitle": "Company Profile",
+    "companyBody": "Each company has a dedicated profile with 10 tabs: Summary, P&L, Balance Sheet, Credit Analysis, Administrators, Structure, Sector Benchmark, Similar Companies, Publications, and Network Graph. Financial data comes from NBB annual filings.",
+    "aiTitle": "AI Insights",
+    "aiBody": "Click the sparkle button on any company profile to generate AI-powered analysis. This includes: business description, products & services, customer base, market position, and key management.",
+    "similarTitle": "Similar Companies",
+    "similarBody": "The Similar Companies tab shows up to 100 peers in the same NACE sector with comparable revenue. Click AI Rank to re-rank using AI for true business similarity with explanations.",
+    "publicationsTitle": "Publications",
+    "publicationsBody": "The Publications tab shows all Staatsblad publications: board changes, capital increases, mergers, dissolutions, and more. Click Summarize for an AI-generated overview.",
+    "statsTitle": "Sector Statistics",
+    "statsBody": "Explore sector-level statistics by NACE code. See median revenue, EBITDA margins, company counts, and distribution charts.",
+    "peopleTitle": "People Search",
+    "peopleBody": "Search for individuals across all Belgian companies. Find administrators, shareholders, and beneficial owners.",
+    "favouritesTitle": "Favourites",
+    "favouritesBody": "Save companies to your favourites list for quick access. Your favourites sync across devices.",
+    "compareTitle": "Company Comparison",
+    "compareBody": "Compare multiple companies side-by-side on all financial metrics.",
+    "exportTitle": "Export",
+    "exportBody": "Export data from any page: screener results to CSV, company profiles to Excel or PDF."
   },
 
   "common": {

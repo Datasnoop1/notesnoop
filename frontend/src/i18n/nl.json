@@ -208,7 +208,25 @@
     "gatheringData": "Gegevens ophalen en laden...",
     "allDataAvailable": "Alle gegevens zijn nu beschikbaar.",
     "mayTaketime": "Dit kan 30–60 seconden duren.",
-    "loadingGraph": "Grafiek laden..."
+    "loadingGraph": "Grafiek laden...",
+    "pubTitle": "Staatsblad Publicaties",
+    "pubNone": "Geen Staatsblad-publicaties beschikbaar.",
+    "pubLoadBtn": "Laden uit Staatsblad",
+    "pubLoading": "Publicaties laden...",
+    "pubAiAnalysis": "AI Analyse",
+    "pubRefresh": "Vernieuwen",
+    "pubAnalyze": "Publicaties analyseren",
+    "pubAnalyzing": "Analyseren...",
+    "pubNoResults": "Geen publicaties gevonden voor dit bedrijf.",
+    "pubShowing": "50 van {count} publicaties weergegeven.",
+    "similarTitle": "Vergelijkbare bedrijven",
+    "similarNone": "Geen vergelijkbare bedrijven gevonden in deze sector",
+    "similarNoneHint": "Dit bedrijf heeft mogelijk een unieke NACE-code of geen sectorgenoten met vergelijkbare omzet",
+    "similarLoading": "Vergelijkbare bedrijven laden...",
+    "similarAiRank": "AI Rangschikking",
+    "similarRanking": "Rangschikken...",
+    "similarAiEnhanced": "AI-verbeterd",
+    "similarCompareAll": "Alles vergelijken"
   },
 
   "favourites": {
@@ -420,6 +438,34 @@
     "dataSources": "Databronnen: KBO/BCE (Kruispuntbank van Ondernemingen) -- NBB/BNB (Nationale Bank van Belgie) -- Belgisch Staatsblad",
     "privacyPolicy": "Privacybeleid",
     "termsOfUse": "Gebruiksvoorwaarden"
+  },
+
+  "guide": {
+    "title": "Gebruikershandleiding",
+    "intro": "DataSnoop is een Belgisch bedrijfsinformatieplatform dat KBO-registratiegegevens combineert met NBB-jaarrekeningen. Deze handleiding behandelt alle functies.",
+    "backToDashboard": "Terug naar Dashboard",
+    "searchTitle": "Zoeken",
+    "searchBody": "Zoek een Belgisch bedrijf op naam, KBO-nummer of trefwoord. Resultaten verschijnen direct terwijl u typt.",
+    "screenerTitle": "Screener",
+    "screenerBody": "Filter de volledige database op financiële maatstaven: omzet, EBIT, EBITDA, VTE, marge, hefboom en groeipercentages. Selecteer meerdere NACE-codes. Sla filterpresets op.",
+    "companyTitle": "Bedrijfsprofiel",
+    "companyBody": "Elk bedrijf heeft een profiel met 10 tabbladen: Samenvatting, W&V, Balans, Kredietanalyse, Bestuurders, Structuur, Sectorbenchmark, Vergelijkbare bedrijven, Publicaties en Netwerkgrafiek.",
+    "aiTitle": "AI Inzichten",
+    "aiBody": "Klik op de sparkle-knop op een bedrijfsprofiel voor AI-analyse: bedrijfsbeschrijving, producten, klanten, marktpositie en management.",
+    "similarTitle": "Vergelijkbare bedrijven",
+    "similarBody": "Het tabblad Vergelijkbare bedrijven toont tot 100 sectorgenoten met vergelijkbare omzet. Klik op AI Rank voor AI-gebaseerde gelijkenisrangschikking.",
+    "publicationsTitle": "Publicaties",
+    "publicationsBody": "Het tabblad Publicaties toont alle Staatsblad-publicaties: bestuurswissels, kapitaalverhogingen, fusies en meer.",
+    "statsTitle": "Sectorstatistieken",
+    "statsBody": "Verken sectorstatistieken per NACE-code. Bekijk mediaan omzet, EBITDA-marges en verdelingscharts.",
+    "peopleTitle": "Personen zoeken",
+    "peopleBody": "Zoek personen in alle Belgische bedrijven. Vind bestuurders, aandeelhouders en uiteindelijke begunstigden.",
+    "favouritesTitle": "Favorieten",
+    "favouritesBody": "Sla bedrijven op in uw favorietenlijst voor snelle toegang.",
+    "compareTitle": "Bedrijfsvergelijking",
+    "compareBody": "Vergelijk meerdere bedrijven naast elkaar op alle financiële maatstaven.",
+    "exportTitle": "Exporteren",
+    "exportBody": "Exporteer gegevens van elke pagina: screenerresultaten naar CSV, bedrijfsprofielen naar Excel of PDF."
   },
 
   "common": {

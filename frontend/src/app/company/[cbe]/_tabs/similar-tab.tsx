@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Users, Scale, Loader2, Sparkles } from "lucide-react";
 import { fmtEur, fmtNumber } from "@/lib/format";
+import { useTranslation } from "@/components/language-provider";
 import { useRouter } from "next/navigation";
 import type { SimilarCompany } from "@/lib/api";
 import { getAiSimilarCompanies } from "@/lib/api";
@@ -58,6 +59,7 @@ export function SimilarTab({
   similarCompanies,
 }: SimilarTabProps) {
   const router = useRouter();
+  const { t } = useTranslation();
   const [aiReasons, setAiReasons] = useState<Record<string, string>>({});
   const [aiLoading, setAiLoading] = useState(false);
   const [aiEnhanced, setAiEnhanced] = useState(false);
@@ -82,7 +84,7 @@ export function SimilarTab({
     return (
       <div className="py-6 text-center">
         <Loader2 className="w-5 h-5 animate-spin text-indigo-400 mx-auto mb-1" />
-        <p className="text-xs text-slate-400">Loading similar companies...</p>
+        <p className="text-xs text-slate-400">{t("company.similarLoading")}</p>
       </div>
     );
   }
@@ -91,8 +93,8 @@ export function SimilarTab({
     return (
       <div className="py-12 text-center">
         <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-        <p className="text-sm font-medium text-slate-400">No similar companies found in this sector</p>
-        <p className="text-xs text-slate-300 mt-1">This company may have a unique NACE code or no peers with comparable revenue</p>
+        <p className="text-sm font-medium text-slate-400">{t("company.similarNone")}</p>
+        <p className="text-xs text-slate-300 mt-1">{t("company.similarNoneHint")}</p>
       </div>
     );
   }
@@ -121,7 +123,7 @@ export function SimilarTab({
     <div>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2">
-          Similar Companies
+          {t("company.similarTitle")}
           <span className="ml-2 text-[10px] font-normal text-slate-400">({sortedSimilar.length})</span>
         </h3>
         <div className="flex items-center gap-2">
@@ -132,12 +134,12 @@ export function SimilarTab({
               className="inline-flex items-center gap-1 h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-50 disabled:opacity-50 transition-colors"
             >
               {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-              {aiLoading ? "Ranking..." : "AI Rank"}
+              {aiLoading ? t("company.similarRanking") : t("company.similarAiRank")}
             </button>
           )}
           {aiEnhanced && (
             <span className="inline-flex items-center gap-1 text-[10px] text-indigo-500 font-medium">
-              <Sparkles className="w-3 h-3" /> AI-enhanced
+              <Sparkles className="w-3 h-3" /> {t("company.similarAiEnhanced")}
             </span>
           )}
           <Button
@@ -152,7 +154,7 @@ export function SimilarTab({
             }}
           >
             <Scale className="w-3 h-3 mr-1" />
-            Compare all
+            {t("company.similarCompareAll")}
           </Button>
         </div>
       </div>

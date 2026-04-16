@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import ExportButtons from "@/components/export-buttons";
+import { useTranslation } from "@/components/language-provider";
 import { FileText, Download, Loader2, Sparkles, AlertTriangle, RefreshCw } from "lucide-react";
 import { getCompanyStructure, summarizePublications } from "@/lib/api";
 import type { StructureData, CompanyDetail } from "../types";
@@ -90,10 +91,17 @@ export function PublicationsTab({
   setNbbResult,
   setStructure,
 }: PublicationsTabProps) {
+  const { t } = useTranslation();
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [pubSummary, setPubSummary] = useState<any>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const autoTriggered = React.useRef(false);
+
   if (!structure || structure.staatsblad_publications.length === 0) {
     return (
       <div className="py-8 text-center">
-        <p className="text-sm text-slate-500 mb-4">No Staatsblad publications available.</p>
+        <p className="text-sm text-slate-500 mb-4">{t("company.pubNone")}</p>
         <button
           onClick={async () => {
             setNbbLoading(true);
@@ -120,22 +128,17 @@ export function PublicationsTab({
           className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-indigo-600 border border-indigo-300 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
         >
           {nbbLoading ? (
-            <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading publications...</>
+            <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t("company.pubLoading")}</>
           ) : (
-            <><Download className="w-3.5 h-3.5" /> Load from Staatsblad</>
+            <><Download className="w-3.5 h-3.5" /> {t("company.pubLoadBtn")}</>
           )}
         </button>
         {nbbResult === "no-data" && (
-          <p className="text-xs text-slate-400 mt-2">No publications found for this company.</p>
+          <p className="text-xs text-slate-400 mt-2">{t("company.pubNoResults")}</p>
         )}
       </div>
     );
   }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [pubSummary, setPubSummary] = useState<any>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const autoTriggered = React.useRef(false);
 
   const generateSummary = async (refresh = false) => {
     setSummaryLoading(true);
@@ -192,16 +195,16 @@ export function PublicationsTab({
             <div className="px-3 py-1.5 bg-slate-50 border-b flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Sparkles className="w-3 h-3 text-indigo-500" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">AI Analysis</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">{t("company.pubAiAnalysis")}</span>
               </div>
               <button
                 onClick={() => generateSummary(true)}
                 disabled={summaryLoading}
                 className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
-                title="Regenerate analysis"
+                title={t("company.pubRefresh")}
               >
                 <RefreshCw className={`w-3 h-3 ${summaryLoading ? "animate-spin" : ""}`} />
-                Refresh
+                {t("company.pubRefresh")}
               </button>
             </div>
             <div className="divide-y divide-slate-100">
@@ -225,7 +228,7 @@ export function PublicationsTab({
           <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">AI Summary</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">{t("company.pubAiAnalysis")}</span>
             </div>
             <button
               onClick={() => generateSummary(true)}
@@ -233,7 +236,7 @@ export function PublicationsTab({
               className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-3 h-3 ${summaryLoading ? "animate-spin" : ""}`} />
-              Refresh
+              {t("company.pubRefresh")}
             </button>
           </div>
           <p className="text-xs text-slate-700 leading-relaxed">{typeof pubSummary === "string" ? pubSummary : pubSummary.raw_text}</p>
@@ -241,13 +244,13 @@ export function PublicationsTab({
       ) : summaryLoading ? (
         <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4 flex items-center justify-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-          <span className="text-xs text-slate-500">Analyzing publications...</span>
+          <span className="text-xs text-slate-500">{t("company.pubAnalyzing")}</span>
         </div>
       ) : null}
 
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-slate-400 pl-2">
-          Staatsblad Publications ({structure.staatsblad_publications.length})
+          {t("company.pubTitle")} ({structure.staatsblad_publications.length})
         </h3>
         <ExportButtons onExportCSV={() => {
           const headers = ["Date", "Type", "Reference", "PDF URL"];
@@ -325,7 +328,7 @@ export function PublicationsTab({
       </div>
       {structure.staatsblad_publications.length > 50 && (
         <p className="mt-1 text-[10px] text-slate-400 italic">
-          Showing 50 of {structure.staatsblad_publications.length} publications.
+          {t("company.pubShowing", { count: String(structure.staatsblad_publications.length) })}
         </p>
       )}
     </div>

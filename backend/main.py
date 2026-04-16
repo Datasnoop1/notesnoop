@@ -116,7 +116,7 @@ def _classify_endpoint(path: str) -> str | None:
     if "/search" in path:
         return "searches_per_day"
     # Only count POST-style AI endpoints, NOT the GET /enrichment read endpoint
-    if ("/enrich" in path and "/enrichment" not in path) or "/ai-insights" in path or "/scrape-" in path or "/summarize-publications" in path or "/similar/ai" in path:
+    if ("/enrich" in path and "/enrichment" not in path) or "/ai-insights" in path or "/scrape-" in path or "/summarize-publications" in path or "/similar/ai" in path or "/screener/nl" in path:
         return "ai_enrichments_per_day"
     if "/export" in path:
         return "export_per_day"
@@ -347,6 +347,7 @@ app.add_middleware(RateLimitMiddleware)
 
 app.include_router(dashboard.router)
 app.include_router(screener.router)
+app.include_router(screener.sitemap_router)
 app.include_router(companies.router)
 app.include_router(stats.router)
 app.include_router(people.router)

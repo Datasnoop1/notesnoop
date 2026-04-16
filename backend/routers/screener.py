@@ -1,11 +1,15 @@
 """Screener router — filter, browse, and rank Belgian companies."""
 
+import json
 import logging
+import re
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
-from db import fetch_all
+from db import fetch_all, fetch_one, execute
+from auth import get_current_user, optional_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/screener", tags=["screener"])
@@ -37,6 +41,7 @@ async def nace_suggestions(q: str = Query("", min_length=1)):
 async def screener(
     nace: Optional[str] = Query(None, description="NACE code prefix (e.g. 28, 461)"),
     zipcode: Optional[str] = Query(None, description="Zipcode prefix for province filter"),
+    mgmt_change_days: Optional[int] = Query(None, description="Companies with management changes in last N days"),
     ebit_min: Optional[float] = Query(None, ge=0),
     ebit_max: Optional[float] = Query(None, ge=0),
     ebitda_min: Optional[float] = Query(None, ge=0),
@@ -107,6 +112,15 @@ async def screener(
         conditions.append("fl.revenue > 0")
         conditions.append("(fl.ebitda / fl.revenue * 100) >= %s")
         params.append(margin_min)
+    if mgmt_change_days is not None and mgmt_change_days > 0:
+        conditions.append("""
+            fl.enterprise_number IN (
+                SELECT DISTINCT enterprise_number FROM staatsblad_publication
+                WHERE pub_date >= (CURRENT_DATE - INTERVAL '1 day' * %s)::text
+                  AND (pub_type ILIKE '%%BENOEMINGEN%%' OR pub_type ILIKE '%%ONTSLAGEN%%')
+            )
+        """)
+        params.append(mgmt_change_days)
     if nd_ebitda_max is not None:
         conditions.append("""
             fl.ebitda > 0 AND
@@ -208,3 +222,71 @@ async def screener(
     except Exception as e:
         logger.exception("Screener query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/screener/nl — Natural Language Screener
+# ---------------------------------------------------------------------------
+
+class NLScreenerBody(BaseModel):
+    query: str
+
+
+@router.post("/nl")
+async def nl_screener(body: NLScreenerBody, user=Depends(get_current_user)):
+    """Translate a natural language query into screener filters via LLM."""
+    from ai_client import ai_complete
+
+    system = (
+        "You are a Belgian company screener assistant. Convert the user's natural language query "
+        "into structured JSON filter parameters.\n\n"
+        "Available filters:\n"
+        '- nace: NACE code prefix (e.g. "28" for manufacturing, "46" for wholesale, "62" for IT)\n'
+        '- zipcode: Belgian zipcode prefix for province ("1" Brussels, "2" Antwerp, "3" Vl-Brabant, "4" Liege, "5" Namur, "6" Luxembourg, "7" Hainaut, "8" W-Vl, "9" O-Vl, "35" Limburg, "13" Br-Wallon)\n'
+        "- rev_min / rev_max: revenue in EUR\n"
+        "- ebit_min / ebit_max: EBIT in EUR\n"
+        "- ebitda_min / ebitda_max: EBITDA in EUR\n"
+        "- fte_min / fte_max: number of employees\n"
+        "- margin_min: minimum EBITDA margin %\n"
+        "- nd_ebitda_max: max Net Debt / EBITDA ratio\n"
+        "- rev_growth_min / rev_growth_max: revenue growth % YoY\n"
+        "- mgmt_change_days: companies with management changes in last N days\n"
+        "- sort: revenue_desc | ebit_desc | ebitda_desc | fte_desc | name_asc\n"
+        "- limit: max results (default 100)\n\n"
+        "Common NACE codes: 10-33 Manufacturing, 41-43 Construction, 45-47 Wholesale/Retail, "
+        "49-53 Transport, 55-56 Hotels/Restaurants, 58-63 ICT/Media, 64-66 Finance, "
+        "68 Real estate, 69-75 Professional services, 86-88 Healthcare\n\n"
+        "Return ONLY valid JSON with the filter keys. Use numeric values (not strings) for amounts. "
+        "Convert M/million to actual numbers (5M = 5000000). If unsure about a filter, omit it."
+    )
+
+    try:
+        raw = await ai_complete(body.query, system=system, max_tokens=300, model="google/gemini-2.5-flash")
+        # Parse JSON
+        json_match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if not json_match:
+            return {"filters": {}, "explanation": raw, "error": "Could not parse filters"}
+        filters = json.loads(json_match.group())
+        return {"filters": filters, "raw_response": raw}
+    except Exception as e:
+        logger.error("NL screener failed: %s", e)
+        return {"filters": {}, "error": "AI processing failed"}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/sitemap/companies — company CBEs for dynamic sitemap
+# ---------------------------------------------------------------------------
+
+from fastapi import APIRouter as _AR
+sitemap_router = APIRouter(prefix="/api/sitemap", tags=["sitemap"])
+
+
+@sitemap_router.get("/companies")
+async def sitemap_companies():
+    """Return all company CBE numbers that have financial data (for sitemap generation)."""
+    rows = fetch_all("""
+        SELECT enterprise_number FROM company_info
+        ORDER BY enterprise_number
+        LIMIT 50000
+    """)
+    return [r["enterprise_number"] for r in rows]

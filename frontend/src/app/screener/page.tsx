@@ -31,6 +31,8 @@ import {
   Trash2,
   SlidersHorizontal,
   X,
+  Sparkles,
+  Users,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
 import AdUnit from "@/components/ad-unit";
@@ -73,6 +75,7 @@ interface Filters {
   ebitda_growth_max: string;
   assets_growth_min: string;
   assets_growth_max: string;
+  mgmt_change_days: string;
   sort: string;
   limit: string;
 }
@@ -95,6 +98,7 @@ const DEFAULT_FILTERS: Filters = {
   ebitda_growth_max: "",
   assets_growth_min: "",
   assets_growth_max: "",
+  mgmt_change_days: "",
   sort: "revenue_desc",
   limit: "100",
 };
@@ -348,6 +352,8 @@ export default function ScreenerPage() {
   const [presetName, setPresetName] = useState("");
   const [showPresetMenu, setShowPresetMenu] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [nlQuery, setNlQuery] = useState("");
+  const [nlLoading, setNlLoading] = useState(false);
 
   useEffect(() => { setPresets(loadPresets()); }, []);
 
@@ -441,6 +447,7 @@ export default function ScreenerPage() {
         if (f.ebitda_growth_max) params.ebitda_growth_max = f.ebitda_growth_max;
         if (f.assets_growth_min) params.assets_growth_min = f.assets_growth_min;
         if (f.assets_growth_max) params.assets_growth_max = f.assets_growth_max;
+        if (f.mgmt_change_days) params.mgmt_change_days = f.mgmt_change_days;
         params.sort = f.sort;
         params.limit = f.limit;
 
@@ -628,6 +635,45 @@ export default function ScreenerPage() {
                 {activeFilterCount}
               </Badge>
             )}
+          </div>
+
+          {/* AI Natural Language Search */}
+          <div className="space-y-1 border-b border-slate-200 pb-3">
+            <Label className="text-[10px] uppercase tracking-wider text-indigo-500 font-semibold">
+              <Sparkles className="w-3 h-3 inline mr-1" />
+              AI Search
+            </Label>
+            <div className="flex gap-1">
+              <Input
+                className="h-7 text-xs flex-1"
+                placeholder="e.g. IT companies in Antwerp, rev >5M..."
+                value={nlQuery}
+                onChange={(e) => setNlQuery(e.target.value)}
+                onKeyDown={async (e) => {
+                  if (e.key === "Enter" && nlQuery.trim() && !nlLoading) {
+                    setNlLoading(true);
+                    try {
+                      const res = await fetch("/api/screener/nl", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ query: nlQuery }),
+                      });
+                      const data = await res.json();
+                      if (data.filters && Object.keys(data.filters).length > 0) {
+                        const newFilters = { ...DEFAULT_FILTERS };
+                        for (const [k, v] of Object.entries(data.filters)) {
+                          if (k in newFilters) (newFilters as Record<string, string>)[k] = String(v);
+                        }
+                        setFilters(newFilters);
+                        doFetch(newFilters);
+                      }
+                    } catch { /* ignore */ }
+                    finally { setNlLoading(false); }
+                  }
+                }}
+              />
+              {nlLoading && <Loader2 className="w-4 h-4 animate-spin text-indigo-400 self-center" />}
+            </div>
           </div>
 
           {/* Reset + Save/Load */}
@@ -1033,6 +1079,29 @@ export default function ScreenerPage() {
                 onChange={(e) => updateFilter("assets_growth_max", e.target.value)}
               />
             </div>
+          </div>
+
+          {/* Management Changes */}
+          <div className="space-y-1 border-t border-slate-200 pt-2">
+            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              <Users className="w-3 h-3 inline mr-1" />
+              Mgmt Changed (days)
+            </Label>
+            <Select
+              value={filters.mgmt_change_days || "none"}
+              onValueChange={(v) => updateFilter("mgmt_change_days", v === "none" ? "" : v)}
+            >
+              <SelectTrigger className="h-7 text-xs w-full">
+                <SelectValue placeholder="Any" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Any</SelectItem>
+                <SelectItem value="30">Last 30 days</SelectItem>
+                <SelectItem value="90">Last 90 days</SelectItem>
+                <SelectItem value="180">Last 6 months</SelectItem>
+                <SelectItem value="365">Last year</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Limit */}

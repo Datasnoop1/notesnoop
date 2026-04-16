@@ -208,7 +208,25 @@
     "gatheringData": "Collecte et chargement des données...",
     "allDataAvailable": "Toutes les données sont disponibles.",
     "mayTaketime": "Cela peut prendre 30 à 60 secondes.",
-    "loadingGraph": "Chargement du graphique..."
+    "loadingGraph": "Chargement du graphique...",
+    "pubTitle": "Publications Moniteur belge",
+    "pubNone": "Aucune publication du Moniteur belge disponible.",
+    "pubLoadBtn": "Charger du Moniteur belge",
+    "pubLoading": "Chargement des publications...",
+    "pubAiAnalysis": "Analyse IA",
+    "pubRefresh": "Actualiser",
+    "pubAnalyze": "Analyser les publications",
+    "pubAnalyzing": "Analyse en cours...",
+    "pubNoResults": "Aucune publication trouvée pour cette entreprise.",
+    "pubShowing": "Affichage de 50 sur {count} publications.",
+    "similarTitle": "Entreprises similaires",
+    "similarNone": "Aucune entreprise similaire trouvée dans ce secteur",
+    "similarNoneHint": "Cette entreprise peut avoir un code NACE unique ou aucun pair avec un chiffre d'affaires comparable",
+    "similarLoading": "Chargement des entreprises similaires...",
+    "similarAiRank": "Classement IA",
+    "similarRanking": "Classement en cours...",
+    "similarAiEnhanced": "Amélioré par IA",
+    "similarCompareAll": "Comparer tout"
   },
 
   "favourites": {
@@ -420,6 +438,34 @@
     "dataSources": "Sources de donnees : KBO/BCE (Banque-Carrefour des Entreprises) -- NBB/BNB (Banque Nationale de Belgique) -- Moniteur belge",
     "privacyPolicy": "Politique de confidentialite",
     "termsOfUse": "Conditions d'utilisation"
+  },
+
+  "guide": {
+    "title": "Guide d'utilisation",
+    "intro": "DataSnoop est une plateforme d'intelligence d'entreprises belges combinant les données du registre BCE avec les comptes annuels BNB. Ce guide couvre toutes les fonctionnalités.",
+    "backToDashboard": "Retour au tableau de bord",
+    "searchTitle": "Recherche",
+    "searchBody": "Recherchez une entreprise belge par nom, numéro BCE ou mot-clé. Les résultats apparaissent instantanément.",
+    "screenerTitle": "Screener",
+    "screenerBody": "Filtrez la base de données par métriques financières : chiffre d'affaires, EBIT, EBITDA, ETP, marge et taux de croissance. Sélectionnez plusieurs codes NACE. Sauvegardez vos filtres.",
+    "companyTitle": "Profil d'entreprise",
+    "companyBody": "Chaque entreprise a un profil avec 10 onglets : Résumé, Compte de résultats, Bilan, Analyse crédit, Administrateurs, Structure, Benchmark sectoriel, Entreprises similaires, Publications et Graphe réseau.",
+    "aiTitle": "Analyses IA",
+    "aiBody": "Cliquez sur le bouton sparkle pour générer une analyse IA : description, produits, clients, position de marché et management.",
+    "similarTitle": "Entreprises similaires",
+    "similarBody": "L'onglet Entreprises similaires montre jusqu'à 100 pairs du même secteur NACE. Cliquez sur AI Rank pour un classement basé sur l'IA.",
+    "publicationsTitle": "Publications",
+    "publicationsBody": "L'onglet Publications affiche toutes les publications du Moniteur belge : changements de conseil, augmentations de capital, fusions et plus.",
+    "statsTitle": "Statistiques sectorielles",
+    "statsBody": "Explorez les statistiques par code NACE. Consultez le chiffre d'affaires médian, les marges EBITDA et les graphiques de distribution.",
+    "peopleTitle": "Recherche de personnes",
+    "peopleBody": "Recherchez des personnes dans toutes les entreprises belges. Trouvez administrateurs, actionnaires et bénéficiaires effectifs.",
+    "favouritesTitle": "Favoris",
+    "favouritesBody": "Sauvegardez des entreprises dans votre liste de favoris pour un accès rapide.",
+    "compareTitle": "Comparaison d'entreprises",
+    "compareBody": "Comparez plusieurs entreprises côte à côte sur toutes les métriques financières.",
+    "exportTitle": "Export",
+    "exportBody": "Exportez les données : résultats du screener en CSV, profils d'entreprises en Excel ou PDF."
   },
 
   "common": {
