@@ -886,5 +886,7 @@ export const summarizePublications = (cbe: string, refresh = false) =>
     body: JSON.stringify({ refresh }),
   });
 
-export const getAiSimilarCompanies = (cbe: string) =>
-  apiFetch<SimilarCompany[]>(`/api/companies/${cbe}/similar/ai`);
+export const getAiSimilarCompanies = (cbe: string, limit?: number) =>
+  apiFetch<SimilarCompany[]>(
+    limit ? `/api/companies/${cbe}/similar/ai?limit=${limit}` : `/api/companies/${cbe}/similar/ai`,
+  );

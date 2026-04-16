@@ -52,6 +52,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
   const [projects, setProjects] = useState<{ id: number; name: string }[]>([]);
   const [newProjectName, setNewProjectName] = useState("");
   const [addingToProject, setAddingToProject] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const triggered = useRef(false);
 
   const toggleSelect = (ent: string) => setSelected((prev) => {
@@ -110,11 +111,11 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
     finally { setAddingToProject(false); }
   };
 
-  const loadSimilar = async () => {
+  const loadSimilar = async (limit?: number) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await getAiSimilarCompanies(cbe);
+      const data = await getAiSimilarCompanies(cbe, limit);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setCompanies(data.map((d) => ({ ...d, ai_reason: (d as any).ai_reason as string | undefined })));
     } catch (err: unknown) {
@@ -127,6 +128,16 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const expandResults = async () => {
+    await loadSimilar(20);
+    setExpanded(true);
+  };
+
+  const resetResults = async () => {
+    setExpanded(false);
+    await loadSimilar();
   };
 
   // Auto-trigger on mount
@@ -187,7 +198,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={loadSimilar}
+            onClick={resetResults}
             disabled={loading}
             className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
             title="Regenerate"
@@ -327,17 +338,20 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
         </table>
       </div>
 
-      {/* Find more */}
-      <div className="mt-4 text-center">
-        <button
-          onClick={loadSimilar}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 px-5 py-2 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
-        >
-          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-          {loading ? "Finding more..." : "Find more similar companies"}
-        </button>
-      </div>
+      {/* Find more — hidden once the 20-item cap is reached or the backend
+          has nothing more to hand over. */}
+      {!expanded && companies.length >= 10 && (
+        <div className="mt-4 text-center">
+          <button
+            onClick={expandResults}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-5 py-2 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+          >
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {loading ? "Finding more..." : "Find more similar companies"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

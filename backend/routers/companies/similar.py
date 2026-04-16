@@ -46,9 +46,15 @@ router = APIRouter()
 
 # Bumped whenever §4.2 prompt text or §4.3 output schema changes. Any bump
 # forces cache invalidation for every CBE because the hash includes it.
-PROMPT_VERSION = "v2.0.0"
+PROMPT_VERSION = "v2.0.1"
 
 FOCUS_VALUES = ("activity", "size", "geography")
+
+# We always ask the LLM for up to this many items and cache the full ranking.
+# The client-supplied `limit` is then applied as a post-filter so "Find more"
+# (which expands limit from 10 to 20) doesn't trigger a cache miss and a
+# redundant LLM call. 20 matches the upper bound of the `limit` query param.
+MAX_RANKED_ITEMS = 20
 
 
 # ── Sector Benchmarking ──────────────────────────────────────────
@@ -395,6 +401,7 @@ async def get_similar_companies_ai(
 
         if len(candidates) < MIN_CANDIDATES_FOR_LLM:
             log_event["degraded"] = "too_few_for_llm"
+            # Return blended top-N, sliced to the client's `limit`.
             return [_candidate_to_result(c, None) for c in candidates[:limit]]
 
         # ── Content hash + cache lookup ───────────────────────────
@@ -418,7 +425,10 @@ async def get_similar_companies_ai(
         log_event["cache_reason"] = _cache_miss_reason(cbe, focus, content_hash)
 
         # ── Build prompt and call LLM ─────────────────────────────
-        prompt = render_prompt(target, candidates, limit)
+        # Always ask the LLM for up to MAX_RANKED_ITEMS so the cached ranking
+        # covers both the default `limit=10` view and the expanded `limit=20`
+        # "Find more" view without a second round-trip to the model.
+        prompt = render_prompt(target, candidates, MAX_RANKED_ITEMS)
         llm_result = await call_rerank_llm(prompt, tier_key, n_candidates=len(candidates))
 
         log_event["model_attempted"] = llm_result.get("attempted", [])
@@ -435,6 +445,7 @@ async def get_similar_companies_ai(
             log_event["degraded"] = "llm_unavailable"
             log_event["llm_returned_count"] = 0
             log_event["llm_valid_count"] = 0
+            # Blended fallback: return the top candidates sliced to `limit`.
             return [_candidate_to_result(c, None) for c in candidates[:limit]]
 
         model_used = llm_result.get("model_used")
@@ -443,12 +454,14 @@ async def get_similar_companies_ai(
         log_event["llm_valid_count"] = len(items)
 
         # ── Reorder candidates by LLM ranks ───────────────────────
-        result = _apply_llm_ranking(candidates, items, limit)
+        # Build the full ranking (up to MAX_RANKED_ITEMS) once, cache it,
+        # then slice to the client's `limit`.
+        full_result = _apply_llm_ranking(candidates, items, MAX_RANKED_ITEMS)
 
         # ── UPSERT cache ──────────────────────────────────────────
-        _upsert_cache(cbe, focus, content_hash, model_used, result, candidates)
+        _upsert_cache(cbe, focus, content_hash, model_used, full_result, candidates)
 
-        return result
+        return full_result[:limit]
 
     except Exception:
         logger.exception("Similar AI endpoint crashed for %s", cbe)
