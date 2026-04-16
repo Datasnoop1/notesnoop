@@ -1089,7 +1089,7 @@ export default function ScreenerPage() {
             </Label>
             <Select
               value={filters.mgmt_change_days || "none"}
-              onValueChange={(v) => updateFilter("mgmt_change_days", v === "none" ? "" : v)}
+              onValueChange={(v) => updateFilter("mgmt_change_days", v === "none" || !v ? "" : v)}
             >
               <SelectTrigger className="h-7 text-xs w-full">
                 <SelectValue placeholder="Any" />
