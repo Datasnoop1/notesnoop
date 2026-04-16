@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Search } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -34,16 +36,16 @@ export default function Home() {
   return (
     <div className="min-h-[calc(100vh-14rem)] flex flex-col items-center justify-center px-4 bg-white">
       {/* Brand */}
-      <div className="flex flex-col items-center mb-10 sm:mb-12">
+      <div className="flex flex-col items-center mb-12 sm:mb-14">
         <img
           src={logoPath}
           alt=""
-          width={64}
-          height={64}
-          className="rounded-lg bg-white mb-5 sm:mb-6 opacity-95 sm:w-[72px] sm:h-[72px]"
+          width={72}
+          height={72}
+          className="rounded-xl bg-white mb-6 sm:mb-7 opacity-95 sm:w-[88px] sm:h-[88px]"
         />
-        <div className="flex items-baseline gap-2 sm:gap-2.5">
-          <h1 className="text-4xl sm:text-6xl font-light text-gray-900 tracking-tight">
+        <div className="flex items-baseline gap-2 sm:gap-3">
+          <h1 className="text-5xl sm:text-7xl font-light text-gray-900 tracking-tight">
             Datasnoop
           </h1>
           <span className="text-[10px] sm:text-[11px] font-medium text-gray-400 uppercase tracking-[0.2em]">
@@ -54,18 +56,32 @@ export default function Home() {
 
       {/* Search */}
       <form onSubmit={handleSubmit} className="w-full max-w-xl">
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search companies or persons"
-          aria-label="Search companies or persons"
-          className="w-full h-12 sm:h-14 px-5 text-base rounded-full border border-gray-200 bg-white focus:border-gray-400 focus:outline-none transition-colors placeholder:text-gray-400 text-gray-900"
-          enterKeyHint="search"
-          autoCapitalize="off"
-          autoCorrect="off"
-        />
+        <div className="group relative flex items-center rounded-full border border-gray-200 bg-white shadow-[0_1px_6px_rgba(32,33,36,0.06)] hover:shadow-[0_1px_10px_rgba(32,33,36,0.12)] focus-within:shadow-[0_1px_10px_rgba(32,33,36,0.16)] focus-within:border-gray-300 transition-shadow">
+          <Search className="absolute left-5 w-4 h-4 text-gray-400 pointer-events-none" aria-hidden />
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Start searching companies or persons here"
+            aria-label="Start searching companies or persons here"
+            className="w-full h-12 sm:h-14 pl-12 pr-5 text-base rounded-full bg-transparent focus:outline-none placeholder:text-gray-400 text-gray-900"
+            enterKeyHint="search"
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+        </div>
+
+        {/* Secondary actions */}
+        <div className="mt-8 flex items-center justify-center gap-3 text-[13px] text-gray-600">
+          <Link href="/screener" className="px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            Browse the screener
+          </Link>
+          <span className="text-gray-300">·</span>
+          <Link href="/stats" className="px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            View stats
+          </Link>
+        </div>
       </form>
     </div>
   );

@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
-import { Menu, LogOut, User, Bell, Search, Building, UserSearch, ChevronDown } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Menu, LogOut, User, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -36,8 +36,6 @@ export default function Nav() {
   const [notifCount, setNotifCount] = useState(0);
   const [notifs, setNotifs] = useState<FavNotification[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const searchRef = useRef<HTMLDivElement>(null);
   const [logoPath, setLogoPath] = useState("/logos/dog-telescope-clean.jpeg");
 
   const NAV_LINKS = [
@@ -49,7 +47,6 @@ export default function Nav() {
 
   const MOBILE_NAV = [
     { label: t("nav.screener"), href: "/screener" },
-    { label: t("nav.search"), href: "/search" },
     { label: t("nav.favourites"), href: "/favourites" },
     { label: t("nav.compare"), href: "/compare" },
     { label: t("nav.aggregate"), href: "/aggregate" },
@@ -89,17 +86,6 @@ export default function Nav() {
       .catch(() => {});
   }, []);
 
-  // Close search dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-        setSearchOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
-
   async function handleSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -112,7 +98,6 @@ export default function Nav() {
     return pathname.startsWith(href);
   }
 
-  const searchActive = isActive("/company") || isActive("/people");
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? "?";
 
   return (
@@ -130,33 +115,7 @@ export default function Nav() {
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-0.5">
-            {/* Screener */}
-            <Link
-              href="/screener"
-              className={`px-3.5 py-2 text-[13px] font-medium transition-all rounded-md ${
-                isActive("/screener")
-                  ? "text-gray-900 bg-gray-100"
-                  : "text-gray-700 hover:text-gray-900 hover:bg-gray-50"
-              }`}
-            >
-              {t("nav.screener")}
-            </Link>
-
-            {/* Search */}
-            <Link
-              href="/search"
-              className={`flex items-center gap-1.5 px-3.5 py-2 text-[13px] font-medium transition-all rounded-md ${
-                isActive("/search") || isActive("/company") || isActive("/people")
-                  ? "text-gray-900 bg-gray-100"
-                  : "text-gray-700 hover:text-gray-900 hover:bg-gray-50"
-              }`}
-            >
-              <Search className="w-3.5 h-3.5" />
-              {t("nav.search")}
-            </Link>
-
-            {/* Remaining nav links */}
-            {NAV_LINKS.slice(1).map((item) => (
+            {NAV_LINKS.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
