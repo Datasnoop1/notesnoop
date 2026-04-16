@@ -100,6 +100,7 @@ export default function Nav() {
 
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? "?";
   const isLanding = pathname === "/";
+  const hideHeaderSearch = isLanding || pathname === "/search";
   const [headerQuery, setHeaderQuery] = useState("");
 
   function handleHeaderSearch(e: React.FormEvent) {
@@ -127,8 +128,8 @@ export default function Nav() {
             </Link>
           )}
 
-          {/* Inline search — hidden on landing (landing IS the search page) */}
-          {!isLanding && (
+          {/* Inline search — hidden on landing and on /search (each owns its own input) */}
+          {!hideHeaderSearch && (
             <form onSubmit={handleHeaderSearch} className="flex-1 mx-3 sm:mx-4 md:mx-6 max-w-md">
               <div className="group relative flex items-center rounded-full border border-gray-200 bg-white hover:border-gray-300 focus-within:border-gray-400 focus-within:shadow-[0_1px_6px_rgba(32,33,36,0.1)] transition-all">
                 <Search className="absolute left-3 w-3.5 h-3.5 text-gray-400 pointer-events-none" aria-hidden />
@@ -147,22 +148,24 @@ export default function Nav() {
             </form>
           )}
 
-          {/* Desktop nav */}
-          <nav className="hidden md:flex items-center gap-0.5 shrink-0">
-            {NAV_LINKS.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`px-3.5 py-2 text-[13px] font-medium transition-all rounded-md ${
-                  isActive(item.href)
-                    ? "text-gray-900 bg-gray-100"
-                    : "text-gray-700 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
+          {/* Desktop nav — hidden on landing (links live under the search there) */}
+          {!isLanding && (
+            <nav className="hidden md:flex items-center gap-0.5 shrink-0">
+              {NAV_LINKS.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`px-3.5 py-2 text-[13px] font-medium transition-all rounded-md ${
+                    isActive(item.href)
+                      ? "text-gray-900 bg-gray-100"
+                      : "text-gray-700 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          )}
 
           {/* Right side: feedback, notifications, auth */}
           <div className="flex items-center gap-1.5">

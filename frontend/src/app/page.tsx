@@ -84,12 +84,24 @@ export default function Home() {
         </div>
 
         {/* Secondary actions */}
-        <div className="mt-8 flex items-center justify-center gap-3 text-[13px] text-gray-600">
-          <Link href="/screener" className="px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
-            Browse the screener
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-y-1 text-[13px] text-gray-600">
+          <Link href="/screener" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            {t("nav.screener")}
           </Link>
-          <span className="text-gray-300">·</span>
-          <Link href="/guide" className="px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+          <span className="text-gray-300" aria-hidden>·</span>
+          <Link href="/favourites" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            {t("nav.favourites")}
+          </Link>
+          <span className="text-gray-300" aria-hidden>·</span>
+          <Link href="/compare" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            {t("nav.compare")}
+          </Link>
+          <span className="text-gray-300" aria-hidden>·</span>
+          <Link href="/aggregate" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            {t("nav.aggregate")}
+          </Link>
+          <span className="text-gray-300" aria-hidden>·</span>
+          <Link href="/guide" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
             User guide
           </Link>
         </div>
