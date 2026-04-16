@@ -568,15 +568,15 @@ async def traction_dashboard(user=Depends(_require_admin)):
             ORDER BY day ASC
         """, tuple(admin_params) or None))
 
-        # Hourly usage today (excl admins)
+        # Hourly usage today in Belgian time (excl admins)
         hourly_today = _ser(fetch_all(f"""
             SELECT
-                EXTRACT(HOUR FROM created_at AT TIME ZONE 'Europe/Brussels') AS hour,
+                EXTRACT(HOUR FROM created_at AT TIME ZONE 'Europe/Brussels')::int AS hour,
                 COUNT(*) AS requests,
                 COUNT(DISTINCT user_email) FILTER (WHERE user_email LIKE 'anon:%%') AS guests,
                 COUNT(DISTINCT user_email) FILTER (WHERE user_email NOT LIKE 'anon:%%') AS registered
             FROM activity_log
-            WHERE created_at::date = CURRENT_DATE {admin_filter}
+            WHERE (created_at AT TIME ZONE 'Europe/Brussels')::date = (NOW() AT TIME ZONE 'Europe/Brussels')::date {admin_filter}
             GROUP BY 1
             ORDER BY 1
         """, tuple(admin_params) or None))

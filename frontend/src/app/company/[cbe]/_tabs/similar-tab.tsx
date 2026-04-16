@@ -149,35 +149,41 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
         </div>
       </div>
 
-      {/* Results */}
-      <div className="space-y-2">
-        {companies.map((sc, idx) => {
-          const margin = computeMargin(sc.ebitda, sc.revenue);
-          return (
-            <div key={sc.enterprise_number} className="rounded-lg border border-slate-100 bg-white p-3 hover:border-indigo-100 hover:bg-indigo-50/20 transition-colors">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono text-slate-300 w-5 shrink-0">#{idx + 1}</span>
-                    <Link href={`/company/${sc.enterprise_number}`} className="text-sm font-semibold text-indigo-600 hover:text-indigo-800 hover:underline truncate">
-                      {sc.name}
-                    </Link>
-                  </div>
-                  {sc.ai_reason && (
-                    <p className="text-[11px] text-slate-500 mt-1 ml-7 leading-relaxed">{sc.ai_reason}</p>
-                  )}
-                  <div className="flex items-center gap-3 mt-1.5 ml-7 text-[10px] text-slate-400">
-                    {sc.city && <span>{sc.city}</span>}
-                    {sc.revenue != null && <span className="font-mono">Rev {fmtEur(sc.revenue)}</span>}
-                    {sc.ebitda != null && <span className="font-mono">EBITDA {fmtEur(sc.ebitda)}</span>}
-                    {margin != null && <span className="font-mono">Margin {fmtPct(margin)}</span>}
-                    {sc.fte_total != null && <span className="font-mono">{fmtNumber(sc.fte_total)} FTE</span>}
-                  </div>
-                </div>
+      {/* Results — compact rows */}
+      <div className="rounded-lg border border-slate-200 overflow-hidden bg-white divide-y divide-slate-50">
+        {companies.map((sc, idx) => (
+          <div key={sc.enterprise_number} className="flex items-center gap-3 px-3 py-2 hover:bg-indigo-50/20 transition-colors">
+            <span className="text-[10px] font-mono text-slate-300 w-4 shrink-0 text-right">#{idx + 1}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <Link href={`/company/${sc.enterprise_number}`} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline truncate max-w-[200px]">
+                  {sc.name}
+                </Link>
+                {sc.city && <span className="text-[10px] text-slate-400">{sc.city}</span>}
               </div>
+              {sc.ai_reason && (
+                <p className="text-[10px] text-slate-400 mt-0.5 truncate" title={sc.ai_reason}>{sc.ai_reason}</p>
+              )}
             </div>
-          );
-        })}
+            <div className="flex items-center gap-3 shrink-0 text-[10px] font-mono text-slate-500">
+              {sc.revenue != null && <span title="Revenue">{fmtEur(sc.revenue)}</span>}
+              {sc.ebitda != null && <span title="EBITDA" className="text-slate-400">{fmtEur(sc.ebitda)}</span>}
+              {sc.fte_total != null && <span title="FTE" className="text-slate-400">{fmtNumber(sc.fte_total)}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Find more button */}
+      <div className="mt-3 text-center">
+        <button
+          onClick={loadSimilar}
+          disabled={loading}
+          className="inline-flex items-center gap-1.5 px-4 py-2 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+        >
+          {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+          {loading ? "Finding more..." : "Find more"}
+        </button>
       </div>
     </div>
   );

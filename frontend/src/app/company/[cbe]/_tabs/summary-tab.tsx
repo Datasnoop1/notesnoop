@@ -169,9 +169,7 @@ export function SummaryTab({
               <BarChart3 className="h-3 w-3" /> Key Financials
               {latest.fiscal_year && <span className="text-slate-300 font-mono">FY{latest.fiscal_year}</span>}
             </h3>
-            <button type="button" onClick={() => setActiveTab("pnl")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
-              Full P&L →
-            </button>
+            {/* Link removed — P&L has its own tab */}
           </div>
           {/* KPI cards row */}
           <div className="px-5 pb-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
