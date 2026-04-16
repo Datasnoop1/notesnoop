@@ -198,7 +198,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => loadSimilar()}
+            onClick={resetResults}
             disabled={loading}
             className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
             title="Regenerate"
