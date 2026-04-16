@@ -430,3 +430,24 @@ CREATE TABLE IF NOT EXISTS feedback (
     description         TEXT NOT NULL,
     created_at          TEXT NOT NULL DEFAULT NOW()
 );
+
+-- ============================================================
+-- Vlerick M&A Monitor reference multiples (for valuation tab)
+-- ============================================================
+-- bucket_type: 'size' (deal-size bracket) | 'sector' (industry bucket) | 'overall'
+-- bucket_key:  'lt_5m' | '5_20m' | '20_50m' | '50_100m' | 'gt_100m' | 'overall'
+--              | 'technology' | 'pharmaceutical' | 'healthcare' | ... (sectors)
+CREATE TABLE IF NOT EXISTS vlerick_multiple (
+    year            INTEGER NOT NULL,
+    bucket_type     TEXT NOT NULL,
+    bucket_key      TEXT NOT NULL,
+    multiple        REAL NOT NULL,
+    source_note     TEXT,
+    PRIMARY KEY (year, bucket_type, bucket_key)
+);
+
+-- NACE 2-digit prefix → Vlerick sector bucket. Seeded from NACE Rev 2.
+CREATE TABLE IF NOT EXISTS nace_vlerick_mapping (
+    nace_prefix     TEXT PRIMARY KEY,
+    vlerick_sector  TEXT NOT NULL
+);

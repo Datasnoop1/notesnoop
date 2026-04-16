@@ -69,6 +69,7 @@ import { PnlTab } from "./_tabs/pnl-tab";
 import { CashFlowTab } from "./_tabs/cash-flow-tab";
 import { BalanceSheetTab } from "./_tabs/balance-sheet-tab";
 import { CreditTab } from "./_tabs/credit-tab";
+import { ValuationTab } from "./_tabs/valuation-tab";
 import { AdministratorsTab } from "./_tabs/administrators-tab";
 import { StructureTab } from "./_tabs/structure-tab";
 import { PublicationsTab } from "./_tabs/publications-tab";
@@ -916,6 +917,9 @@ export function CompanyPageClient({
           <TabsTrigger value="credit" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             {t("company.tabs.credit")}
           </TabsTrigger>
+          <TabsTrigger value="valuation" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
+            {t("company.tabs.valuation")}
+          </TabsTrigger>
           <TabsTrigger value="administrators" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             {t("company.tabs.administrators")}
           </TabsTrigger>
@@ -1008,6 +1012,11 @@ export function CompanyPageClient({
             detail={detail}
             cbe={cbe}
           />
+        </TabsContent>
+
+        {/* ===== Valuation ===== */}
+        <TabsContent value="valuation" className="mt-3">
+          <ValuationTab cbe={cbe} />
         </TabsContent>
 
         {/* ===== Administrators ===== */}
