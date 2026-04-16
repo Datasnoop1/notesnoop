@@ -232,13 +232,24 @@ async def get_company_valuation(
         sector_mults = {m["bucket_key"]: float(m["multiple"]) for m in mults if m["bucket_type"] == "sector"}
         overall_mult = size_mults.get("overall", 6.5)
 
-        # Last 3 fiscal years of financials
+        # Last 3 fiscal years of financials. `financial_summary` can have
+        # multiple rows per fiscal year (one per filing / amendment), so
+        # de-dup via ROW_NUMBER keeping the latest deposit_key per year —
+        # same pattern used in financials.py and the NBB pipeline.
         hist = fetch_all("""
             SELECT fiscal_year, ebitda,
                    lt_financial_debt, st_financial_debt,
                    cash, current_investments
-            FROM financial_summary
-            WHERE enterprise_number = %s
+            FROM (
+                SELECT *,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY fiscal_year
+                           ORDER BY deposit_key DESC
+                       ) AS rn
+                FROM financial_summary
+                WHERE enterprise_number = %s
+            ) sub
+            WHERE rn = 1
             ORDER BY fiscal_year DESC
             LIMIT 3
         """, (cbe,))
