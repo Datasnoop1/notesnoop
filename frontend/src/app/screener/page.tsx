@@ -356,6 +356,7 @@ export default function ScreenerPage() {
   const naceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const naceContainerRef = useRef<HTMLDivElement>(null);
   const naceInputRef = useRef<HTMLInputElement>(null);
+  const naceDropdownRef = useRef<HTMLDivElement>(null);
   const [naceDropdownStyle, setNaceDropdownStyle] = useState<React.CSSProperties>({});
   const [naceInput, setNaceInput] = useState("");
 
@@ -393,12 +394,14 @@ export default function ScreenerPage() {
     });
   }, []);
 
-  /* Close NACE dropdown on outside click */
+  /* Close NACE dropdown on outside click (exclude portal dropdown) */
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node;
       if (
         naceContainerRef.current &&
-        !naceContainerRef.current.contains(e.target as Node)
+        !naceContainerRef.current.contains(target) &&
+        (!naceDropdownRef.current || !naceDropdownRef.current.contains(target))
       ) {
         setNaceOpen(false);
       }
@@ -743,9 +746,16 @@ export default function ScreenerPage() {
                   setNaceOpen(true);
                   updateNaceDropdownPosition();
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && naceInput.trim()) {
+                    e.preventDefault();
+                    addNace(naceInput.trim());
+                    setNaceOpen(false);
+                  }
+                }}
               />
               {naceOpen && naceSuggestions.length > 0 && typeof document !== "undefined" && createPortal(
-                <div className="z-[100] bg-white border border-slate-200 rounded-lg shadow-2xl max-h-[60vh] overflow-y-auto" style={naceDropdownStyle}>
+                <div ref={naceDropdownRef} className="z-[100] bg-white border border-slate-200 rounded-lg shadow-2xl max-h-[60vh] overflow-y-auto" style={naceDropdownStyle}>
                   {naceSuggestions.filter((s) => !selectedNaces.includes(s.nace_code)).map((s) => (
                     <button
                       key={s.nace_code}

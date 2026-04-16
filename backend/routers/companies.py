@@ -1739,7 +1739,7 @@ async def summarize_publications(cbe: str, user=Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 @router.get("/{cbe}/similar/ai")
-async def get_similar_companies_ai(cbe: str, user=Depends(optional_user)):
+async def get_similar_companies_ai(cbe: str, user=Depends(get_current_user)):
     """Re-rank similar companies using LLM for true business similarity."""
     cbe = cbe.strip().replace(".", "")
 

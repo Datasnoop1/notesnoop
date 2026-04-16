@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import ExportButtons from "@/components/export-buttons";
 import { FileText, Download, Loader2, Sparkles } from "lucide-react";
-import { getCompanyStructure } from "@/lib/api";
+import { getCompanyStructure, summarizePublications } from "@/lib/api";
 import type { StructureData, CompanyDetail } from "../types";
 import { downloadCsv } from "../helpers";
 
@@ -138,11 +138,7 @@ export function PublicationsTab({
   const generateSummary = async () => {
     setSummaryLoading(true);
     try {
-      const res = await fetch(`/api/companies/${cbe}/summarize-publications`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = await res.json();
+      const data = await summarizePublications(cbe);
       if (data.summary) setPubSummary(data.summary);
     } catch {
       /* ignore */

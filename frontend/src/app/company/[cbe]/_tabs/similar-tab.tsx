@@ -15,6 +15,7 @@ import { Users, Scale, Loader2, Sparkles } from "lucide-react";
 import { fmtEur, fmtNumber } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import type { SimilarCompany } from "@/lib/api";
+import { getAiSimilarCompanies } from "@/lib/api";
 
 /* ---------- Types ---------- */
 
@@ -64,11 +65,10 @@ export function SimilarTab({
   const enhanceWithAi = async () => {
     setAiLoading(true);
     try {
-      const res = await fetch(`/api/companies/${cbe}/similar/ai`);
-      const data = await res.json();
+      const data = await getAiSimilarCompanies(cbe);
       const reasons: Record<string, string> = {};
       for (const item of data) {
-        if (item.ai_reason) reasons[item.enterprise_number] = item.ai_reason;
+        if ((item as Record<string, unknown>).ai_reason) reasons[item.enterprise_number] = (item as Record<string, unknown>).ai_reason as string;
       }
       setAiReasons(reasons);
       setAiEnhanced(true);

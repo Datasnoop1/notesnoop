@@ -765,3 +765,9 @@ export const generateAiInsights = (cbe: string) =>
 
 export const submitInsightsFeedback = (cbe: string, feedback: { overall: string; websiteCorrect?: boolean; linkedinCorrect?: boolean; insightCorrect?: boolean; comment?: string }) =>
   apiFetch<{ status: string }>(`/api/companies/${cbe}/ai-insights/feedback`, { method: "POST", body: JSON.stringify(feedback) });
+
+export const summarizePublications = (cbe: string) =>
+  apiFetch<{ summary: string | null; cached: boolean; error?: string }>(`/api/companies/${cbe}/summarize-publications`, { method: "POST" });
+
+export const getAiSimilarCompanies = (cbe: string) =>
+  apiFetch<SimilarCompany[]>(`/api/companies/${cbe}/similar/ai`);

@@ -117,6 +117,7 @@ export default function CompanyDetailPage(props: {
   const [nbbLoading, setNbbLoading] = useState(false);
   const [nbbResult, setNbbResult] = useState<"success" | "error" | "no-data" | null>(null);
   const nbbAutoTriggered = React.useRef(false);
+  const aiPreloadTriggered = React.useRef(false);
   const router = useRouter();
 
   /* -- Auto-load overlay state -- */
@@ -212,6 +213,14 @@ export default function CompanyDetailPage(props: {
           } catch {
             // ai_insights wasn't valid JSON -- skip
           }
+        } else if (!aiPreloadTriggered.current) {
+          // No cached insights — pre-generate in background
+          aiPreloadTriggered.current = true;
+          setAiInsightsLoading(true);
+          generateAiInsights(cbe)
+            .then((result) => setAiInsights(result))
+            .catch(() => {}) // fails silently for unauthenticated users
+            .finally(() => setAiInsightsLoading(false));
         }
       })
       .catch(() => {});
@@ -724,7 +733,10 @@ export default function CompanyDetailPage(props: {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => aiInsights ? setShowInsightsOverlay(true) : handleGenerateInsights()}
+              onClick={() => {
+                setShowInsightsOverlay(true);
+                if (!aiInsights && !aiInsightsLoading) handleGenerateInsights();
+              }}
               title="AI Insights"
               className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${aiInsights ? "bg-indigo-50 border-indigo-400" : ""}`}
             >
