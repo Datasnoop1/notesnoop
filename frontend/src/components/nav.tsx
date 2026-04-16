@@ -99,19 +99,24 @@ export default function Nav() {
   }
 
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? "?";
+  const isLanding = pathname === "/";
 
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Brand */}
-          <Link href="/" className="flex items-center gap-2.5 group">
-            <img src={logoPath} alt="Datasnoop" width={44} height={44} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/95" />
-            <span className="text-base font-semibold text-slate-900 tracking-tight">
-              Datasnoop
-            </span>
-            <span className="text-[7px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
-          </Link>
+          {/* Brand — hidden on landing (brand lives in the hero there) */}
+          {isLanding ? (
+            <span aria-hidden className="w-0" />
+          ) : (
+            <Link href="/" className="flex items-center gap-2.5 group">
+              <img src={logoPath} alt="Datasnoop" width={44} height={44} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/95" />
+              <span className="text-base font-semibold text-slate-900 tracking-tight">
+                Datasnoop
+              </span>
+              <span className="text-[7px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
+            </Link>
+          )}
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-0.5">

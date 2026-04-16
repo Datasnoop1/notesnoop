@@ -34,7 +34,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-[calc(100vh-14rem)] flex flex-col items-center justify-center px-4 bg-white">
+    <div className="flex flex-col items-center px-4 pt-[10vh] pb-24 bg-white">
       {/* Brand */}
       <div className="flex flex-col items-center mb-12 sm:mb-14">
         <img
@@ -78,11 +78,59 @@ export default function Home() {
             Browse the screener
           </Link>
           <span className="text-gray-300">·</span>
-          <Link href="/stats" className="px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
-            View stats
+          <Link href="/guide" className="px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            User guide
           </Link>
         </div>
       </form>
+
+      {/* What's new */}
+      <section className="mt-32 sm:mt-40 w-full max-w-xl">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 sm:p-8 shadow-[0_1px_3px_rgba(32,33,36,0.04)]">
+          <div className="flex items-center gap-2 mb-5">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
+            <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.18em]">
+              What&rsquo;s new
+            </span>
+          </div>
+
+          <ul className="space-y-4">
+            <li className="flex gap-3">
+              <span className="text-gray-300 text-sm leading-6 select-none">—</span>
+              <div>
+                <div className="text-sm font-medium text-gray-900">
+                  Refreshed, distraction-free landing
+                </div>
+                <p className="text-[13px] text-gray-500 mt-0.5">
+                  White background, bigger brand, search front and centre.
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-gray-300 text-sm leading-6 select-none">—</span>
+              <div>
+                <div className="text-sm font-medium text-gray-900">
+                  Persistent search bar on every page
+                </div>
+                <p className="text-[13px] text-gray-500 mt-0.5">
+                  Jump to a company or person from anywhere in the app.
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-gray-300 text-sm leading-6 select-none">—</span>
+              <div>
+                <div className="text-sm font-medium text-gray-900">
+                  Mobile experience in progress
+                </div>
+                <p className="text-[13px] text-gray-500 mt-0.5">
+                  Full power-user functionality on phone is the next focus.
+                </p>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </section>
     </div>
   );
 }
