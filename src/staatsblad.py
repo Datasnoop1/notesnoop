@@ -115,19 +115,14 @@ def store_publications(conn, publications):
     """Insert publications into the database, skipping duplicates."""
     if not publications:
         return 0
-    inserted = 0
     for pub in publications:
-        try:
-            conn.execute(
-                """INSERT OR IGNORE INTO staatsblad_publication
-                   (enterprise_number, pub_date, pub_type, reference, pdf_url, entity_name, loaded_at)
-                   VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
-                (pub["enterprise_number"], pub["pub_date"], pub.get("pub_type"),
-                 pub.get("reference"), pub.get("pdf_url"), pub.get("entity_name")),
-            )
-            inserted += conn.total_changes  # approximate
-        except sqlite3.IntegrityError:
-            pass
+        conn.execute(
+            """INSERT OR IGNORE INTO staatsblad_publication
+               (enterprise_number, pub_date, pub_type, reference, pdf_url, entity_name, loaded_at)
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+            (pub["enterprise_number"], pub["pub_date"], pub.get("pub_type"),
+             pub.get("reference"), pub.get("pdf_url"), pub.get("entity_name")),
+        )
     conn.commit()
     return len(publications)
 

@@ -387,7 +387,7 @@ def store_structure_data(conn, filing_json, enterprise_number, deposit_key, fisc
                    (enterprise_number, deposit_key, fiscal_year, person_type,
                     name, role, identifier, mandate_start, mandate_end, representative_name)
                    VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (enterprise_number, deposit_key, fiscal_year, "legal" if False else "natural",
+                (enterprise_number, deposit_key, fiscal_year, "natural",
                  name, role, None,
                  dates.get("StartDate"), dates.get("EndDate"), None),
             )
