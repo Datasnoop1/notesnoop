@@ -1727,20 +1727,23 @@ async def summarize_publications(cbe: str, body: Optional[SummarizePublicationsB
     pub_lines = [f"- {p.get('pub_date', '?')}: {p.get('pub_type', 'Unknown')}" for p in pubs]
 
     system_prompt = (
-        "You are a corporate events analyst. Summarize Belgian Staatsblad publications "
-        "for a PE deal screening audience.\n\n"
+        "You are a corporate events analyst. Describe Belgian Staatsblad publications "
+        "for a non-specialist audience doing initial company screening.\n\n"
+        "IMPORTANT: You only see publication TYPE and DATE — not the actual content. "
+        "Be factual and cautious. Describe what the publication type typically means, "
+        "not what specifically happened. Use phrases like 'likely involves', 'typically indicates', "
+        "'may relate to'. Never state conclusions as fact.\n\n"
         "Return valid JSON only — no markdown, no code fences, no explanation. Structure:\n"
         '{"events": [{"date": "YYYY-MM-DD", "type_raw": "original type code", '
-        '"summary": "1-sentence plain-language description", '
-        '"takeaway": "1-sentence investor implication", '
+        '"what": "1-sentence plain-language description of what this publication type typically covers", '
+        '"context": "1-sentence general context for someone unfamiliar with Belgian corporate law", '
         '"importance": "routine | notable | significant"}], '
-        '"pattern_alert": "1-sentence cross-event pattern or null", '
-        '"risk_flag": true | false}\n\n'
-        "Importance: routine = admin/annual filings. notable = board change, capital increase, "
-        "office move. significant = multiple board changes in <12 months, merger/demerger, "
-        "dissolution, rapid restructuring.\n\n"
-        "Translate all Dutch/French legal terms to plain English. Quantify where possible. "
-        "Flag cross-publication patterns. Return ONLY the JSON object.\n\n"
+        '"pattern_note": "1-sentence observation about the pattern of publications, or null if nothing notable", '
+        '"risk_flag": false}\n\n'
+        "Importance: routine = standard administrative filings. notable = board changes, capital events, "
+        "relocations. significant = multiple board changes in short period, merger/demerger, dissolution.\n\n"
+        "Translate all Dutch/French legal terms to plain English. "
+        "Keep language neutral and informative — never alarmist. Return ONLY the JSON object.\n\n"
         f"Company: {company_name}"
     )
 
