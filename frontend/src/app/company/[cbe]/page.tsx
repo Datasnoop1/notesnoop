@@ -1,7 +1,8 @@
 import { CompanyPageClient } from "./company-page-client";
 import type { CompanyDetail, FinancialsData, StructureData } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+// Server components need an absolute URL for fetch — use internal Docker URL if available
+const API_BASE = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "";
 
 async function fetchJson<T>(url: string): Promise<T | null> {
   try {

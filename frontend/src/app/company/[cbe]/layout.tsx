@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+const API_BASE = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "";
 
 export async function generateMetadata({
   params,
