@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Menu, LogOut, User, Bell, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -114,7 +114,7 @@ export default function Nav() {
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+        <div className={`flex items-center h-16 ${isLanding ? "justify-center" : "justify-between"}`}>
           {/* Brand — hidden on landing (brand lives in the hero there) */}
           {isLanding ? (
             <span aria-hidden className="w-0" />
@@ -148,21 +148,24 @@ export default function Nav() {
             </form>
           )}
 
-          {/* Desktop nav — hidden on landing (links live under the search there) */}
+          {/* Desktop nav — hidden on landing (links live under the search there).
+              Text-link style with dot separators, matching the landing secondary-actions row. */}
           {!isLanding && (
-            <nav className="hidden md:flex items-center gap-0.5 shrink-0">
-              {NAV_LINKS.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`px-3.5 py-2 text-[13px] font-medium transition-all rounded-md ${
-                    isActive(item.href)
-                      ? "text-gray-900 bg-gray-100"
-                      : "text-gray-700 hover:text-gray-900 hover:bg-gray-50"
-                  }`}
-                >
-                  {item.label}
-                </Link>
+            <nav className="hidden md:flex items-center gap-0 shrink-0 text-[13px] text-gray-600">
+              {NAV_LINKS.map((item, idx) => (
+                <React.Fragment key={item.href}>
+                  {idx > 0 && <span className="text-gray-300 select-none" aria-hidden>·</span>}
+                  <Link
+                    href={item.href}
+                    className={`px-3 py-2 rounded-md transition-colors ${
+                      isActive(item.href)
+                        ? "text-gray-900 font-medium"
+                        : "hover:bg-gray-50 hover:text-gray-900"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                </React.Fragment>
               ))}
             </nav>
           )}
