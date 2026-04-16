@@ -1,34 +1,29 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import {
-  Table,
-  TableHeader,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-} from "@/components/ui/table";
-import { Users, Scale, Loader2, Sparkles } from "lucide-react";
+import { Sparkles, Loader2, Scale, RefreshCw } from "lucide-react";
 import { fmtEur, fmtNumber } from "@/lib/format";
 import { useTranslation } from "@/components/language-provider";
 import { useRouter } from "next/navigation";
-import type { SimilarCompany } from "@/lib/api";
 import { getAiSimilarCompanies } from "@/lib/api";
 
 /* ---------- Types ---------- */
 
-type SortKey = "name" | "revenue" | "ebitda" | "fte_total" | "ebit" | "net_profit" | "equity" | "total_assets" | "personnel_costs" | "ebitda_margin" | "equity_ratio";
+interface AiSimilarCompany {
+  enterprise_number: string;
+  name: string;
+  city: string;
+  revenue: number | null;
+  ebitda: number | null;
+  fte_total: number | null;
+  fiscal_year: number;
+  ai_reason?: string;
+}
 
 interface SimilarTabProps {
-  sortedSimilar: SimilarCompany[] | null;
-  similarSort: { key: SortKey; direction: "asc" | "desc" };
-  setSimilarSort: (sort: { key: SortKey; direction: "asc" | "desc" }) => void;
   cbe: string;
-  financials: { summary: { fiscal_year: number; revenue: number | null }[] } | null;
-  similarCompanies: unknown[] | null;
 }
 
 /* ---------- Helpers ---------- */
@@ -43,183 +38,145 @@ function computeMargin(ebitda: number | null, revenue: number | null): number | 
   return (ebitda / revenue) * 100;
 }
 
-function computeEquityRatio(equity: number | null, totalAssets: number | null): number | null {
-  if (equity == null || !totalAssets) return null;
-  return (equity / totalAssets) * 100;
-}
-
 /* ---------- Component ---------- */
 
-export function SimilarTab({
-  sortedSimilar,
-  similarSort,
-  setSimilarSort,
-  cbe,
-  financials,
-  similarCompanies,
-}: SimilarTabProps) {
+export function SimilarTab({ cbe }: SimilarTabProps) {
   const router = useRouter();
   const { t } = useTranslation();
-  const [aiReasons, setAiReasons] = useState<Record<string, string>>({});
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiEnhanced, setAiEnhanced] = useState(false);
+  const [companies, setCompanies] = useState<AiSimilarCompany[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const triggered = useRef(false);
 
-  const enhanceWithAi = async () => {
-    setAiLoading(true);
+  const loadSimilar = async () => {
+    setLoading(true);
+    setError(null);
     try {
       const data = await getAiSimilarCompanies(cbe);
-      const reasons: Record<string, string> = {};
-      for (const item of data) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const reason = (item as any).ai_reason;
-        if (reason) reasons[item.enterprise_number] = reason;
+      setCompanies(data.map((d) => ({ ...d, ai_reason: (d as Record<string, unknown>).ai_reason as string | undefined })));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("401") || msg.includes("403")) {
+        setError("Sign in to use AI Similar Companies.");
+      } else {
+        setError("Could not load similar companies.");
       }
-      setAiReasons(reasons);
-      setAiEnhanced(true);
-    } catch { /* ignore */ }
-    finally { setAiLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  if (similarCompanies === null) {
-    return (
-      <div className="py-6 text-center">
-        <Loader2 className="w-5 h-5 animate-spin text-indigo-400 mx-auto mb-1" />
-        <p className="text-xs text-slate-400">{t("company.similarLoading")}</p>
-      </div>
-    );
-  }
+  // Auto-trigger on mount
+  useEffect(() => {
+    if (!triggered.current) {
+      triggered.current = true;
+      loadSimilar();
+    }
+  }, [cbe]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!sortedSimilar || sortedSimilar.length === 0) {
+  // Loading state
+  if (loading && companies.length === 0) {
     return (
       <div className="py-12 text-center">
-        <Users className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-        <p className="text-sm font-medium text-slate-400">{t("company.similarNone")}</p>
-        <p className="text-xs text-slate-300 mt-1">{t("company.similarNoneHint")}</p>
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-50 border border-indigo-100">
+          <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+          <span className="text-sm text-indigo-600 font-medium">Finding similar companies with AI...</span>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-3">Analyzing sector, revenue, and business model</p>
       </div>
     );
   }
 
-  const maxRevenue = Math.max(...sortedSimilar.map((sc) => sc.revenue ?? 0), 1);
-  const thisRevenue = financials?.summary?.length
-    ? [...financials.summary].sort((a, b) => b.fiscal_year - a.fiscal_year)[0]?.revenue ?? 0
-    : 0;
-  const barMax = Math.max(maxRevenue, thisRevenue, 1);
-
-  const handleSort = (key: SortKey) => {
-    setSimilarSort(
-      similarSort.key === key
-        ? { key, direction: similarSort.direction === "asc" ? "desc" : "asc" }
-        : { key, direction: key === "name" ? "asc" : "desc" }
+  // Error state
+  if (error) {
+    return (
+      <div className="py-12 text-center">
+        <Sparkles className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+        <p className="text-sm font-medium text-slate-500">{error}</p>
+        <button onClick={loadSimilar} className="mt-3 text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+          Try again
+        </button>
+      </div>
     );
-  };
+  }
 
-  const sortArrow = (key: SortKey) =>
-    similarSort.key === key ? (similarSort.direction === "asc" ? " \u25B2" : " \u25BC") : "";
-
-  const sortHeaderCls = (key: SortKey) =>
-    `text-[10px] uppercase tracking-wider py-2 cursor-pointer hover:text-indigo-600 select-none whitespace-nowrap ${similarSort.key === key ? "text-indigo-600 font-bold" : "font-semibold text-slate-500"}`;
+  // Empty state
+  if (companies.length === 0) {
+    return (
+      <div className="py-12 text-center">
+        <Sparkles className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+        <p className="text-sm font-medium text-slate-400">No similar companies found</p>
+        <p className="text-xs text-slate-300 mt-1">This company may have a unique profile with no close peers</p>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2">
-          {t("company.similarTitle")}
-          <span className="ml-2 text-[10px] font-normal text-slate-400">({sortedSimilar.length})</span>
-        </h3>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          {!aiEnhanced && (
-            <button
-              onClick={enhanceWithAi}
-              disabled={aiLoading}
-              className="inline-flex items-center gap-1 h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-50 disabled:opacity-50 transition-colors"
-            >
-              {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-              {aiLoading ? t("company.similarRanking") : t("company.similarAiRank")}
-            </button>
-          )}
-          {aiEnhanced && (
-            <span className="inline-flex items-center gap-1 text-[10px] text-indigo-500 font-medium">
-              <Sparkles className="w-3 h-3" /> {t("company.similarAiEnhanced")}
-            </span>
-          )}
+          <div className="h-7 px-2.5 rounded-full bg-indigo-50 border border-indigo-100 flex items-center gap-1.5">
+            <Sparkles className="w-3 h-3 text-indigo-500" />
+            <span className="text-[11px] font-semibold text-indigo-600">AI Similar Companies</span>
+          </div>
+          <span className="text-[10px] text-slate-400">({companies.length})</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadSimilar}
+            disabled={loading}
+            className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+            title="Regenerate"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+          </button>
           <Button
             variant="outline"
             size="sm"
             className="h-7 text-[11px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 px-3"
             onClick={() => {
-              const cbes = sortedSimilar.map((sc) => sc.enterprise_number);
+              const cbes = companies.map((sc) => sc.enterprise_number);
               if (!cbes.includes(cbe)) cbes.unshift(cbe);
               sessionStorage.setItem("compare_companies", JSON.stringify(cbes));
               router.push("/compare");
             }}
           >
             <Scale className="w-3 h-3 mr-1" />
-            {t("company.similarCompareAll")}
+            Compare all
           </Button>
         </div>
       </div>
-      <div className="rounded-xl border border-slate-200 overflow-x-auto scrollbar-none">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-slate-50/80">
-              <TableHead className={`${sortHeaderCls("name")} sticky left-0 bg-slate-50/80 z-10`} onClick={() => handleSort("name")}>Company{sortArrow("name")}</TableHead>
-              <TableHead className={`${sortHeaderCls("revenue")} min-w-[180px]`} onClick={() => handleSort("revenue")}>Revenue{sortArrow("revenue")}</TableHead>
-              <TableHead className={`${sortHeaderCls("ebitda")} text-right`} onClick={() => handleSort("ebitda")}>EBITDA{sortArrow("ebitda")}</TableHead>
-              <TableHead className={`${sortHeaderCls("ebitda_margin")} text-right`} onClick={() => handleSort("ebitda_margin")}>Margin %{sortArrow("ebitda_margin")}</TableHead>
-              <TableHead className={`${sortHeaderCls("ebit")} text-right`} onClick={() => handleSort("ebit")}>EBIT{sortArrow("ebit")}</TableHead>
-              <TableHead className={`${sortHeaderCls("net_profit")} text-right`} onClick={() => handleSort("net_profit")}>Net Profit{sortArrow("net_profit")}</TableHead>
-              <TableHead className={`${sortHeaderCls("equity")} text-right`} onClick={() => handleSort("equity")}>Equity{sortArrow("equity")}</TableHead>
-              <TableHead className={`${sortHeaderCls("total_assets")} text-right`} onClick={() => handleSort("total_assets")}>Total Assets{sortArrow("total_assets")}</TableHead>
-              <TableHead className={`${sortHeaderCls("equity_ratio")} text-right`} onClick={() => handleSort("equity_ratio")}>Equity %{sortArrow("equity_ratio")}</TableHead>
-              <TableHead className={`${sortHeaderCls("fte_total")} text-right`} onClick={() => handleSort("fte_total")}>FTE{sortArrow("fte_total")}</TableHead>
-              <TableHead className={`${sortHeaderCls("personnel_costs")} text-right`} onClick={() => handleSort("personnel_costs")}>Staff Costs{sortArrow("personnel_costs")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sortedSimilar.map((sc) => {
-              const revPct = sc.revenue != null ? Math.max(0, (sc.revenue / barMax) * 100) : 0;
-              const margin = computeMargin(sc.ebitda, sc.revenue);
-              const eqRatio = computeEquityRatio(sc.equity, sc.total_assets);
-              return (
-              <TableRow key={sc.enterprise_number} className="hover:bg-slate-50/50">
-                <TableCell className="py-2 sticky left-0 bg-white z-10">
-                  <Link href={`/company/${sc.enterprise_number}`} className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline whitespace-nowrap">
-                    {sc.name}
-                  </Link>
-                  <div className="text-[10px] text-slate-400">{sc.city || "\u2014"}</div>
-                  {aiReasons[sc.enterprise_number] && (
-                    <div className="text-[10px] text-indigo-500 mt-0.5 italic max-w-[250px] truncate" title={aiReasons[sc.enterprise_number]}>
-                      {aiReasons[sc.enterprise_number]}
-                    </div>
-                  )}
-                </TableCell>
-                <TableCell className="py-2">
+
+      {/* Results */}
+      <div className="space-y-2">
+        {companies.map((sc, idx) => {
+          const margin = computeMargin(sc.ebitda, sc.revenue);
+          return (
+            <div key={sc.enterprise_number} className="rounded-lg border border-slate-100 bg-white p-3 hover:border-indigo-100 hover:bg-indigo-50/20 transition-colors">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 h-4 bg-slate-50 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-indigo-100 rounded-full transition-all duration-500"
-                        style={{ width: `${revPct}%` }}
-                      />
-                    </div>
-                    <span className="text-xs text-slate-700 font-mono shrink-0 min-w-[60px] text-right">
-                      {fmtEur(sc.revenue)}
-                    </span>
+                    <span className="text-[10px] font-mono text-slate-300 w-5 shrink-0">#{idx + 1}</span>
+                    <Link href={`/company/${sc.enterprise_number}`} className="text-sm font-semibold text-indigo-600 hover:text-indigo-800 hover:underline truncate">
+                      {sc.name}
+                    </Link>
                   </div>
-                </TableCell>
-                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.ebitda)}</TableCell>
-                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtPct(margin)}</TableCell>
-                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.ebit)}</TableCell>
-                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.net_profit)}</TableCell>
-                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.equity)}</TableCell>
-                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.total_assets)}</TableCell>
-                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtPct(eqRatio)}</TableCell>
-                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{sc.fte_total != null ? fmtNumber(sc.fte_total) : "\u2014"}</TableCell>
-                <TableCell className="text-xs text-slate-700 font-mono text-right py-2">{fmtEur(sc.personnel_costs)}</TableCell>
-              </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                  {sc.ai_reason && (
+                    <p className="text-[11px] text-slate-500 mt-1 ml-7 leading-relaxed">{sc.ai_reason}</p>
+                  )}
+                  <div className="flex items-center gap-3 mt-1.5 ml-7 text-[10px] text-slate-400">
+                    {sc.city && <span>{sc.city}</span>}
+                    {sc.revenue != null && <span className="font-mono">Rev {fmtEur(sc.revenue)}</span>}
+                    {sc.ebitda != null && <span className="font-mono">EBITDA {fmtEur(sc.ebitda)}</span>}
+                    {margin != null && <span className="font-mono">Margin {fmtPct(margin)}</span>}
+                    {sc.fte_total != null && <span className="font-mono">{fmtNumber(sc.fte_total)} FTE</span>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

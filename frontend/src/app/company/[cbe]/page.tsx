@@ -752,17 +752,11 @@ export default function CompanyDetailPage(props: {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                // Switch to similar tab and lazy-load if needed
-                if (!similarCompanies) {
-                  getSimilarCompanies(cbe).then(setSimilarCompanies).catch(() => setSimilarCompanies([]));
-                }
-                setActiveTab("similar");
-              }}
-              className="h-9 md:h-7 text-[11px] text-slate-500 border-slate-200 hover:border-slate-300 px-2.5 md:px-2"
+              onClick={() => setActiveTab("similar")}
+              className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400`}
             >
-              <Users className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
-              {t("company.findSimilar")}
+              <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
+              <span className="hidden sm:inline">{t("company.findSimilar")}</span>
             </Button>
             <Button
               variant="outline"
@@ -1054,14 +1048,7 @@ export default function CompanyDetailPage(props: {
 
         {/* ===== Similar ===== */}
         <TabsContent value="similar" className="mt-3">
-          <SimilarTab
-            sortedSimilar={sortedSimilar}
-            similarSort={similarSort}
-            setSimilarSort={setSimilarSort}
-            cbe={cbe}
-            financials={financials}
-            similarCompanies={similarCompanies}
-          />
+          <SimilarTab cbe={cbe} />
         </TabsContent>
       </Tabs>
     </div>

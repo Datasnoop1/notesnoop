@@ -637,50 +637,6 @@ export default function ScreenerPage() {
             )}
           </div>
 
-          {/* AI Natural Language Search */}
-          <div className="space-y-1.5 border-b border-indigo-100 pb-3 bg-indigo-50/30 -mx-3 px-3 pt-2 rounded-t-lg">
-            <Label className="text-[10px] uppercase tracking-wider text-indigo-600 font-bold">
-              <Sparkles className="w-3 h-3 inline mr-1" />
-              AI Search
-            </Label>
-            <p className="text-[9px] text-indigo-400 -mt-1">Describe what you&apos;re looking for in plain language</p>
-            <textarea
-              className="w-full h-14 text-xs border border-indigo-200 rounded-md px-2 py-1.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 placeholder:text-slate-400 bg-white"
-              placeholder={"e.g. Manufacturing companies in Antwerp with revenue above 5 million and growing"}
-              value={nlQuery}
-              onChange={(e) => setNlQuery(e.target.value)}
-            />
-            <button
-              disabled={!nlQuery.trim() || nlLoading}
-              onClick={async () => {
-                if (!nlQuery.trim() || nlLoading) return;
-                setNlLoading(true);
-                try {
-                  const res = await fetch("/api/screener/nl", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ query: nlQuery }),
-                  });
-                  const data = await res.json();
-                  if (data.filters && Object.keys(data.filters).length > 0) {
-                    const newFilters = { ...DEFAULT_FILTERS };
-                    for (const [k, v] of Object.entries(data.filters)) {
-                      if (k in newFilters) (newFilters as Record<string, string>)[k] = String(v);
-                    }
-                    setFilters(newFilters);
-                    setNaceChips([]);
-                    setNaceInput("");
-                    doFetch(newFilters);
-                  }
-                } catch { /* ignore */ }
-                finally { setNlLoading(false); }
-              }}
-              className="w-full h-7 text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
-            >
-              {nlLoading ? <><Loader2 className="w-3 h-3 animate-spin" /> Searching...</> : <><Sparkles className="w-3 h-3" /> Search with AI</>}
-            </button>
-          </div>
-
           {/* Reset + Save/Load */}
           <div className="flex items-center gap-3">
             <button
