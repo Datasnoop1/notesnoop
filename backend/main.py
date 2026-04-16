@@ -277,6 +277,27 @@ app.add_middleware(TierLimitMiddleware)
 # Rate limiting middleware
 # ---------------------------------------------------------------------------
 
+class BotFilterMiddleware(BaseHTTPMiddleware):
+    """Block known scraper/bot User-Agents from API endpoints."""
+
+    BLOCKED_UA_SUBSTRINGS = (
+        "scrapy", "python-requests/", "go-http-client", "java/", "wget",
+        "curl/", "httpclient", "libwww", "lwp-trivial", "slimerjs",
+        "phantomjs", "headlesschrome", "selenium",
+    )
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/api/"):
+            ua = (request.headers.get("user-agent") or "").lower()
+            if not ua or any(bot in ua for bot in self.BLOCKED_UA_SUBSTRINGS):
+                from fastapi.responses import JSONResponse
+                return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+        return await call_next(request)
+
+
+app.add_middleware(BotFilterMiddleware)
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Rate limiting keyed by authenticated user email or client IP."""
 

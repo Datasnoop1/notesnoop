@@ -1,0 +1,21 @@
+User-agent: *
+Allow: /$
+Disallow: /api/
+Disallow: /screener
+Disallow: /stats
+Disallow: /people
+Disallow: /favourites
+Disallow: /admin
+Disallow: /guide
+
+User-agent: GPTBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /

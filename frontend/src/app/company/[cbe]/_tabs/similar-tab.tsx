@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +11,7 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
-import { Users, Scale, Loader2 } from "lucide-react";
+import { Users, Scale, Loader2, Sparkles } from "lucide-react";
 import { fmtEur, fmtNumber } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import type { SimilarCompany } from "@/lib/api";
@@ -57,6 +57,24 @@ export function SimilarTab({
   similarCompanies,
 }: SimilarTabProps) {
   const router = useRouter();
+  const [aiReasons, setAiReasons] = useState<Record<string, string>>({});
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiEnhanced, setAiEnhanced] = useState(false);
+
+  const enhanceWithAi = async () => {
+    setAiLoading(true);
+    try {
+      const res = await fetch(`/api/companies/${cbe}/similar/ai`);
+      const data = await res.json();
+      const reasons: Record<string, string> = {};
+      for (const item of data) {
+        if (item.ai_reason) reasons[item.enterprise_number] = item.ai_reason;
+      }
+      setAiReasons(reasons);
+      setAiEnhanced(true);
+    } catch { /* ignore */ }
+    finally { setAiLoading(false); }
+  };
 
   if (similarCompanies === null) {
     return (
@@ -104,20 +122,37 @@ export function SimilarTab({
           Similar Companies
           <span className="ml-2 text-[10px] font-normal text-slate-400">({sortedSimilar.length})</span>
         </h3>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-[11px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 px-3"
-          onClick={() => {
-            const cbes = sortedSimilar.map((sc) => sc.enterprise_number);
-            if (!cbes.includes(cbe)) cbes.unshift(cbe);
-            sessionStorage.setItem("compare_companies", JSON.stringify(cbes));
-            router.push("/compare");
-          }}
-        >
-          <Scale className="w-3 h-3 mr-1" />
-          Compare all
-        </Button>
+        <div className="flex items-center gap-2">
+          {!aiEnhanced && (
+            <button
+              onClick={enhanceWithAi}
+              disabled={aiLoading}
+              className="inline-flex items-center gap-1 h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+            >
+              {aiLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+              {aiLoading ? "Ranking..." : "AI Rank"}
+            </button>
+          )}
+          {aiEnhanced && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-indigo-500 font-medium">
+              <Sparkles className="w-3 h-3" /> AI-enhanced
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-[11px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 px-3"
+            onClick={() => {
+              const cbes = sortedSimilar.map((sc) => sc.enterprise_number);
+              if (!cbes.includes(cbe)) cbes.unshift(cbe);
+              sessionStorage.setItem("compare_companies", JSON.stringify(cbes));
+              router.push("/compare");
+            }}
+          >
+            <Scale className="w-3 h-3 mr-1" />
+            Compare all
+          </Button>
+        </div>
       </div>
       <div className="rounded-xl border border-slate-200 overflow-x-auto">
         <Table>
@@ -148,6 +183,11 @@ export function SimilarTab({
                     {sc.name}
                   </Link>
                   <div className="text-[10px] text-slate-400">{sc.city || "\u2014"}</div>
+                  {aiReasons[sc.enterprise_number] && (
+                    <div className="text-[10px] text-indigo-500 mt-0.5 italic max-w-[250px] truncate" title={aiReasons[sc.enterprise_number]}>
+                      {aiReasons[sc.enterprise_number]}
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell className="py-2">
                   <div className="flex items-center gap-2">

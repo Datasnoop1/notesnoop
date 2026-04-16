@@ -1,8 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import ExportButtons from "@/components/export-buttons";
-import { FileText, Download, Loader2 } from "lucide-react";
+import { FileText, Download, Loader2, Sparkles } from "lucide-react";
 import { getCompanyStructure } from "@/lib/api";
 import type { StructureData, CompanyDetail } from "../types";
 import { downloadCsv } from "../helpers";
@@ -132,8 +132,52 @@ export function PublicationsTab({
     );
   }
 
+  const [pubSummary, setPubSummary] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  const generateSummary = async () => {
+    setSummaryLoading(true);
+    try {
+      const res = await fetch(`/api/companies/${cbe}/summarize-publications`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (data.summary) setPubSummary(data.summary);
+    } catch {
+      /* ignore */
+    } finally {
+      setSummaryLoading(false);
+    }
+  };
+
   return (
     <div>
+      {/* AI Publication Summary */}
+      {pubSummary ? (
+        <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">AI Summary</span>
+          </div>
+          <p className="text-xs text-slate-700 leading-relaxed">{pubSummary}</p>
+        </div>
+      ) : structure.staatsblad_publications.length >= 2 && (
+        <div className="mb-4 flex justify-end">
+          <button
+            onClick={generateSummary}
+            disabled={summaryLoading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+          >
+            {summaryLoading ? (
+              <><Loader2 className="w-3 h-3 animate-spin" /> Summarizing...</>
+            ) : (
+              <><Sparkles className="w-3 h-3" /> Summarize publications</>
+            )}
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-slate-400 pl-2">
           Staatsblad Publications ({structure.staatsblad_publications.length})

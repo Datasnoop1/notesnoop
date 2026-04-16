@@ -1673,6 +1673,220 @@ async def get_similar_companies(cbe: str):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/companies/{cbe}/summarize-publications
+# ---------------------------------------------------------------------------
+
+@router.post("/{cbe}/summarize-publications")
+async def summarize_publications(cbe: str, user=Depends(get_current_user)):
+    """Generate an AI summary of the last 5 Staatsblad publications."""
+    cbe = cbe.strip().replace(".", "").zfill(10)
+
+    # Ensure column exists (idempotent)
+    try:
+        execute("ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS publication_summary TEXT")
+    except Exception:
+        pass
+
+    # Check cache
+    cached = fetch_one(
+        "SELECT publication_summary FROM company_enrichment WHERE enterprise_number = %s AND publication_summary IS NOT NULL",
+        (cbe,),
+    )
+    if cached and cached.get("publication_summary"):
+        return {"summary": cached["publication_summary"], "cached": True}
+
+    # Fetch last 5 publications
+    pubs = fetch_all(
+        "SELECT pub_date, pub_type, reference FROM staatsblad_publication WHERE enterprise_number = %s ORDER BY pub_date DESC LIMIT 5",
+        (cbe,),
+    )
+    if not pubs:
+        return {"summary": None, "cached": False}
+
+    company = fetch_one("SELECT name FROM company_info WHERE enterprise_number = %s", (cbe,))
+    company_name = company["name"] if company else cbe
+
+    pub_lines = [f"- {p.get('pub_date', '?')}: {p.get('pub_type', 'Unknown')}" for p in pubs]
+
+    prompt = (
+        f"Summarize the following recent Belgian Official Gazette (Staatsblad) publications for {company_name} "
+        f"in 2-3 sentences. Focus on what these publications reveal about governance and corporate activity.\n\n"
+        f"Publications (most recent first):\n" + "\n".join(pub_lines) +
+        "\n\nWrite a concise, factual paragraph suitable for an investor audience."
+    )
+
+    try:
+        summary = await ai_complete(prompt, max_tokens=200, model="google/gemini-2.5-flash")
+    except Exception as e:
+        logger.error("Publication summary failed for %s: %s", cbe, e)
+        return {"summary": None, "error": "Summary generation failed"}
+
+    # Cache
+    try:
+        execute(
+            "INSERT INTO company_enrichment (enterprise_number, publication_summary) VALUES (%s, %s) "
+            "ON CONFLICT (enterprise_number) DO UPDATE SET publication_summary = EXCLUDED.publication_summary",
+            (cbe, summary),
+        )
+    except Exception as e:
+        logger.error("Failed to cache publication summary for %s: %s", cbe, e)
+
+    return {"summary": summary, "cached": False}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/companies/{cbe}/similar/ai — AI-enhanced similarity
+# ---------------------------------------------------------------------------
+
+@router.get("/{cbe}/similar/ai")
+async def get_similar_companies_ai(cbe: str, user=Depends(optional_user)):
+    """Re-rank similar companies using LLM for true business similarity."""
+    cbe = cbe.strip().replace(".", "")
+
+    # Ensure cache table exists
+    try:
+        execute("""
+            CREATE TABLE IF NOT EXISTS ai_similar_cache (
+                enterprise_number VARCHAR(10) PRIMARY KEY,
+                ranked_cbes TEXT,
+                reasons TEXT,
+                generated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+    except Exception:
+        pass
+
+    # Check cache (30-day TTL)
+    cached = fetch_one(
+        "SELECT ranked_cbes, reasons FROM ai_similar_cache "
+        "WHERE enterprise_number = %s AND generated_at > NOW() - INTERVAL '30 days'",
+        (cbe,),
+    )
+    if cached and cached.get("ranked_cbes"):
+        try:
+            ranked_cbes = json.loads(cached["ranked_cbes"])
+            reasons = json.loads(cached["reasons"])
+            # Fetch full company data for ranked CBEs
+            if ranked_cbes:
+                placeholders = ",".join(["%s"] * len(ranked_cbes))
+                rows = fetch_all(f"""
+                    SELECT ci.enterprise_number, ci.name, ci.city,
+                           fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
+                           fl.ebit, fl.net_profit, fl.equity, fl.total_assets, fl.personnel_costs
+                    FROM company_info ci
+                    LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+                    WHERE ci.enterprise_number IN ({placeholders})
+                """, tuple(ranked_cbes))
+                row_map = {r["enterprise_number"]: _serialize_row(r) for r in rows}
+                result = []
+                for i, c in enumerate(ranked_cbes):
+                    if c in row_map:
+                        entry = row_map[c]
+                        entry["ai_reason"] = reasons[i] if i < len(reasons) else ""
+                        result.append(entry)
+                return result
+        except Exception:
+            pass
+
+    # Get target company info
+    target = fetch_one("""
+        SELECT ci.name, ci.nace_code, ci.city, fl.revenue, fl.ebitda, fl.fte_total
+        FROM company_info ci
+        LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+        WHERE ci.enterprise_number = %s
+    """, (cbe,))
+    if not target:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Fetch base similar companies (existing logic)
+    nace = target.get("nace_code")
+    revenue = target.get("revenue")
+    if not nace:
+        return []
+
+    if revenue and revenue > 0:
+        rev_min = float(revenue) * 0.1
+        rev_max = float(revenue) * 10.0
+        candidates = fetch_all("""
+            SELECT ci.enterprise_number, ci.name, ci.city,
+                   fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
+                   COALESCE(nl.description, ci.nace_code) AS nace_desc
+            FROM company_info ci
+            JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+            LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+            WHERE ci.nace_code = %s AND ci.enterprise_number != %s
+              AND fl.revenue IS NOT NULL AND fl.revenue BETWEEN %s AND %s
+            ORDER BY ABS(fl.revenue - %s) LIMIT 30
+        """, (nace, cbe, rev_min, rev_max, float(revenue)))
+    else:
+        candidates = fetch_all("""
+            SELECT ci.enterprise_number, ci.name, ci.city,
+                   fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
+                   COALESCE(nl.description, ci.nace_code) AS nace_desc
+            FROM company_info ci
+            LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+            LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+            WHERE ci.nace_code = %s AND ci.enterprise_number != %s
+            ORDER BY fl.revenue DESC NULLS LAST LIMIT 30
+        """, (nace, cbe))
+
+    if not candidates:
+        return []
+
+    # Build LLM prompt for re-ranking
+    target_desc = f"{target['name']} ({target.get('city', '?')}) — Revenue: {target.get('revenue', '?')}, EBITDA: {target.get('ebitda', '?')}, FTE: {target.get('fte_total', '?')}"
+    cand_lines = []
+    for i, c in enumerate(candidates[:20]):
+        cand_lines.append(
+            f"{i+1}. {c['name']} ({c.get('city','?')}) — Rev: {c.get('revenue','?')}, EBITDA: {c.get('ebitda','?')}, FTE: {c.get('fte_total','?')}, Sector: {c.get('nace_desc','?')}"
+        )
+
+    prompt = (
+        f"You are a Belgian PE deal sourcing analyst. Given the target company and a list of candidates in the same NACE sector, "
+        f"select and rank the 10 most truly similar companies based on business model, size, and market position.\n\n"
+        f"TARGET: {target_desc}\n\nCANDIDATES:\n" + "\n".join(cand_lines) +
+        f"\n\nReturn ONLY a JSON array of objects with 'rank' (original number from list) and 'reason' (one sentence). "
+        f"Example: [{{'rank': 3, 'reason': 'Similar mid-market manufacturer with comparable revenue'}}]"
+    )
+
+    try:
+        raw = await ai_complete(prompt, max_tokens=500, model="google/gemini-2.5-flash")
+        # Parse JSON from response
+        json_match = re.search(r"\[.*\]", raw, re.DOTALL)
+        if not json_match:
+            return [_serialize_row(r) for r in candidates[:10]]
+        rankings = json.loads(json_match.group())
+    except Exception as e:
+        logger.error("AI similar ranking failed for %s: %s", cbe, e)
+        return [_serialize_row(r) for r in candidates[:10]]
+
+    # Build result in ranked order
+    result = []
+    ranked_cbes = []
+    reasons_list = []
+    for entry in rankings[:10]:
+        idx = entry.get("rank", 0) - 1
+        if 0 <= idx < len(candidates):
+            row = _serialize_row(candidates[idx])
+            row["ai_reason"] = entry.get("reason", "")
+            result.append(row)
+            ranked_cbes.append(candidates[idx]["enterprise_number"])
+            reasons_list.append(entry.get("reason", ""))
+
+    # Cache
+    try:
+        execute(
+            "INSERT INTO ai_similar_cache (enterprise_number, ranked_cbes, reasons) VALUES (%s, %s, %s) "
+            "ON CONFLICT (enterprise_number) DO UPDATE SET ranked_cbes = EXCLUDED.ranked_cbes, reasons = EXCLUDED.reasons, generated_at = NOW()",
+            (cbe, json.dumps(ranked_cbes), json.dumps(reasons_list)),
+        )
+    except Exception as e:
+        logger.error("Failed to cache AI similar for %s: %s", cbe, e)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # GET /api/companies/{cbe}/deep-network?depth=3
 # ---------------------------------------------------------------------------
 

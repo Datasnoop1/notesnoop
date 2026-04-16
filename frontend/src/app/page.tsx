@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { useTranslation } from "@/components/language-provider";
@@ -11,19 +12,29 @@ import {
   UserSearch,
   Sparkles,
   Heart,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 export default function Dashboard() {
   const { t } = useTranslation();
 
+  const [showAllFeatures, setShowAllFeatures] = useState(false);
+
   const WHATS_NEW = [
     { label: "AI Company Insights", desc: "One-click AI analysis with business description, products, customers & market position", color: "bg-indigo-400" },
-    { label: "Enhanced Similar Companies", desc: "100 peers with 11 sortable financial metrics", color: "bg-emerald-400" },
-    { label: "Company Profile Redesign", desc: "Faster page with 10 dedicated tabs for financials, structure & benchmarks", color: "bg-amber-400" },
-    { label: "Sector Benchmarking", desc: "See how a company ranks within its sector", color: "bg-sky-400" },
+    { label: "AI-Enhanced Similar Companies", desc: "LLM-curated peer ranking with business similarity explanations", color: "bg-emerald-400" },
+    { label: "AI Publication Summaries", desc: "AI-generated summary of recent Staatsblad publications", color: "bg-cyan-400" },
+    { label: "Multi-NACE Screener", desc: "Select multiple NACE codes with chips/tags for cross-sector screening", color: "bg-amber-400" },
+    { label: "Company Profile Redesign", desc: "Faster page with 10 dedicated tabs for financials, structure & benchmarks", color: "bg-sky-400" },
     { label: "Full Excel & PDF Export", desc: "Download complete company profiles with all financials", color: "bg-violet-400" },
     { label: "Smart Screener Filters", desc: "Save and load your screener filter presets", color: "bg-rose-400" },
+    { label: "DuckDuckGo URL Discovery", desc: "Automatic company website and LinkedIn detection via web search", color: "bg-teal-400" },
+    { label: "Staatsblad Admin Extraction", desc: "Auto-extract board members from Belgian Official Gazette PDFs", color: "bg-orange-400" },
+    { label: "Sector Benchmarking", desc: "See how a company ranks within its sector", color: "bg-pink-400" },
   ];
+  const visibleFeatures = showAllFeatures ? WHATS_NEW : WHATS_NEW.slice(0, 3);
 
   const QUICK_ACCESS = [
     { href: "/search", title: t("home.quickAccessCards.searchTitle") || "Search", desc: t("home.quickAccessCards.searchDesc") || "Find companies by name, CBE, or keyword", icon: Search },
@@ -49,12 +60,19 @@ export default function Dashboard() {
       <div>
         <Card className="bg-white">
           <CardContent className="pt-4 pb-4">
-            <div className="flex items-center gap-2 mb-3">
-              <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
-              <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">{t("home.whatsNew")}</h2>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
+                <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">{t("home.whatsNew")}</h2>
+              </div>
+              <div className="flex items-center gap-3">
+                <Link href="/guide" className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-500 hover:text-indigo-700 transition-colors">
+                  <BookOpen className="w-3 h-3" /> User Guide
+                </Link>
+              </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
-              {WHATS_NEW.map((item) => (
+              {visibleFeatures.map((item) => (
                 <div key={item.label} className="flex items-start gap-2 py-1">
                   <span className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${item.color}`} />
                   <div>
@@ -64,6 +82,14 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
+            {WHATS_NEW.length > 3 && (
+              <button
+                onClick={() => setShowAllFeatures(!showAllFeatures)}
+                className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
+              >
+                {showAllFeatures ? <><ChevronUp className="w-3 h-3" /> Show less</> : <><ChevronDown className="w-3 h-3" /> Show all {WHATS_NEW.length} features</>}
+              </button>
+            )}
           </CardContent>
         </Card>
       </div>
