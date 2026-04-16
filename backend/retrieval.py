@@ -112,7 +112,6 @@ def retrieve_by_nace(target_cbe: str, target_nace: str, target_revenue: float | 
             JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
             WHERE ci.enterprise_number != %s
               AND (ci.nace_code = %s OR LEFT(ci.nace_code, 2) = LEFT(%s, 2))
-              AND ci.status = 'active'
               AND fl.revenue IS NOT NULL
             ORDER BY (CASE WHEN ci.nace_code = %s THEN 0 ELSE 1 END),
                      ABS(LN(GREATEST(fl.revenue, 1)) - LN(GREATEST(%s, 1))) ASC
@@ -163,7 +162,6 @@ def retrieve_by_size_band(target_cbe: str, target_revenue: float | None) -> list
             JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
             WHERE ci.enterprise_number != %s
               AND fl.revenue BETWEEN %s AND %s
-              AND ci.status = 'active'
             ORDER BY ABS(fl.revenue - %s) ASC
             LIMIT %s
             """,

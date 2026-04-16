@@ -329,7 +329,6 @@ async def get_similar_companies_ai(
             target = fetch_one(
                 """
                 SELECT ci.enterprise_number, ci.name, ci.nace_code, ci.city, ci.zipcode,
-                       ci.status,
                        fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
                        fl.ebit, fl.net_profit, fl.equity, fl.total_assets, fl.personnel_costs,
                        COALESCE(nl.description, ci.nace_code) AS nace_desc,
