@@ -30,6 +30,7 @@ import {
   type ProvinceStats,
 } from "@/lib/api";
 import { fmtEur, fmtPct, fmtNumber } from "@/lib/format";
+import { useTranslation } from "@/components/language-provider";
 import {
   ArrowUpDown,
   ArrowUp,
@@ -283,6 +284,7 @@ function KpiCard({ label, value, icon, color, loading }: KpiCardProps) {
    ============================================================ */
 
 export default function StatsPage() {
+  const { t } = useTranslation();
   /* ---------- responsive ---------- */
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => {
@@ -398,13 +400,13 @@ export default function StatsPage() {
   }
 
   const colHeaders: { key: SortKey; label: string; align?: string }[] = [
-    { key: "nace2", label: "NACE" },
-    { key: "sector", label: "Sector" },
-    { key: "companies", label: "Companies", align: "text-right" },
-    { key: "revenue_m", label: "Revenue (M)", align: "text-right" },
-    { key: "ebitda_m", label: "EBITDA (M)", align: "text-right" },
-    { key: "med_margin", label: "Median Margin", align: "text-right" },
-    { key: "med_fte", label: "Median FTE", align: "text-right" },
+    { key: "nace2", label: t("stats.nace") },
+    { key: "sector", label: t("stats.sector") },
+    { key: "companies", label: t("stats.companies"), align: "text-right" },
+    { key: "revenue_m", label: `${t("stats.revenue")} (M)`, align: "text-right" },
+    { key: "ebitda_m", label: `${t("stats.ebitda")} (M)`, align: "text-right" },
+    { key: "med_margin", label: t("stats.medianMargin"), align: "text-right" },
+    { key: "med_fte", label: t("stats.medianFte"), align: "text-right" },
   ];
 
   return (
@@ -414,7 +416,7 @@ export default function StatsPage() {
       <div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
           <BarChart3 className="w-6 h-6 sm:w-7 sm:h-7 inline mr-2 -mt-1 text-indigo-600" />
-          Market Analytics
+          {t("stats.title")}
         </h1>
         <p className="mt-1 text-sm text-slate-500">
           Aggregate financial data across all sectors and provinces in the Belgian company database
@@ -424,35 +426,35 @@ export default function StatsPage() {
       {/* ━━━━━━━━━━ SECTION 1: KPI CARDS ━━━━━━━━━━ */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <KpiCard
-          label="Companies"
+          label={t("stats.companies")}
           value={overview ? fmtNumber(overview.n_companies) : "--"}
           icon={<Building2 className="w-5 h-5" />}
           color="bg-blue-50"
           loading={loading}
         />
         <KpiCard
-          label="Total Revenue"
+          label={t("stats.totalRevenue")}
           value={overview ? fmtEur(overview.total_revenue) : "--"}
           icon={<DollarSign className="w-5 h-5" />}
           color="bg-emerald-50"
           loading={loading}
         />
         <KpiCard
-          label="Total EBITDA"
+          label={t("stats.totalEbitda")}
           value={overview ? fmtEur(overview.total_ebitda) : "--"}
           icon={<TrendingUp className="w-5 h-5" />}
           color="bg-violet-50"
           loading={loading}
         />
         <KpiCard
-          label="Median Margin"
+          label={t("stats.medianMargin")}
           value={overview ? fmtPct(overview.median_margin) : "--"}
           icon={<Percent className="w-5 h-5" />}
           color="bg-amber-50"
           loading={loading}
         />
         <KpiCard
-          label="Total FTE"
+          label={t("stats.totalFte")}
           value={overview ? fmtNumber(overview.total_fte) : "--"}
           icon={<Users className="w-5 h-5" />}
           color="bg-rose-50"
@@ -632,7 +634,7 @@ export default function StatsPage() {
                 <Line
                   type="monotone"
                   dataKey="revenue_m"
-                  name="Revenue"
+                  name={t("stats.revenue")}
                   stroke="#6366f1"
                   strokeWidth={2.5}
                   dot={{ r: 4, fill: "#6366f1" }}
@@ -641,7 +643,7 @@ export default function StatsPage() {
                 <Line
                   type="monotone"
                   dataKey="ebitda_m"
-                  name="EBITDA"
+                  name={t("stats.ebitda")}
                   stroke="#10b981"
                   strokeWidth={2.5}
                   dot={{ r: 4, fill: "#10b981" }}
@@ -650,7 +652,7 @@ export default function StatsPage() {
                 <Line
                   type="monotone"
                   dataKey="net_profit_m"
-                  name="Net Profit"
+                  name={t("stats.netProfit")}
                   stroke="#f59e0b"
                   strokeWidth={2}
                   dot={{ r: 3, fill: "#f59e0b" }}
@@ -741,7 +743,7 @@ export default function StatsPage() {
                   />
                   <Tooltip
                     cursor={{ fill: "rgba(99,102,241,0.06)" }}
-                    formatter={(value) => [`EUR ${fmtNumber(value as number)}K`, "Avg Revenue"]}
+                    formatter={(value) => [`EUR ${fmtNumber(value as number)}K`, t("stats.avgRevenue")]}
                     labelFormatter={(label) => String(label)}
                     contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 12 }}
                   />

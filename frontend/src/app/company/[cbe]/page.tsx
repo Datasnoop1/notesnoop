@@ -47,6 +47,7 @@ import {
   Scale,
   Sparkles,
 } from "lucide-react";
+import { useTranslation } from "@/components/language-provider";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
 import {
   DropdownMenu,
@@ -76,7 +77,6 @@ import { InsightsOverlay } from "./_tabs/insights-overlay";
 
 const NetworkGraph = dynamic(() => import("@/components/network-graph"), {
   ssr: false,
-  loading: () => <div className="py-8 text-center text-sm text-slate-400">Loading graph...</div>,
 });
 
 /* ---------- skeleton ---------- */
@@ -104,6 +104,7 @@ export default function CompanyDetailPage(props: {
   params: Promise<{ cbe: string }>;
 }) {
   const { cbe } = use(props.params);
+  const { t } = useTranslation();
 
   const [detail, setDetail] = useState<CompanyDetail | null>(null);
   const [financials, setFinancials] = useState<FinancialsData | null>(null);
@@ -621,15 +622,15 @@ export default function CompanyDetailPage(props: {
   if (!detail) {
     return (
       <div className="mx-auto w-full max-w-[1200px] px-4 py-16 text-center">
-        <p className="text-lg font-medium text-slate-700">Company not found</p>
+        <p className="text-lg font-medium text-slate-700">{t("company.notFound")}</p>
         <p className="mt-1 text-sm text-slate-500">
-          CBE {fmtCbe(cbe)} could not be loaded.
+          CBE {fmtCbe(cbe)} {t("company.couldNotLoad")}.
         </p>
         <Link
           href="/company"
           className="mt-4 inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline"
         >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to search
+          <ArrowLeft className="h-3.5 w-3.5" /> {t("company.backToSearch")}
         </Link>
       </div>
     );
@@ -659,7 +660,7 @@ export default function CompanyDetailPage(props: {
         href="/company"
         className="mb-3 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600"
       >
-        <ArrowLeft className="h-3 w-3" /> Back to search
+        <ArrowLeft className="h-3 w-3" /> {t("company.backToSearch")}
       </Link>
 
       {/* Company Header */}
@@ -745,7 +746,7 @@ export default function CompanyDetailPage(props: {
               ) : (
                 <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
               )}
-              <span className="hidden sm:inline">AI Insights</span>
+              <span className="hidden sm:inline">{t("company.aiInsights")}</span>
             </Button>
             <Button
               variant="outline"
@@ -760,7 +761,7 @@ export default function CompanyDetailPage(props: {
               className="h-9 md:h-7 text-[11px] text-slate-500 border-slate-200 hover:border-slate-300 px-2.5 md:px-2"
             >
               <Users className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
-              Find similar
+              {t("company.findSimilar")}
             </Button>
             <Button
               variant="outline"
@@ -776,7 +777,7 @@ export default function CompanyDetailPage(props: {
               className="h-9 md:h-7 text-[11px] text-slate-500 border-slate-200 hover:border-slate-300 px-2.5 md:px-2"
             >
               <Scale className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
-              Compare
+              {t("company.compare")}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -790,11 +791,11 @@ export default function CompanyDetailPage(props: {
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={handleExportExcel} className="text-xs cursor-pointer">
                   <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-600" />
-                  Export to Excel
+                  {t("company.exportExcel")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleExportPdf} className="text-xs cursor-pointer">
                   <FileText className="w-4 h-4 mr-2 text-rose-500" />
-                  Export to PDF
+                  {t("company.exportPdf")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -834,12 +835,12 @@ export default function CompanyDetailPage(props: {
                 )}
                 <div>
                   <span className="text-sm font-semibold text-slate-800 block">
-                    {loadStages.every((s) => s.status === "done") ? "Data loaded successfully" : "Gathering data & loading..."}
+                    {loadStages.every((s) => s.status === "done") ? t("company.dataLoaded") : t("company.gatheringData")}
                   </span>
                   <p className="text-[11px] text-slate-400">
                     {loadStages.every((s) => s.status === "done")
-                      ? "All data is now available."
-                      : "This may take 30\u201360 seconds."}
+                      ? t("company.allDataAvailable")
+                      : t("company.mayTaketime")}
                   </p>
                 </div>
                 <button onClick={() => setLoadOverlay(false)} className="ml-auto text-slate-400 hover:text-slate-600 text-lg leading-none">&times;</button>
@@ -1018,7 +1019,9 @@ export default function CompanyDetailPage(props: {
 
         {/* ===== Network ===== */}
         <TabsContent value="network" className="mt-3">
-          <NetworkGraph cbe={cbe} companyName={detail?.name || cbe} />
+          <React.Suspense fallback={<div className="py-8 text-center text-sm text-slate-400">{t("company.loadingGraph")}</div>}>
+            <NetworkGraph cbe={cbe} companyName={detail?.name || cbe} />
+          </React.Suspense>
         </TabsContent>
 
         {/* ===== Publications ===== */}

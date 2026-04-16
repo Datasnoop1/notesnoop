@@ -195,7 +195,20 @@
     "equity": "Equity",
     "debt": "Debt",
     "fte": "FTE",
-    "fiscalYear": "Fiscal Year"
+    "fiscalYear": "Fiscal Year",
+    "notFound": "Company not found",
+    "couldNotLoad": "could not be loaded",
+    "backToSearch": "Back to search",
+    "findSimilar": "Find similar",
+    "compare": "Compare",
+    "exportExcel": "Export to Excel",
+    "exportPdf": "Export to PDF",
+    "aiInsights": "AI Insights",
+    "dataLoaded": "Data loaded successfully",
+    "gatheringData": "Gathering data & loading...",
+    "allDataAvailable": "All data is now available.",
+    "mayTaketime": "This may take 30–60 seconds.",
+    "loadingGraph": "Loading graph..."
   },
 
   "favourites": {
@@ -373,6 +386,34 @@
     "passwordMinLength": "Password must be at least 6 characters.",
     "passwordMismatch": "Passwords do not match.",
     "passwordUpdated": "Password updated successfully."
+  },
+
+  "stats": {
+    "title": "Sector Statistics",
+    "companies": "Companies",
+    "totalRevenue": "Total Revenue",
+    "totalEbitda": "Total EBITDA",
+    "medianMargin": "Median Margin",
+    "totalFte": "Total FTE",
+    "revenue": "Revenue",
+    "ebitda": "EBITDA",
+    "netProfit": "Net Profit",
+    "avgRevenue": "Avg Revenue",
+    "nace": "NACE",
+    "sector": "Sector",
+    "medianFte": "Median FTE",
+    "noData": "No data available for this sector",
+    "searchNace": "Search NACE sector..."
+  },
+
+  "people": {
+    "title": "People Search",
+    "searchPlaceholder": "Search by person name...",
+    "noResults": "No results found",
+    "name": "Name",
+    "companies": "Companies",
+    "roles": "Roles",
+    "currentRoles": "Current Roles"
   },
 
   "footer": {

@@ -195,7 +195,20 @@
     "equity": "Capitaux propres",
     "debt": "Dettes",
     "fte": "ETP",
-    "fiscalYear": "Exercice"
+    "fiscalYear": "Exercice",
+    "notFound": "Entreprise introuvable",
+    "couldNotLoad": "n'a pas pu être chargée",
+    "backToSearch": "Retour à la recherche",
+    "findSimilar": "Trouver similaire",
+    "compare": "Comparer",
+    "exportExcel": "Exporter vers Excel",
+    "exportPdf": "Exporter vers PDF",
+    "aiInsights": "Analyses IA",
+    "dataLoaded": "Données chargées avec succès",
+    "gatheringData": "Collecte et chargement des données...",
+    "allDataAvailable": "Toutes les données sont disponibles.",
+    "mayTaketime": "Cela peut prendre 30 à 60 secondes.",
+    "loadingGraph": "Chargement du graphique..."
   },
 
   "favourites": {
@@ -373,6 +386,34 @@
     "passwordMinLength": "Le mot de passe doit contenir au moins 6 caracteres.",
     "passwordMismatch": "Les mots de passe ne correspondent pas.",
     "passwordUpdated": "Mot de passe mis a jour avec succes."
+  },
+
+  "stats": {
+    "title": "Statistiques sectorielles",
+    "companies": "Entreprises",
+    "totalRevenue": "Chiffre d'affaires total",
+    "totalEbitda": "EBITDA total",
+    "medianMargin": "Marge médiane",
+    "totalFte": "ETP total",
+    "revenue": "Chiffre d'affaires",
+    "ebitda": "EBITDA",
+    "netProfit": "Bénéfice net",
+    "avgRevenue": "CA moyen",
+    "nace": "NACE",
+    "sector": "Secteur",
+    "medianFte": "ETP médian",
+    "noData": "Pas de données disponibles pour ce secteur",
+    "searchNace": "Rechercher un secteur NACE..."
+  },
+
+  "people": {
+    "title": "Recherche de personnes",
+    "searchPlaceholder": "Rechercher par nom...",
+    "noResults": "Aucun résultat trouvé",
+    "name": "Nom",
+    "companies": "Entreprises",
+    "roles": "Fonctions",
+    "currentRoles": "Fonctions actuelles"
   },
 
   "footer": {

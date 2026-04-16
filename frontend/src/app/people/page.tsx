@@ -20,6 +20,7 @@ import {
 import { searchPeople, getPersonConnections } from "@/lib/api";
 import { fmtEur, fmtPct, fmtNumber } from "@/lib/format";
 import { Search, Loader2, ChevronDown, ChevronRight, User, UserSearch } from "lucide-react";
+import { useTranslation } from "@/components/language-provider";
 
 /* ---------- types ---------- */
 
@@ -94,6 +95,7 @@ export default function PeoplePage() {
 }
 
 function PeoplePageInner() {
+  const { t } = useTranslation();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<PersonRow[]>([]);
@@ -179,7 +181,7 @@ function PeoplePageInner() {
       <div>
         <h1 className="text-xl font-bold text-slate-900">
           <UserSearch className="w-4 h-4 inline mr-1.5" />
-          People Search
+          {t("people.title")}
         </h1>
         <p className="mt-0.5 text-xs text-slate-500">
           Find administrators and shareholders by name
@@ -192,7 +194,7 @@ function PeoplePageInner() {
           <div className="relative max-w-xl">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <Input
-              placeholder="Search by person or entity name..."
+              placeholder={t("people.searchPlaceholder")}
               className="pl-10"
               value={query}
               onChange={(e) => handleQueryChange(e.target.value)}
@@ -211,8 +213,8 @@ function PeoplePageInner() {
             <TableHeader>
               <TableRow className="bg-slate-50">
                 <TableHead />
-                <TableHead>Name</TableHead>
-                <TableHead className="text-right">Companies</TableHead>
+                <TableHead>{t("people.name")}</TableHead>
+                <TableHead className="text-right">{t("people.companies")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -225,7 +227,7 @@ function PeoplePageInner() {
       {!searching && hasSearched && results.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-10">
           <User className="h-6 w-6 text-slate-300 mb-2" />
-          <p className="text-sm font-medium text-slate-500">No people found</p>
+          <p className="text-sm font-medium text-slate-500">{t("people.noResults")}</p>
           <p className="mt-1 text-xs text-slate-400">
             Try a different name or spelling
           </p>
@@ -243,8 +245,8 @@ function PeoplePageInner() {
               <TableHeader>
                 <TableRow className="bg-slate-50">
                   <TableHead className="w-8" />
-                  <TableHead>Name</TableHead>
-                  <TableHead className="text-right">Companies</TableHead>
+                  <TableHead>{t("people.name")}</TableHead>
+                  <TableHead className="text-right">{t("people.companies")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
