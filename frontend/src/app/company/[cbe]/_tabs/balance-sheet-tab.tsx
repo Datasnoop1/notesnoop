@@ -46,9 +46,18 @@ export function BalanceSheetTab({
     return v < 0 ? <span className="text-rose-400">{formatted}</span> : <>{formatted}</>;
   };
 
+  // Helper: pull a rubric value for a given fiscal year out of rubric_data
+  const rubricFor = (code: string, fy: number): number | null => {
+    const v = financials.rubric_data?.[code]?.[String(fy)];
+    return v == null ? null : v;
+  };
+
   // Build derived rows per year
   const bsRows = sorted.map((row) => {
     const fixedAssets = row.fixed_assets ?? null;
+    const intangibleAssets = rubricFor("21", row.fiscal_year);
+    const tangibleAssets = rubricFor("22", row.fiscal_year);
+    const financialAssets = rubricFor("28", row.fiscal_year);
     const totalAssets = row.total_assets ?? null;
     const currentAssets = totalAssets != null && fixedAssets != null ? totalAssets - fixedAssets : null;
     const inventories = row.inventories ?? null;
@@ -76,6 +85,9 @@ export function BalanceSheetTab({
     return {
       fiscal_year: row.fiscal_year,
       fixedAssets,
+      intangibleAssets,
+      tangibleAssets,
+      financialAssets,
       totalNonCurrentAssets: fixedAssets,
       currentAssets,
       inventories,
@@ -112,8 +124,10 @@ export function BalanceSheetTab({
 
   const lines: BSLine[] = [
     // ASSETS
-    { label: t("company.bs.tangibleFixedAssets"), key: "fixedAssets", indent: true, section: t("company.bs.sectionNonCurrentAssets") },
-    { label: t("company.bs.totalNonCurrentAssets"), key: "totalNonCurrentAssets", bold: true, topBorder: true },
+    { label: t("company.bs.intangibleAssets"), key: "intangibleAssets", indent: true, section: t("company.bs.sectionNonCurrentAssets"), group: "bs_fa" },
+    { label: t("company.bs.tangibleAssets"), key: "tangibleAssets", indent: true, group: "bs_fa" },
+    { label: t("company.bs.financialAssets"), key: "financialAssets", indent: true, group: "bs_fa" },
+    { label: t("company.bs.totalNonCurrentAssets"), key: "totalNonCurrentAssets", bold: true, topBorder: true, section: t("company.bs.sectionNonCurrentAssets") },
     { label: t("company.bs.inventories"), key: "inventories", indent: true, section: t("company.bs.sectionCurrentAssets"), group: "bs_ca" },
     { label: t("company.bs.tradeReceivables"), key: "tradeReceivables", indent: true, group: "bs_ca" },
     { label: t("company.bs.cashEquivalents"), key: "cash", indent: true, group: "bs_ca" },
@@ -160,7 +174,10 @@ export function BalanceSheetTab({
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
           {t("company.bs.title")}
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => toggleSection("bs_fa")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_fa ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+            {collapsedSections.bs_fa ? `\u25b8 ${t("company.bs.faGrouped")}` : `\u25be ${t("company.bs.faExpanded")}`}
+          </button>
           <button onClick={() => toggleSection("bs_ca")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_ca ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
             {collapsedSections.bs_ca ? `\u25b8 ${t("company.bs.caGrouped")}` : `\u25be ${t("company.bs.caExpanded")}`}
           </button>
@@ -173,11 +190,11 @@ export function BalanceSheetTab({
           />
         </div>
       </div>
-      <div className="rounded-lg border overflow-x-auto scrollbar-none bg-white">
+      <div className="rounded-lg border overflow-x-auto bg-white">
         <table className="w-full min-w-[500px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[120px] md:min-w-[260px]">{t("company.bs.lineItem")}</th>
+              <th className="sticky left-0 z-10 bg-slate-50 px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[260px] shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.bs.lineItem")}</th>
               {renderDeltaHeaders(chronological.map(r => r.fiscal_year))}
             </tr>
           </thead>
@@ -191,13 +208,13 @@ export function BalanceSheetTab({
                 <React.Fragment key={line.key + (line.section || "")}>
                   {showSection && (
                     <tr>
-                      <td colSpan={chronological.length * 2} className="px-4 pt-3 pb-1">
+                      <td colSpan={chronological.length * 2} className="sticky left-0 bg-white px-4 pt-3 pb-1">
                         <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
                       </td>
                     </tr>
                   )}
                   <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
-                    <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""} ${line.subIndent ? "pl-12 text-slate-400 italic" : ""}`}>
+                    <td className={`sticky left-0 z-[5] bg-white px-4 py-1 text-xs shadow-[1px_0_0_rgba(226,232,240,1)] ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""} ${line.subIndent ? "pl-12 text-slate-400 italic" : ""}`}>
                       {line.label}
                     </td>
                     {chronologicalBs.map((r, colIdx) => {

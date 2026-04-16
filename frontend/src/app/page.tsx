@@ -4,14 +4,25 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Search } from "lucide-react";
+import { useTranslation } from "@/components/language-provider";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export default function Home() {
   const router = useRouter();
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [logoPath, setLogoPath] = useState("/logos/dog-telescope-clean.jpeg");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const whatsNewItems = [
+    { titleKey: "home.whatsNewItems.unifiedSearch", descKey: "home.whatsNewItems.unifiedSearchDesc" },
+    { titleKey: "home.whatsNewItems.sectorBenchmarking", descKey: "home.whatsNewItems.sectorBenchmarkingDesc" },
+    { titleKey: "home.whatsNewItems.smartFilters", descKey: "home.whatsNewItems.smartFiltersDesc" },
+    { titleKey: "home.whatsNewItems.dataAlerts", descKey: "home.whatsNewItems.dataAlertsDesc" },
+    { titleKey: "home.whatsNewItems.customerSupplierLists", descKey: "home.whatsNewItems.customerSupplierListsDesc" },
+    { titleKey: "home.whatsNewItems.fullExport", descKey: "home.whatsNewItems.fullExportDesc" },
+  ];
 
   useEffect(() => {
     fetch(`${API_BASE}/api/site-config`)
@@ -73,61 +84,53 @@ export default function Home() {
         </div>
 
         {/* Secondary actions */}
-        <div className="mt-8 flex items-center justify-center gap-3 text-[13px] text-gray-600">
-          <Link href="/screener" className="px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
-            Browse the screener
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-y-1 text-[13px] text-gray-600">
+          <Link href="/screener" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            {t("nav.screener")}
           </Link>
-          <span className="text-gray-300">·</span>
-          <Link href="/guide" className="px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+          <span className="text-gray-300" aria-hidden>·</span>
+          <Link href="/favourites" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            {t("nav.favourites")}
+          </Link>
+          <span className="text-gray-300" aria-hidden>·</span>
+          <Link href="/compare" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            {t("nav.compare")}
+          </Link>
+          <span className="text-gray-300" aria-hidden>·</span>
+          <Link href="/aggregate" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+            {t("nav.aggregate")}
+          </Link>
+          <span className="text-gray-300" aria-hidden>·</span>
+          <Link href="/guide" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
             User guide
           </Link>
         </div>
       </form>
 
       {/* What's new */}
-      <section className="mt-32 sm:mt-40 w-full max-w-xl">
+      <section className="mt-32 sm:mt-40 w-full max-w-2xl">
         <div className="rounded-2xl border border-gray-200 bg-white p-6 sm:p-8 shadow-[0_1px_3px_rgba(32,33,36,0.04)]">
-          <div className="flex items-center gap-2 mb-5">
+          <div className="flex items-center gap-2 mb-6">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
             <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-[0.18em]">
-              What&rsquo;s new
+              {t("home.whatsNew")}
             </span>
           </div>
 
-          <ul className="space-y-4">
-            <li className="flex gap-3">
-              <span className="text-gray-300 text-sm leading-6 select-none">—</span>
-              <div>
-                <div className="text-sm font-medium text-gray-900">
-                  Refreshed, distraction-free landing
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
+            {whatsNewItems.map((item) => (
+              <li key={item.titleKey} className="flex gap-3">
+                <span className="text-gray-300 text-sm leading-6 select-none shrink-0">—</span>
+                <div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {t(item.titleKey)}
+                  </div>
+                  <p className="text-[13px] text-gray-500 mt-0.5">
+                    {t(item.descKey)}
+                  </p>
                 </div>
-                <p className="text-[13px] text-gray-500 mt-0.5">
-                  White background, bigger brand, search front and centre.
-                </p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <span className="text-gray-300 text-sm leading-6 select-none">—</span>
-              <div>
-                <div className="text-sm font-medium text-gray-900">
-                  Persistent search bar on every page
-                </div>
-                <p className="text-[13px] text-gray-500 mt-0.5">
-                  Jump to a company or person from anywhere in the app.
-                </p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <span className="text-gray-300 text-sm leading-6 select-none">—</span>
-              <div>
-                <div className="text-sm font-medium text-gray-900">
-                  Mobile experience in progress
-                </div>
-                <p className="text-[13px] text-gray-500 mt-0.5">
-                  Full power-user functionality on phone is the next focus.
-                </p>
-              </div>
-            </li>
+              </li>
+            ))}
           </ul>
         </div>
       </section>

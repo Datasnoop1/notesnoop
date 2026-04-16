@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { Menu, LogOut, User, Bell } from "lucide-react";
+import { Menu, LogOut, User, Bell, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -39,17 +39,17 @@ export default function Nav() {
   const [logoPath, setLogoPath] = useState("/logos/dog-telescope-clean.jpeg");
 
   const NAV_LINKS = [
-    { label: t("nav.screener"), href: "/screener" },
     { label: t("nav.favourites"), href: "/favourites" },
     { label: t("nav.compare"), href: "/compare" },
     { label: t("nav.aggregate"), href: "/aggregate" },
+    { label: t("nav.screener"), href: "/screener" },
   ];
 
   const MOBILE_NAV = [
-    { label: t("nav.screener"), href: "/screener" },
     { label: t("nav.favourites"), href: "/favourites" },
     { label: t("nav.compare"), href: "/compare" },
     { label: t("nav.aggregate"), href: "/aggregate" },
+    { label: t("nav.screener"), href: "/screener" },
   ];
 
   useEffect(() => {
@@ -100,6 +100,16 @@ export default function Nav() {
 
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? "?";
   const isLanding = pathname === "/";
+  const hideHeaderSearch = isLanding || pathname === "/search";
+  const [headerQuery, setHeaderQuery] = useState("");
+
+  function handleHeaderSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const q = headerQuery.trim();
+    if (q.length < 2) return;
+    router.push(`/search?q=${encodeURIComponent(q)}`);
+    setHeaderQuery("");
+  }
 
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80">
@@ -109,7 +119,7 @@ export default function Nav() {
           {isLanding ? (
             <span aria-hidden className="w-0" />
           ) : (
-            <Link href="/" className="flex items-center gap-2.5 group">
+            <Link href="/" className="flex items-center gap-2.5 group shrink-0">
               <img src={logoPath} alt="Datasnoop" width={44} height={44} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/95" />
               <span className="text-base font-semibold text-slate-900 tracking-tight">
                 Datasnoop
@@ -118,22 +128,44 @@ export default function Nav() {
             </Link>
           )}
 
-          {/* Desktop nav */}
-          <nav className="hidden md:flex items-center gap-0.5">
-            {NAV_LINKS.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`px-3.5 py-2 text-[13px] font-medium transition-all rounded-md ${
-                  isActive(item.href)
-                    ? "text-gray-900 bg-gray-100"
-                    : "text-gray-700 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
+          {/* Inline search — hidden on landing and on /search (each owns its own input) */}
+          {!hideHeaderSearch && (
+            <form onSubmit={handleHeaderSearch} className="flex-1 mx-3 sm:mx-4 md:mx-6 max-w-md">
+              <div className="group relative flex items-center rounded-full border border-gray-200 bg-white hover:border-gray-300 focus-within:border-gray-400 focus-within:shadow-[0_1px_6px_rgba(32,33,36,0.1)] transition-all">
+                <Search className="absolute left-3 w-3.5 h-3.5 text-gray-400 pointer-events-none" aria-hidden />
+                <input
+                  type="text"
+                  value={headerQuery}
+                  onChange={(e) => setHeaderQuery(e.target.value)}
+                  placeholder="Search"
+                  aria-label="Search companies or persons"
+                  className="w-full h-9 pl-9 pr-3 text-[13px] rounded-full bg-transparent focus:outline-none placeholder:text-gray-400 text-gray-900"
+                  enterKeyHint="search"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                />
+              </div>
+            </form>
+          )}
+
+          {/* Desktop nav — hidden on landing (links live under the search there) */}
+          {!isLanding && (
+            <nav className="hidden md:flex items-center gap-0.5 shrink-0">
+              {NAV_LINKS.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`px-3.5 py-2 text-[13px] font-medium transition-all rounded-md ${
+                    isActive(item.href)
+                      ? "text-gray-900 bg-gray-100"
+                      : "text-gray-700 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          )}
 
           {/* Right side: feedback, notifications, auth */}
           <div className="flex items-center gap-1.5">
