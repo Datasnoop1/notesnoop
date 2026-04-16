@@ -278,18 +278,24 @@ app.add_middleware(TierLimitMiddleware)
 # ---------------------------------------------------------------------------
 
 class BotFilterMiddleware(BaseHTTPMiddleware):
-    """Block known scraper/bot User-Agents from API endpoints."""
+    """Block known scraper/bot User-Agents from API endpoints.
+
+    Allows: empty UA (healthchecks), python-requests (internal), Datasnoop UA.
+    Blocks: scrapy, wget, headless browsers, etc.
+    """
 
     BLOCKED_UA_SUBSTRINGS = (
-        "scrapy", "python-requests/", "go-http-client", "java/", "wget",
-        "curl/", "httpclient", "libwww", "lwp-trivial", "slimerjs",
+        "scrapy", "go-http-client", "wget",
+        "httpclient", "libwww", "lwp-trivial", "slimerjs",
         "phantomjs", "headlesschrome", "selenium",
     )
+    SKIP_PATHS = ("/api/health", "/api/sitemap/")
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path.startswith("/api/"):
+        path = request.url.path
+        if path.startswith("/api/") and not any(path.startswith(s) for s in self.SKIP_PATHS):
             ua = (request.headers.get("user-agent") or "").lower()
-            if not ua or any(bot in ua for bot in self.BLOCKED_UA_SUBSTRINGS):
+            if ua and any(bot in ua for bot in self.BLOCKED_UA_SUBSTRINGS):
                 from fastapi.responses import JSONResponse
                 return JSONResponse(status_code=403, content={"detail": "Forbidden"})
         return await call_next(request)
