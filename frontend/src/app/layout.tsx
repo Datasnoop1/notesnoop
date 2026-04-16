@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, DM_Sans } from "next/font/google";
 import { Geist } from "next/font/google";
 import Nav from "@/components/nav";
+import GlobalSearchBar from "@/components/global-search-bar";
 import AdBanner from "@/components/ad-banner";
 import BrandSurvey from "@/components/brand-survey";
 import CookieBanner from "@/components/cookie-banner";
@@ -91,6 +92,7 @@ export default function RootLayout({
             <FontProvider />
             <CopyProtection />
             <Nav />
+            <GlobalSearchBar />
             <main className="flex-1" data-protected>
               <div className="w-full max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
                 {children}
