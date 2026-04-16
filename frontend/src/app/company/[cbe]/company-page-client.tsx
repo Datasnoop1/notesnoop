@@ -935,9 +935,8 @@ export function CompanyPageClient({
           <TabsTrigger value="benchmark" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
             {t("company.tabs.benchmark")}
           </TabsTrigger>
-          <TabsTrigger value="similar" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.similar")}
-          </TabsTrigger>
+          {/* "Similar" tab deliberately has no trigger here — the header's
+              AI-similar button jumps into it via setActiveTab("similar"). */}
         </TabsList>
 
         {/* ===== Summary ===== */}
