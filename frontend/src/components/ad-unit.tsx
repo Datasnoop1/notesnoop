@@ -50,7 +50,7 @@ export default function AdUnit({
   if (hidden) return null;
 
   return (
-    <div className={`overflow-hidden ${className}`}>
+    <div className={`overflow-hidden min-h-[50px] ${className}`}>
       <ins
         ref={adRef}
         className="adsbygoogle"
@@ -60,6 +60,12 @@ export default function AdUnit({
         data-ad-format={format}
         data-full-width-responsive={responsive ? "true" : "false"}
       />
+      {/* Placeholder until Google approves & fills the ad */}
+      {!pushed.current && (
+        <div className="bg-slate-50 border border-dashed border-slate-200 rounded-lg p-2 text-center text-[10px] text-slate-300">
+          Ad space
+        </div>
+      )}
     </div>
   );
 }
