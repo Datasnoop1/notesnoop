@@ -192,6 +192,17 @@ interface AdoptionData {
   recent: { user_email: string; endpoint: string; method: string; created_at_be: string }[];
 }
 
+interface TractionData {
+  kpis: Record<string, number>;
+  engagement: Record<string, number>;
+  daily_trend: { day: string; unique_guests: number; unique_registered: number; total_requests: number }[];
+  guest_pages: { feature: string; requests: number; unique_guests: number }[];
+  registered_pages: { feature: string; requests: number; unique_users: number }[];
+  signups: { day: string; new_users: number }[];
+  stickiness: { days_active: number; user_count: number }[];
+  top_guests: { ip: string; unique_pages: number; total_requests: number; first_seen: string; last_seen: string }[];
+}
+
 interface Poll {
   id: number;
   title: string;
@@ -509,6 +520,7 @@ export default function AdminPanel() {
     totals: { total_requests_30d: number; guest_requests_30d: number; registered_requests_30d: number; unique_registered_30d: number; unique_guests_30d: number };
   } | null>(null);
   const [adoptionData, setAdoptionData] = useState<AdoptionData | null>(null);
+  const [tractionData, setTractionData] = useState<TractionData | null>(null);
   const [paymentsData, setPaymentsData] = useState<PaymentsData | null>(null);
   const [tiers, setTiers] = useState<TierConfig[]>([]);
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
@@ -523,7 +535,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -539,6 +551,7 @@ export default function AdminPanel() {
         adminFetch<TierConfig[]>("/api/admin/tiers").catch(() => [] as TierConfig[]),
         adminFetch<{ site_logo: string }>("/api/admin/site-config").catch(() => ({ site_logo: "/logos/dog-telescope.jpg" })),
         adminFetch<AdoptionData>("/api/admin/adoption").catch(() => null),
+        adminFetch<TractionData>("/api/admin/traction").catch(() => null),
       ]);
       setStats(s);
       setUsers(u);
@@ -553,6 +566,7 @@ export default function AdminPanel() {
       setTiers(tc);
       if (sc?.site_logo) setSiteLogo(sc.site_logo);
       setAdoptionData(adopt);
+      setTractionData(trac);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -969,8 +983,12 @@ export default function AdminPanel() {
         </Button>
       </div>
 
-      <Tabs defaultValue="readiness">
+      <Tabs defaultValue="traction">
         <TabsList className="overflow-x-auto scrollbar-none w-full">
+          <TabsTrigger value="traction">
+            <HeartPulse className="size-3.5 mr-1.5" />
+            Traction
+          </TabsTrigger>
           <TabsTrigger value="readiness">
             <Gauge className="size-3.5 mr-1.5" />
             Readiness
@@ -1013,6 +1031,204 @@ export default function AdminPanel() {
             Settings
           </TabsTrigger>
         </TabsList>
+
+        {/* ================================================================
+            TAB 0: Traction
+            ================================================================ */}
+        <TabsContent value="traction">
+          <div className="space-y-6 pt-2">
+            {tractionData ? (
+              <>
+                {/* KPI Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                  {[
+                    { label: "Guests Today", value: tractionData.kpis.guests_today, icon: Globe },
+                    { label: "Guests 7d", value: tractionData.kpis.guests_7d, icon: Globe },
+                    { label: "Guests 30d", value: tractionData.kpis.guests_30d, icon: Globe },
+                    { label: "Registered Today", value: tractionData.kpis.registered_today, icon: UserCheck },
+                    { label: "Registered 7d", value: tractionData.kpis.registered_7d, icon: UserCheck },
+                    { label: "Registered 30d", value: tractionData.kpis.registered_30d, icon: UserCheck },
+                  ].map((kpi) => {
+                    const Icon = kpi.icon;
+                    return (
+                      <Card key={kpi.label} className="bg-white">
+                        <CardContent className="pt-3 pb-3">
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                            <Icon className="size-3" /> {kpi.label}
+                          </div>
+                          <div className="text-xl font-bold text-slate-900 font-mono">{fmt(kpi.value)}</div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+
+                {/* Engagement KPIs */}
+                {tractionData.engagement && (
+                  <div className="grid grid-cols-3 gap-3">
+                    <Card className="bg-white">
+                      <CardContent className="pt-3 pb-3 text-center">
+                        <div className="text-[10px] text-slate-400 mb-1">Avg Pages / Guest</div>
+                        <div className="text-2xl font-bold text-indigo-600 font-mono">{tractionData.engagement.avg_pages_per_guest ?? "--"}</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-white">
+                      <CardContent className="pt-3 pb-3 text-center">
+                        <div className="text-[10px] text-slate-400 mb-1">Avg Requests / Guest</div>
+                        <div className="text-2xl font-bold text-indigo-600 font-mono">{tractionData.engagement.avg_requests_per_guest ?? "--"}</div>
+                      </CardContent>
+                    </Card>
+                    <Card className="bg-white">
+                      <CardContent className="pt-3 pb-3 text-center">
+                        <div className="text-[10px] text-slate-400 mb-1">Requests 30d</div>
+                        <div className="text-2xl font-bold text-slate-900 font-mono">{fmt(tractionData.kpis.requests_30d)}</div>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
+                {/* Daily Trend Chart */}
+                {tractionData.daily_trend.length > 0 && (
+                  <Card className="bg-white">
+                    <CardContent className="pt-4 pb-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Daily Unique Visitors (30d)</h3>
+                      <ResponsiveContainer width="100%" height={250}>
+                        <BarChart data={tractionData.daily_trend}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="day" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} />
+                          <YAxis tick={{ fontSize: 10 }} />
+                          <Tooltip contentStyle={{ fontSize: 11 }} />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Bar dataKey="unique_guests" name="Guests" fill="#818cf8" stackId="a" />
+                          <Bar dataKey="unique_registered" name="Registered" fill="#34d399" stackId="a" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Guest vs Registered Feature Usage — side by side */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* Guest behavior */}
+                  <Card className="bg-white">
+                    <CardContent className="pt-4 pb-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+                        <Globe className="size-3 inline mr-1" /> What Guests Do (7d)
+                      </h3>
+                      <Table>
+                        <TableHeader>
+                          <TableRow><TableHead className="text-[10px]">Feature</TableHead><TableHead className="text-[10px] text-right">Unique Guests</TableHead><TableHead className="text-[10px] text-right">Requests</TableHead></TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {tractionData.guest_pages.map((p) => (
+                            <TableRow key={p.feature}>
+                              <TableCell className="text-xs py-1.5">{p.feature}</TableCell>
+                              <TableCell className="text-xs text-right font-mono py-1.5">{p.unique_guests}</TableCell>
+                              <TableCell className="text-xs text-right font-mono text-slate-400 py-1.5">{p.requests}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                  {/* Registered behavior */}
+                  <Card className="bg-white">
+                    <CardContent className="pt-4 pb-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">
+                        <UserCheck className="size-3 inline mr-1" /> What Registered Users Do (7d)
+                      </h3>
+                      <Table>
+                        <TableHeader>
+                          <TableRow><TableHead className="text-[10px]">Feature</TableHead><TableHead className="text-[10px] text-right">Unique Users</TableHead><TableHead className="text-[10px] text-right">Requests</TableHead></TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {tractionData.registered_pages.map((p) => (
+                            <TableRow key={p.feature}>
+                              <TableCell className="text-xs py-1.5">{p.feature}</TableCell>
+                              <TableCell className="text-xs text-right font-mono py-1.5">{p.unique_users}</TableCell>
+                              <TableCell className="text-xs text-right font-mono text-slate-400 py-1.5">{p.requests}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Stickiness + Signups side by side */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {/* User Stickiness */}
+                  {tractionData.stickiness.length > 0 && (
+                    <Card className="bg-white">
+                      <CardContent className="pt-4 pb-4">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Registered User Stickiness (7d)</h3>
+                        <ResponsiveContainer width="100%" height={180}>
+                          <BarChart data={tractionData.stickiness}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                            <XAxis dataKey="days_active" tick={{ fontSize: 10 }} label={{ value: "Days Active", position: "bottom", fontSize: 10, offset: -5 }} />
+                            <YAxis tick={{ fontSize: 10 }} />
+                            <Tooltip contentStyle={{ fontSize: 11 }} />
+                            <Bar dataKey="user_count" name="Users" fill="#6366f1" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {/* Signups */}
+                  {tractionData.signups.length > 0 && (
+                    <Card className="bg-white">
+                      <CardContent className="pt-4 pb-4">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">New Signups (30d)</h3>
+                        <ResponsiveContainer width="100%" height={180}>
+                          <BarChart data={tractionData.signups}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                            <XAxis dataKey="day" tick={{ fontSize: 10 }} tickFormatter={(d: string) => d.slice(5)} />
+                            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                            <Tooltip contentStyle={{ fontSize: 11 }} />
+                            <Bar dataKey="new_users" name="Signups" fill="#34d399" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+
+                {/* Most Engaged Guests */}
+                {tractionData.top_guests.length > 0 && (
+                  <Card className="bg-white">
+                    <CardContent className="pt-4 pb-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Most Engaged Guests (7d)</h3>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-[10px]">IP</TableHead>
+                            <TableHead className="text-[10px] text-right">Pages</TableHead>
+                            <TableHead className="text-[10px] text-right">Requests</TableHead>
+                            <TableHead className="text-[10px]">First Seen</TableHead>
+                            <TableHead className="text-[10px]">Last Seen</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {tractionData.top_guests.map((g) => (
+                            <TableRow key={g.ip}>
+                              <TableCell className="text-xs font-mono py-1.5">{g.ip}</TableCell>
+                              <TableCell className="text-xs text-right font-mono py-1.5">{g.unique_pages}</TableCell>
+                              <TableCell className="text-xs text-right font-mono text-slate-400 py-1.5">{g.total_requests}</TableCell>
+                              <TableCell className="text-[10px] text-slate-400 py-1.5">{toBelgianTime(g.first_seen)}</TableCell>
+                              <TableCell className="text-[10px] text-slate-400 py-1.5">{toBelgianTime(g.last_seen)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            ) : (
+              <div className="text-center py-8 text-sm text-slate-400">Loading traction data...</div>
+            )}
+          </div>
+        </TabsContent>
 
         {/* ================================================================
             TAB 1: Readiness

@@ -493,6 +493,178 @@ async def platform_usage(user=Depends(_require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/traction")
+async def traction_dashboard(user=Depends(_require_admin)):
+    """Platform traction dashboard: unique guests, engagement depth, conversion signals, feature adoption."""
+    try:
+        import decimal, datetime as dt
+
+        def _ser(rows):
+            out = []
+            for r in rows:
+                row = {}
+                for k, v in r.items():
+                    if isinstance(v, decimal.Decimal): row[k] = float(v)
+                    elif isinstance(v, (dt.date, dt.datetime)): row[k] = str(v)
+                    else: row[k] = v
+                out.append(row)
+            return out
+
+        def _ser1(r):
+            if not r: return {}
+            return {k: (float(v) if isinstance(v, decimal.Decimal) else str(v) if isinstance(v, (dt.date, dt.datetime)) else v) for k, v in r.items()}
+
+        # KPIs: unique guests and registered users across time windows
+        kpis = _ser1(fetch_one("""
+            SELECT
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '1 day') AS guests_today,
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days') AS guests_7d,
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '30 days') AS guests_30d,
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email NOT LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '1 day') AS registered_today,
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email NOT LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days') AS registered_7d,
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email NOT LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '30 days') AS registered_30d,
+                COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '1 day') AS requests_today,
+                COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') AS requests_7d,
+                COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS requests_30d
+            FROM activity_log
+        """))
+
+        # Engagement: avg pages per guest per day (7d)
+        engagement = _ser1(fetch_one("""
+            SELECT
+                ROUND(AVG(pages)::numeric, 1) AS avg_pages_per_guest,
+                ROUND(AVG(reqs)::numeric, 1) AS avg_requests_per_guest,
+                MAX(pages) AS max_pages_guest
+            FROM (
+                SELECT user_email, COUNT(DISTINCT endpoint) AS pages, COUNT(*) AS reqs
+                FROM activity_log
+                WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days'
+                GROUP BY user_email
+            ) sub
+        """))
+
+        # Daily trend: unique guests + registered (30d)
+        daily_trend = _ser(fetch_all("""
+            SELECT
+                created_at::date AS day,
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email LIKE 'anon:%%') AS unique_guests,
+                COUNT(DISTINCT user_email) FILTER (WHERE user_email NOT LIKE 'anon:%%') AS unique_registered,
+                COUNT(*) AS total_requests
+            FROM activity_log
+            WHERE created_at > NOW() - INTERVAL '30 days'
+            GROUP BY created_at::date
+            ORDER BY day ASC
+        """))
+
+        # Guest behavior: top pages visited by guests (7d)
+        guest_pages = _ser(fetch_all("""
+            SELECT
+                CASE
+                    WHEN endpoint LIKE '%%/search%%' THEN 'Search'
+                    WHEN endpoint LIKE '%%/screener%%' THEN 'Screener'
+                    WHEN endpoint LIKE '%%/financials' THEN 'Company Financials'
+                    WHEN endpoint LIKE '%%/structure' THEN 'Company Structure'
+                    WHEN endpoint LIKE '%%/similar' THEN 'Similar Companies'
+                    WHEN endpoint LIKE '%%/sector-benchmark' THEN 'Sector Benchmark'
+                    WHEN endpoint LIKE '%%/load' THEN 'NBB Data Load'
+                    WHEN endpoint LIKE '%%/ai-insights' THEN 'AI Insights'
+                    WHEN endpoint LIKE '%%/enrich%%' THEN 'AI Enrichment'
+                    WHEN endpoint LIKE '%%/staatsblad%%' THEN 'Publications'
+                    WHEN endpoint LIKE '%%/favourites%%' THEN 'Favourites'
+                    WHEN endpoint LIKE '/api/people%%' THEN 'People Search'
+                    WHEN endpoint ~ '^/api/companies/[0-9]{10}$' THEN 'Company Detail'
+                    ELSE endpoint
+                END AS feature,
+                COUNT(*) AS requests,
+                COUNT(DISTINCT user_email) AS unique_guests
+            FROM activity_log
+            WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days'
+            GROUP BY 1
+            ORDER BY unique_guests DESC
+            LIMIT 15
+        """))
+
+        # Registered user behavior: same breakdown
+        registered_pages = _ser(fetch_all("""
+            SELECT
+                CASE
+                    WHEN endpoint LIKE '%%/search%%' THEN 'Search'
+                    WHEN endpoint LIKE '%%/screener%%' THEN 'Screener'
+                    WHEN endpoint LIKE '%%/financials' THEN 'Company Financials'
+                    WHEN endpoint LIKE '%%/structure' THEN 'Company Structure'
+                    WHEN endpoint LIKE '%%/similar' THEN 'Similar Companies'
+                    WHEN endpoint LIKE '%%/sector-benchmark' THEN 'Sector Benchmark'
+                    WHEN endpoint LIKE '%%/load' THEN 'NBB Data Load'
+                    WHEN endpoint LIKE '%%/ai-insights' THEN 'AI Insights'
+                    WHEN endpoint LIKE '%%/enrich%%' THEN 'AI Enrichment'
+                    WHEN endpoint LIKE '%%/staatsblad%%' THEN 'Publications'
+                    WHEN endpoint LIKE '%%/favourites%%' THEN 'Favourites'
+                    WHEN endpoint LIKE '/api/people%%' THEN 'People Search'
+                    WHEN endpoint ~ '^/api/companies/[0-9]{10}$' THEN 'Company Detail'
+                    ELSE endpoint
+                END AS feature,
+                COUNT(*) AS requests,
+                COUNT(DISTINCT user_email) AS unique_users
+            FROM activity_log
+            WHERE user_email NOT LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days'
+            GROUP BY 1
+            ORDER BY unique_users DESC
+            LIMIT 15
+        """))
+
+        # New user signups per day (30d)
+        signups = _ser(fetch_all("""
+            SELECT created_at::date AS day, COUNT(*) AS new_users
+            FROM user_roles
+            WHERE created_at > NOW() - INTERVAL '30 days'
+            GROUP BY created_at::date
+            ORDER BY day ASC
+        """))
+
+        # Stickiness: users who came back multiple days (7d)
+        stickiness = _ser(fetch_all("""
+            SELECT days_active, COUNT(*) AS user_count
+            FROM (
+                SELECT user_email, COUNT(DISTINCT created_at::date) AS days_active
+                FROM activity_log
+                WHERE created_at > NOW() - INTERVAL '7 days'
+                  AND user_email NOT LIKE 'anon:%%'
+                GROUP BY user_email
+            ) sub
+            GROUP BY days_active
+            ORDER BY days_active
+        """))
+
+        # Most engaged guests: top 10 by pages visited
+        top_guests = _ser(fetch_all("""
+            SELECT
+                REPLACE(user_email, 'anon:', '') AS ip,
+                COUNT(DISTINCT endpoint) AS unique_pages,
+                COUNT(*) AS total_requests,
+                MIN(created_at) AS first_seen,
+                MAX(created_at) AS last_seen
+            FROM activity_log
+            WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days'
+            GROUP BY user_email
+            ORDER BY unique_pages DESC
+            LIMIT 10
+        """))
+
+        return {
+            "kpis": kpis,
+            "engagement": engagement,
+            "daily_trend": daily_trend,
+            "guest_pages": guest_pages,
+            "registered_pages": registered_pages,
+            "signups": signups,
+            "stickiness": stickiness,
+            "top_guests": top_guests,
+        }
+    except Exception as e:
+        logger.exception("Traction dashboard failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @router.get("/adoption")
 async def adoption_dashboard(user=Depends(_require_admin)):
     """Adoption dashboard: KPIs, daily trend, feature breakdown, top users, recent activity."""
