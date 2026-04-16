@@ -1132,24 +1132,45 @@ export default function AdminPanel() {
                 )}
 
                 {/* Hourly usage today */}
-                {tractionData.hourly_today && tractionData.hourly_today.length > 0 && (
-                  <Card className="bg-white">
-                    <CardContent className="pt-4 pb-4">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Today&apos;s Usage by Hour (excl. admins)</h3>
-                      <ResponsiveContainer width="100%" height={200}>
-                        <BarChart data={tractionData.hourly_today}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                          <XAxis dataKey="hour" tick={{ fontSize: 10 }} tickFormatter={(h: number) => `${h}:00`} />
-                          <YAxis tick={{ fontSize: 10 }} />
-                          <Tooltip contentStyle={{ fontSize: 11 }} labelFormatter={(h) => `${h}:00 - ${Number(h) + 1}:00`} />
-                          <Legend wrapperStyle={{ fontSize: 11 }} />
-                          <Bar dataKey="guests" name="Guests" fill="#818cf8" stackId="a" />
-                          <Bar dataKey="registered" name="Registered" fill="#34d399" stackId="a" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                )}
+                {(() => {
+                  // Fill all 24 hours with data (0 for missing hours)
+                  const hourMap = new Map<number, { hour: number; requests: number; guests: number; registered: number }>();
+                  for (let h = 0; h < 24; h++) hourMap.set(h, { hour: h, requests: 0, guests: 0, registered: 0 });
+                  for (const d of tractionData.hourly_today || []) hourMap.set(d.hour, d);
+                  const hourlyFull = Array.from(hourMap.values()).sort((a, b) => a.hour - b.hour);
+                  const currentHour = new Date().getHours(); // approximate — shows where "now" is
+                  const hasData = hourlyFull.some((h) => h.requests > 0);
+
+                  return hasData ? (
+                    <Card className="bg-white">
+                      <CardContent className="pt-4 pb-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Today&apos;s Activity (Belgian time, excl. admins)</h3>
+                          <span className="text-[10px] text-slate-400 font-mono">{new Date().toLocaleDateString("en-BE", { timeZone: "Europe/Brussels", weekday: "short", day: "numeric", month: "short" })}</span>
+                        </div>
+                        <ResponsiveContainer width="100%" height={200}>
+                          <BarChart data={hourlyFull} barGap={0} barCategoryGap="10%">
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                            <XAxis
+                              dataKey="hour"
+                              tick={{ fontSize: 9 }}
+                              tickFormatter={(h: number) => h % 3 === 0 ? `${String(h).padStart(2, "0")}:00` : ""}
+                              interval={0}
+                            />
+                            <YAxis tick={{ fontSize: 9 }} width={35} allowDecimals={false} />
+                            <Tooltip
+                              contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e2e8f0" }}
+                              labelFormatter={(h) => `${String(h).padStart(2, "0")}:00 \u2013 ${String(Number(h) + 1).padStart(2, "0")}:00`}
+                            />
+                            <Legend wrapperStyle={{ fontSize: 10, paddingTop: 8 }} />
+                            <Bar dataKey="guests" name="Guests" fill="#818cf8" radius={[2, 2, 0, 0]} stackId="a" />
+                            <Bar dataKey="registered" name="Registered" fill="#34d399" radius={[2, 2, 0, 0]} stackId="a" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  ) : null;
+                })()}
 
                 {/* Guest vs Registered Feature Usage — side by side */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
