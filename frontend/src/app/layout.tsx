@@ -92,7 +92,7 @@ export default function RootLayout({
             <CopyProtection />
             <Nav />
             <main className="flex-1" data-protected>
-              <div className="w-full max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+              <div className="w-full max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
                 {children}
               </div>
             </main>

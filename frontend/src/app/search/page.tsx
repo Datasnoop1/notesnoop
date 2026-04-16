@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { Suspense, useState, useCallback, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
@@ -18,9 +18,17 @@ import {
 import type { SearchResult, PersonResult } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct } from "@/lib/format";
 import { useTranslation } from "@/components/language-provider";
-import { Search, Building, Users, Loader2, ArrowRight, Star } from "lucide-react";
+import { Search, Building, Users, Loader2, Star } from "lucide-react";
 
 export default function UnifiedSearchPage() {
+  return (
+    <Suspense fallback={<div className="py-8 text-center text-sm text-slate-400">Loading...</div>}>
+      <UnifiedSearchPageInner />
+    </Suspense>
+  );
+}
+
+function UnifiedSearchPageInner() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q") ?? "";

@@ -60,6 +60,7 @@ export default function Home() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search companies or persons"
+          aria-label="Search companies or persons"
           className="w-full h-12 sm:h-14 px-5 text-base rounded-full border border-gray-200 bg-white focus:border-gray-400 focus:outline-none transition-colors placeholder:text-gray-400 text-gray-900"
           enterKeyHint="search"
           autoCapitalize="off"

@@ -275,8 +275,8 @@ export default function Nav() {
                       onClick={() => setOpen(false)}
                       className={`px-3 py-2.5 rounded-md text-sm font-medium ${
                         isActive(item.href)
-                          ? "bg-indigo-50 text-indigo-600"
-                          : "text-slate-600 hover:bg-slate-50"
+                          ? "bg-gray-100 text-gray-900"
+                          : "text-gray-700 hover:bg-gray-50"
                       }`}
                     >
                       {item.label}
