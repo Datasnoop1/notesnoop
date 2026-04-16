@@ -164,6 +164,15 @@ def _clean_scraped_text(text: str) -> str:
     return text.strip()
 
 
+def _extract_linkedin_from_html(html: str) -> str:
+    """Extract a LinkedIn company URL from raw HTML (e.g. footer social links)."""
+    matches = re.findall(r'https?://(?:www\.)?linkedin\.com/company/[a-zA-Z0-9_-]+', html)
+    if matches:
+        # Deduplicate and return the first unique one
+        return matches[0].split("?")[0].rstrip("/")
+    return ""
+
+
 def _normalize_domain(s: str) -> str:
     """Normalize a domain or company name to a comparable slug."""
     s = s.lower().strip()
@@ -591,6 +600,13 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             html = await scrape_url(website_url)
             if html:
                 website_text = _strip_html(html, max_chars=8000)
+                # Extract LinkedIn from website HTML (footer links etc.) — more reliable than slug
+                if not linkedin_url or url_source_linkedin == "slug":
+                    found_li = _extract_linkedin_from_html(html)
+                    if found_li:
+                        linkedin_url = found_li
+                        url_source_linkedin = "website"
+                        logger.info("URL discovery for %s: LinkedIn found on company website — %s", name, found_li)
         except Exception as e:
             logger.warning("Website scrape failed for %s: %s", website_url, e)
 
