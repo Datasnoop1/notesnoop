@@ -20,11 +20,13 @@ function FeedbackDialog({
   type,
   icon,
   label,
+  fullLabel,
   placeholder,
 }: {
   type: "bug" | "suggestion";
   icon: React.ReactNode;
   label: string;
+  fullLabel: string;
   placeholder: string;
 }) {
   const pathname = usePathname();
@@ -67,11 +69,12 @@ function FeedbackDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger>
         <span
-          title={label}
-          aria-label={label}
-          className="inline-flex items-center justify-center w-8 h-8 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
+          title={fullLabel}
+          aria-label={fullLabel}
+          className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-[12px] font-medium text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
         >
           {icon}
+          <span>{label}</span>
         </span>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -169,9 +172,10 @@ function DonateButton() {
         <span
           title="Support us"
           aria-label="Support us"
-          className="inline-flex items-center justify-center w-8 h-8 rounded-md text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-[12px] font-medium text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
         >
           <Heart className="w-4 h-4" />
+          <span>Donate</span>
         </span>
       </DialogTrigger>
       <DialogContent className="sm:max-w-xs">
@@ -228,13 +232,15 @@ export default function FeedbackButtons() {
       <FeedbackDialog
         type="bug"
         icon={<Bug className="w-4 h-4" />}
-        label="Report bug"
+        label="Bug"
+        fullLabel="Report bug"
         placeholder="What happened? What did you expect to happen?"
       />
       <FeedbackDialog
         type="suggestion"
         icon={<Lightbulb className="w-4 h-4" />}
-        label="Suggest idea"
+        label="Feature"
+        fullLabel="Suggest idea"
         placeholder="What feature or improvement would you like to see?"
       />
       <DonateButton />
