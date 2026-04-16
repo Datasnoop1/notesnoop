@@ -88,7 +88,7 @@ async def create_donation(body: DonationRequest, user=Depends(optional_user)):
         return {"checkout_url": session.url, "session_id": session.id}
     except Exception as e:
         logger.exception("Stripe donation failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Payment processing error")
 
 
 @router.post("/webhook")

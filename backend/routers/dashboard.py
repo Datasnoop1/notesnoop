@@ -32,7 +32,7 @@ async def get_dashboard():
         }
     except Exception as e:
         logger.exception("Dashboard query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/top-companies")
@@ -69,7 +69,7 @@ async def get_top_companies(metric: str = "revenue", limit: int = 15):
         return rows
     except Exception as e:
         logger.exception("Top companies query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/recently-loaded")
@@ -102,4 +102,4 @@ async def get_recently_loaded(limit: int = 10):
         return rows
     except Exception as e:
         logger.exception("Recently loaded query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

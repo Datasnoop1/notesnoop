@@ -116,4 +116,4 @@ async def load_publications(cbe: str, user=Depends(optional_user)):
         }
     except Exception as e:
         logger.exception("Load publications failed for %s", cbe)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
