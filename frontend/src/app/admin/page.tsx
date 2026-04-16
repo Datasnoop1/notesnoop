@@ -203,6 +203,18 @@ interface TractionData {
   top_guests: { ip: string; unique_pages: number; total_requests: number; first_seen: string; last_seen: string }[];
 }
 
+interface CostsData {
+  openrouter_usage_usd: number;
+  openrouter_limit_usd: number;
+  fixed_costs: {
+    hosting_monthly_eur: number;
+    domains_yearly_eur: number;
+    zenrows_monthly_eur: number;
+    other_monthly_eur: number;
+  };
+  ai_calls_30d: Record<string, number>;
+}
+
 interface Poll {
   id: number;
   title: string;
@@ -521,6 +533,9 @@ export default function AdminPanel() {
   } | null>(null);
   const [adoptionData, setAdoptionData] = useState<AdoptionData | null>(null);
   const [tractionData, setTractionData] = useState<TractionData | null>(null);
+  const [costsData, setCostsData] = useState<CostsData | null>(null);
+  const [costEdits, setCostEdits] = useState<Record<string, string>>({});
+  const [costSaving, setCostSaving] = useState(false);
   const [paymentsData, setPaymentsData] = useState<PaymentsData | null>(null);
   const [tiers, setTiers] = useState<TierConfig[]>([]);
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
@@ -535,7 +550,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac, costs] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -552,6 +567,7 @@ export default function AdminPanel() {
         adminFetch<{ site_logo: string }>("/api/admin/site-config").catch(() => ({ site_logo: "/logos/dog-telescope.jpg" })),
         adminFetch<AdoptionData>("/api/admin/adoption").catch(() => null),
         adminFetch<TractionData>("/api/admin/traction").catch(() => null),
+        adminFetch<CostsData>("/api/admin/costs").catch(() => null),
       ]);
       setStats(s);
       setUsers(u);
@@ -567,6 +583,7 @@ export default function AdminPanel() {
       if (sc?.site_logo) setSiteLogo(sc.site_logo);
       setAdoptionData(adopt);
       setTractionData(trac);
+      setCostsData(costs);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -1024,7 +1041,7 @@ export default function AdminPanel() {
           </TabsTrigger>
           <TabsTrigger value="revenue">
             <CreditCard className="size-3.5 mr-1.5" />
-            Revenue
+            P&L
           </TabsTrigger>
           <TabsTrigger value="settings">
             <Settings className="size-3.5 mr-1.5" />
@@ -2880,148 +2897,181 @@ export default function AdminPanel() {
             ================================================================ */}
         <TabsContent value="revenue">
           <div className="space-y-6 pt-2">
-            <SectionHeading icon={CreditCard}>Stripe Payments</SectionHeading>
+            {/* ── Mini P&L Summary ── */}
+            {(() => {
+              const revEur = paymentsData ? paymentsData.total_revenue / 100 : 0;
+              const orUsd = costsData?.openrouter_usage_usd ?? 0;
+              const orEur = orUsd * 0.92; // approximate USD→EUR
+              const fc = costsData?.fixed_costs;
+              const hostingM = fc?.hosting_monthly_eur ?? 18.34;
+              const domainsM = (fc?.domains_yearly_eur ?? 25) / 12;
+              const zenrowsM = fc?.zenrows_monthly_eur ?? 0;
+              const otherM = fc?.other_monthly_eur ?? 0;
+              const totalCostsM = orEur + hostingM + domainsM + zenrowsM + otherM;
+              const netM = revEur - totalCostsM;
+              const eur = (v: number) => v.toLocaleString("en", { style: "currency", currency: "EUR", minimumFractionDigits: 2 });
+              return (
+                <Card className="bg-white border-l-4 border-l-indigo-500">
+                  <CardContent className="p-4">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Monthly P&L (estimate)</h3>
+                    <Table>
+                      <TableBody>
+                        <TableRow className="bg-emerald-50/50">
+                          <TableCell className="text-xs font-semibold text-emerald-700 py-1.5">Revenue (Stripe)</TableCell>
+                          <TableCell className="text-xs font-mono text-right font-semibold text-emerald-700 py-1.5">{eur(revEur)}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell className="text-xs text-slate-600 py-1">OpenRouter (AI)</TableCell>
+                          <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(orEur)}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell className="text-xs text-slate-600 py-1">Hosting (Hetzner)</TableCell>
+                          <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(hostingM)}</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell className="text-xs text-slate-600 py-1">Domains</TableCell>
+                          <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(domainsM)}</TableCell>
+                        </TableRow>
+                        {zenrowsM > 0 && (
+                          <TableRow>
+                            <TableCell className="text-xs text-slate-600 py-1">Zenrows</TableCell>
+                            <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(zenrowsM)}</TableCell>
+                          </TableRow>
+                        )}
+                        {otherM > 0 && (
+                          <TableRow>
+                            <TableCell className="text-xs text-slate-600 py-1">Other</TableCell>
+                            <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(otherM)}</TableCell>
+                          </TableRow>
+                        )}
+                        <TableRow className={netM >= 0 ? "bg-emerald-50/50" : "bg-rose-50/50"}>
+                          <TableCell className="text-xs font-bold py-1.5">Net Result</TableCell>
+                          <TableCell className={`text-sm font-mono text-right font-bold py-1.5 ${netM >= 0 ? "text-emerald-700" : "text-rose-600"}`}>{eur(netM)}</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
-            {!paymentsData ? (
+            {/* ── AI Usage + OpenRouter ── */}
+            {costsData && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <Card className="bg-white">
+                  <CardContent className="p-3 text-center">
+                    <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">OpenRouter Spend</div>
+                    <div className="text-xl font-bold text-rose-500 font-mono">${costsData.openrouter_usage_usd.toFixed(2)}</div>
+                    {costsData.openrouter_limit_usd > 0 && <div className="text-[10px] text-slate-400">of ${costsData.openrouter_limit_usd.toFixed(0)} limit</div>}
+                  </CardContent>
+                </Card>
+                {Object.entries(costsData.ai_calls_30d).map(([k, v]) => (
+                  <Card key={k} className="bg-white">
+                    <CardContent className="p-3 text-center">
+                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">{k.replace(/_/g, " ")} (30d)</div>
+                      <div className="text-xl font-bold text-slate-800 font-mono">{v}</div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* ── Edit Fixed Costs ── */}
+            {costsData && (
               <Card className="bg-white">
-                <CardContent>
-                  <p className="py-8 text-center text-sm text-slate-400">
-                    Loading payment data...
-                  </p>
+                <CardContent className="p-4">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Edit Fixed Costs</h3>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {([
+                      ["hosting_monthly_eur", "Hosting (monthly)"],
+                      ["domains_yearly_eur", "Domains (yearly)"],
+                      ["zenrows_monthly_eur", "Zenrows (monthly)"],
+                      ["other_monthly_eur", "Other (monthly)"],
+                    ] as const).map(([key, label]) => (
+                      <div key={key}>
+                        <label className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1">{label}</label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          className="h-7 text-xs font-mono"
+                          defaultValue={costsData.fixed_costs[key]}
+                          onChange={(e) => setCostEdits((prev) => ({ ...prev, [key]: e.target.value }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    size="sm"
+                    className="mt-3 h-7 text-[11px]"
+                    disabled={costSaving || Object.keys(costEdits).length === 0}
+                    onClick={async () => {
+                      setCostSaving(true);
+                      try {
+                        const body: Record<string, number> = {};
+                        for (const [k, v] of Object.entries(costEdits)) body[k] = parseFloat(v);
+                        await adminFetch("/api/admin/costs", { method: "POST", body: JSON.stringify(body) });
+                        setCostEdits({});
+                        loadData();
+                      } catch { /* ignore */ }
+                      finally { setCostSaving(false); }
+                    }}
+                  >
+                    {costSaving ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Save className="w-3 h-3 mr-1" />}
+                    Save costs
+                  </Button>
                 </CardContent>
               </Card>
-            ) : paymentsData.payments.length === 0 ? (
+            )}
+
+            {/* ── Stripe Payments ── */}
+            <SectionHeading icon={CreditCard}>Stripe Payments</SectionHeading>
+            {!paymentsData || paymentsData.payments.length === 0 ? (
               <Card className="bg-white">
                 <CardContent>
-                  <div className="py-12 text-center">
-                    <CreditCard className="size-8 text-slate-300 mx-auto mb-3" />
-                    <h3 className="text-sm font-semibold text-slate-700 mb-1">
-                      No Payments Yet
-                    </h3>
-                    <p className="text-sm text-slate-400">
-                      Stripe payments will appear here once customers complete checkout.
-                    </p>
-                  </div>
+                  <p className="py-8 text-center text-sm text-slate-400">No payments yet.</p>
                 </CardContent>
               </Card>
             ) : (
-              <>
-                {/* Revenue KPIs */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  <Card className="bg-white">
-                    <CardContent className="p-3 text-center">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
-                        Total Revenue
-                      </div>
-                      <div className="text-xl font-bold text-emerald-600">
-                        {(paymentsData.total_revenue / 100).toLocaleString("en", {
-                          style: "currency",
-                          currency: paymentsData.currency,
-                        })}
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-white">
-                    <CardContent className="p-3 text-center">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
-                        Total Payments
-                      </div>
-                      <div className="text-xl font-bold text-slate-800">
-                        {paymentsData.payments.length}
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-white">
-                    <CardContent className="p-3 text-center">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
-                        Successful
-                      </div>
-                      <div className="text-xl font-bold text-emerald-600">
-                        {paymentsData.payments.filter((p) => p.status === "paid").length}
-                      </div>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-white">
-                    <CardContent className="p-3 text-center">
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mb-1">
-                        Subscriptions
-                      </div>
-                      <div className="text-xl font-bold text-indigo-600">
-                        {paymentsData.payments.filter((p) => p.mode === "subscription").length}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                {/* Recent payments table */}
-                <Card className="bg-white">
-                  <CardContent className="p-4">
-                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                      <CreditCard className="size-3.5" /> Recent Payments
-                    </h3>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-[11px]">Date</TableHead>
-                            <TableHead className="text-[11px]">Email</TableHead>
-                            <TableHead className="text-[11px]">Amount</TableHead>
-                            <TableHead className="text-[11px]">Type</TableHead>
-                            <TableHead className="text-[11px]">Status</TableHead>
+              <Card className="bg-white">
+                <CardContent className="p-4">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-[11px]">Date</TableHead>
+                          <TableHead className="text-[11px]">Email</TableHead>
+                          <TableHead className="text-[11px]">Amount</TableHead>
+                          <TableHead className="text-[11px]">Type</TableHead>
+                          <TableHead className="text-[11px]">Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {paymentsData.payments.map((p) => (
+                          <TableRow key={p.id}>
+                            <TableCell className="text-xs text-slate-500 font-mono whitespace-nowrap">
+                              {toBelgianDate(p.created)} <span className="text-slate-400">{toBelgianTimeOnly(p.created)}</span>
+                            </TableCell>
+                            <TableCell className="text-xs text-slate-600 max-w-[200px] truncate">{p.email || <span className="text-slate-300">--</span>}</TableCell>
+                            <TableCell className="text-xs font-mono font-semibold text-slate-800">
+                              {(p.amount / 100).toLocaleString("en", { style: "currency", currency: p.currency })}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="secondary" className={`text-[10px] ${p.mode === "subscription" ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-600"}`}>
+                                {p.mode === "subscription" ? "Subscription" : "One-time"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="secondary" className={`text-[10px] ${p.status === "paid" ? "bg-emerald-50 text-emerald-600" : p.status === "unpaid" ? "bg-amber-50 text-amber-600" : "bg-slate-100 text-slate-500"}`}>
+                                {p.status}
+                              </Badge>
+                            </TableCell>
                           </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {paymentsData.payments.map((p) => (
-                            <TableRow key={p.id}>
-                              <TableCell className="text-xs text-slate-500 font-mono whitespace-nowrap">
-                                {toBelgianDate(p.created)}{" "}
-                                <span className="text-slate-400">
-                                  {toBelgianTimeOnly(p.created)}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-xs text-slate-600 max-w-[200px] truncate">
-                                {p.email || <span className="text-slate-300">--</span>}
-                              </TableCell>
-                              <TableCell className="text-xs font-mono font-semibold text-slate-800">
-                                {(p.amount / 100).toLocaleString("en", {
-                                  style: "currency",
-                                  currency: p.currency,
-                                })}
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant="secondary"
-                                  className={`text-[10px] ${
-                                    p.mode === "subscription"
-                                      ? "bg-indigo-50 text-indigo-600"
-                                      : "bg-slate-100 text-slate-600"
-                                  }`}
-                                >
-                                  {p.mode === "subscription" ? "Subscription" : "One-time"}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant="secondary"
-                                  className={`text-[10px] ${
-                                    p.status === "paid"
-                                      ? "bg-emerald-50 text-emerald-600"
-                                      : p.status === "unpaid"
-                                        ? "bg-amber-50 text-amber-600"
-                                        : "bg-slate-100 text-slate-500"
-                                  }`}
-                                >
-                                  {p.status}
-                                </Badge>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
             )}
           </div>
         </TabsContent>

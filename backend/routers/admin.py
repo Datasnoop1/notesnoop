@@ -849,6 +849,88 @@ async def admin_payments(user=Depends(_require_admin)):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/admin/costs — OpenRouter + fixed costs for mini P&L
+# ---------------------------------------------------------------------------
+
+@router.get("/costs")
+async def admin_costs(user=Depends(_require_admin)):
+    """Platform costs: OpenRouter AI spend, hosting, domains."""
+    import httpx
+
+    # ── OpenRouter credit usage (lifetime USD spend) ──
+    openrouter_usage_usd = 0.0
+    openrouter_limit_usd = 0.0
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    if openrouter_key:
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://openrouter.ai/api/v1/auth/key",
+                    headers={"Authorization": f"Bearer {openrouter_key}"},
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    data = resp.json().get("data", {})
+                    openrouter_usage_usd = data.get("usage", 0)
+                    openrouter_limit_usd = data.get("limit", 0)
+        except Exception as e:
+            logger.warning("OpenRouter usage fetch failed: %s", e)
+
+    # ── Fixed monthly costs (editable via POST /api/admin/costs) ──
+    cost_keys = {
+        "hosting_monthly_eur": 18.34,
+        "domains_yearly_eur": 25.0,
+        "zenrows_monthly_eur": 0.0,
+        "other_monthly_eur": 0.0,
+    }
+    for key in cost_keys:
+        row = fetch_one("SELECT value FROM meta WHERE variable = %s", (f"cost_{key}",))
+        if row:
+            try:
+                cost_keys[key] = float(row["value"])
+            except Exception:
+                pass
+
+    # ── AI call counts (last 30 days) ──
+    ai_calls = fetch_one("""
+        SELECT
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/ai-insights') AS ai_insights,
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/summarize-publications') AS pub_summaries,
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/similar/ai') AS similar_ai,
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/enrich') AS enrichments,
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/scrape-%%') AS scrapes
+        FROM activity_log
+        WHERE created_at > NOW() - INTERVAL '30 days'
+    """) or {}
+
+    return {
+        "openrouter_usage_usd": openrouter_usage_usd,
+        "openrouter_limit_usd": openrouter_limit_usd,
+        "fixed_costs": cost_keys,
+        "ai_calls_30d": {k: int(v) if v else 0 for k, v in ai_calls.items()},
+    }
+
+
+class CostUpdateBody(BaseModel):
+    hosting_monthly_eur: Optional[float] = None
+    domains_yearly_eur: Optional[float] = None
+    zenrows_monthly_eur: Optional[float] = None
+    other_monthly_eur: Optional[float] = None
+
+
+@router.post("/costs")
+async def update_costs(body: CostUpdateBody, user=Depends(_require_admin)):
+    """Update fixed cost figures."""
+    updates = body.model_dump(exclude_none=True)
+    for key, value in updates.items():
+        execute(
+            "INSERT INTO meta (variable, value) VALUES (%s, %s) ON CONFLICT (variable) DO UPDATE SET value = EXCLUDED.value",
+            (f"cost_{key}", str(value)),
+        )
+    return {"status": "ok", "updated": list(updates.keys())}
+
+
+# ---------------------------------------------------------------------------
 # Site configuration (logo, etc.)
 # ---------------------------------------------------------------------------
 
