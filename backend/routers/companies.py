@@ -1894,11 +1894,14 @@ async def get_similar_companies_ai(cbe: str, user=Depends(get_current_user)):
         )
 
     prompt = (
-        f"You are a Belgian PE deal sourcing analyst. Given the target company and a list of candidates in the same NACE sector, "
-        f"select and rank the 10 most truly similar companies based on business model, size, and market position.\n\n"
+        f"You are a Belgian company analyst. Rank the candidates by how similar their ACTIVITY is to the target company.\n\n"
+        f"Ranking criteria (in order of importance):\n"
+        f"1. ACTIVITY MATCH: How identical is the core business activity? Same products/services/trade = highest rank.\n"
+        f"2. REVENUE SIZE: Among activity matches, prefer companies with similar revenue or EBITDA.\n"
+        f"Do NOT eliminate companies for being too large or too small — size is secondary to activity match.\n\n"
         f"TARGET: {target_desc}\n\nCANDIDATES:\n" + "\n".join(cand_lines) +
-        f"\n\nReturn ONLY a JSON array of objects with 'rank' (original number from list) and 'reason' (one sentence). "
-        f"Example: [{{'rank': 3, 'reason': 'Similar mid-market manufacturer with comparable revenue'}}]"
+        f"\n\nReturn ONLY a JSON array of 10 objects with 'rank' (original number from list) and 'reason' (one sentence explaining the activity similarity). "
+        f"Example: [{{'rank': 3, 'reason': 'Same core activity: wholesale of industrial cleaning products'}}]"
     )
 
     try:

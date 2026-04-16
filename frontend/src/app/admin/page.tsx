@@ -1141,7 +1141,7 @@ export default function AdminPanel() {
                           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                           <XAxis dataKey="hour" tick={{ fontSize: 10 }} tickFormatter={(h: number) => `${h}:00`} />
                           <YAxis tick={{ fontSize: 10 }} />
-                          <Tooltip contentStyle={{ fontSize: 11 }} labelFormatter={(h: number) => `${h}:00 - ${h + 1}:00`} />
+                          <Tooltip contentStyle={{ fontSize: 11 }} labelFormatter={(h) => `${h}:00 - ${Number(h) + 1}:00`} />
                           <Legend wrapperStyle={{ fontSize: 11 }} />
                           <Bar dataKey="guests" name="Guests" fill="#818cf8" stackId="a" />
                           <Bar dataKey="registered" name="Registered" fill="#34d399" stackId="a" />
