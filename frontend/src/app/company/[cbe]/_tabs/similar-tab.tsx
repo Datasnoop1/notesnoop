@@ -53,7 +53,8 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
     setError(null);
     try {
       const data = await getAiSimilarCompanies(cbe);
-      setCompanies(data.map((d) => ({ ...d, ai_reason: (d as Record<string, unknown>).ai_reason as string | undefined })));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setCompanies(data.map((d) => ({ ...d, ai_reason: (d as any).ai_reason as string | undefined })));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
       if (msg.includes("401") || msg.includes("403")) {
