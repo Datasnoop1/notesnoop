@@ -154,7 +154,7 @@ export function SimilarTab({
           </Button>
         </div>
       </div>
-      <div className="rounded-xl border border-slate-200 overflow-x-auto">
+      <div className="rounded-xl border border-slate-200 overflow-x-auto scrollbar-none">
         <Table>
           <TableHeader>
             <TableRow className="bg-slate-50/80">

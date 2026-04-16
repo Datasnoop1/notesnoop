@@ -188,7 +188,7 @@ export function PublicationsTab({
           downloadCsv(`${detail?.name || cbe}_publications.csv`, headers, rows);
         }} onPrint={() => window.print()} />
       </div>
-      <div className="rounded-lg border overflow-x-auto bg-white">
+      <div className="rounded-lg border overflow-x-auto scrollbar-none bg-white">
         <table className="w-full">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">

@@ -1103,12 +1103,12 @@ export default function ScreenerPage() {
         </div>
 
         {/* Results table */}
-        <div className="flex-1 overflow-y-auto">
-          <table className="w-full border-collapse">
+        <div className="flex-1 overflow-y-auto overflow-x-auto scrollbar-none">
+          <table className="w-full border-collapse min-w-[700px]">
             {/* Sticky header */}
             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="py-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-left w-[280px]">
+                <th className="py-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-left w-[180px] md:w-[280px]">
                   {t("screener.company")}
                 </th>
                 <SortHeader
@@ -1170,7 +1170,7 @@ export default function ScreenerPage() {
                     <div className="leading-tight">
                       <Link
                         href={`/company/${row.cbe}`}
-                        className="text-sm font-semibold text-slate-800 hover:text-indigo-600 hover:underline decoration-indigo-200 underline-offset-2 truncate block max-w-[260px]"
+                        className="text-sm font-semibold text-slate-800 hover:text-indigo-600 hover:underline decoration-indigo-200 underline-offset-2 truncate block max-w-[160px] md:max-w-[260px]"
                         title={row.name}
                       >
                         {row.name || fmtCbe(row.cbe)}

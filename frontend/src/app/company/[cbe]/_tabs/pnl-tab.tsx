@@ -324,11 +324,11 @@ export function PnlTab({
           />
         </div>
       </div>
-      <div className="rounded-lg border overflow-x-auto bg-white">
-        <table className="w-full">
+      <div className="rounded-lg border overflow-x-auto scrollbar-none bg-white">
+        <table className="w-full min-w-[500px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[240px]">Line Item</th>
+              <th className="px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[120px] md:min-w-[240px]">Line Item</th>
               {renderDeltaHeaders(chronological.map(r => r.fiscal_year))}
             </tr>
           </thead>
