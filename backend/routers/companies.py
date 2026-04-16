@@ -1678,7 +1678,7 @@ async def get_similar_companies(cbe: str):
 
 @router.post("/{cbe}/summarize-publications")
 async def summarize_publications(cbe: str, user=Depends(get_current_user)):
-    """Generate an AI summary of the last 5 Staatsblad publications."""
+    """Generate structured AI analysis of last 5 Staatsblad publications."""
     cbe = cbe.strip().replace(".", "").zfill(10)
 
     # Ensure column exists (idempotent)
@@ -1687,13 +1687,17 @@ async def summarize_publications(cbe: str, user=Depends(get_current_user)):
     except Exception:
         pass
 
-    # Check cache
+    # Check cache — return parsed JSON if valid
     cached = fetch_one(
         "SELECT publication_summary FROM company_enrichment WHERE enterprise_number = %s AND publication_summary IS NOT NULL",
         (cbe,),
     )
     if cached and cached.get("publication_summary"):
-        return {"summary": cached["publication_summary"], "cached": True}
+        raw = cached["publication_summary"]
+        try:
+            return {"summary": json.loads(raw), "cached": True}
+        except Exception:
+            return {"summary": raw, "cached": True}
 
     # Fetch last 5 publications
     pubs = fetch_all(
@@ -1708,30 +1712,57 @@ async def summarize_publications(cbe: str, user=Depends(get_current_user)):
 
     pub_lines = [f"- {p.get('pub_date', '?')}: {p.get('pub_type', 'Unknown')}" for p in pubs]
 
-    prompt = (
-        f"Summarize the following recent Belgian Official Gazette (Staatsblad) publications for {company_name} "
-        f"in 2-3 sentences. Focus on what these publications reveal about governance and corporate activity.\n\n"
-        f"Publications (most recent first):\n" + "\n".join(pub_lines) +
-        "\n\nWrite a concise, factual paragraph suitable for an investor audience."
+    system_prompt = (
+        "You are a corporate events analyst. Summarize Belgian Staatsblad publications "
+        "for a PE deal screening audience.\n\n"
+        "Return valid JSON only — no markdown, no code fences, no explanation. Structure:\n"
+        '{"events": [{"date": "YYYY-MM-DD", "type_raw": "original type code", '
+        '"summary": "1-sentence plain-language description", '
+        '"takeaway": "1-sentence investor implication", '
+        '"importance": "routine | notable | significant"}], '
+        '"pattern_alert": "1-sentence cross-event pattern or null", '
+        '"risk_flag": true | false}\n\n'
+        "Importance: routine = admin/annual filings. notable = board change, capital increase, "
+        "office move. significant = multiple board changes in <12 months, merger/demerger, "
+        "dissolution, rapid restructuring.\n\n"
+        "Translate all Dutch/French legal terms to plain English. Quantify where possible. "
+        "Flag cross-publication patterns. Return ONLY the JSON object.\n\n"
+        f"Company: {company_name}"
     )
 
+    prompt = "Publications (most recent first):\n" + "\n".join(pub_lines)
+
     try:
-        summary = await ai_complete(prompt, max_tokens=200, model="google/gemini-2.5-flash")
+        raw = await ai_complete(prompt, system=system_prompt, max_tokens=512, model="openai/gpt-4o-mini")
     except Exception as e:
         logger.error("Publication summary failed for %s: %s", cbe, e)
         return {"summary": None, "error": "Summary generation failed"}
 
-    # Cache
+    # Parse JSON with fallback
+    parsed = None
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        # Strip markdown code fences and retry
+        cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip())
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+        try:
+            parsed = json.loads(cleaned)
+        except Exception:
+            parsed = {"raw_text": raw, "parse_error": True}
+
+    # Cache the JSON string
+    cache_str = json.dumps(parsed, ensure_ascii=False)
     try:
         execute(
             "INSERT INTO company_enrichment (enterprise_number, publication_summary) VALUES (%s, %s) "
             "ON CONFLICT (enterprise_number) DO UPDATE SET publication_summary = EXCLUDED.publication_summary",
-            (cbe, summary),
+            (cbe, cache_str),
         )
     except Exception as e:
         logger.error("Failed to cache publication summary for %s: %s", cbe, e)
 
-    return {"summary": summary, "cached": False}
+    return {"summary": parsed, "cached": False}
 
 
 # ---------------------------------------------------------------------------
