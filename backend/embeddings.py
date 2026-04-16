@@ -3,9 +3,14 @@
 Uses OpenRouter's embeddings API with a free or cheap model.
 Stores vectors in PostgreSQL via pgvector extension.
 
-Models (change EMBEDDING_MODEL to switch):
-  - nvidia/llama-nemotron-embed-vl-1b-v2:free  (free, logs data)
-  - openai/text-embedding-3-small               ($0.02/1M tokens, 1536 dims)
+Scale target: 2M companies at ~5 GB total storage.
+  - 256 dimensions (not 1536) → 1 KB per vector instead of 6 KB
+  - No source_text stored (derivable from company_enrichment.ai_insights)
+  - HNSW index for fast approximate nearest-neighbor at scale
+
+Models (change EMBEDDING_MODEL env var to switch):
+  - openai/text-embedding-3-small  ($0.02/1M tokens, supports dim reduction to 256)
+  - nvidia/llama-nemotron-embed-vl-1b-v2:free  (free, logs data, trial only)
 """
 
 import json
@@ -20,13 +25,17 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-small")
-EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", "1536"))
+EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", "256"))
 
 _table_ensured = False
 
 
 def ensure_embedding_table():
-    """Create the company_embedding table with pgvector if it doesn't exist."""
+    """Create the company_embedding table with pgvector if it doesn't exist.
+
+    Uses HNSW index (better than IVFFlat at scale, no training step needed).
+    No source_text column — derivable from company_enrichment.ai_insights.
+    """
     global _table_ensured
     if _table_ensured:
         return
@@ -38,42 +47,23 @@ def ensure_embedding_table():
             CREATE TABLE IF NOT EXISTS company_embedding (
                 enterprise_number VARCHAR(10) PRIMARY KEY,
                 embedding vector({EMBEDDING_DIMS}),
-                source_text TEXT,
                 model VARCHAR(100),
                 generated_at TIMESTAMP DEFAULT NOW()
             )
         """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_ce_embedding
-            ON company_embedding USING ivfflat (embedding vector_cosine_ops)
-            WITH (lists = 100)
+        # HNSW index — works immediately (no training rows needed unlike IVFFlat)
+        cur.execute(f"""
+            CREATE INDEX IF NOT EXISTS idx_ce_embedding_hnsw
+            ON company_embedding USING hnsw (embedding vector_cosine_ops)
+            WITH (m = 16, ef_construction = 64)
         """)
         conn.commit()
         cur.close()
         _table_ensured = True
-        logger.info("company_embedding table ensured (dims=%d)", EMBEDDING_DIMS)
-    except Exception as e:
+        logger.info("company_embedding table ensured (dims=%d, HNSW index)", EMBEDDING_DIMS)
+    except Exception:
         conn.rollback()
-        # IVFFlat index needs rows first — retry without index
-        try:
-            cur = conn.cursor()
-            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            cur.execute(f"""
-                CREATE TABLE IF NOT EXISTS company_embedding (
-                    enterprise_number VARCHAR(10) PRIMARY KEY,
-                    embedding vector({EMBEDDING_DIMS}),
-                    source_text TEXT,
-                    model VARCHAR(100),
-                    generated_at TIMESTAMP DEFAULT NOW()
-                )
-            """)
-            conn.commit()
-            cur.close()
-            _table_ensured = True
-            logger.info("company_embedding table ensured (no index yet — add after first batch)")
-        except Exception:
-            conn.rollback()
-            logger.exception("Failed to create company_embedding table")
+        logger.exception("Failed to create company_embedding table")
     finally:
         put_connection(conn)
 
@@ -94,6 +84,7 @@ async def generate_embedding(text: str) -> list[float] | None:
                 json={
                     "model": EMBEDDING_MODEL,
                     "input": text[:8000],  # Truncate to avoid token limits
+                    "dimensions": EMBEDDING_DIMS,  # Reduce dims for storage efficiency
                 },
                 timeout=30,
             )
@@ -166,14 +157,13 @@ async def embed_company(cbe: str, force: bool = False) -> bool:
     # Store
     try:
         execute(
-            """INSERT INTO company_embedding (enterprise_number, embedding, source_text, model)
-               VALUES (%s, %s, %s, %s)
+            """INSERT INTO company_embedding (enterprise_number, embedding, model)
+               VALUES (%s, %s, %s)
                ON CONFLICT (enterprise_number) DO UPDATE SET
                    embedding = EXCLUDED.embedding,
-                   source_text = EXCLUDED.source_text,
                    model = EXCLUDED.model,
                    generated_at = NOW()""",
-            (cbe, str(embedding), text[:2000], EMBEDDING_MODEL),
+            (cbe, str(embedding), EMBEDDING_MODEL),
         )
         return True
     except Exception as e:
