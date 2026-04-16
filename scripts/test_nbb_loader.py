@@ -69,6 +69,7 @@ def test_ebitda():
     assert m["ebit"]       ==  1_400_000, m["ebit"]
     assert m["da"]         ==    850_000, m["da"]
     assert m["ebitda"]     ==  2_250_000, m["ebitda"]   # 1.4M + 0.85M
+    assert m["ebitda_partial"] is False
     assert m["net_profit"] ==    920_000
     assert m["fte"]        ==     87.5
     margin = m["ebitda"] / m["revenue"] * 100
@@ -169,7 +170,28 @@ def test_missing_da():
     m = compute_ebitda(parsed["rubrics"])
     assert m["da"] is None
     assert m["ebitda"] == 280_000   # EBIT + 0
+    assert m["ebitda_partial"] is True
     print(f"Test 8 passed: missing D&A handled — EBITDA falls back to EBIT ({m['ebitda']:,.0f})")
+
+
+def test_missing_ebit():
+    """Filing with no EBIT rubric — EBITDA must be None and partial flag undefined."""
+    filing = {
+        "ReferenceNumber": "2022-00088888",
+        "EnterpriseNumber": "0123456789",
+        "LegalForm": {"Model": "MIC"},
+        "Rubrics": [
+            {"Code": "70",  "Value": "500000", "Period": "N"},
+            {"Code": "630", "Value": "30000",  "Period": "N"},
+            # No rubric 9901 (EBIT)
+        ],
+    }
+    parsed = parse_filing(filing)
+    m = compute_ebitda(parsed["rubrics"])
+    assert m["ebit"] is None
+    assert m["ebitda"] is None
+    assert m["ebitda_partial"] is None
+    print("Test 10 passed: missing EBIT yields ebitda=None")
 
 
 def test_value_as_string_with_comma():
@@ -197,6 +219,7 @@ if __name__ == "__main__":
     test_store_and_retrieve()
     test_idempotency()
     test_missing_da()
+    test_missing_ebit()
     test_value_as_string_with_comma()
     print()
     print("All tests passed.")

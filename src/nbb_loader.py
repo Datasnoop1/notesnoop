@@ -404,7 +404,15 @@ def store_structure_data(conn, filing_json, enterprise_number, deposit_key, fisc
 def compute_ebitda(rubrics):
     """Compute EBITDA from a list of rubric dicts (current period only).
 
-    Returns dict with ebit, da, ebitda (all may be None if rubric absent).
+    EBITDA = rubric 9901 (EBIT) + rubric 630 (D&A).
+
+    Returns dict with revenue, ebit, da, ebitda, ebitda_partial, net_profit, fte.
+
+    The ebitda_partial flag indicates fidelity of the EBITDA value:
+        False -> both EBIT and D&A present; ebitda is the true value
+        True  -> EBIT present but D&A missing (typical of abbreviated/micro
+                 filings); ebitda equals EBIT and is therefore an underestimate
+        None  -> EBIT itself is missing; ebitda is None and the flag is undefined
     """
     values = {}
     for r in rubrics:
@@ -422,6 +430,7 @@ def compute_ebitda(rubrics):
         "ebit":    ebit,
         "da":      da,
         "ebitda":  ebitda,
+        "ebitda_partial": (None if ebit is None else (da is None)),
         "net_profit": values.get("9904"),
         "fte":     values.get("9087"),
     }

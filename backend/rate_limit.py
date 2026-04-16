@@ -2,12 +2,25 @@
 
 Uses a sliding window counter per IP address. No external dependencies.
 Designed for single-process deployments (which Datasnoop uses).
+
+If REDIS_URL is set, a Redis-backed fixed-window limiter is used instead,
+which is safe across multiple workers.
 """
 
+import logging
+import os
 import time
 import threading
 from collections import defaultdict
 from fastapi import Request, HTTPException
+
+try:
+    import redis  # type: ignore
+except ImportError:
+    redis = None  # type: ignore
+
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
@@ -44,8 +57,82 @@ class RateLimiter:
                     del self._hits[ip]
 
 
+class RedisRateLimiter:
+    """Fixed-window rate limiter backed by Redis (multi-worker safe)."""
+
+    def __init__(self, redis_url: str):
+        if redis is None:
+            raise RuntimeError("redis library not installed")
+        self._client = redis.Redis.from_url(redis_url, decode_responses=True)
+
+    def check(self, key: str, max_requests: int, window_seconds: float):
+        """Check if request is allowed. Raises 429 if rate exceeded."""
+        window = int(window_seconds)
+        bucket = int(time.time() // window) if window > 0 else 0
+        redis_key = f"rl:{key}:{bucket}"
+        try:
+            count = self._client.incr(redis_key)
+            if count == 1:
+                self._client.expire(redis_key, window)
+        except Exception as e:
+            # If Redis is unavailable, fail open rather than block traffic.
+            logger.warning("Redis rate limit check failed: %s — failing open", e)
+            return
+        if count > max_requests:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded. Max {max_requests} requests per {window}s.",
+            )
+
+    def periodic_cleanup(self):
+        """No-op: Redis handles expiration automatically."""
+        return
+
+
+def assert_single_worker_or_redis():
+    """Warn loudly if running multiple workers without a shared Redis backend."""
+    if os.getenv("REDIS_URL"):
+        return
+    worker_vars = ("UVICORN_WORKERS", "WEB_CONCURRENCY", "GUNICORN_WORKERS")
+    for var in worker_vars:
+        val = os.getenv(var)
+        if not val:
+            continue
+        try:
+            n = int(val)
+        except ValueError:
+            continue
+        if n > 1:
+            logger.critical(
+                "Rate limiter is in-memory but %s=%s. Per-worker counters will diverge. "
+                "Set REDIS_URL to enable shared rate limiting.",
+                var,
+                n,
+            )
+
+
+def _build_limiter():
+    """Return a RedisRateLimiter if REDIS_URL is set and usable, else in-memory."""
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        return RateLimiter()
+    if redis is None:
+        logger.warning(
+            "REDIS_URL is set but the 'redis' package is not installed. "
+            "Falling back to in-memory rate limiter."
+        )
+        return RateLimiter()
+    try:
+        return RedisRateLimiter(redis_url)
+    except Exception:
+        logger.exception(
+            "Failed to initialise RedisRateLimiter; falling back to in-memory"
+        )
+        return RateLimiter()
+
+
 # Global limiter instance
-limiter = RateLimiter()
+limiter = _build_limiter()
 
 
 def get_client_ip(request: Request) -> str:

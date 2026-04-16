@@ -47,9 +47,19 @@ def log(msg):
 
 
 def strip_dots(number):
-    if number:
-        return number.replace(".", "")
-    return number
+    """Normalize entity/enterprise numbers: remove dots and zero-pad to 10 digits.
+
+    KBO occasionally ships enterprise numbers as 9-digit strings (the leading
+    zero dropped). Pad them so joins on enterprise_number remain consistent.
+    Establishment numbers are 10 digits; zfill leaves them unchanged.
+    Empty / None input is returned unchanged.
+    """
+    if not number:
+        return number
+    cleaned = number.replace(".", "")
+    if cleaned.isdigit() and len(cleaned) < 10:
+        cleaned = cleaned.zfill(10)
+    return cleaned
 
 
 def convert_date(date_str):

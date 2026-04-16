@@ -21,7 +21,7 @@ def _require_admin(user=Depends(get_current_user)):
         (email,),
     )
     if not role_row or role_row["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise HTTPException(status_code=403, detail="Forbidden")
     return user
 
 

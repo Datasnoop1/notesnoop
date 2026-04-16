@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from db import fetch_all, fetch_one, execute
 from auth import get_current_user, optional_user
+from utils import parse_nace_list
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/screener", tags=["screener"])
@@ -71,11 +72,13 @@ async def screener(
     params = []
 
     if nace:
-        nace_codes = [c.strip() for c in nace.split(",") if c.strip()]
+        nace_codes = parse_nace_list(nace)
+        if not nace_codes:
+            raise HTTPException(status_code=400, detail="Invalid NACE code(s)")
         if len(nace_codes) == 1:
             conditions.append("ci.nace_code LIKE %s")
             params.append(f"{nace_codes[0]}%")
-        elif nace_codes:
+        else:
             nace_conds = []
             for code in nace_codes:
                 nace_conds.append("ci.nace_code LIKE %s")

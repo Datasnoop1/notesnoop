@@ -1,150 +1,203 @@
 # Belgian Company Database
 
-Build a searchable database of Belgian companies combining KBO registry data with NBB annual accounts — a self-hosted Belfirst alternative for PE deal sourcing and screening.
+A searchable database of Belgian companies combining KBO registry data with NBB
+annual accounts — a self-hosted Belfirst alternative for PE deal sourcing and
+screening. Now a multi-user web platform with tiered subscriptions.
 
 ## Tech Stack
 
-- Python 3.12+
-- SQLite (single file database, portable)
-- `requests` for API calls
-- `streamlit` for UI (local browser app, deployable later)
-- `pandas` for data handling in UI layer
+- **Database**: PostgreSQL (`DATABASE_URL` env var). SQLite era is over.
+- **Backend**: FastAPI (Python 3.12+) in `backend/`
+- **Frontend**: Next.js 16 + React 19 in `frontend/` (App Router, standalone build)
+- **Auth**: Supabase (JWT verified server-side via JWKS)
+- **Billing**: Stripe (subscriptions + webhooks)
+- **AI enrichment**: OpenRouter
+- **Web scraping**: Zenrows
+- **Deployment**: docker-compose + nginx + Let's Encrypt
+- **Loaders**: `requests` for KBO/NBB ingestion, streaming CSV/JSON
+- **Legacy UI**: Streamlit app under `app/` still works against Postgres but is secondary
 
 ## Project Structure
 
 ```
-belgian-company-db/
+platform/
 ├── CLAUDE.md
-├── requirements.txt             # pip dependencies
-├── data/                        # KBO ZIPs and NBB downloads (gitignored)
-├── db/                          # SQLite database file (gitignored)
-├── docs/
-│   ├── kbo-schema.md            # KBO CSV structure and field reference
-│   ├── nbb-api.md               # NBB CBSO API endpoints and auth
-│   └── belgian-gaap.md          # Rubric code → financial line item mapping
-├── src/
-│   ├── kbo_loader.py            # Parse KBO full ZIP → SQLite
-│   ├── kbo_updater.py           # Apply KBO daily update ZIPs
-│   ├── nbb_client.py            # NBB CBSO API wrapper
-│   ├── nbb_loader.py            # Parse NBB JSON filings → SQLite
-│   ├── pipeline.py              # Daily orchestrator (KBO update + NBB ingest)
-│   └── schema.sql               # Full database schema
-├── app/
-│   ├── app.py                   # Streamlit main app
-│   └── pages/                   # Streamlit multi-page structure
-│       ├── 1_screener.py        # Company screener with filters
-│       ├── 2_company.py         # Single company deep-dive
-│       └── 3_sector.py          # Sector benchmarking
+├── requirements.txt
+├── docker-compose.yml              # Production stack (ports 80/443)
+├── docker-compose.staging.yml      # Staging stack (port 8080, plain HTTP)
+├── nginx/
+│   ├── default.conf                # Production nginx (TLS via Let's Encrypt)
+│   └── staging.conf                # Staging nginx (HTTP only)
+├── backend/                        # FastAPI app
+│   ├── Dockerfile
+│   ├── main.py
+│   └── routers/                    # dashboard, screener, companies, stats,
+│                                   # people, favourites, feedback, admin,
+│                                   # polls, stripe_pay, staatsblad,
+│                                   # tier_config, graveyard
+├── frontend/                       # Next.js 16 + React 19
+│   ├── Dockerfile                  # Standalone build, node:22-alpine
+│   └── app/
+├── src/                            # Data loaders (now write to Postgres)
+│   ├── kbo_loader.py               # KBO full ZIP → Postgres
+│   ├── kbo_updater.py              # KBO daily update ZIPs
+│   ├── nbb_client.py               # NBB CBSO REST wrapper
+│   ├── nbb_loader.py               # Parse NBB JSON filings → Postgres
+│   ├── pipeline.py                 # Daily orchestrator
+│   └── schema.sql                  # Postgres DDL
+├── app/                            # Legacy Streamlit UI (secondary)
 ├── scripts/
-│   ├── init_db.py               # Create database from schema.sql
-│   └── screen.py                # Example screening queries
-├── .env                         # API keys (gitignored)
+│   ├── init_db.py
+│   ├── screen.py
+│   └── test_nbb_loader.py          # Only test file currently
+├── data/                           # KBO ZIPs / NBB downloads (gitignored)
+├── docs/
+│   ├── kbo-schema.md
+│   ├── nbb-api.md
+│   └── belgian-gaap.md
+├── .env.example
 └── .gitignore
 ```
 
-## Commands
+## Components
 
-```bash
-python src/kbo_loader.py data/KboOpenData_*_Full.zip    # Bootstrap KBO data
-python src/kbo_updater.py data/KboOpenData_*_Update.zip  # Apply KBO updates
-python src/nbb_loader.py --cbe 0403101811               # Load single company financials
-python src/pipeline.py                                    # Run daily pipeline
-python scripts/screen.py                                  # Run screening queries
-streamlit run app/app.py                                  # Launch UI
-```
+- **KBO loader / updater** (`src/kbo_loader.py`, `src/kbo_updater.py`):
+  Stream-parse the ~300MB KBO ZIP into Postgres. Daily updates apply
+  `*_delete.csv` then `*_insert.csv`, keyed on EnterpriseNumber. Track applied
+  ExtractNumbers to avoid reprocessing.
 
-## Build Phases — Execute in Order
+- **NBB client + loader** (`src/nbb_client.py`, `src/nbb_loader.py`):
+  REST client for the NBB CBSO API. Generates a UUID per request, sleeps
+  1–2s between calls, base URL switches between `ws.uat2.cbso.nbb.be` and
+  `ws.cbso.nbb.be`. Loader parses JSON filings (XBRL since April 2022) into
+  the `financial_data` table per the rubric mapping in `docs/belgian-gaap.md`.
 
-### Phase 1: KBO loader
-Parse the KBO full ZIP into SQLite. The ZIP contains CSVs: enterprise.csv, denomination.csv, address.csv, activity.csv, establishment.csv, contact.csv, code.csv, branch.csv. See `@docs/kbo-schema.md` for field details.
+- **FastAPI backend** (`backend/`):
+  Routers: `dashboard`, `screener`, `companies`, `stats`, `people`,
+  `favourites`, `feedback`, `admin`, `polls`, `stripe_pay`, `staatsblad`,
+  `tier_config`, `graveyard`. Validates Supabase JWTs via JWKS. Enforces
+  tier-based usage limits with in-memory rate limiting (Redis optional for
+  multi-instance scaling). Filters bot traffic. Hashes anon IPs with
+  `ACTIVITY_LOG_IP_SALT` before logging.
 
-Key decisions:
-- Normalize EnterpriseNumber to 10 digits without dots (strip dots on load)
-- Convert dates from dd-mm-yyyy to ISO YYYY-MM-DD
-- Create a `company_master` view joining enterprise + name + address + NACE code
-- Index on: enterprise_number, nace_code, zipcode, juridical_form
+- **Next.js frontend** (`frontend/`):
+  Screener, company deep-dive, sector benchmarking, account, billing.
+  Supabase auth client-side; Stripe Checkout for upgrades. NOTE:
+  Next.js 16 + React 19 — APIs differ from older docs. See
+  `frontend/AGENTS.md` and `node_modules/next/dist/docs/` before coding.
 
-### Phase 2: KBO updater
-Process KBO update ZIPs. They contain `*_delete.csv` and `*_insert.csv` pairs. For each: DELETE rows matching entity numbers in delete file, then INSERT from insert file. Track applied ExtractNumbers to avoid reprocessing.
+- **AI enrichment** (OpenRouter): summarisation and entity enrichment from
+  scraped pages.
 
-### Phase 3: NBB API client
-REST client for NBB CBSO. See `@docs/nbb-api.md` for endpoints.
+- **Web scraping** (Zenrows): proxied scraping of public Belgian company
+  websites and Staatsblad pages.
 
-Key decisions:
-- Load API key from .env (`NBB_API_KEY`)
-- Generate UUID for X-Request-Id per request
-- Add 1-2 second delay between requests (no published rate limits)
-- Base URL configurable: test (`ws.uat2.cbso.nbb.be`) vs production (`ws.cbso.nbb.be`)
+- **Deployment**: `docker compose up -d` builds and runs backend + frontend +
+  nginx. Staging variant exposes port 8080 with no TLS. Healthchecks gate
+  startup ordering.
 
-### Phase 4: NBB financial data loader
-Parse JSON filings into financial_data table. See `@docs/belgian-gaap.md` for rubric code mapping.
+## Key Facts (don't relearn these)
 
-EBITDA = rubric 9901 (operating profit) + rubric 630 (depreciation & amortization)
-
-### Phase 5: Screening views
-SQL views combining KBO + NBB data for PE screening: revenue, EBITDA, margins, leverage, FTE. Filterable by NACE code, region, size.
-
-### Phase 6: Daily pipeline
-Orchestrator that runs KBO update + NBB daily extract ingestion. Designed for cron.
-
-### Phase 7: Streamlit UI
-Browser-based interface for deal sourcing. Three pages:
-
-**Screener** (`1_screener.py`):
-- Sidebar filters: NACE sector (dropdown with search), province/zipcode, legal form, revenue range, EBITDA range, FTE range, founding year
-- Results as sortable/downloadable table: company name, CBE, sector, municipality, revenue, EBITDA, margin, FTE
-- Click a row → navigate to company deep-dive
-- Export filtered results to Excel
-
-**Company deep-dive** (`2_company.py`):
-- Search by name or CBE number
-- Company header: name, CBE, legal form, address, NACE, founding date
-- Financial history table: revenue, EBITDA, margin, net profit, equity, debt, FTE across available years
-- Simple line charts: revenue and EBITDA trend
-- Link to NBB filing PDF
-
-**Sector benchmarking** (`3_sector.py`):
-- Select NACE code → show sector stats: median revenue, EBITDA margin, FTE, company count
-- Distribution charts (revenue histogram, margin boxplot)
-- Top companies in sector by revenue
-
-Key decisions:
-- Use `st.cache_data` for database queries (avoid re-reading SQLite on every interaction)
-- DB path from .env so it works regardless of where the project folder sits
-- All data handling via pandas DataFrames
-- Keep the UI clean — no clutter, fast to load
-
-## Environment Setup
-
-This project is designed to live on OneDrive for multi-device access.
-
-```bash
-# First time setup — run from the project folder
-python -m venv .venv
-source .venv/bin/activate          # macOS/Linux
-# .venv\Scripts\activate           # Windows
-pip install -r requirements.txt
-cp .env.example .env               # then edit with your API keys
-```
-
-The `.venv/` folder should be in `.gitignore` — create it locally on each device, don't sync it via OneDrive. Virtual environments contain device-specific paths and break when synced.
-
-The SQLite database (`db/belgian_companies.db`) DOES sync via OneDrive. This is fine for single-user access. Do not open the app on two devices simultaneously — SQLite uses file locking that conflicts with OneDrive sync.
+- EBITDA = rubric **9901** (operating profit) + rubric **630** (D&A).
+- CBE numbers are stored as 10 digits without dots. KBO files render them as
+  `0xxx.xxx.xxx`; NBB API requires `0xxxxxxxxx`. Strip dots on load, send
+  bare digits to NBB.
+- KBO data licence prohibits using personal data for direct marketing.
+- NBB JSON only available for XBRL filings since April 2022.
 
 ## Conventions
 
 - All scripts runnable standalone with `python src/script.py`
 - Use argparse for CLI arguments
 - Log to stdout with timestamps
-- .env for secrets, never hardcode API keys
-- SQLite database at `db/belgian_companies.db`
+- `.env` for secrets, never hardcode API keys
+- Postgres connection via `DATABASE_URL`
 - File naming: snake_case for Python, kebab-case for docs
 - Error handling: log and continue (don't crash the pipeline on one bad filing)
+- Don't load the KBO ZIP into memory; stream/iterate
+
+## Environment Setup
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env                # then fill in real values
+
+# Local dev (without Docker)
+uvicorn backend.main:app --reload   # backend on :8000
+cd frontend && npm install && npm run dev   # frontend on :3000
+
+# Production
+docker compose up -d --build
+
+# Staging (port 8080, HTTP)
+docker compose -f docker-compose.staging.yml up -d --build
+```
+
+The OneDrive multi-device single-user model is **obsolete**. All data lives in
+Postgres; multiple users hit the same DB through the FastAPI backend. Don't
+sync `.venv/` or `node_modules/` between devices.
+
+## Deploy protocol — STAGING FIRST, ALWAYS
+
+Production changes must go through staging. The workflow is:
+
+1. Push the feature branch to origin.
+2. Deploy to staging: `./scripts/deploy_staging.sh` (runs against
+   `docker-compose.staging.yml`, port 8080, plain HTTP).
+3. Smoke-test the affected feature on staging. Include anything adjacent
+   that might have regressed.
+4. Only after staging is green, deploy to production:
+   `./scripts/deploy.sh`.
+
+Never deploy directly to production. If a hotfix feels too urgent for the
+staging round-trip, it's still not too urgent — staging takes minutes, a
+broken prod takes hours.
+
+## Communication habits for AI assistants
+
+The operator is non-technical. Keep them in the loop in plain English:
+
+1. Before launching any subagent or long-running task, state in one short
+   sentence what you asked it to do and roughly how long it takes.
+2. While waiting for a subagent or a deploy, don't go silent. Either give
+   a one-sentence update on what you're doing in the meantime, or say
+   "waiting for X, nothing else to do until it reports".
+3. When a subagent finishes, summarise the result in one or two sentences
+   of plain English. Don't dump the raw technical output.
+4. At decision points — merging, deploying, destructive actions, risky
+   refactors — flag what you're about to do next. Pause before acting if
+   the action is risky and isn't covered by a standing rule.
+5. Avoid jargon. "PR", "master", "HEAD", "diff" etc. need a one-line
+   translation the first time they appear in a conversation.
+
+## Standing autonomy rules for AI assistants
+
+The operator is non-technical, does not review code, and validates changes
+by testing them on staging. AI assistants working on this repo follow this
+policy by default, without asking:
+
+1. Before any change is merged to `master`, run TWO independent review
+   agents in parallel: (a) a correctness/regression audit and (b) a
+   security review. Both must pass.
+2. If both pass, merge the PR into `master` automatically.
+3. Trigger the staging deploy (`./scripts/deploy_staging.sh`) so the
+   operator can test on port 8080.
+4. NEVER deploy to production automatically. Production deploy requires
+   the operator to explicitly approve after staging is green.
+5. If either agent flags CRITICAL issues, fix them first and re-run both
+   agents. Do NOT merge with known criticals.
+6. If the deploy scripts require parameters the assistant doesn't have
+   (server IP, SSH key), hand the command off to the operator with a
+   copy-paste-ready invocation.
 
 ## Important
 
-- NEVER commit .env or database files
-- KBO data license prohibits using personal data for direct marketing
-- NBB JSON format only available for XBRL filings since April 2022
-- The KBO ZIP is ~300MB — don't try to load it into memory; stream/iterate
-- CBE numbers have format 0xxx.xxx.xxx in KBO but must be sent as 0xxxxxxxxx (no dots) to NBB API
+- NEVER commit `.env*` or database dumps
+- Don't ship Supabase or Stripe keys in build args; pass them through `.env`
+  for `docker compose` variable substitution
+- Bot filtering and tier limits are load-bearing — don't bypass them in new
+  routers
+- Only one test file exists (`scripts/test_nbb_loader.py`); add tests as you
+  touch code

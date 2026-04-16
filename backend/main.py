@@ -1,7 +1,10 @@
 """Datasnoop FastAPI backend — Belgian company intelligence API."""
 
+import hashlib
 import logging
 import os
+import re
+import secrets
 import time
 
 from dotenv import load_dotenv
@@ -11,7 +14,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard
-from rate_limit import limiter, get_client_ip
+from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup
 
 load_dotenv()
@@ -22,6 +25,32 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Anonymous client identifier hashing (GDPR)
+# ---------------------------------------------------------------------------
+
+_ACTIVITY_LOG_IP_SALT = os.getenv("ACTIVITY_LOG_IP_SALT")
+if not _ACTIVITY_LOG_IP_SALT:
+    _app_env = (os.getenv("APP_ENV") or os.getenv("ENVIRONMENT") or "").lower()
+    if _app_env == "production":
+        raise RuntimeError(
+            "ACTIVITY_LOG_IP_SALT must be set in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+    _ACTIVITY_LOG_IP_SALT = secrets.token_hex(32)
+    logger.warning(
+        "ACTIVITY_LOG_IP_SALT is not set; using an ephemeral in-memory salt. "
+        "Per-IP tier limit counts will reset on every restart. "
+        "Set ACTIVITY_LOG_IP_SALT in the environment to make hashes stable."
+    )
+
+
+def _hash_client_id(ip: str) -> str:
+    """Return a salted SHA-256 hash of a client IP, formatted as 'anon:<16-hex>'."""
+    digest = hashlib.sha256((_ACTIVITY_LOG_IP_SALT + (ip or "")).encode()).hexdigest()
+    return f"anon:{digest[:16]}"
 
 app = FastAPI(
     title="Datasnoop API",
@@ -73,8 +102,8 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
                         pass
 
                 # Log for both authenticated and anonymous users
-                # Anonymous: store IP as "anon:<ip>"
-                user_label = email or f"anon:{get_client_ip(request)}"
+                # Anonymous: store a salted hash of the IP, never the raw IP (GDPR)
+                user_label = email or _hash_client_id(get_client_ip(request))
                 execute(
                     "INSERT INTO activity_log (user_email, endpoint, method) VALUES (%s, %s, %s)",
                     (user_label, path, request.method),
@@ -122,7 +151,6 @@ def _classify_endpoint(path: str) -> str | None:
         return "export_per_day"
     # Match /api/companies/<cbe> but NOT sub-resources like /financials, /structure
     # These are individual company detail page views
-    import re
     if re.match(r"^/api/companies/\d{10}$", path):
         return "company_views_per_day"
     return None
@@ -210,8 +238,8 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
         try:
             from db import fetch_one as db_fetch_one
 
-            # Build the user label used in activity_log
-            user_label = email or f"anon:{get_client_ip(request)}"
+            # Build the user label used in activity_log (must match ActivityLogMiddleware)
+            user_label = email or _hash_client_id(get_client_ip(request))
 
             # Map limit_type to actual endpoint patterns for counting
             if limit_type == "searches_per_day":
@@ -296,7 +324,6 @@ class BotFilterMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/") and not any(path.startswith(s) for s in self.SKIP_PATHS):
             ua = (request.headers.get("user-agent") or "").lower()
             if ua and any(bot in ua for bot in self.BLOCKED_UA_SUBSTRINGS):
-                from fastapi.responses import JSONResponse
                 return JSONResponse(status_code=403, content={"detail": "Forbidden"})
         return await call_next(request)
 
@@ -340,7 +367,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             else:
                 limiter.check(key, max_requests=200, window_seconds=60)
         except Exception as e:
-            from fastapi.responses import JSONResponse
             return JSONResponse(status_code=429, content={"detail": str(e.detail) if hasattr(e, "detail") else "Rate limit exceeded"})
 
         return await call_next(request)
@@ -402,6 +428,14 @@ async def startup_migrations():
         logger.exception("pg_trgm startup migration failed (non-fatal)")
 
 
+@app.on_event("startup")
+async def startup_rate_limiter():
+    """Verify rate limiter is safe for the current worker configuration."""
+    assert_single_worker_or_redis()
+    backend = "redis" if isinstance(limiter, RedisRateLimiter) else "in-memory"
+    logger.info("Rate limiter backend: %s", backend)
+
+
 # ---------------------------------------------------------------------------
 # Entrypoint
 # ---------------------------------------------------------------------------
@@ -411,4 +445,5 @@ if __name__ == "__main__":
 
     host = os.getenv("API_HOST", "0.0.0.0")
     port = int(os.getenv("API_PORT", "8000"))
-    uvicorn.run("main:app", host=host, port=port, reload=True)
+    reload = os.getenv("API_RELOAD", "false").lower() == "true"
+    uvicorn.run("main:app", host=host, port=port, reload=reload)

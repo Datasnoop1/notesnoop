@@ -3,16 +3,28 @@ data/
 db/
 *.zip
 
+# SQLite leftovers
+*.db
+*.sqlite
+*.sqlite3
+
 # Environment / secrets
 .env
 .env.production
+.env.staging
 .env.local
+.env.*
+.streamlit/secrets.toml
+frontend/.env*.local
 
 # Python
 __pycache__/
 *.pyc
 .venv/
 venv/
+.pytest_cache/
+coverage.xml
+htmlcov/
 
 # Node
 node_modules/
@@ -26,6 +38,11 @@ Thumbs.db
 
 # Logs
 logs/
+*.log
+
+# Editors
+.idea/
+.vscode/
 
 # Claude
 .claude/
