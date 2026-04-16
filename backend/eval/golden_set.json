@@ -1,0 +1,7 @@
+[
+  {
+    "_comment": "Hand-labelled golden set for /similar/ai regression and tier comparison. Each entry lists a target CBE and 5-15 analyst-approved 'truly similar' CBEs. Populate before running similar_companies_eval.py. Keep _comment keys out of production use — the loader strips any key starting with _.",
+    "target_cbe": "",
+    "peers": []
+  }
+]

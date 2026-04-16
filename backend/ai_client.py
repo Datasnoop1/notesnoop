@@ -4,6 +4,7 @@ import json
 import os
 import logging
 import re
+import time
 from urllib.parse import urlparse
 
 import httpx
@@ -91,6 +92,107 @@ async def ai_complete(
         logger.exception("OpenRouter request failed: %s", e)
 
     return ""
+
+
+async def ai_complete_with_meta(
+    prompt: str,
+    system: str = "",
+    model: str = "google/gemini-2.5-flash",
+    max_tokens: int = 500,
+    temperature: float | None = None,
+    timeout_s: float = 60.0,
+) -> dict:
+    """Call OpenRouter and return text plus metadata (tokens, latency, error).
+
+    Returned dict:
+        text:          model output string (empty on any failure)
+        model:         echoed model id
+        input_tokens:  prompt tokens reported by OpenRouter, or 0 if unknown
+        output_tokens: completion tokens reported by OpenRouter, or 0 if unknown
+        ok:            True iff HTTP 200 and non-empty text
+        error:         short reason string when ok is False, else None
+        status_code:   HTTP status code, or None on network error
+        latency_ms:    wall-clock time for the call
+
+    Does NOT walk any fallback chain — the caller is responsible for retrying
+    on a different model when ok is False. Keeping the retry policy in the
+    caller lets the similar-companies router log which models were attempted
+    for observability (§8).
+    """
+    started = time.monotonic()
+    meta = {
+        "text": "",
+        "model": model,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "ok": False,
+        "error": None,
+        "status_code": None,
+        "latency_ms": 0,
+    }
+
+    if not OPENROUTER_API_KEY:
+        meta["error"] = "no_api_key"
+        meta["latency_ms"] = int((time.monotonic() - started) * 1000)
+        return meta
+
+    messages: list[dict] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    payload: dict = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+    }
+    if temperature is not None:
+        payload["temperature"] = temperature
+
+    if "deepseek" in model:
+        payload["provider"] = {
+            "order": ["Fireworks", "Together", "DeepSeek"],
+            "allow_fallbacks": True,
+        }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                OPENROUTER_BASE,
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "HTTP-Referer": "https://datasnoop.be",
+                    "X-Title": "Datasnoop",
+                },
+                json=payload,
+                timeout=timeout_s,
+            )
+            meta["status_code"] = resp.status_code
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data["choices"][0]["message"].get("content", "") or ""
+                usage = data.get("usage") or {}
+                meta["text"] = content
+                meta["input_tokens"] = int(usage.get("prompt_tokens") or 0)
+                meta["output_tokens"] = int(usage.get("completion_tokens") or 0)
+                meta["ok"] = bool(content.strip())
+                if not meta["ok"]:
+                    meta["error"] = "empty_completion"
+            else:
+                meta["error"] = f"http_{resp.status_code}"
+                logger.warning(
+                    "OpenRouter returned %s for model %s: %s",
+                    resp.status_code, model, resp.text[:200],
+                )
+    except httpx.TimeoutException:
+        meta["error"] = "timeout"
+        logger.warning("OpenRouter timeout for model %s after %.1fs", model, timeout_s)
+    except Exception as e:
+        meta["error"] = f"exception:{type(e).__name__}"
+        logger.exception("OpenRouter request failed for model %s", model)
+
+    meta["latency_ms"] = int((time.monotonic() - started) * 1000)
+    return meta
 
 
 def _extract_json(text: str) -> dict | None:
