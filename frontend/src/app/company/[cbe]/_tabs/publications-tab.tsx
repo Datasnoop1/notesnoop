@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import ExportButtons from "@/components/export-buttons";
-import { FileText, Download, Loader2, Sparkles, AlertTriangle } from "lucide-react";
+import { FileText, Download, Loader2, Sparkles, AlertTriangle, RefreshCw } from "lucide-react";
 import { getCompanyStructure, summarizePublications } from "@/lib/api";
 import type { StructureData, CompanyDetail } from "../types";
 import { downloadCsv } from "../helpers";
@@ -135,11 +135,12 @@ export function PublicationsTab({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [pubSummary, setPubSummary] = useState<any>(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const autoTriggered = React.useRef(false);
 
-  const generateSummary = async () => {
+  const generateSummary = async (refresh = false) => {
     setSummaryLoading(true);
     try {
-      const data = await summarizePublications(cbe);
+      const data = await summarizePublications(cbe, refresh);
       if (data.summary) setPubSummary(data.summary);
     } catch {
       /* ignore */
@@ -147,6 +148,14 @@ export function PublicationsTab({
       setSummaryLoading(false);
     }
   };
+
+  // Auto-trigger on first render if publications exist
+  React.useEffect(() => {
+    if (!autoTriggered.current && structure && structure.staatsblad_publications.length >= 2) {
+      autoTriggered.current = true;
+      generateSummary(false);
+    }
+  }, [structure, cbe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const importanceBadge = (imp: string) => {
     if (imp === "significant") return <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold bg-rose-100 text-rose-700">Significant</span>;
@@ -156,7 +165,7 @@ export function PublicationsTab({
 
   return (
     <div>
-      {/* AI Publication Summary */}
+      {/* AI Publication Analysis */}
       {pubSummary && pubSummary.events ? (
         <div className="mb-4 space-y-2">
           {/* Pattern alert banner */}
@@ -174,9 +183,20 @@ export function PublicationsTab({
           )}
           {/* Events table */}
           <div className="rounded-lg border overflow-hidden bg-white">
-            <div className="px-3 py-1.5 bg-slate-50 border-b flex items-center gap-1.5">
-              <Sparkles className="w-3 h-3 text-indigo-500" />
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">AI Analysis</span>
+            <div className="px-3 py-1.5 bg-slate-50 border-b flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3 text-indigo-500" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">AI Analysis</span>
+              </div>
+              <button
+                onClick={() => generateSummary(true)}
+                disabled={summaryLoading}
+                className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+                title="Regenerate analysis"
+              >
+                <RefreshCw className={`w-3 h-3 ${summaryLoading ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
             </div>
             <table className="w-full">
               <tbody>
@@ -194,37 +214,30 @@ export function PublicationsTab({
             </table>
           </div>
         </div>
-      ) : pubSummary && pubSummary.parse_error ? (
+      ) : pubSummary && (pubSummary.parse_error || typeof pubSummary === "string") ? (
         <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">AI Summary</span>
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">AI Summary</span>
+            </div>
+            <button
+              onClick={() => generateSummary(true)}
+              disabled={summaryLoading}
+              className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3 h-3 ${summaryLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
           </div>
-          <p className="text-xs text-slate-700 leading-relaxed">{pubSummary.raw_text}</p>
+          <p className="text-xs text-slate-700 leading-relaxed">{typeof pubSummary === "string" ? pubSummary : pubSummary.raw_text}</p>
         </div>
-      ) : pubSummary && typeof pubSummary === "string" ? (
-        <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">AI Summary</span>
-          </div>
-          <p className="text-xs text-slate-700 leading-relaxed">{pubSummary}</p>
+      ) : summaryLoading ? (
+        <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4 flex items-center justify-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+          <span className="text-xs text-slate-500">Analyzing publications...</span>
         </div>
-      ) : structure.staatsblad_publications.length >= 2 && (
-        <div className="mb-4 flex justify-end">
-          <button
-            onClick={generateSummary}
-            disabled={summaryLoading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
-          >
-            {summaryLoading ? (
-              <><Loader2 className="w-3 h-3 animate-spin" /> Analyzing...</>
-            ) : (
-              <><Sparkles className="w-3 h-3" /> Analyze publications</>
-            )}
-          </button>
-        </div>
-      )}
+      ) : null}
 
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-slate-400 pl-2">

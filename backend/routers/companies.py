@@ -1676,10 +1676,15 @@ async def get_similar_companies(cbe: str):
 # POST /api/companies/{cbe}/summarize-publications
 # ---------------------------------------------------------------------------
 
+class SummarizePublicationsBody(BaseModel):
+    refresh: bool = False
+
+
 @router.post("/{cbe}/summarize-publications")
-async def summarize_publications(cbe: str, user=Depends(get_current_user)):
+async def summarize_publications(cbe: str, body: Optional[SummarizePublicationsBody] = None, user=Depends(get_current_user)):
     """Generate structured AI analysis of last 5 Staatsblad publications."""
     cbe = cbe.strip().replace(".", "").zfill(10)
+    refresh = body.refresh if body else False
 
     # Ensure column exists (idempotent)
     try:
@@ -1687,17 +1692,22 @@ async def summarize_publications(cbe: str, user=Depends(get_current_user)):
     except Exception:
         pass
 
-    # Check cache — return parsed JSON if valid
-    cached = fetch_one(
-        "SELECT publication_summary FROM company_enrichment WHERE enterprise_number = %s AND publication_summary IS NOT NULL",
-        (cbe,),
-    )
-    if cached and cached.get("publication_summary"):
-        raw = cached["publication_summary"]
-        try:
-            return {"summary": json.loads(raw), "cached": True}
-        except Exception:
-            return {"summary": raw, "cached": True}
+    # Check cache — return parsed JSON if valid (skip on refresh)
+    if not refresh:
+        cached = fetch_one(
+            "SELECT publication_summary FROM company_enrichment WHERE enterprise_number = %s AND publication_summary IS NOT NULL",
+            (cbe,),
+        )
+        if cached and cached.get("publication_summary"):
+            raw = cached["publication_summary"]
+            try:
+                parsed = json.loads(raw)
+                # Only return cache if it's the new structured format
+                if isinstance(parsed, dict) and "events" in parsed:
+                    return {"summary": parsed, "cached": True}
+            except Exception:
+                pass
+            # Old format or invalid — fall through to regenerate
 
     # Fetch last 5 publications
     pubs = fetch_all(
