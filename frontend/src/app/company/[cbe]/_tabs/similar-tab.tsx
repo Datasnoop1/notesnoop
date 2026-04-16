@@ -166,9 +166,9 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
               )}
             </div>
             <div className="flex items-center gap-3 shrink-0 text-[10px] font-mono text-slate-500">
-              {sc.revenue != null && <span title="Revenue">{fmtEur(sc.revenue)}</span>}
-              {sc.ebitda != null && <span title="EBITDA" className="text-slate-400">{fmtEur(sc.ebitda)}</span>}
-              {sc.fte_total != null && <span title="FTE" className="text-slate-400">{fmtNumber(sc.fte_total)}</span>}
+              {sc.revenue != null && <span title="Revenue">Rev {fmtEur(sc.revenue)}</span>}
+              {sc.ebitda != null && <span title="EBITDA" className="text-slate-400">EBITDA {fmtEur(sc.ebitda)}</span>}
+              {sc.fte_total != null && <span title="FTE" className="text-slate-400">{fmtNumber(sc.fte_total)} FTE</span>}
             </div>
           </div>
         ))}
