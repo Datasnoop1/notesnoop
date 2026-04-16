@@ -372,6 +372,71 @@ export const getStatsEvolution = (yMin = 2021, yMax = 2024, province?: string) =
 export const getStatsProvinces = () =>
   apiFetch<ProvinceStats[]>(`/api/stats/provinces`);
 
+// ── Outperformer Buckets (experimental) ────────────────────
+export type BucketName = "revenue_growers" | "high_margin" | "margin_growers" | "other";
+
+export interface BucketSummary {
+  count: number;
+  median_metric_pct: number | null;
+  metric_label: string;
+  total_revenue_m: number;
+}
+
+export interface OutperformersOverview {
+  base_year: number;
+  end_year: number;
+  universe: number;
+  thresholds: {
+    min_revenue: number;
+    revenue_growth_pct: number;
+    high_margin_pct: number;
+    margin_growth_pct: number;
+  };
+  buckets: Record<BucketName, BucketSummary>;
+}
+
+export interface BucketSector {
+  nace2: string;
+  sector: string;
+  companies: number;
+  revenue_m: number;
+  ebitda_m: number;
+}
+
+export interface BucketCompany {
+  cbe: string;
+  name: string;
+  nace_code: string | null;
+  sector: string | null;
+  city: string | null;
+  rev_23: number | null;
+  rev_25: number | null;
+  ebitda_23: number | null;
+  ebitda_25: number | null;
+  rev_growth_pct: number | null;
+  margin_25: number | null;
+  margin_23: number | null;
+  margin_growth_pct: number | null;
+}
+
+export interface OutperformersBreakdown {
+  bucket: BucketName;
+  sectors: BucketSector[];
+  companies: BucketCompany[];
+}
+
+export const getOutperformersOverview = () =>
+  apiFetch<OutperformersOverview>(`/api/stats/outperformers/overview`);
+
+export const getOutperformersBreakdown = (
+  bucket: BucketName,
+  topSectors = 15,
+  topCompanies = 25,
+) =>
+  apiFetch<OutperformersBreakdown>(
+    `/api/stats/outperformers/breakdown?bucket=${bucket}&top_sectors=${topSectors}&top_companies=${topCompanies}`,
+  );
+
 // ── People ─────────────────────────────────────────────────
 export interface PersonResult {
   name: string;

@@ -404,3 +404,264 @@ async def stats_size_distribution(
     except Exception as e:
         logger.exception("Size distribution query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# Outperformer buckets
+#
+# Companies are bucketed based on their 2023 vs 2025 financials:
+#   - revenue_growers: revenue up >= 10% over the period
+#   - high_margin:     2025 EBITDA margin >= 15%
+#   - margin_growers:  relative EBITDA-margin growth >= 20% (base margin >= 2%)
+#   - other:           none of the above
+#
+# Universe: companies with revenue filings in BOTH 2023 and 2025 and
+# rev_2023 >= 1M EUR (floor to drop noisy tiny companies). Buckets overlap —
+# one company can be in multiple outperformer buckets. "Other" is mutually
+# exclusive with the three outperformer buckets.
+# ---------------------------------------------------------------------------
+
+BUCKET_BASE_YEAR = 2023
+BUCKET_END_YEAR = 2025
+BUCKET_MIN_REVENUE = 1_000_000          # EUR floor on base-year revenue
+BUCKET_REV_GROWTH = 0.10                # >= 10% total rev growth
+BUCKET_HIGH_MARGIN = 0.15               # >= 15% EBITDA margin (end year)
+BUCKET_MARGIN_GROWTH = 0.20             # >= 20% relative margin growth
+BUCKET_MIN_BASE_MARGIN = 0.02           # base margin floor so ratios aren't noise
+
+VALID_BUCKETS = {"revenue_growers", "high_margin", "margin_growers", "other"}
+
+
+def _bucket_cte_sql() -> str:
+    """Return the WITH clause defining a `labeled` CTE with bucket flags.
+
+    Callers append their own `SELECT ... FROM labeled l ...`. The CTE exposes:
+        enterprise_number, rev_23, rev_25, ebitda_23, ebitda_25,
+        rev_growth_pct, margin_25, margin_23, margin_growth_pct,
+        is_rev_grower, is_high_margin, is_margin_grower, is_other
+    """
+    return f"""
+    WITH years AS (
+        SELECT
+            fy.enterprise_number,
+            MAX(CASE WHEN fy.fiscal_year = {BUCKET_BASE_YEAR} THEN fy.revenue END) AS rev_23,
+            MAX(CASE WHEN fy.fiscal_year = {BUCKET_END_YEAR}  THEN fy.revenue END) AS rev_25,
+            MAX(CASE WHEN fy.fiscal_year = {BUCKET_BASE_YEAR} THEN fy.ebitda  END) AS ebitda_23,
+            MAX(CASE WHEN fy.fiscal_year = {BUCKET_END_YEAR}  THEN fy.ebitda  END) AS ebitda_25
+        FROM financial_by_year fy
+        WHERE fy.fiscal_year IN ({BUCKET_BASE_YEAR}, {BUCKET_END_YEAR})
+        GROUP BY fy.enterprise_number
+    ),
+    universe AS (
+        SELECT *
+        FROM years
+        WHERE rev_23 IS NOT NULL
+          AND rev_25 IS NOT NULL
+          AND rev_23 >= {BUCKET_MIN_REVENUE}
+          AND rev_25 > 0
+    ),
+    labeled AS (
+        SELECT
+            u.enterprise_number,
+            u.rev_23, u.rev_25, u.ebitda_23, u.ebitda_25,
+            ((u.rev_25 - u.rev_23) / u.rev_23) AS rev_growth_pct,
+            CASE WHEN u.ebitda_25 IS NOT NULL THEN (u.ebitda_25 / u.rev_25) END AS margin_25,
+            CASE WHEN u.ebitda_23 IS NOT NULL THEN (u.ebitda_23 / u.rev_23) END AS margin_23,
+            CASE
+                WHEN u.ebitda_23 IS NOT NULL AND u.ebitda_25 IS NOT NULL
+                 AND (u.ebitda_23 / u.rev_23) >= {BUCKET_MIN_BASE_MARGIN}
+                THEN ((u.ebitda_25 / u.rev_25) - (u.ebitda_23 / u.rev_23)) / (u.ebitda_23 / u.rev_23)
+            END AS margin_growth_pct,
+            (((u.rev_25 - u.rev_23) / u.rev_23) >= {BUCKET_REV_GROWTH}) AS is_rev_grower,
+            (u.ebitda_25 IS NOT NULL AND (u.ebitda_25 / u.rev_25) >= {BUCKET_HIGH_MARGIN}) AS is_high_margin,
+            (u.ebitda_23 IS NOT NULL AND u.ebitda_25 IS NOT NULL
+             AND (u.ebitda_23 / u.rev_23) >= {BUCKET_MIN_BASE_MARGIN}
+             AND ((u.ebitda_25 / u.rev_25) - (u.ebitda_23 / u.rev_23)) / (u.ebitda_23 / u.rev_23) >= {BUCKET_MARGIN_GROWTH}
+            ) AS is_margin_grower,
+            (NOT (((u.rev_25 - u.rev_23) / u.rev_23) >= {BUCKET_REV_GROWTH})
+             AND NOT (u.ebitda_25 IS NOT NULL AND (u.ebitda_25 / u.rev_25) >= {BUCKET_HIGH_MARGIN})
+             AND NOT (u.ebitda_23 IS NOT NULL AND u.ebitda_25 IS NOT NULL
+                 AND (u.ebitda_23 / u.rev_23) >= {BUCKET_MIN_BASE_MARGIN}
+                 AND ((u.ebitda_25 / u.rev_25) - (u.ebitda_23 / u.rev_23)) / (u.ebitda_23 / u.rev_23) >= {BUCKET_MARGIN_GROWTH})
+            ) AS is_other
+        FROM universe u
+    )
+    """
+
+
+def _bucket_filter_clause(bucket: str, alias: str = "l") -> str:
+    """SQL predicate selecting rows in a given bucket."""
+    if bucket == "revenue_growers":
+        return f"{alias}.is_rev_grower"
+    if bucket == "high_margin":
+        return f"{alias}.is_high_margin"
+    if bucket == "margin_growers":
+        return f"{alias}.is_margin_grower"
+    if bucket == "other":
+        return f"{alias}.is_other"
+    raise ValueError(f"Unknown bucket: {bucket}")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/stats/outperformers/overview
+# ---------------------------------------------------------------------------
+
+@router.get("/outperformers/overview")
+async def outperformers_overview():
+    """Counts and summary metrics for the four buckets.
+
+    Returns a dict with one entry per bucket. Revenue-grower and margin-grower
+    stats include median growth rates; high-margin returns median margin.
+    """
+    try:
+        row = fetch_one(f"""
+            {_bucket_cte_sql()}
+            SELECT
+                COUNT(*) FILTER (WHERE l.is_rev_grower)    AS n_rev_growers,
+                COUNT(*) FILTER (WHERE l.is_high_margin)   AS n_high_margin,
+                COUNT(*) FILTER (WHERE l.is_margin_grower) AS n_margin_growers,
+                COUNT(*) FILTER (WHERE l.is_other)         AS n_other,
+                COUNT(*)                                   AS n_universe,
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY l.rev_growth_pct)
+                    FILTER (WHERE l.is_rev_grower)         AS med_rev_growth,
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY l.margin_25)
+                    FILTER (WHERE l.is_high_margin)        AS med_high_margin,
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY l.margin_growth_pct)
+                    FILTER (WHERE l.is_margin_grower)      AS med_margin_growth,
+                SUM(l.rev_25) FILTER (WHERE l.is_rev_grower)    AS rev_rev_growers,
+                SUM(l.rev_25) FILTER (WHERE l.is_high_margin)   AS rev_high_margin,
+                SUM(l.rev_25) FILTER (WHERE l.is_margin_grower) AS rev_margin_growers,
+                SUM(l.rev_25) FILTER (WHERE l.is_other)         AS rev_other
+            FROM labeled l
+        """)
+
+        # Sanitize Decimals
+        import decimal
+        def num(v):
+            if v is None:
+                return None
+            if isinstance(v, decimal.Decimal):
+                return float(v)
+            return v
+
+        def pct(v):
+            v = num(v)
+            return round(v * 100, 1) if v is not None else None
+
+        return {
+            "base_year": BUCKET_BASE_YEAR,
+            "end_year": BUCKET_END_YEAR,
+            "universe": num(row["n_universe"]) if row else 0,
+            "thresholds": {
+                "min_revenue": BUCKET_MIN_REVENUE,
+                "revenue_growth_pct": BUCKET_REV_GROWTH * 100,
+                "high_margin_pct": BUCKET_HIGH_MARGIN * 100,
+                "margin_growth_pct": BUCKET_MARGIN_GROWTH * 100,
+            },
+            "buckets": {
+                "revenue_growers": {
+                    "count": num(row["n_rev_growers"]) if row else 0,
+                    "median_metric_pct": pct(row["med_rev_growth"]) if row else None,
+                    "metric_label": f"Median revenue growth {BUCKET_BASE_YEAR}-{BUCKET_END_YEAR}",
+                    "total_revenue_m": round(num(row["rev_rev_growers"]) / 1e6, 1) if row and row["rev_rev_growers"] else 0,
+                },
+                "high_margin": {
+                    "count": num(row["n_high_margin"]) if row else 0,
+                    "median_metric_pct": pct(row["med_high_margin"]) if row else None,
+                    "metric_label": f"Median EBITDA margin {BUCKET_END_YEAR}",
+                    "total_revenue_m": round(num(row["rev_high_margin"]) / 1e6, 1) if row and row["rev_high_margin"] else 0,
+                },
+                "margin_growers": {
+                    "count": num(row["n_margin_growers"]) if row else 0,
+                    "median_metric_pct": pct(row["med_margin_growth"]) if row else None,
+                    "metric_label": f"Median margin growth {BUCKET_BASE_YEAR}-{BUCKET_END_YEAR}",
+                    "total_revenue_m": round(num(row["rev_margin_growers"]) / 1e6, 1) if row and row["rev_margin_growers"] else 0,
+                },
+                "other": {
+                    "count": num(row["n_other"]) if row else 0,
+                    "median_metric_pct": None,
+                    "metric_label": "All remaining companies",
+                    "total_revenue_m": round(num(row["rev_other"]) / 1e6, 1) if row and row["rev_other"] else 0,
+                },
+            },
+        }
+    except Exception:
+        logger.exception("Outperformers overview query failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/stats/outperformers/breakdown
+# ---------------------------------------------------------------------------
+
+@router.get("/outperformers/breakdown")
+async def outperformers_breakdown(
+    bucket: str = Query(..., description="revenue_growers | high_margin | margin_growers | other"),
+    top_sectors: int = Query(15, ge=5, le=50),
+    top_companies: int = Query(25, ge=5, le=100),
+):
+    """Sector mix and top companies for a given bucket.
+
+    Used to answer "what kind of activities do these outperformers have?".
+    """
+    if bucket not in VALID_BUCKETS:
+        raise HTTPException(status_code=400, detail="Invalid bucket")
+
+    bucket_filter = _bucket_filter_clause(bucket, alias="l")
+
+    if bucket == "revenue_growers":
+        order_expr = "l.rev_growth_pct DESC NULLS LAST"
+    elif bucket == "high_margin":
+        order_expr = "l.margin_25 DESC NULLS LAST"
+    elif bucket == "margin_growers":
+        order_expr = "l.margin_growth_pct DESC NULLS LAST"
+    else:
+        order_expr = "l.rev_25 DESC NULLS LAST"
+
+    try:
+        sectors = fetch_all(f"""
+            {_bucket_cte_sql()}
+            SELECT
+                SUBSTR(ci.nace_code, 1, 2)                         AS nace2,
+                COALESCE(nl.description, SUBSTR(ci.nace_code,1,2)) AS sector,
+                COUNT(*)                                           AS companies,
+                SUM(l.rev_25) / 1e6                                AS revenue_m,
+                SUM(l.ebitda_25) / 1e6                             AS ebitda_m
+            FROM labeled l
+            JOIN company_info ci ON ci.enterprise_number = l.enterprise_number
+            LEFT JOIN nace_lookup nl ON nl.nace_code = SUBSTR(ci.nace_code, 1, 2)
+            WHERE {bucket_filter}
+              AND ci.nace_code IS NOT NULL
+            GROUP BY SUBSTR(ci.nace_code, 1, 2), nl.description
+            ORDER BY companies DESC
+            LIMIT %s
+        """, (top_sectors,))
+
+        companies = fetch_all(f"""
+            {_bucket_cte_sql()}
+            SELECT
+                l.enterprise_number                                 AS cbe,
+                COALESCE(ci.name, l.enterprise_number)              AS name,
+                ci.nace_code,
+                COALESCE(nl.description, SUBSTR(ci.nace_code,1,2))  AS sector,
+                ci.city,
+                l.rev_23, l.rev_25,
+                l.ebitda_23, l.ebitda_25,
+                l.rev_growth_pct,
+                l.margin_25, l.margin_23, l.margin_growth_pct
+            FROM labeled l
+            JOIN company_info ci ON ci.enterprise_number = l.enterprise_number
+            LEFT JOIN nace_lookup nl ON nl.nace_code = SUBSTR(ci.nace_code, 1, 2)
+            WHERE {bucket_filter}
+            ORDER BY {order_expr}
+            LIMIT %s
+        """, (top_companies,))
+
+        return {
+            "bucket": bucket,
+            "sectors": _serialize(sectors),
+            "companies": _serialize(companies),
+        }
+    except Exception:
+        logger.exception("Outperformers breakdown query failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
