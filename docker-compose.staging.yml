@@ -24,10 +24,15 @@ services:
   frontend-staging:
     build:
       context: ./frontend
+      # Staging keys are hardcoded here because non-interactive ssh deploys
+      # don't source a shell env file. Supabase anon keys are public; the
+      # internal API URL is runtime-only per SSR fix.
       args:
-        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL}"
-        NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL}"
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: "${NEXT_PUBLIC_SUPABASE_ANON_KEY}"
+        NEXT_PUBLIC_API_URL: ""
+        NEXT_PUBLIC_SUPABASE_URL: "https://nvtopretdjlxabsmqxvk.supabase.co"
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "sb_publishable_j5RPicDE1GnDQ8rwXKMjQw_6sCIUZWi"
+    environment:
+      API_URL_INTERNAL: "http://backend-staging:8000"
     restart: always
     expose:
       - "3000"
