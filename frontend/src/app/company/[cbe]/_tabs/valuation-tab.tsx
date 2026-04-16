@@ -126,29 +126,6 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
       {/* Vlerick source banner — prominent at the top */}
       <VlerickBanner url={vlerick_reference.url} />
 
-      {/* Plain-English explainer */}
-      <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">
-        <h3 className="mb-1.5 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
-          How this valuation works
-        </h3>
-        <p className="text-[13px] leading-relaxed">
-          We take the company&apos;s <b>EBITDA</b> (profit before interest, tax, depreciation and amortisation)
-          and multiply it by what similar Belgian companies were sold for in {vlerick_reference.data_year},
-          according to the{" "}
-          <a
-            href={vlerick_reference.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
-          >
-            {vlerick_reference.report}
-          </a>
-          . That gives us the <b>Enterprise Value</b> — what a buyer would pay for the whole business.
-          We then subtract what the company owes to banks (minus its cash) to get the{" "}
-          <b>Equity Value</b> — roughly what the shareholders would walk away with in a sale.
-        </p>
-      </div>
-
       {/* Toggle + sector picker */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
@@ -327,42 +304,63 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
         </div>
       </div>
 
-      {/* Pro memoria note */}
+      {/* Pro memoria — compact italic footnote, sits with the ladder */}
       {pro_memoria_note && (
-        <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-3">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-amber-700 mb-1">
-            Pro memoria
-          </div>
-          <p className="text-[11px] leading-relaxed text-amber-900">
-            {pro_memoria_note}
-          </p>
-        </div>
+        <p className="text-[10px] italic leading-relaxed text-slate-500 px-1 -mt-2">
+          <span className="font-semibold not-italic text-slate-600">Pro memoria — </span>
+          {pro_memoria_note}
+        </p>
       )}
 
-      {/* Source footer — prominent */}
-      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-          About this data
+      {/* Combined explainer + source block */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-4 space-y-4">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+            How this valuation works
+          </div>
+          <p className="text-[12px] leading-relaxed text-slate-700">
+            We take the company&apos;s <b>EBITDA</b> (profit before interest, tax, depreciation
+            and amortisation) and multiply it by what similar Belgian companies were sold
+            for in {vlerick_reference.data_year}, according to the{" "}
+            <a
+              href={vlerick_reference.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
+            >
+              {vlerick_reference.report}
+            </a>
+            . That gives us the <b>Enterprise Value</b> — what a buyer would pay for the
+            whole business. We then subtract what the company owes to banks (minus its cash)
+            to get the <b>Equity Value</b> — roughly what the shareholders would walk away
+            with in a sale.
+          </p>
         </div>
-        <p className="text-[11px] leading-relaxed text-slate-600">
-          Valuation multiples come from the{" "}
-          <a
-            href={vlerick_reference.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
-          >
-            {vlerick_reference.report}
-            <ExternalLink className="h-3 w-3" />
-          </a>
-          , published annually by {vlerick_reference.publisher}. The report surveys
-          dealmakers active on the Belgian M&amp;A market and reports median
-          EV/EBITDA multiples by deal size and industry. {vlerick_reference.note}
-        </p>
-        <p className="mt-2 text-[10px] italic text-slate-400">
-          This is a reference estimate based on market medians. Actual deal value depends on
-          growth, margins, customer concentration, synergies, and negotiation. Not investment advice.
-        </p>
+
+        <div className="border-t border-slate-200 pt-3">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+            About the source
+          </div>
+          <p className="text-[11px] leading-relaxed text-slate-600">
+            Valuation multiples come from the{" "}
+            <a
+              href={vlerick_reference.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
+            >
+              {vlerick_reference.report}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+            , published annually by {vlerick_reference.publisher}. The report surveys
+            dealmakers active on the Belgian M&amp;A market and reports median
+            EV/EBITDA multiples by deal size and industry. {vlerick_reference.note}
+          </p>
+          <p className="mt-2 text-[10px] italic text-slate-400">
+            This is a reference estimate based on market medians. Actual deal value depends on
+            growth, margins, customer concentration, synergies, and negotiation. Not investment advice.
+          </p>
+        </div>
       </div>
     </div>
   );
