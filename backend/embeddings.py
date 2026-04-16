@@ -229,12 +229,12 @@ async def batch_embed_all(limit: int = 500) -> dict:
                 continue
 
             execute(
-                """INSERT INTO company_embedding (enterprise_number, embedding, source_text, model)
-                   VALUES (%s, %s, %s, %s)
+                """INSERT INTO company_embedding (enterprise_number, embedding, model)
+                   VALUES (%s, %s, %s)
                    ON CONFLICT (enterprise_number) DO UPDATE SET
-                       embedding = EXCLUDED.embedding, source_text = EXCLUDED.source_text,
+                       embedding = EXCLUDED.embedding,
                        model = EXCLUDED.model, generated_at = NOW()""",
-                (cbe, str(embedding), text[:2000], EMBEDDING_MODEL),
+                (cbe, str(embedding), EMBEDDING_MODEL),
             )
             embedded += 1
             if embedded % 10 == 0:
