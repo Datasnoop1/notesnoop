@@ -123,7 +123,15 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
 
   return (
     <div className="space-y-5">
-      {/* Vlerick source banner — prominent at the top */}
+      {/* Section title */}
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900">Indicative valuation</h2>
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          A reference estimate — not a formal valuation. See explanation below the table.
+        </p>
+      </div>
+
+      {/* Vlerick source banner */}
       <VlerickBanner url={vlerick_reference.url} />
 
       {/* Toggle + sector picker */}
