@@ -58,7 +58,7 @@ export default async function ValuationDemoPage({
       {/* Demo-mode label */}
       <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-700">
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-500" />
-        Valuation demo
+        Indicative valuation · Demo
       </div>
 
       {/* Company header — minimal, focused */}
