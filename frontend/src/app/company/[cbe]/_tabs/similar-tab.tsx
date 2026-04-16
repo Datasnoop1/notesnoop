@@ -167,7 +167,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
       <div className="py-12 text-center">
         <Sparkles className="w-8 h-8 text-slate-300 mx-auto mb-2" />
         <p className="text-sm font-medium text-slate-500">{error}</p>
-        <button onClick={loadSimilar} className="mt-3 text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+        <button onClick={() => loadSimilar()} className="mt-3 text-xs text-indigo-500 hover:text-indigo-700 font-medium">
           Try again
         </button>
       </div>
@@ -198,7 +198,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={resetResults}
+            onClick={() => loadSimilar()}
             disabled={loading}
             className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
             title="Regenerate"
@@ -338,20 +338,17 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
         </table>
       </div>
 
-      {/* Find more — hidden once the 20-item cap is reached or the backend
-          has nothing more to hand over. */}
-      {!expanded && companies.length >= 10 && (
-        <div className="mt-4 text-center">
-          <button
-            onClick={expandResults}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 px-5 py-2 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
-          >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-            {loading ? "Finding more..." : "Find more similar companies"}
-          </button>
-        </div>
-      )}
+      {/* Find more */}
+      <div className="mt-4 text-center">
+        <button
+          onClick={() => loadSimilar()}
+          disabled={loading}
+          className="inline-flex items-center gap-1.5 px-5 py-2 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+        >
+          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+          {loading ? "Finding more..." : "Find more similar companies"}
+        </button>
+      </div>
     </div>
   );
 }
