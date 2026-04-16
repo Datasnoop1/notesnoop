@@ -184,28 +184,22 @@ async def embed_company(cbe: str, force: bool = False) -> bool:
 async def find_similar_by_embedding(cbe: str, limit: int = 20) -> list[dict]:
     """Find companies with the most similar embeddings using cosine distance.
 
-    Returns list of {enterprise_number, name, city, similarity, source_text} sorted by similarity.
+    Returns list of {enterprise_number, name, city, similarity} sorted by similarity.
     """
     ensure_embedding_table()
     cbe = cbe.strip().replace(".", "").zfill(10)
 
-    # Get the target company's embedding
-    target = fetch_one(
-        "SELECT embedding FROM company_embedding WHERE enterprise_number = %s", (cbe,)
-    )
-    if not target or not target.get("embedding"):
-        return []
-
-    # Find nearest neighbors
-    rows = fetch_all(f"""
+    # Use subquery to avoid serializing pgvector type through psycopg2
+    rows = fetch_all("""
         SELECT ce.enterprise_number, ci.name, ci.city,
-               1 - (ce.embedding <=> %s::vector) AS similarity
+               1 - (ce.embedding <=> target.embedding) AS similarity
         FROM company_embedding ce
+        CROSS JOIN (SELECT embedding FROM company_embedding WHERE enterprise_number = %s) target
         LEFT JOIN company_info ci ON ci.enterprise_number = ce.enterprise_number
         WHERE ce.enterprise_number != %s
-        ORDER BY ce.embedding <=> %s::vector
+        ORDER BY ce.embedding <=> target.embedding
         LIMIT %s
-    """, (target["embedding"], cbe, target["embedding"], limit))
+    """, (cbe, cbe, limit))
 
     return [dict(r) for r in rows]
 
