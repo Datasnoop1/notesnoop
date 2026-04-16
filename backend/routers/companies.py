@@ -413,10 +413,10 @@ async def get_company_detail(cbe: str):
 # ---------------------------------------------------------------------------
 
 @router.post("/{cbe}/load")
-async def load_company_data(cbe: str, user=Depends(get_current_user)):
+async def load_company_data(cbe: str, fiscal_year: Optional[int] = Query(None, description="Only load filings for this fiscal year"), user=Depends(get_current_user)):
     """Load financial data from NBB for this company.
 
-    1. Fetch filing references
+    1. Fetch filing references (optionally filtered by fiscal year)
     2. For each reference (most recent 5), fetch JSON-XBRL filing
     3. Parse rubric codes and values
     4. Insert into financial_data table
@@ -441,10 +441,14 @@ async def load_company_data(cbe: str, user=Depends(get_current_user)):
         "X-Request-Id": str(uuid.uuid4()),
         "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
     }
+    ref_params = {}
+    if fiscal_year:
+        ref_params["fiscalYear"] = str(fiscal_year)
+
     try:
         resp = http_requests.get(
             f"{nbb_base}/authentic/legalEntity/{cbe}/references",
-            headers=headers_ref, timeout=15,
+            headers=headers_ref, params=ref_params or None, timeout=15,
         )
     except Exception as e:
         logger.error("NBB references request failed for %s: %s", cbe, e)
