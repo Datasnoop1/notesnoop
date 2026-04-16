@@ -68,7 +68,9 @@ export function SimilarTab({
       const data = await getAiSimilarCompanies(cbe);
       const reasons: Record<string, string> = {};
       for (const item of data) {
-        if ((item as Record<string, unknown>).ai_reason) reasons[item.enterprise_number] = (item as Record<string, unknown>).ai_reason as string;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const reason = (item as any).ai_reason;
+        if (reason) reasons[item.enterprise_number] = reason;
       }
       setAiReasons(reasons);
       setAiEnhanced(true);
