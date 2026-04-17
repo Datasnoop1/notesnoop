@@ -47,6 +47,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
+import { createClient } from "@/lib/supabase";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
 import PrintLogo from "@/components/print-logo";
 import {
@@ -125,9 +126,21 @@ export function CompanyPageClient({
   const [activeTab, setActiveTab] = useState("summary");
   const [nbbLoading, setNbbLoading] = useState(false);
   const [nbbResult, setNbbResult] = useState<"success" | "error" | "no-data" | null>(null);
+  /* Auth-aware: gates the passive scrape+extract chain so anonymous
+     visitors can't drive ejustice.fgov.be / OpenRouter spend. */
+  const [signedIn, setSignedIn] = useState(false);
   const nbbAutoTriggered = React.useRef(false);
   const aiPreloadTriggered = React.useRef(false);
   const router = useRouter();
+
+  useEffect(() => {
+    const sb = createClient();
+    sb.auth.getSession().then(({ data }) => setSignedIn(!!data.session?.user));
+    const { data: { subscription } } = sb.auth.onAuthStateChange(
+      (_event, session) => setSignedIn(!!session?.user)
+    );
+    return () => subscription.unsubscribe();
+  }, []);
 
   /* -- Auto-load overlay state -- */
   type LoadStage = { label: string; status: "pending" | "active" | "done" | "error" };
@@ -359,10 +372,14 @@ export function CompanyPageClient({
        2) Pubs exist and include an appointment/resignation notice?
           Run the LLM extractor.
      Both calls are fire-and-forget; each rate-limits itself server-side
-     (the backend caches "recently tried empty" for 30 min). */
+     (the backend caches "recently tried empty" for 30 min) and counts
+     against the signed-in user's tier limits.
+     Gated to signed-in users to prevent anonymous crawlers driving
+     unbounded outbound traffic against ejustice.fgov.be + LLM costs. */
   const adminExtractTriggered = React.useRef(false);
   useEffect(() => {
     if (!structure || adminExtractTriggered.current) return;
+    if (!signedIn) return;
     const hasAdmins = structure.administrators.length > 0;
     if (hasAdmins) return;
 
@@ -401,7 +418,7 @@ export function CompanyPageClient({
           // Non-critical — silently ignore
         });
     }
-  }, [cbe, structure]);
+  }, [cbe, structure, signedIn]);
 
   /* -- Callbacks -- */
 

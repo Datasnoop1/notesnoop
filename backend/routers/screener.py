@@ -189,6 +189,10 @@ async def screener(
     # Real-estate join: pulls rubric 22 (land + buildings) for the same
     # fiscal year as financial_latest. Only joined when needed so the
     # default screener stays fast.
+    # ``period = 'N'`` filters to the current-year column on each filing
+    # (rather than the comparative ``NM1`` prior-year column from a later
+    # filing) so the value matches what the company actually reported for
+    # that fiscal_year.
     real_estate_join = """
         LEFT JOIN LATERAL (
             SELECT MAX(value) AS land_buildings
@@ -196,6 +200,7 @@ async def screener(
             WHERE fd.enterprise_number = fl.enterprise_number
               AND fd.fiscal_year = fl.fiscal_year
               AND fd.rubric_code = '22'
+              AND fd.period = 'N'
         ) re ON TRUE
     """ if needs_real_estate else ""
 

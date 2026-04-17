@@ -275,6 +275,30 @@ export default function Nav() {
                   Datasnoop
                 </SheetTitle>
                 <div className="mt-6 flex flex-col gap-4">
+                  {/* Primary destinations. Critical on landing, where the
+                      desktop nav is hidden behind md: and the dot-row is
+                      gated to non-landing — without this, mobile landing
+                      visitors had no tap path to Screener / Favourites etc. */}
+                  <div>
+                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Navigate</div>
+                    <div className="flex flex-col">
+                      {MOBILE_NAV.map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setOpen(false)}
+                          className={`px-3 py-2.5 rounded-md text-sm font-medium ${
+                            isActive(item.href)
+                              ? "text-gray-900 bg-gray-100"
+                              : "text-gray-700 hover:bg-gray-50"
+                          }`}
+                        >
+                          {item.label}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+
                   <div>
                     <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Account</div>
                     {user ? (

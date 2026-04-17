@@ -527,7 +527,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
         )}
         {data?.group?.partial_years && data.group.partial_years.length > 0 && (
           <div className="mt-2 text-[11px] text-amber-700">
-            Note: years {data.group.partial_years.join(", ")} have partial coverage \u2014 not all selected companies filed.
+            Note: years {data.group.partial_years.join(", ")} have partial coverage{" \u2014 "}not all selected companies filed.
           </div>
         )}
       </div>

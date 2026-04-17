@@ -144,11 +144,27 @@ def _classify_endpoint(path: str) -> str | None:
     """Map an API path to a tier limit column name, or None if not limited."""
     if "/search" in path:
         return "searches_per_day"
-    # Only count POST-style AI endpoints, NOT the GET /enrichment read endpoint
-    if ("/enrich" in path and "/enrichment" not in path) or "/ai-insights" in path or "/scrape-" in path or "/summarize-publications" in path or "/similar/ai" in path or "/screener/nl" in path:
+    # Only count POST-style AI endpoints, NOT the GET /enrichment read endpoint.
+    # /ai-commentary and /extract-admins are added because both burn
+    # OpenRouter / Zenrows tokens and are reachable anonymously.
+    if (
+        ("/enrich" in path and "/enrichment" not in path)
+        or "/ai-insights" in path
+        or "/ai-commentary" in path
+        or "/extract-admins" in path
+        or "/scrape-" in path
+        or "/summarize-publications" in path
+        or "/similar/ai" in path
+        or "/screener/nl" in path
+    ):
         return "ai_enrichments_per_day"
     if "/export" in path:
         return "export_per_day"
+    # Staatsblad scrape — outbound HTTP to ejustice.fgov.be + Postgres
+    # write amplification. Counts toward the search bucket so a passive
+    # crawler can't run unlimited scrapes via the auto-extract chain.
+    if "/api/staatsblad/" in path and path.endswith("/load"):
+        return "searches_per_day"
     # Match /api/companies/<cbe> but NOT sub-resources like /financials, /structure
     # These are individual company detail page views
     if re.match(r"^/api/companies/\d{10}$", path):
@@ -265,7 +281,11 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
                 row = db_fetch_one(
                     """SELECT COUNT(*) AS cnt FROM activity_log
                        WHERE user_email = %s
-                         AND (endpoint LIKE %s OR endpoint LIKE '%%/ai-insights%%' OR endpoint LIKE '%%/scrape-%%')
+                         AND (endpoint LIKE %s
+                              OR endpoint LIKE '%%/ai-insights%%'
+                              OR endpoint LIKE '%%/ai-commentary%%'
+                              OR endpoint LIKE '%%/extract-admins%%'
+                              OR endpoint LIKE '%%/scrape-%%')
                          AND created_at >= CURRENT_DATE""",
                     (user_label, pattern),
                 )
