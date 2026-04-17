@@ -23,6 +23,20 @@ function fmtMultiple(v: number | null | undefined): string {
   return `${v.toFixed(1)}×`;
 }
 
+type Unit = "auto" | "full" | "k" | "m";
+
+function fmtEurUnit(v: number | null | undefined, unit: Unit): string {
+  if (v == null || isNaN(v)) return "—";
+  if (unit === "auto") return fmtEur(v);
+  const neg = v < 0;
+  const a = Math.abs(v);
+  let s: string;
+  if (unit === "m") s = `€${(a / 1e6).toFixed(2)}M`;
+  else if (unit === "k") s = `€${Math.round(a / 1e3).toLocaleString("en-US")}K`;
+  else s = `€${Math.round(a).toLocaleString("en-US")}`;
+  return neg ? `-${s}` : s;
+}
+
 function VlerickBanner({ url }: { url: string }) {
   return (
     <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2.5 text-[11px] text-indigo-900">
@@ -53,6 +67,8 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"size" | "sector">("sector");
   const [sectorOverride, setSectorOverride] = useState<string | null>(null);
+  const [unit, setUnit] = useState<Unit>("auto");
+  const fmt = (v: number | null | undefined) => fmtEurUnit(v, unit);
 
   const load = useCallback(
     async (override?: string | null) => {
@@ -183,6 +199,28 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
               </select>
             </div>
           )}
+
+          {/* Unit toggle */}
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5" title="Display unit">
+            {([
+              { key: "auto", label: "Auto" },
+              { key: "m",    label: "€M"   },
+              { key: "k",    label: "€k"   },
+              { key: "full", label: "€"    },
+            ] as { key: Unit; label: string }[]).map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => setUnit(opt.key)}
+                className={`rounded-md px-2 py-1 text-[11px] font-medium transition ${
+                  unit === opt.key
+                    ? "bg-slate-800 text-white"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -214,7 +252,7 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
                   EBITDA ({fyLabel})
                 </div>
                 <div className="mt-0.5 text-2xl font-bold text-slate-800">
-                  {fmtEur(latest?.ebitda ?? null)}
+                  {fmt(latest?.ebitda ?? null)}
                 </div>
                 <div className="mt-0.5 text-[10px] text-slate-400">
                   Profit before int., tax &amp; D&amp;A
@@ -225,7 +263,7 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
                   Enterprise value
                 </div>
                 <div className="mt-0.5 text-2xl font-bold text-slate-800">
-                  {fmtEur(latestEv ?? null)}
+                  {fmt(latestEv ?? null)}
                 </div>
                 <div className="mt-0.5 text-[10px] text-slate-400">
                   What a buyer pays
@@ -236,7 +274,7 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
                   Equity value
                 </div>
                 <div className="mt-0.5 text-2xl font-bold text-emerald-800">
-                  {fmtEur(latestEquity ?? null)}
+                  {fmt(latestEquity ?? null)}
                 </div>
                 <div className="mt-0.5 text-[10px] text-emerald-700/70">
                   Shareholders receive
@@ -272,7 +310,7 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
                 </TableCell>
                 {years.map((y, i) => (
                   <TableCell key={i} className="text-right font-mono text-xs py-1.5">
-                    {fmtEur(y.ebitda)}
+                    {fmt(y.ebitda)}
                   </TableCell>
                 ))}
               </TableRow>
@@ -298,7 +336,7 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
                   const ev = view === "size" ? y.by_size.enterprise_value : y.by_sector.enterprise_value;
                   return (
                     <TableCell key={i} className="text-right font-mono text-xs py-1.5 font-semibold text-slate-800">
-                      {fmtEur(ev || null)}
+                      {fmt(ev || null)}
                     </TableCell>
                   );
                 })}
@@ -310,7 +348,7 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
                 </TableCell>
                 {years.map((y, i) => (
                   <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-slate-600">
-                    {fmtEur(y.financial_debt || null)}
+                    {fmt(y.financial_debt || null)}
                   </TableCell>
                 ))}
               </TableRow>
@@ -321,7 +359,7 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
                 </TableCell>
                 {years.map((y, i) => (
                   <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-slate-600">
-                    {fmtEur(y.cash_and_equivalents || null)}
+                    {fmt(y.cash_and_equivalents || null)}
                   </TableCell>
                 ))}
               </TableRow>
@@ -332,7 +370,7 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
                 </TableCell>
                 {years.map((y, i) => (
                   <TableCell key={i} className="text-right font-mono text-xs py-1.5 font-medium text-slate-700">
-                    {fmtEur(y.net_debt || null)}
+                    {fmt(y.net_debt || null)}
                   </TableCell>
                 ))}
               </TableRow>
@@ -345,7 +383,7 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
                   const eq = view === "size" ? y.by_size.equity_value : y.by_sector.equity_value;
                   return (
                     <TableCell key={i} className="text-right font-mono text-sm py-2 font-bold text-emerald-800">
-                      {fmtEur(eq)}
+                      {fmt(eq)}
                     </TableCell>
                   );
                 })}
