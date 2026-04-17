@@ -124,7 +124,7 @@ export function CompanyPageClient({
   const [isFavourite, setIsFavourite] = useState(false);
   const [activeTab, setActiveTab] = useState("summary");
   const [nbbLoading, setNbbLoading] = useState(false);
-  const [nbbResult, setNbbResult] = useState<"success" | "error" | "no-data" | null>(null);
+  const [nbbResult, setNbbResult] = useState<"success" | "error" | "no-data" | "pdf-only" | null>(null);
   const nbbAutoTriggered = React.useRef(false);
   const aiPreloadTriggered = React.useRef(false);
   const router = useRouter();

@@ -742,6 +742,9 @@ export interface NbbLoadResult {
   filings_loaded: number;
   rubrics_loaded: number;
   status?: string;
+  /** True when NBB has only PDF-only filings for this CBE (every recent
+   *  deposit returned the "no published json xbrl" 404). */
+  pdf_only?: boolean;
 }
 
 export const loadCompanyNBB = (cbe: string) =>

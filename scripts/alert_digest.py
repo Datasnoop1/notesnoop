@@ -99,7 +99,7 @@ def _events_for_user(email: str, since: datetime) -> dict:
         LEFT JOIN company_info ci ON ci.enterprise_number = f.enterprise_number
         WHERE f.user_id = %s
           AND nll.loaded_at > %s
-          AND nll.deposit_key != 'NO_FILINGS'
+          AND nll.deposit_key NOT IN ('NO_FILINGS', 'PDF_ONLY')
         ORDER BY nll.loaded_at DESC
         LIMIT 200
         """,
@@ -237,6 +237,98 @@ def _record_sent(email: str, event_count: int) -> None:
     )
 
 
+def _check_nbb_keys(send: bool, alert_to: str | None) -> int:
+    """Ping AuthenticData + Extracts with the live keys; alert on 401/403.
+
+    Returns the number of failing endpoints (0 == healthy). When ``send``
+    is True and at least one endpoint failed, emails ``alert_to`` (or
+    ``SMTP_FROM`` if no recipient configured) so the operator gets paged
+    before users notice. Probe CBE is Solvay (0403091220) — large filer
+    with stable references that has historically held a JSON-XBRL
+    deposit.
+    """
+    import uuid as _uuid
+    import requests
+
+    auth_key = os.getenv("NBB_AUTHENTIC_KEY", "")
+    extract_key = os.getenv("NBB_EXTRACT_KEY", "")
+    base = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
+    probe_cbe = "0403091220"
+
+    failures: list[str] = []
+
+    def _probe(name: str, url: str, key: str) -> None:
+        if not key:
+            failures.append(f"{name}: env key not set")
+            return
+        try:
+            r = requests.get(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "NBB-CBSO-Subscription-Key": key,
+                    "X-Request-Id": str(_uuid.uuid4()),
+                    "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
+                },
+                timeout=20,
+            )
+        except Exception as e:
+            failures.append(f"{name}: connection error {type(e).__name__}")
+            return
+        # 200 = OK; 415 = key valid, just an Accept-header mismatch (still
+        # fine for our purposes — we only fail loud on auth-class errors);
+        # 401/403 = the rotation we want to catch.
+        if r.status_code in (401, 403):
+            failures.append(f"{name}: HTTP {r.status_code} (auth — likely rotated)")
+        elif r.status_code >= 500:
+            failures.append(f"{name}: HTTP {r.status_code} (NBB upstream)")
+        elif r.status_code not in (200, 404, 415):
+            failures.append(f"{name}: HTTP {r.status_code}")
+
+    _probe(
+        "AuthenticData",
+        f"{base}/authentic/legalEntity/{probe_cbe}/references",
+        auth_key,
+    )
+    # Pick a recent-but-not-today date so the batch endpoint exists without
+    # racing the daily extract publication.
+    probe_date = (datetime.now(timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%d")
+    _probe(
+        "Extracts",
+        f"{base}/extracts/batch/{probe_date}/references",
+        extract_key,
+    )
+
+    if not failures:
+        log.info("NBB health check: all probes green")
+        return 0
+
+    msg = "NBB health check FAILED: " + " | ".join(failures)
+    log.error(msg)
+
+    if send:
+        recipient = alert_to or SMTP_FROM
+        if not (SMTP_HOST and SMTP_USER and SMTP_PASS and recipient):
+            log.warning("Cannot send alert email: SMTP not fully configured")
+            return len(failures)
+        try:
+            _send(
+                recipient,
+                "[DataSnoop] NBB key health check failed",
+                msg + "\n\nRotate the affected key(s) on the NBB subscription portal "
+                "and apply via the protocol in docs/architecture.md gotcha #1.",
+                f"<p style='font-family:system-ui'><b>{html.escape(msg)}</b></p>"
+                "<p>Rotate the affected key(s) on the NBB subscription portal and "
+                "apply via the protocol in <code>docs/architecture.md</code> "
+                "gotcha #1.</p>",
+            )
+            log.info("Alert email sent to %s", recipient)
+        except Exception:
+            log.exception("Failed to send NBB alert email")
+
+    return len(failures)
+
+
 def run(send: bool, only_user: str | None) -> None:
     _ensure_log_table()
     users = [only_user] if only_user else _users_with_favourites()
@@ -272,7 +364,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--send", action="store_true", help="Actually send emails (default: dry-run)")
     parser.add_argument("--user", help="Restrict to a single email address (for testing)")
+    parser.add_argument(
+        "--health-check",
+        action="store_true",
+        help="Probe NBB AuthenticData + Extracts endpoints and email on failure. Skips digest run.",
+    )
+    parser.add_argument(
+        "--alert-to",
+        help="Email address for NBB health-check alerts (defaults to SMTP_FROM).",
+    )
     args = parser.parse_args()
+    if args.health_check:
+        failures = _check_nbb_keys(send=args.send, alert_to=args.alert_to)
+        sys.exit(1 if failures > 0 else 0)
     run(send=args.send, only_user=args.user)
 
 

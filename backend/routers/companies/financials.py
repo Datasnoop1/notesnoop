@@ -106,6 +106,17 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
     total_rubrics = 0
     filings_loaded = 0
     errors = []
+    # NBB only publishes JSON-XBRL for the m02-f model (full-format scheme
+    # used by larger companies). Smaller filers using m120/m211/m212 with
+    # the -p suffix get a 404 with body containing "no published json xbrl".
+    # We track these so we can flag the company as PDF-only on the profile
+    # — distinguishes "we tried and got nothing structured" from "the data
+    # just hasn't been requested yet".
+    pdf_only_404s = 0
+    json_xbrl_eligible_count = sum(
+        1 for r in references
+        if isinstance(r.get("ModelType"), str) and not r["ModelType"].endswith("-p")
+    )
 
     try:
         cur = conn.cursor()
@@ -151,6 +162,13 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
                     "NBB filing %s returned HTTP %d", ref_number, filing_resp.status_code,
                 )
                 errors.append(f"ref {ref_number}: HTTP {filing_resp.status_code}")
+                # Detect the specific "no JSON-XBRL published" 404 — body
+                # contains the diagnostic string. Used after the loop to
+                # set the pdf_only flag on the response.
+                if filing_resp.status_code == 404:
+                    body = (filing_resp.text or "").lower()
+                    if "json xbrl" in body or "jsonxbrl" in body:
+                        pdf_only_404s += 1
                 continue
 
             filing_json = filing_resp.json()
@@ -327,12 +345,44 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
         from db import put_connection
         put_connection(conn)
 
+    # Final flag: this CBE's filings appear to be PDF-only (NBB hasn't
+    # published a JSON-XBRL version for any of the recent deposits).
+    # True when we actually tried at least one ref and every miss was the
+    # "no published json xbrl" 404 — defensive against treating a generic
+    # 404 / network blip as PDF-only.
+    pdf_only = (
+        filings_loaded == 0
+        and pdf_only_404s > 0
+        and json_xbrl_eligible_count == 0
+    )
+
+    if pdf_only:
+        # Stamp nbb_load_log with a sentinel row so /financials can read
+        # the flag without re-hitting NBB. Idempotent on the PK.
+        try:
+            conn2 = get_connection()
+            try:
+                cur2 = conn2.cursor()
+                cur2.execute(
+                    "INSERT INTO nbb_load_log (enterprise_number, deposit_key, rubric_count) "
+                    "VALUES (%s, 'PDF_ONLY', 0) ON CONFLICT DO NOTHING",
+                    (cbe,),
+                )
+                conn2.commit()
+                cur2.close()
+            finally:
+                from db import put_connection
+                put_connection(conn2)
+        except Exception:
+            logger.debug("Failed to stamp PDF_ONLY marker for %s", cbe, exc_info=True)
+
     result = {
         "enterprise_number": cbe,
         "filings_found": len(references),
         "filings_loaded": filings_loaded,
         "rubrics_loaded": total_rubrics,
-        "status": "loaded" if filings_loaded > 0 else "no_new_data",
+        "pdf_only": pdf_only,
+        "status": "loaded" if filings_loaded > 0 else ("pdf_only" if pdf_only else "no_new_data"),
     }
     if errors:
         result["errors"] = errors
@@ -433,8 +483,19 @@ async def get_company_financials(cbe: str):
             ORDER BY fiscal_year
         """, (cbe,))
 
+        # PDF-only flag: set by /load when every recent NBB deposit was
+        # 404'd with the "no published json xbrl" diagnostic. Lets the
+        # frontend explain WHY a company has no financial rows instead
+        # of silently rendering an empty state.
+        pdf_only_row = fetch_one(
+            "SELECT 1 AS x FROM nbb_load_log "
+            "WHERE enterprise_number = %s AND deposit_key = 'PDF_ONLY' LIMIT 1",
+            (cbe,),
+        )
+        pdf_only = bool(pdf_only_row)
+
         if not hist:
-            return {"summary": [], "pnl": {}}
+            return {"summary": [], "pnl": {}, "pdf_only": pdf_only}
 
         # P&L rubric data
         pnl_codes = [
@@ -470,6 +531,7 @@ async def get_company_financials(cbe: str):
         return {
             "summary": [_serialize_row(r) for r in hist],
             "rubric_data": rubric_pivot,
+            "pdf_only": pdf_only,
         }
     except Exception as e:
         logger.exception("Company financials query failed")
