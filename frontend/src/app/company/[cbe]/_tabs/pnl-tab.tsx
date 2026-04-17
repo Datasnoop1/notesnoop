@@ -328,7 +328,7 @@ export function PnlTab({
         </div>
       </div>
       <div className="rounded-lg border overflow-x-auto bg-white">
-        <table className="w-full min-w-[900px]">
+        <table className="w-full min-w-[560px] md:min-w-[900px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               <th className="sticky left-0 z-10 bg-slate-50 px-2 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[110px] md:w-auto md:min-w-[240px] shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.pnl.lineItem")}</th>
@@ -362,11 +362,11 @@ export function PnlTab({
                       return (
                         <React.Fragment key={`cell-${r.fiscal_year}-${line.key}`}>
                           {colIdx > 0 && (
-                            <td className="px-0.5 md:px-1 py-1 text-center align-top w-[40px] md:w-[70px]">
+                            <td className="px-0.5 md:px-1 py-1 text-center align-top w-[32px] md:w-[70px]">
                               {!line.isPct ? renderDelta(currentVal, prevVal) : null}
                             </td>
                           )}
-                          <td className={`px-2 md:px-3 py-1 text-right text-[11px] md:text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                          <td className={`px-1.5 md:px-3 py-1 text-right text-[11px] md:text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
                             {line.isPct
                               ? (currentVal != null
                                   ? <span className={`${(currentVal as number) >= 15 ? "text-emerald-600" : (currentVal as number) >= 5 ? "text-amber-600" : "text-rose-400"}`}>{(currentVal as number).toFixed(1)}%</span>
