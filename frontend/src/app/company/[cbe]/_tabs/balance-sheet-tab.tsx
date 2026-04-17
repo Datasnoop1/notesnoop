@@ -175,13 +175,13 @@ export function BalanceSheetTab({
           {t("company.bs.title")}
         </h3>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => toggleSection("bs_fa")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_fa ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+          <button onClick={() => toggleSection("bs_fa")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.bs_fa ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
             {collapsedSections.bs_fa ? `\u25b8 ${t("company.bs.faGrouped")}` : `\u25be ${t("company.bs.faExpanded")}`}
           </button>
-          <button onClick={() => toggleSection("bs_ca")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_ca ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+          <button onClick={() => toggleSection("bs_ca")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.bs_ca ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
             {collapsedSections.bs_ca ? `\u25b8 ${t("company.bs.caGrouped")}` : `\u25be ${t("company.bs.caExpanded")}`}
           </button>
-          <button onClick={() => toggleSection("bs_cl")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.bs_cl ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+          <button onClick={() => toggleSection("bs_cl")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.bs_cl ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
             {collapsedSections.bs_cl ? `\u25b8 ${t("company.bs.clGrouped")}` : `\u25be ${t("company.bs.clExpanded")}`}
           </button>
           <ExportButtons
@@ -191,7 +191,7 @@ export function BalanceSheetTab({
         </div>
       </div>
       <div className="rounded-lg border overflow-x-auto bg-white">
-        <table className="w-full min-w-[500px]">
+        <table className="w-full min-w-[900px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               <th className="sticky left-0 z-10 bg-slate-50 px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[260px] shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.bs.lineItem")}</th>
@@ -209,7 +209,7 @@ export function BalanceSheetTab({
                   {showSection && (
                     <tr>
                       <td colSpan={chronological.length * 2} className="sticky left-0 bg-white px-4 pt-3 pb-1">
-                        <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
                       </td>
                     </tr>
                   )}
@@ -241,7 +241,7 @@ export function BalanceSheetTab({
           </tbody>
         </table>
       </div>
-      <p className="mt-1 text-[10px] text-slate-400 italic">
+      <p className="mt-1 text-[11px] text-slate-400 italic">
         {t("company.bs.footnote")}
       </p>
     </div>

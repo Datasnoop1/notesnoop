@@ -413,7 +413,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
-                    <TableHead className="text-xs min-w-[220px]">Step</TableHead>
+                    <TableHead className="text-xs min-w-[180px] sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">Step</TableHead>
                     {years.map((y) => (
                       <TableHead key={y.fiscal_year ?? Math.random()} className="text-right text-xs min-w-[110px]">
                         FY{y.fiscal_year ?? "—"}
@@ -428,9 +428,9 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                 </TableHeader>
                 <TableBody>
                   <TableRow>
-                    <TableCell className="text-xs py-1.5 text-slate-700 font-medium">
+                    <TableCell className="text-xs py-1.5 text-slate-700 font-medium sticky left-0 z-[5] bg-white shadow-[1px_0_0_rgba(226,232,240,1)]">
                       EBITDA
-                      <div className="text-[10px] text-slate-400 font-normal">Profit before interest, tax &amp; D&amp;A</div>
+                      <div className="text-[11px] text-slate-500 font-normal">Profit before interest, tax &amp; D&amp;A</div>
                     </TableCell>
                     {years.map((y, i) => (
                       <TableCell key={i} className="text-right font-mono text-xs py-1.5">{fmt(y.ebitda)}</TableCell>
@@ -438,9 +438,9 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " font-semibold text-slate-800"}>{fmt(avgEbitda)}</TableCell>}
                   </TableRow>
                   <TableRow className="bg-indigo-50/30">
-                    <TableCell className="text-xs py-1.5 text-indigo-700 font-medium">
+                    <TableCell className="text-xs py-1.5 text-indigo-700 font-medium sticky left-0 z-[5] bg-indigo-50/30 shadow-[1px_0_0_rgba(226,232,240,1)]">
                       × Vlerick M&amp;A Monitor multiple
-                      <div className="text-[10px] text-slate-400 font-normal">Applied: {activeLabel}</div>
+                      <div className="text-[11px] text-slate-500 font-normal">Applied: {activeLabel}</div>
                     </TableCell>
                     {years.map((y, i) => (
                       <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-indigo-700">{fmtMultiple(activeMultiple)}</TableCell>
@@ -448,9 +448,9 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " text-indigo-700 font-semibold"}>{fmtMultiple(activeMultiple)}</TableCell>}
                   </TableRow>
                   <TableRow className="border-t-2 border-slate-200">
-                    <TableCell className="text-xs py-1.5 text-slate-800 font-semibold">
+                    <TableCell className="text-xs py-1.5 text-slate-800 font-semibold sticky left-0 z-[5] bg-white shadow-[1px_0_0_rgba(226,232,240,1)]">
                       = Enterprise Value
-                      <div className="text-[10px] text-slate-400 font-normal">What a buyer pays for the business</div>
+                      <div className="text-[11px] text-slate-500 font-normal">What a buyer pays for the business</div>
                     </TableCell>
                     {years.map((y, i) => {
                       const ev = view === "size" ? y.by_size.enterprise_value : y.by_sector.enterprise_value;
@@ -461,9 +461,9 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " font-semibold text-slate-800"}>{fmt(avgEv)}</TableCell>}
                   </TableRow>
                   <TableRow>
-                    <TableCell className="text-xs py-1.5 text-slate-600">
+                    <TableCell className="text-xs py-1.5 text-slate-600 sticky left-0 z-[5] bg-white shadow-[1px_0_0_rgba(226,232,240,1)]">
                       − Financial debt
-                      <div className="text-[10px] text-slate-400">Long-term + short-term bank debt</div>
+                      <div className="text-[11px] text-slate-500">Long-term + short-term bank debt</div>
                     </TableCell>
                     {years.map((y, i) => (
                       <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-slate-600">{fmt(y.financial_debt || null)}</TableCell>
@@ -471,9 +471,9 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " text-slate-600 italic"} title="Latest-year figure — avg-EBITDA valuation uses latest balance sheet">{fmt(latestFd)}</TableCell>}
                   </TableRow>
                   <TableRow>
-                    <TableCell className="text-xs py-1.5 text-slate-600">
+                    <TableCell className="text-xs py-1.5 text-slate-600 sticky left-0 z-[5] bg-white shadow-[1px_0_0_rgba(226,232,240,1)]">
                       + Cash &amp; equivalents
-                      <div className="text-[10px] text-slate-400">Cash + short-term investments</div>
+                      <div className="text-[11px] text-slate-500">Cash + short-term investments</div>
                     </TableCell>
                     {years.map((y, i) => (
                       <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-slate-600">{fmt(y.cash_and_equivalents || null)}</TableCell>
@@ -481,9 +481,9 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " text-slate-600 italic"} title="Latest-year figure">{fmt(latestCe)}</TableCell>}
                   </TableRow>
                   <TableRow className="bg-slate-50/50">
-                    <TableCell className="text-xs py-1.5 text-slate-700 font-medium">
+                    <TableCell className="text-xs py-1.5 text-slate-700 font-medium sticky left-0 z-[5] bg-slate-50/50 shadow-[1px_0_0_rgba(226,232,240,1)]">
                       = Net debt
-                      <div className="text-[10px] text-slate-400 font-normal">Debt minus cash</div>
+                      <div className="text-[11px] text-slate-500 font-normal">Debt minus cash</div>
                     </TableCell>
                     {years.map((y, i) => (
                       <TableCell key={i} className="text-right font-mono text-xs py-1.5 font-medium text-slate-700">{fmt(y.net_debt || null)}</TableCell>
@@ -491,9 +491,9 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " font-medium text-slate-700 italic"} title="Latest-year net debt is used for the avg-EBITDA valuation">{fmt(latestNd)}</TableCell>}
                   </TableRow>
                   <TableRow className="border-t-2 border-slate-300 bg-emerald-50/40">
-                    <TableCell className="text-xs py-2 text-emerald-900 font-bold">
+                    <TableCell className="text-xs py-2 text-emerald-900 font-bold sticky left-0 z-[5] bg-emerald-50/40 shadow-[1px_0_0_rgba(226,232,240,1)]">
                       = Equity Value
-                      <div className="text-[10px] text-emerald-700/70 font-normal">What shareholders receive</div>
+                      <div className="text-[11px] text-emerald-700/80 font-normal">What shareholders receive</div>
                     </TableCell>
                     {years.map((y, i) => {
                       const eq = view === "size" ? y.by_size.equity_value : y.by_sector.equity_value;
