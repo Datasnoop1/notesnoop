@@ -232,39 +232,40 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             </div>
           )}
 
-          {/* Single combined basis selector — view + sector grouped in one
-              dropdown so the layout doesn't shift when switching modes. */}
-          <select
-            value={view === "sector" ? `sector:${sectorOverride ?? profile.vlerick_sector}` : "size:auto"}
-            onChange={(e) => {
-              const [kind, key] = e.target.value.split(":");
-              if (kind === "sector") {
-                setView("sector");
-                handleSectorChange(key);
-              } else {
-                setView("size");
-              }
-            }}
-            className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none min-w-[180px]"
-            title={sourceTag}
-          >
-            {srcHasSector && (
-              <optgroup label="By sector">
-                {profile.available_sectors.map((s) => (
-                  <option key={s.key} value={`sector:${s.key}`}>
-                    By sector — {s.label}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            {srcHasSize && (
-              <optgroup label="By size">
-                <option value="size:auto">
-                  By size — {profile.size_bracket_label} (auto)
-                </option>
-              </optgroup>
-            )}
-          </select>
+          {/* View toggle: By sector / By size. Kept as buttons (user
+              preference). The sector-specific dropdown sits at the end
+              of the row so its disappearance in size mode doesn't push
+              anything around. */}
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
+            <button
+              onClick={() => srcHasSector && setView("sector")}
+              disabled={!srcHasSector}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                view === "sector"
+                  ? "bg-indigo-600 text-white"
+                  : srcHasSector
+                  ? "text-slate-500 hover:text-slate-700"
+                  : "text-slate-300 cursor-not-allowed"
+              }`}
+              title={srcHasSector ? "" : "This source has no sector breakdown"}
+            >
+              By sector
+            </button>
+            <button
+              onClick={() => srcHasSize && setView("size")}
+              disabled={!srcHasSize}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                view === "size"
+                  ? "bg-indigo-600 text-white"
+                  : srcHasSize
+                  ? "text-slate-500 hover:text-slate-700"
+                  : "text-slate-300 cursor-not-allowed"
+              }`}
+              title={srcHasSize ? "" : "This source has no size breakdown"}
+            >
+              By size
+            </button>
+          </div>
 
           {/* Unit toggle */}
           <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5" title="Display unit">
@@ -309,6 +310,24 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               PDF
             </button>
           </div>
+
+          {/* Sector dropdown — placed LAST in the row so that when it
+              disappears in size view, nothing to its right needs to
+              shift. */}
+          {view === "sector" && (
+            <select
+              value={sectorOverride ?? profile.vlerick_sector}
+              onChange={(e) => handleSectorChange(e.target.value)}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
+              title={sourceTag}
+            >
+              {profile.available_sectors.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 

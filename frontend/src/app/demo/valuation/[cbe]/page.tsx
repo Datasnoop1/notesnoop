@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ValuationTab } from "@/app/company/[cbe]/_tabs/valuation-tab";
 import type { CompanyDetail } from "@/app/company/[cbe]/types";
 import { fmtCbe } from "@/lib/format";
+import PrintLogo from "@/components/print-logo";
 
 const API_BASE = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -80,11 +81,9 @@ export default async function ValuationDemoPage({
             )}
           </div>
         </div>
-        {/* Print-only logo — aligned with the company name, right side */}
-        <div className="hidden print:block shrink-0">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-with-text.svg" alt="DataSnoop" style={{ height: "32px" }} />
-        </div>
+        {/* Print-only logo — aligned with the company name, right side.
+            Uses the current configured site logo via /api/site-config. */}
+        <PrintLogo heightPx={32} />
       </div>
 
       {/* Valuation tab content */}
