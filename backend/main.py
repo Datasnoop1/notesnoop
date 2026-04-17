@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard
+from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup
 
@@ -301,6 +301,103 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(TierLimitMiddleware)
 
+
+# ---------------------------------------------------------------------------
+# Staging admin-only gate
+# ---------------------------------------------------------------------------
+
+class StagingGateMiddleware(BaseHTTPMiddleware):
+    """When STAGING_MODE=true, restrict /api/* to users with role='admin'.
+
+    Purpose: staging is wired to the same Supabase project as prod so we
+    can test with real logins, but we don't want regular users landing
+    on the staging URL and seeing half-broken features. Anyone who's not
+    a listed admin gets HTTP 403 with ``detail='staging_admin_only'``;
+    the frontend's StagingGate component renders a friendly blocker
+    based on that response.
+
+    Allowlisted paths stay open so the app shell and landing can render:
+      /api/health — for Docker healthchecks
+      /api/site-config, /api/polls/active, /api/dashboard — public landing data
+      /api/me/is-admin — must be callable by any signed-in user so the
+        frontend can decide whether to show the blocker
+
+    This middleware is disabled entirely when STAGING_MODE is unset or
+    "false", so production is untouched.
+    """
+
+    ALLOWLIST_EXACT = {
+        "/api/health",
+        "/api/site-config",
+        "/api/polls/active",
+        "/api/dashboard",
+        "/api/me/is-admin",
+    }
+    ALLOWLIST_PREFIXES = ("/api/sitemap/",)
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.enabled = (os.getenv("STAGING_MODE", "").lower() in ("1", "true", "yes"))
+
+    async def dispatch(self, request: Request, call_next):
+        if not self.enabled:
+            return await call_next(request)
+
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return await call_next(request)
+        if path in self.ALLOWLIST_EXACT or any(path.startswith(p) for p in self.ALLOWLIST_PREFIXES):
+            return await call_next(request)
+
+        auth = request.headers.get("authorization", "")
+        if not auth.startswith("Bearer "):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "staging_admin_only", "reason": "unauthenticated"},
+            )
+
+        try:
+            from auth import _decode_token
+            payload = _decode_token(auth[7:])
+            email = payload.get("email")
+        except Exception:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "staging_admin_only", "reason": "invalid_token"},
+            )
+
+        if not email:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "staging_admin_only", "reason": "no_email"},
+            )
+
+        try:
+            from db import fetch_one as db_fetch_one
+            role_row = db_fetch_one(
+                "SELECT role FROM user_roles WHERE email = %s", (email,),
+            )
+        except Exception:
+            # If the role lookup fails in an unexpected way, fail closed on
+            # staging — we'd rather block than leak.
+            logger.exception("StagingGate role lookup failed")
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "staging_admin_only", "reason": "role_lookup_failed"},
+            )
+
+        if not role_row or role_row.get("role") != "admin":
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "staging_admin_only", "reason": "not_admin"},
+            )
+
+        return await call_next(request)
+
+
+app.add_middleware(StagingGateMiddleware)
+
+
 # ---------------------------------------------------------------------------
 # Rate limiting middleware
 # ---------------------------------------------------------------------------
@@ -391,6 +488,7 @@ app.include_router(stripe_pay.router)
 app.include_router(staatsblad.router)
 app.include_router(tier_config.router)
 app.include_router(graveyard.router)
+app.include_router(me.router)
 
 # ---------------------------------------------------------------------------
 # Health check

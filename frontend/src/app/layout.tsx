@@ -11,6 +11,7 @@ import { LanguageProvider } from "@/components/language-provider";
 import { LimitProvider } from "@/components/limit-provider";
 import LimitPopup from "@/components/limit-popup";
 import FooterTranslated from "@/components/footer-translated";
+import StagingGate from "@/components/staging-gate";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -88,21 +89,23 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col bg-white font-sans">
         <LanguageProvider>
           <LimitProvider>
-            <FontProvider />
-            <CopyProtection />
-            <Nav />
-            <main className="flex-1" data-protected>
-              <div className="w-full max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-                {children}
+            <StagingGate>
+              <FontProvider />
+              <CopyProtection />
+              <Nav />
+              <main className="flex-1" data-protected>
+                <div className="w-full max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+                  {children}
+                </div>
+              </main>
+              <div className="no-print">
+                <AdBanner />
+                <BrandSurvey />
+                <CookieBanner />
+                <FooterTranslated />
               </div>
-            </main>
-            <div className="no-print">
-              <AdBanner />
-              <BrandSurvey />
-              <CookieBanner />
-              <FooterTranslated />
-            </div>
-            <LimitPopup />
+              <LimitPopup />
+            </StagingGate>
           </LimitProvider>
         </LanguageProvider>
       </body>
