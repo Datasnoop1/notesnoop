@@ -352,8 +352,11 @@ function loadPresets(): FilterPreset[] {
     // filter slots (fte_growth_3y_min/max etc.) hydrate as controlled
     // empty strings rather than undefined.
     return raw.map((p) => {
-      const { ...filters } = p.filters as Record<string, unknown>;
-      if ("mgmt_change_days" in filters) delete filters["mgmt_change_days"];
+      // Cast through unknown so we can pick up legacy keys (e.g. the
+      // removed `mgmt_change_days`) without TS complaining about a
+      // direct Filters → Record conversion.
+      const filters = { ...(p.filters as unknown as Record<string, unknown>) };
+      delete filters["mgmt_change_days"];
       return { ...p, filters: { ...DEFAULT_FILTERS, ...filters } as Filters };
     });
   } catch {
