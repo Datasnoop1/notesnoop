@@ -62,20 +62,28 @@ export default async function ValuationDemoPage({
         Indicative valuation · Demo
       </div>
 
-      {/* Company header — minimal, focused */}
-      <div className="mb-6 border-b border-slate-200 pb-4">
-        <h1 className="text-2xl font-semibold text-slate-900">
-          {detail?.name || `Company ${fmtCbe(cleanCbe)}`}
-        </h1>
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
-          <span className="font-mono">CBE {fmtCbe(cleanCbe)}</span>
-          {address && <span>{address}</span>}
-          {detail?.nace_code && (
-            <span>
-              NACE {detail.nace_code}
-              {detail.nace_label && detail.nace_label !== detail.nace_code ? ` — ${detail.nace_label}` : ""}
-            </span>
-          )}
+      {/* Company header — minimal, focused. In print, a DataSnoop wordmark
+          sits top-right on the same row as the company name. */}
+      <div className="mb-6 border-b border-slate-200 pb-4 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold text-slate-900">
+            {detail?.name || `Company ${fmtCbe(cleanCbe)}`}
+          </h1>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+            <span className="font-mono">CBE {fmtCbe(cleanCbe)}</span>
+            {address && <span>{address}</span>}
+            {detail?.nace_code && (
+              <span>
+                NACE {detail.nace_code}
+                {detail.nace_label && detail.nace_label !== detail.nace_code ? ` — ${detail.nace_label}` : ""}
+              </span>
+            )}
+          </div>
+        </div>
+        {/* Print-only logo — aligned with the company name, right side */}
+        <div className="hidden print:block shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-with-text.svg" alt="DataSnoop" style={{ height: "32px" }} />
         </div>
       </div>
 

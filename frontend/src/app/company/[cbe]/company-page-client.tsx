@@ -698,6 +698,11 @@ export function CompanyPageClient({
 
           {/* Right: action buttons + metadata stacked */}
           <div className="flex flex-col items-start md:items-end gap-2 shrink-0 w-full md:w-auto">
+            {/* Print-only DataSnoop logo — aligns with company name on the right */}
+            <div className="hidden print:block">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/logo-with-text.svg" alt="DataSnoop" style={{ height: "28px" }} />
+            </div>
             <div className="flex items-center gap-1.5 no-print flex-wrap">
             <Button
               variant="outline"

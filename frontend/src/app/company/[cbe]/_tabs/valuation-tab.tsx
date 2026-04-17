@@ -188,15 +188,6 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
 
   return (
     <div className="space-y-4 valuation-print-root">
-      {/* Print-only header: DataSnoop logo + branding. Hidden on screen. */}
-      <div className="hidden print:flex items-center gap-2 pb-2 mb-2 border-b border-slate-300">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-with-text.svg" alt="DataSnoop" style={{ height: "24px" }} />
-        <span className="ml-auto text-[9px] text-slate-500">
-          Indicative valuation · {new Date().toLocaleDateString("en-GB")}
-        </span>
-      </div>
-
       {/* Compact header strip — title, source, view toggle, sector picker, unit toggle */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pb-3 border-b border-slate-200">
         <div className="min-w-0">
