@@ -47,7 +47,6 @@ import {
   BarChart3,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
-import { createClient } from "@/lib/supabase";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
 import PrintLogo from "@/components/print-logo";
 import {
@@ -115,7 +114,7 @@ export function CompanyPageClient({
   initialFinancials,
   initialStructure,
 }: CompanyPageClientProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   const [detail, setDetail] = useState<CompanyDetail | null>(initialDetail);
   const [financials, setFinancials] = useState<FinancialsData | null>(initialFinancials);
@@ -126,21 +125,9 @@ export function CompanyPageClient({
   const [activeTab, setActiveTab] = useState("summary");
   const [nbbLoading, setNbbLoading] = useState(false);
   const [nbbResult, setNbbResult] = useState<"success" | "error" | "no-data" | null>(null);
-  /* Auth-aware: gates the passive scrape+extract chain so anonymous
-     visitors can't drive ejustice.fgov.be / OpenRouter spend. */
-  const [signedIn, setSignedIn] = useState(false);
   const nbbAutoTriggered = React.useRef(false);
   const aiPreloadTriggered = React.useRef(false);
   const router = useRouter();
-
-  useEffect(() => {
-    const sb = createClient();
-    sb.auth.getSession().then(({ data }) => setSignedIn(!!data.session?.user));
-    const { data: { subscription } } = sb.auth.onAuthStateChange(
-      (_event, session) => setSignedIn(!!session?.user)
-    );
-    return () => subscription.unsubscribe();
-  }, []);
 
   /* -- Auto-load overlay state -- */
   type LoadStage = { label: string; status: "pending" | "active" | "done" | "error" };
@@ -180,7 +167,9 @@ export function CompanyPageClient({
     return () => clearInterval(interval);
   }, [loadStartTime]);
 
-  /* -- Check for existing AI enrichment on load -- */
+  /* -- Check for existing AI enrichment on load.
+     Re-runs when `locale` changes so cached AI gets re-fetched
+     translated to the user's new site language. */
   useEffect(() => {
     getEnrichment(cbe)
       .then((data) => {
@@ -246,7 +235,7 @@ export function CompanyPageClient({
         }
       })
       .catch(() => {});
-  }, [cbe]);
+  }, [cbe, locale]);
 
   /* -- Auto-load missing NBB data / publications -- */
   const runAutoLoad = useCallback(async (fin: FinancialsData | null, str: StructureData | null) => {
@@ -372,14 +361,13 @@ export function CompanyPageClient({
        2) Pubs exist and include an appointment/resignation notice?
           Run the LLM extractor.
      Both calls are fire-and-forget; each rate-limits itself server-side
-     (the backend caches "recently tried empty" for 30 min) and counts
-     against the signed-in user's tier limits.
-     Gated to signed-in users to prevent anonymous crawlers driving
-     unbounded outbound traffic against ejustice.fgov.be + LLM costs. */
+     (the backend caches "recently tried empty" for 30 min, plus tier
+     limits cap LLM-burning calls per day per IP). The Staatsblad scrape
+     is essential profile data and runs for everyone; the extract-admins
+     LLM step is tier-counted so anonymous abuse stays bounded. */
   const adminExtractTriggered = React.useRef(false);
   useEffect(() => {
     if (!structure || adminExtractTriggered.current) return;
-    if (!signedIn) return;
     const hasAdmins = structure.administrators.length > 0;
     if (hasAdmins) return;
 
@@ -418,7 +406,7 @@ export function CompanyPageClient({
           // Non-critical — silently ignore
         });
     }
-  }, [cbe, structure, signedIn]);
+  }, [cbe, structure]);
 
   /* -- Callbacks -- */
 

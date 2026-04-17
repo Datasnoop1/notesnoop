@@ -131,15 +131,35 @@ async def _download_pdf_text(pdf_url: str) -> str:
         return ""
 
     full_url = f"{STAATSBLAD_BASE}{pdf_url}"
+    # Cap PDF size to avoid memory exhaustion if Staatsblad ever serves a
+    # huge scanned filing (or a pathological adversary). Most appointment
+    # notices are well under a megabyte.
+    MAX_PDF_BYTES = 10 * 1024 * 1024  # 10 MB
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(full_url, timeout=30, follow_redirects=True)
-            if resp.status_code != 200:
-                logger.warning("Staatsblad PDF download failed (%s): %s", resp.status_code, full_url)
-                return ""
+            # Stream so we can abort without buffering the whole body.
+            async with client.stream(
+                "GET", full_url,
+                timeout=30,
+                follow_redirects=True,
+                headers={"User-Agent": "Datasnoop/1.0 (+https://datasnoop.be)"},
+            ) as resp:
+                if resp.status_code != 200:
+                    logger.warning("Staatsblad PDF download failed (%s): %s", resp.status_code, full_url)
+                    return ""
+                content_length = resp.headers.get("content-length")
+                if content_length and int(content_length) > MAX_PDF_BYTES:
+                    logger.warning("Staatsblad PDF too large (%s bytes), skipping: %s", content_length, full_url)
+                    return ""
+                buf = bytearray()
+                async for chunk in resp.aiter_bytes(chunk_size=64 * 1024):
+                    buf.extend(chunk)
+                    if len(buf) > MAX_PDF_BYTES:
+                        logger.warning("Staatsblad PDF exceeded %d bytes mid-stream: %s", MAX_PDF_BYTES, full_url)
+                        return ""
 
             text_parts = []
-            with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
+            with pdfplumber.open(io.BytesIO(bytes(buf))) as pdf:
                 for page in pdf.pages:
                     page_text = page.extract_text()
                     if page_text:

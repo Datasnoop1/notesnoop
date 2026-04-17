@@ -3,7 +3,6 @@
 import hashlib
 import logging
 import os
-import re
 import secrets
 import time
 
@@ -141,12 +140,16 @@ def _get_tier_config() -> dict:
 
 
 def _classify_endpoint(path: str) -> str | None:
-    """Map an API path to a tier limit column name, or None if not limited."""
-    if "/search" in path:
-        return "searches_per_day"
-    # Only count POST-style AI endpoints, NOT the GET /enrichment read endpoint.
-    # /ai-commentary and /extract-admins are added because both burn
-    # OpenRouter / Zenrows tokens and are reachable anonymously.
+    """Map an API path to a tier limit column name, or None if not limited.
+
+    Operator policy (2026-04-17): only AI-burning endpoints (LLM calls,
+    Zenrows scrapes) and explicit exports are tier-counted. Essential
+    data — search, company profile views, NBB / Staatsblad filing fetch —
+    is always unlimited, so free users never bounce off a "limit reached"
+    wall on the basics. Cost protection on the essentials comes from the
+    global per-IP rate limiter (200 req/min) + in-process per-CBE caches.
+    """
+    # AI bucket — every endpoint here costs money per call.
     if (
         ("/enrich" in path and "/enrichment" not in path)
         or "/ai-insights" in path
@@ -160,15 +163,6 @@ def _classify_endpoint(path: str) -> str | None:
         return "ai_enrichments_per_day"
     if "/export" in path:
         return "export_per_day"
-    # Staatsblad scrape — outbound HTTP to ejustice.fgov.be + Postgres
-    # write amplification. Counts toward the search bucket so a passive
-    # crawler can't run unlimited scrapes via the auto-extract chain.
-    if "/api/staatsblad/" in path and path.endswith("/load"):
-        return "searches_per_day"
-    # Match /api/companies/<cbe> but NOT sub-resources like /financials, /structure
-    # These are individual company detail page views
-    if re.match(r"^/api/companies/\d{10}$", path):
-        return "company_views_per_day"
     return None
 
 
@@ -257,46 +251,35 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
             # Build the user label used in activity_log (must match ActivityLogMiddleware)
             user_label = email or _hash_client_id(get_client_ip(request))
 
-            # Map limit_type to actual endpoint patterns for counting
-            if limit_type == "searches_per_day":
-                pattern = "%/search%"
-            elif limit_type == "ai_enrichments_per_day":
-                pattern = "%enrich%"  # matches /enrich, /enrichment, /ai-insights
-            elif limit_type == "export_per_day":
-                pattern = "%export%"
-            elif limit_type == "company_views_per_day":
-                pattern = "/api/companies/___________"  # dummy, use regex below
-            else:
-                return await call_next(request)
-
-            if limit_type == "company_views_per_day":
+            # Per the policy in `_classify_endpoint`, only AI and export
+            # buckets reach this counter — searches and company views are
+            # now unlimited at the tier layer.
+            if limit_type == "ai_enrichments_per_day":
                 row = db_fetch_one(
                     """SELECT COUNT(*) AS cnt FROM activity_log
                        WHERE user_email = %s
-                         AND endpoint ~ '^/api/companies/[0-9]{10}$'
-                         AND created_at >= CURRENT_DATE""",
-                    (user_label,),
-                )
-            elif limit_type == "ai_enrichments_per_day":
-                row = db_fetch_one(
-                    """SELECT COUNT(*) AS cnt FROM activity_log
-                       WHERE user_email = %s
-                         AND (endpoint LIKE %s
+                         AND (endpoint LIKE '%%/enrich%%'
                               OR endpoint LIKE '%%/ai-insights%%'
                               OR endpoint LIKE '%%/ai-commentary%%'
                               OR endpoint LIKE '%%/extract-admins%%'
-                              OR endpoint LIKE '%%/scrape-%%')
+                              OR endpoint LIKE '%%/scrape-%%'
+                              OR endpoint LIKE '%%/summarize-publications%%'
+                              OR endpoint LIKE '%%/similar/ai%%'
+                              OR endpoint LIKE '%%/screener/nl%%')
                          AND created_at >= CURRENT_DATE""",
-                    (user_label, pattern),
+                    (user_label,),
                 )
-            else:
+            elif limit_type == "export_per_day":
                 row = db_fetch_one(
                     """SELECT COUNT(*) AS cnt FROM activity_log
                        WHERE user_email = %s
-                         AND endpoint LIKE %s
+                         AND endpoint LIKE '%%/export%%'
                          AND created_at >= CURRENT_DATE""",
-                    (user_label, pattern),
+                    (user_label,),
                 )
+            else:
+                # Unknown bucket — pass through.
+                return await call_next(request)
 
             used = row["cnt"] if row else 0
 

@@ -208,13 +208,24 @@ function UnifiedSearchPageInner() {
                         {p.name}
                       </div>
                       <div className="text-[11px] text-slate-400 truncate">
-                        {p.roles > 0 && <span>{p.roles} roles</span>}
-                        {p.roles > 0 && p.holdings > 0 && <span> · </span>}
-                        {p.holdings > 0 && <span>{p.holdings} holdings</span>}
+                        {p.top_companies && p.top_companies.length > 0 ? (
+                          <>
+                            <span className="text-slate-500">{p.top_companies.slice(0, 2).join(" \u00b7 ")}</span>
+                            {(p.company_count || p.companies) > p.top_companies.length && (
+                              <span className="text-slate-400"> +{(p.company_count || p.companies) - p.top_companies.length} more</span>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {p.roles > 0 && <span>{p.roles} roles</span>}
+                            {p.roles > 0 && p.holdings > 0 && <span> \u00b7 </span>}
+                            {p.holdings > 0 && <span>{p.holdings} holdings</span>}
+                          </>
+                        )}
                       </div>
                     </div>
                     <Badge variant="secondary" className="text-[10px] shrink-0">
-                      {p.companies} {p.companies === 1 ? "co." : "cos."}
+                      {p.company_count || p.companies} {(p.company_count || p.companies) === 1 ? "co." : "cos."}
                     </Badge>
                     <button
                       onClick={(e) => togglePersonFav(p.name, e)}
@@ -297,14 +308,25 @@ function UnifiedSearchPageInner() {
                       <div className="text-sm font-medium text-slate-800 group-hover:text-emerald-600 truncate">
                         {p.name}
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        {p.roles > 0 && <span>{p.roles} roles</span>}
-                        {p.roles > 0 && p.holdings > 0 && <span> · </span>}
-                        {p.holdings > 0 && <span>{p.holdings} holdings</span>}
+                      <div className="text-[11px] text-slate-400 mt-0.5 truncate">
+                        {p.top_companies && p.top_companies.length > 0 ? (
+                          <>
+                            <span className="text-slate-500">{p.top_companies.slice(0, 2).join(" \u00b7 ")}</span>
+                            {(p.company_count || p.companies) > p.top_companies.length && (
+                              <span className="text-slate-400"> +{(p.company_count || p.companies) - p.top_companies.length}</span>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {p.roles > 0 && <span>{p.roles} roles</span>}
+                            {p.roles > 0 && p.holdings > 0 && <span> \u00b7 </span>}
+                            {p.holdings > 0 && <span>{p.holdings} holdings</span>}
+                          </>
+                        )}
                       </div>
                     </div>
                     <Badge variant="secondary" className="text-[10px] shrink-0">
-                      {p.companies} cos.
+                      {p.company_count || p.companies} cos.
                     </Badge>
                     <button
                       onClick={(e) => togglePersonFav(p.name, e)}

@@ -33,53 +33,160 @@ def _serialize_row(row: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/search")
-async def search_people(q: str = Query(..., min_length=1)):
-    """Search administrators and shareholders by name.
+async def search_people(q: str = Query(..., min_length=2)):
+    """Search administrators and shareholders by name OR address.
 
-    SQL extracted from app/pages/5_people.py search_people().
-    Returns distinct names with connection counts.
+    Returns each distinct name with:
+      - ``company_count``: distinct companies the person touches (UNION of
+        admin + shareholder roles, deduped — a person who is BOTH admin
+        and shareholder of "Acme NV" only counts as 1).
+      - ``top_companies``: up to 3 connected company names, ordered by
+        latest filing revenue (so users see flagship companies first,
+        not alphabetically-first shell SPRLs).
+
+    Input is space-tolerant (extra/trailing whitespace, double spaces) and
+    escapes ILIKE wildcards so a literal ``%`` in a name doesn't blow up
+    matching. ``min_length=2`` guards against a single-character query
+    fanning out to millions of rows.
+
+    Address-based path: if the query matches a street, municipality, or
+    zipcode, we also surface persons connected (admin or shareholder) to
+    companies registered at that address. Useful when the user knows the
+    location but not the name.
     """
-    query = f"%{q.strip()}%"
+    # Tolerate user sloppiness: trim, collapse internal whitespace, escape
+    # ILIKE wildcards so a literal `%` in a name doesn't blow up matching.
+    cleaned = " ".join(q.split())
+    if len(cleaned) < 2:
+        return []
+    safe = cleaned.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    query = f"%{safe}%"
+    # Detect Belgian-style 4-digit zip; address-pattern matches more
+    # broadly (street / municipality / zipcode prefix).
+    zip_q = cleaned if cleaned.isdigit() and len(cleaned) == 4 else None
+    # Gate the address path to ≥4 chars to keep `addr_match` from doing a
+    # multi-million-row ILIKE on noise like "ab". Streets like "Rue" still
+    # qualify ("Rue " = 4 chars after we collapse whitespace).
+    addr_q = query if (len(cleaned) >= 4 or zip_q) else None
 
     try:
         with get_conn() as conn:
             import psycopg2.extras
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            # Group by LOWER(name) to deduplicate case variations
-            # (e.g. "Dries Bertrem" vs "Dries BERTREM"), display as INITCAP
+            # Plan:
+            # 1. `hits`: union of (a) admin and shareholder rows whose own
+            #    name matches the pattern, (b) admin/shareholder rows whose
+            #    company's registered address matches the pattern. Capped
+            #    per-source so q="a" can't OOM.
+            # 2. `per_person`: aggregate distinct (name, enterprise) pairs
+            #    so a person counted as both admin AND shareholder of the
+            #    same company doesn't get double-counted.
+            # 3. Join `denomination` (DISTINCT ON to pick one name per CBE,
+            #    NL preferred) and `financial_latest` (for revenue sort).
+            # 4. Final aggregate: pick the 3 highest-revenue company names.
             cur.execute("""
-                SELECT INITCAP(MIN(name)) AS name,
-                       COUNT(DISTINCT enterprise_number) AS n_admin_cos
-                FROM administrator
-                WHERE name ILIKE %s
-                  AND person_type = 'natural'
-                GROUP BY LOWER(name)
-                UNION
-                SELECT INITCAP(MIN(name)) AS name,
-                       COUNT(DISTINCT enterprise_number) AS n_sh_cos
-                FROM shareholder
-                WHERE name ILIKE %s
-                  AND shareholder_type = 'individual'
-                GROUP BY LOWER(name)
-                ORDER BY n_admin_cos DESC, name
+                WITH addr_match AS (
+                    -- Skip the entire scan when neither addr_q nor zip_q
+                    -- are set; the leading `%s IS NOT NULL` short-circuits
+                    -- the WHERE so the planner returns zero rows cheaply.
+                    SELECT DISTINCT entity_number
+                    FROM address
+                    WHERE type_of_address = 'REGO'
+                      AND (%s IS NOT NULL OR %s IS NOT NULL)
+                      AND (
+                          (%s IS NOT NULL AND street_nl ILIKE %s ESCAPE '\\')
+                          OR (%s IS NOT NULL AND street_fr ILIKE %s ESCAPE '\\')
+                          OR (%s IS NOT NULL AND municipality_nl ILIKE %s ESCAPE '\\')
+                          OR (%s IS NOT NULL AND municipality_fr ILIKE %s ESCAPE '\\')
+                          OR (%s IS NOT NULL AND zipcode = %s)
+                      )
+                    LIMIT 2000
+                ),
+                hits AS (
+                    (SELECT a.name, a.enterprise_number
+                     FROM administrator a
+                     WHERE a.name ILIKE %s ESCAPE '\\'
+                       AND a.person_type = 'natural'
+                     LIMIT 5000)
+                    UNION
+                    (SELECT s.name, s.enterprise_number
+                     FROM shareholder s
+                     WHERE s.name ILIKE %s ESCAPE '\\'
+                       AND s.shareholder_type = 'individual'
+                     LIMIT 5000)
+                    UNION
+                    (SELECT a.name, a.enterprise_number
+                     FROM administrator a
+                     JOIN addr_match m ON m.entity_number = a.enterprise_number
+                     WHERE a.person_type = 'natural'
+                     LIMIT 5000)
+                    UNION
+                    (SELECT s.name, s.enterprise_number
+                     FROM shareholder s
+                     JOIN addr_match m ON m.entity_number = s.enterprise_number
+                     WHERE s.shareholder_type = 'individual'
+                     LIMIT 5000)
+                ),
+                names AS (
+                    SELECT DISTINCT ON (entity_number) entity_number, denomination
+                    FROM denomination
+                    WHERE type_of_denomination = '001'
+                    ORDER BY entity_number,
+                             CASE language WHEN '2' THEN 1 WHEN '1' THEN 2 ELSE 3 END
+                ),
+                per_company AS (
+                    SELECT
+                        LOWER(h.name) AS name_key,
+                        INITCAP(MIN(h.name)) AS display_name,
+                        h.enterprise_number,
+                        COALESCE(n.denomination, h.enterprise_number) AS company_name,
+                        COALESCE(fl.revenue, 0) AS revenue
+                    FROM hits h
+                    LEFT JOIN names n ON n.entity_number = h.enterprise_number
+                    LEFT JOIN financial_latest fl ON fl.enterprise_number = h.enterprise_number
+                    GROUP BY LOWER(h.name), h.enterprise_number, n.denomination, fl.revenue
+                ),
+                ranked AS (
+                    SELECT name_key, MIN(display_name) AS display_name, enterprise_number,
+                           MIN(company_name) AS company_name, MAX(revenue) AS revenue
+                    FROM per_company
+                    GROUP BY name_key, enterprise_number
+                ),
+                aggregated AS (
+                    SELECT name_key,
+                           MIN(display_name) AS name,
+                           COUNT(*) AS company_count,
+                           ARRAY_AGG(company_name ORDER BY revenue DESC NULLS LAST, company_name) AS company_names
+                    FROM ranked
+                    GROUP BY name_key
+                )
+                SELECT name, company_count, company_names[1:3] AS top_companies
+                FROM aggregated
+                ORDER BY company_count DESC, name
                 LIMIT 50
-            """, (query, query))
+            """, (
+                # addr_match guards (2 short-circuit + 4 ILIKE pairs + 2 zip equality)
+                addr_q, zip_q,
+                addr_q, addr_q,
+                addr_q, addr_q,
+                addr_q, addr_q,
+                addr_q, addr_q,
+                zip_q, zip_q,
+                # name-arm placeholders (admin + shareholder)
+                query, query,
+            ))
             rows = [dict(r) for r in cur.fetchall()]
             cur.close()
             conn.commit()
 
-        # Aggregate by name (union may produce duplicates for same name in both tables)
-        agg = {}
-        for row in rows:
-            name = row["name"]
-            cnt = row["n_admin_cos"]
-            agg[name] = agg.get(name, 0) + cnt
-
-        result = [
-            {"name": name, "company_count": cnt}
-            for name, cnt in sorted(agg.items(), key=lambda x: (-x[1], x[0]))
+        return [
+            {
+                "name": r["name"],
+                "company_count": int(r["company_count"]) if r["company_count"] is not None else 0,
+                "top_companies": r.get("top_companies") or [],
+            }
+            for r in rows
         ]
-        return result
 
     except Exception as e:
         logger.exception("People search failed")
@@ -320,8 +427,15 @@ async def enrich_person(name: str, lang: str | None = None, user=Depends(get_cur
 # ---------------------------------------------------------------------------
 
 @router.get("/{name}/enrichment")
-async def get_person_enrichment(name: str, user=Depends(optional_user)):
-    """Fetch existing AI-generated enrichment for a person."""
+async def get_person_enrichment(name: str, lang: str | None = None, user=Depends(optional_user)):
+    """Fetch existing AI-generated enrichment for a person.
+
+    ``lang`` translates the cached summary on the fly; same in-process cache
+    as the company enrichment endpoint. Translation only runs for signed-in
+    users so anonymous traffic can't drive uncapped LLM spend.
+    """
+    from ai_client import translate_cached
+
     _ensure_people_enrichment_table()
 
     row = fetch_one("""
@@ -333,4 +447,7 @@ async def get_person_enrichment(name: str, user=Depends(optional_user)):
     if not row:
         return None
 
-    return _serialize_row(row)
+    serialized = _serialize_row(row)
+    if lang and user and serialized.get("summary"):
+        serialized["summary"] = await translate_cached(name, "person_summary", serialized["summary"], lang)
+    return serialized

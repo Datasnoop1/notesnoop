@@ -114,13 +114,17 @@ export async function generateValuationPdf(
   drawBox(3, "Equity value", fmtVal(latestEq ?? null), "Shareholders receive", true);
   y += boxH + 5;
 
-  // Average EBITDA valuation strip
-  const validEbitdas = years.map((y2) => y2.ebitda).filter((v): v is number => v != null);
-  if (validEbitdas.length >= 2) {
-    const avgEbitda = validEbitdas.reduce((s, v) => s + v, 0) / validEbitdas.length;
+  // Average EBITDA valuation strip — positive years only, mirrors UI.
+  const positiveEbitdas = years.map((y2) => y2.ebitda).filter((v): v is number => v != null && v > 0);
+  if (positiveEbitdas.length >= 2) {
+    const avgEbitda = positiveEbitdas.reduce((s, v) => s + v, 0) / positiveEbitdas.length;
     const avgEv = avgEbitda * multiple;
     const latestNd = latest?.net_debt ?? 0;
     const avgEquity = avgEv - latestNd;
+    const totalReported = years.filter((y2) => y2.ebitda != null).length;
+    const avgTitleText = positiveEbitdas.length === totalReported
+      ? `AVERAGE EBITDA VALUATION (${positiveEbitdas.length}-YEAR)`
+      : `AVERAGE EBITDA VALUATION (${positiveEbitdas.length} OF ${totalReported} YEARS \u2014 LOSS-MAKING EXCLUDED)`;
 
     doc.setDrawColor(...PDF.sectionBg);
     doc.setFillColor(...PDF.sectionBg);
@@ -128,11 +132,7 @@ export async function generateValuationPdf(
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7);
     doc.setTextColor(...PDF.textDark);
-    doc.text(
-      `AVERAGE EBITDA VALUATION (${validEbitdas.length}-YEAR)`,
-      margin + 3,
-      y + 4.5,
-    );
+    doc.text(avgTitleText, margin + 3, y + 4.5);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     doc.setTextColor(...PDF.textMuted);

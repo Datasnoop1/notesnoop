@@ -30,6 +30,7 @@ interface PersonRow {
   companies?: number;
   roles?: number;
   holdings?: number;
+  top_companies?: string[];
 }
 
 interface AdminRole {
@@ -265,7 +266,12 @@ function PeoplePageInner() {
                         )}
                       </TableCell>
                       <TableCell className="font-medium text-slate-900">
-                        {person.name}
+                        <div>{person.name}</div>
+                        {person.top_companies && person.top_companies.length > 0 && (
+                          <div className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[480px]">
+                            {person.top_companies.slice(0, 3).join(" \u00b7 ")}
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">
                         {fmtNumber(person.company_count)}
