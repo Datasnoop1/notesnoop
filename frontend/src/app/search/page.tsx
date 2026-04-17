@@ -179,7 +179,7 @@ function UnifiedSearchPageInner() {
                       <div className="text-right shrink-0">
                         <div className="text-xs font-mono text-slate-600">{fmtEur(c.revenue)}</div>
                         {c.ebitda_margin_pct != null && (
-                          <div className={`text-[10px] font-mono ${c.ebitda_margin_pct >= 15 ? "text-emerald-500" : c.ebitda_margin_pct >= 5 ? "text-amber-500" : "text-rose-400"}`}>
+                          <div className={`text-[11px] font-mono ${c.ebitda_margin_pct >= 15 ? "text-emerald-500" : c.ebitda_margin_pct >= 5 ? "text-amber-500" : "text-rose-400"}`}>
                             {fmtPct(c.ebitda_margin_pct)}
                           </div>
                         )}
@@ -187,9 +187,9 @@ function UnifiedSearchPageInner() {
                     )}
                     <button
                       onClick={(e) => toggleCompanyFav(c.enterprise_number, e)}
-                      className="p-1 rounded-md hover:bg-slate-100 transition-colors shrink-0"
+                      className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 transition-colors shrink-0"
                     >
-                      <Star className={`w-3.5 h-3.5 ${favCompanies.has(c.enterprise_number) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
+                      <Star className={`w-4 h-4 ${favCompanies.has(c.enterprise_number) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
                     </button>
                   </Link>
                 ))}
@@ -218,9 +218,9 @@ function UnifiedSearchPageInner() {
                     </Badge>
                     <button
                       onClick={(e) => togglePersonFav(p.name, e)}
-                      className="p-1 rounded-md hover:bg-slate-100 transition-colors shrink-0"
+                      className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 transition-colors shrink-0"
                     >
-                      <Star className={`w-3.5 h-3.5 ${favPeople.has(p.name) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
+                      <Star className={`w-4 h-4 ${favPeople.has(p.name) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
                     </button>
                   </Link>
                 ))}
@@ -264,9 +264,9 @@ function UnifiedSearchPageInner() {
                     </div>
                     <button
                       onClick={(e) => toggleCompanyFav(c.enterprise_number, e)}
-                      className="p-1 rounded-md hover:bg-slate-100 transition-colors shrink-0"
+                      className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 transition-colors shrink-0"
                     >
-                      <Star className={`w-3.5 h-3.5 ${favCompanies.has(c.enterprise_number) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
+                      <Star className={`w-4 h-4 ${favCompanies.has(c.enterprise_number) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
                     </button>
                   </Link>
                 ))}
@@ -308,9 +308,9 @@ function UnifiedSearchPageInner() {
                     </Badge>
                     <button
                       onClick={(e) => togglePersonFav(p.name, e)}
-                      className="p-1 rounded-md hover:bg-slate-100 transition-colors shrink-0"
+                      className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 transition-colors shrink-0"
                     >
-                      <Star className={`w-3.5 h-3.5 ${favPeople.has(p.name) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
+                      <Star className={`w-4 h-4 ${favPeople.has(p.name) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
                     </button>
                   </Link>
                 ))}

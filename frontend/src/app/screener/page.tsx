@@ -596,11 +596,11 @@ export default function ScreenerPage() {
   }, [filters]);
 
   return (
-    <div className="flex h-[calc(100vh-64px)] overflow-hidden relative">
-      {/* Mobile filter toggle */}
+    <div className="flex h-[calc(100dvh-100px)] md:h-[calc(100vh-64px)] overflow-hidden relative">
+      {/* Mobile filter toggle — positioned above the ad banner */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="md:hidden fixed bottom-4 right-4 z-40 bg-indigo-600 text-white rounded-full p-3 shadow-lg hover:bg-indigo-700 transition-colors"
+        className="md:hidden fixed bottom-20 right-4 z-40 bg-indigo-600 text-white rounded-full p-3 shadow-lg hover:bg-indigo-700 transition-colors"
       >
         {sidebarOpen ? <X className="w-5 h-5" /> : <SlidersHorizontal className="w-5 h-5" />}
         {!sidebarOpen && activeFilterCount > 0 && (
@@ -616,7 +616,7 @@ export default function ScreenerPage() {
       )}
 
       {/* ================= LEFT SIDEBAR ================= */}
-      <aside className={`w-60 shrink-0 border-r border-slate-200 bg-slate-50/70 overflow-y-auto
+      <aside className={`w-[85vw] max-w-xs md:w-60 shrink-0 border-r border-slate-200 bg-slate-50/70 overflow-y-auto
         fixed md:static inset-y-0 left-0 z-30 transition-transform md:translate-x-0
         ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
         md:block
@@ -735,7 +735,7 @@ export default function ScreenerPage() {
 
           {/* NACE (multi-select with chips) */}
           <div className="space-y-1" ref={naceContainerRef}>
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <Tag className="w-3 h-3 inline mr-1" />
               {t("screener.naceSector")}
             </Label>
@@ -754,7 +754,7 @@ export default function ScreenerPage() {
             <div className="relative">
               <Input
                 ref={naceInputRef}
-                className="h-7 text-xs"
+                className="h-10 md:h-7 text-base md:text-xs"
                 placeholder={naceChips.length ? "Add another..." : t("screener.naceCodeOrName")}
                 value={naceInput}
                 onChange={(e) => {
@@ -809,7 +809,7 @@ export default function ScreenerPage() {
 
           {/* Province */}
           <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <MapPin className="w-3 h-3 inline mr-1" />
               {t("screener.province")}
             </Label>
@@ -836,7 +836,7 @@ export default function ScreenerPage() {
                 });
               }}
             >
-              <SelectTrigger className="h-7 text-xs w-full">
+              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
                 <SelectValue placeholder="All" />
               </SelectTrigger>
               <SelectContent>
@@ -876,19 +876,19 @@ export default function ScreenerPage() {
 
           {/* Revenue */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               {t("screener.revenue")}{unit !== "raw" ? ` (${unit})` : ""}
             </Label>
             <div className="grid grid-cols-2 gap-1.5">
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Min"
                 value={filters.rev_min}
                 onChange={(e) => updateFilter("rev_min", e.target.value)}
               />
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Max"
                 value={filters.rev_max}
@@ -899,19 +899,19 @@ export default function ScreenerPage() {
 
           {/* EBIT */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               {t("screener.ebit")}{unit !== "raw" ? ` (${unit})` : ""}
             </Label>
             <div className="grid grid-cols-2 gap-1.5">
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Min"
                 value={filters.ebit_min}
                 onChange={(e) => updateFilter("ebit_min", e.target.value)}
               />
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Max"
                 value={filters.ebit_max}
@@ -922,19 +922,19 @@ export default function ScreenerPage() {
 
           {/* FTE */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               {t("screener.fte")}
             </Label>
             <div className="grid grid-cols-2 gap-1.5">
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Min"
                 value={filters.fte_min}
                 onChange={(e) => updateFilter("fte_min", e.target.value)}
               />
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Max"
                 value={filters.fte_max}
@@ -945,7 +945,7 @@ export default function ScreenerPage() {
 
           {/* Margin */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               {t("screener.marginMin")}
             </Label>
             <Input
@@ -959,7 +959,7 @@ export default function ScreenerPage() {
 
           {/* Net Debt / EBITDA */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <TrendingUp className="w-3 h-3 inline mr-1" />
               {t("screener.maxNetDebtEbitda")}
             </Label>
@@ -974,20 +974,20 @@ export default function ScreenerPage() {
 
           {/* ── Growth Filters ── */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <TrendingUp className="w-3 h-3 inline mr-1" />
               {t("screener.revenueGrowth")}
             </Label>
             <div className="grid grid-cols-2 gap-1">
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Min"
                 value={filters.rev_growth_min}
                 onChange={(e) => updateFilter("rev_growth_min", e.target.value)}
               />
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Max"
                 value={filters.rev_growth_max}
@@ -997,20 +997,20 @@ export default function ScreenerPage() {
           </div>
 
           <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <TrendingUp className="w-3 h-3 inline mr-1" />
               {t("screener.ebitdaGrowth")}
             </Label>
             <div className="grid grid-cols-2 gap-1">
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Min"
                 value={filters.ebitda_growth_min}
                 onChange={(e) => updateFilter("ebitda_growth_min", e.target.value)}
               />
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Max"
                 value={filters.ebitda_growth_max}
@@ -1020,20 +1020,20 @@ export default function ScreenerPage() {
           </div>
 
           <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <TrendingUp className="w-3 h-3 inline mr-1" />
               {t("screener.totalAssetsGrowth")}
             </Label>
             <div className="grid grid-cols-2 gap-1">
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Min"
                 value={filters.assets_growth_min}
                 onChange={(e) => updateFilter("assets_growth_min", e.target.value)}
               />
               <Input
-                className="h-7 text-xs font-mono"
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Max"
                 value={filters.assets_growth_max}
@@ -1044,7 +1044,7 @@ export default function ScreenerPage() {
 
           {/* Management Changes */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <Users className="w-3 h-3 inline mr-1" />
               Mgmt Changed (days)
             </Label>
@@ -1052,7 +1052,7 @@ export default function ScreenerPage() {
               value={filters.mgmt_change_days || "none"}
               onValueChange={(v) => updateFilter("mgmt_change_days", v === "none" || !v ? "" : v)}
             >
-              <SelectTrigger className="h-7 text-xs w-full">
+              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
                 <SelectValue placeholder="Any" />
               </SelectTrigger>
               <SelectContent>
@@ -1067,14 +1067,14 @@ export default function ScreenerPage() {
 
           {/* Limit */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               {t("screener.limit")}
             </Label>
             <Select
               value={filters.limit}
               onValueChange={(v) => updateFilter("limit", v ?? "100")}
             >
-              <SelectTrigger className="h-7 text-xs w-full">
+              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1099,7 +1099,7 @@ export default function ScreenerPage() {
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
               <input
                 type="text"
-                className="w-full h-8 pl-8 pr-3 text-sm border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 placeholder:text-slate-400"
+                className="w-full h-10 md:h-8 pl-8 pr-3 text-base md:text-sm border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 placeholder:text-slate-400"
                 placeholder={t("screener.searchResultsPlaceholder")}
                 value={nameSearch}
                 onChange={(e) => setNameSearch(e.target.value)}
@@ -1129,7 +1129,7 @@ export default function ScreenerPage() {
             <button
               onClick={() => exportCsv(filteredResults)}
               disabled={filteredResults.length === 0}
-              className="flex items-center gap-1.5 h-7 px-3 text-[11px] font-medium text-slate-600 border border-slate-200 rounded-md hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center gap-1.5 h-10 md:h-7 px-3 text-xs md:text-[11px] font-medium text-slate-600 border border-slate-200 rounded-md hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Download className="w-3 h-3" />
               {t("screener.export")}
@@ -1145,7 +1145,7 @@ export default function ScreenerPage() {
                 <button
                   key={qf.label}
                   onClick={() => toggleQuickFilter(qf)}
-                  className={`h-5 px-2 text-[10px] font-medium rounded-full border transition-all ${
+                  className={`h-8 md:h-5 px-3 md:px-2 text-[11px] md:text-[10px] font-medium rounded-full border transition-all ${
                     active
                       ? "bg-indigo-600 text-white border-indigo-600"
                       : "bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600"

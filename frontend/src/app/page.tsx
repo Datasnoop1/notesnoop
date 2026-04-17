@@ -59,7 +59,7 @@ export default function Home() {
           <h1 className="text-4xl sm:text-6xl font-light text-gray-900 tracking-tight">
             Datasnoop
           </h1>
-          <span className="text-[10px] sm:text-[11px] font-medium text-gray-400 uppercase tracking-[0.2em]">
+          <span className="text-[11px] sm:text-[12px] font-medium text-gray-400 uppercase tracking-[0.2em]">
             Beta
           </span>
         </div>
@@ -85,30 +85,30 @@ export default function Home() {
 
         {/* Secondary actions */}
         <div className="mt-8 flex flex-wrap items-center justify-center gap-y-1 text-[13px] text-gray-600">
-          <Link href="/screener" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+          <Link href="/screener" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
             {t("nav.screener")}
           </Link>
           <span className="text-gray-300" aria-hidden>·</span>
-          <Link href="/favourites" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+          <Link href="/favourites" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
             {t("nav.favourites")}
           </Link>
           <span className="text-gray-300" aria-hidden>·</span>
-          <Link href="/compare" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+          <Link href="/compare" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
             {t("nav.compare")}
           </Link>
           <span className="text-gray-300" aria-hidden>·</span>
-          <Link href="/aggregate" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+          <Link href="/aggregate" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
             {t("nav.aggregate")}
           </Link>
           <span className="text-gray-300" aria-hidden>·</span>
-          <Link href="/guide" className="px-3 sm:px-4 py-2 rounded-md hover:bg-gray-50 transition-colors">
+          <Link href="/guide" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
             User guide
           </Link>
         </div>
       </form>
 
       {/* What's new */}
-      <section className="mt-32 sm:mt-40 w-full max-w-2xl">
+      <section className="mt-16 sm:mt-40 w-full max-w-2xl">
         <div className="rounded-2xl border border-gray-200 bg-white p-6 sm:p-8 shadow-[0_1px_3px_rgba(32,33,36,0.04)]">
           <div className="flex items-center gap-2 mb-6">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
