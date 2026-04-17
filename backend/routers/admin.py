@@ -315,22 +315,29 @@ async def admin_insights(user=Depends(_require_admin)):
             LIMIT 10
         """)
 
-        # Enrich with company names
-        top_companies = []
+        # Enrich with company names — single query instead of N+1.
+        cleaned = []
         for r in top_rows:
             cbe = r.get("cbe", "")
-            # Clean up any remaining path segments
             if "/" in cbe:
                 cbe = cbe.split("/")[0]
-            name_row = fetch_one(
-                "SELECT name FROM company_info WHERE enterprise_number = %s",
-                (cbe,),
+            cleaned.append((cbe, r["view_count"]))
+
+        name_by_cbe = {}
+        if cleaned:
+            cbes = [c for c, _ in cleaned]
+            placeholders = ",".join(["%s"] * len(cbes))
+            name_rows = fetch_all(
+                f"SELECT enterprise_number, name FROM company_info "
+                f"WHERE enterprise_number IN ({placeholders})",
+                tuple(cbes),
             )
-            top_companies.append({
-                "cbe": cbe,
-                "name": name_row["name"] if name_row else cbe,
-                "view_count": r["view_count"],
-            })
+            name_by_cbe = {row["enterprise_number"]: row["name"] for row in name_rows}
+
+        top_companies = [
+            {"cbe": cbe, "name": name_by_cbe.get(cbe, cbe), "view_count": vc}
+            for cbe, vc in cleaned
+        ]
         result["top_companies"] = top_companies
 
         return result

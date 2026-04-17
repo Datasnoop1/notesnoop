@@ -75,7 +75,6 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   const fmt = (v: number | null | undefined) => fmtEurUnit(v, unit);
 
   const handleExportExcel = async () => {
-    console.log("[valuation] Excel export clicked, data:", !!data);
     if (!data) {
       alert("No valuation data loaded yet — wait for the table to render.");
       return;
