@@ -55,8 +55,9 @@ export default async function ValuationDemoPage({
 
   return (
     <div className="mx-auto w-full max-w-[1000px] px-2 py-4 md:py-8">
-      {/* Demo-mode label */}
-      <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-700">
+      {/* Demo-mode label — hidden in print since the valuation tab has its
+          own DataSnoop logo header for the PDF. */}
+      <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-700 no-print">
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-500" />
         Indicative valuation · Demo
       </div>
