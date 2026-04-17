@@ -21,10 +21,10 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
-// Paths that must stay reachable on staging for anonymous users —
-// otherwise they'd have no way to sign in and become admin. These
-// pages render normally and do not trigger the blocker.
-const PUBLIC_PATHS = ["/login", "/auth/"];
+/** Routes that should always render without the staging admin-only blocker.
+ *  These are public demo / share pages that need to work for external viewers
+ *  regardless of login state. */
+const PUBLIC_DEMO_PATHS = ["/demo/"];
 
 type GateState =
   | { kind: "unknown" } // before the first check completes
@@ -41,12 +41,21 @@ function looksLikeStaging(): boolean {
 }
 
 export default function StagingGate({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() || "";
+  const isPublicDemo = PUBLIC_DEMO_PATHS.some((p) => pathname.startsWith(p));
   const [state, setState] = useState<GateState>({ kind: "unknown" });
   const pathname = usePathname();
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname === p || pathname?.startsWith(p));
 
   useEffect(() => {
     let cancelled = false;
+
+    // Public demo routes never show the blocker — external viewers with no
+    // login (or non-admin login) must be able to see them.
+    if (isPublicDemo) {
+      setState({ kind: "allow" });
+      return;
+    }
 
     async function check() {
       try {
@@ -91,7 +100,7 @@ export default function StagingGate({ children }: { children: React.ReactNode })
       cancelled = true;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [isPublicDemo]);
 
   // Always let the login + oauth-callback pages render, even if the
   // visitor would otherwise be blocked — otherwise they'd have no way

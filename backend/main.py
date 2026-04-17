@@ -337,7 +337,15 @@ class StagingGateMiddleware(BaseHTTPMiddleware):
         "/api/health",
         "/api/me/is-admin",
     }
-    ALLOWLIST_PREFIXES: tuple[str, ...] = ()
+    ALLOWLIST_PREFIXES = ("/api/sitemap/",)
+    # Regex patterns — dynamic paths we want anonymously accessible on staging.
+    # Keep surgical: only the specific read endpoints used by the public
+    # /demo/valuation/[cbe] page, so demo links can be shared externally.
+    import re as _re
+    ALLOWLIST_PATTERNS = (
+        _re.compile(r"^/api/companies/\d{10}$"),              # company detail
+        _re.compile(r"^/api/companies/\d{10}/valuation$"),    # valuation data
+    )
 
     def __init__(self, app):
         super().__init__(app)
@@ -350,7 +358,11 @@ class StagingGateMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if not path.startswith("/api/"):
             return await call_next(request)
-        if path in self.ALLOWLIST_EXACT or any(path.startswith(p) for p in self.ALLOWLIST_PREFIXES):
+        if (
+            path in self.ALLOWLIST_EXACT
+            or any(path.startswith(p) for p in self.ALLOWLIST_PREFIXES)
+            or any(pat.match(path) for pat in self.ALLOWLIST_PATTERNS)
+        ):
             return await call_next(request)
 
         auth = request.headers.get("authorization", "")
