@@ -20,11 +20,13 @@ function FeedbackDialog({
   type,
   icon,
   label,
+  fullLabel,
   placeholder,
 }: {
   type: "bug" | "suggestion";
   icon: React.ReactNode;
   label: string;
+  fullLabel: string;
   placeholder: string;
 }) {
   const pathname = usePathname();
@@ -66,9 +68,13 @@ function FeedbackDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger>
-        <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-slate-600 bg-white border border-slate-200 rounded-full hover:bg-slate-50 hover:border-slate-300 transition-colors cursor-pointer">
+        <span
+          title={fullLabel}
+          aria-label={fullLabel}
+          className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-[12px] font-medium text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
+        >
           {icon}
-          {label}
+          <span>{label}</span>
         </span>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
@@ -163,9 +169,13 @@ function DonateButton() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger>
-        <span className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-rose-600 bg-rose-50 border border-rose-200 rounded-full hover:bg-rose-100 hover:border-rose-300 transition-colors cursor-pointer">
-          <Heart className="w-3 h-3" />
-          Support us
+        <span
+          title="Support us"
+          aria-label="Support us"
+          className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-[12px] font-medium text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+        >
+          <Heart className="w-4 h-4" />
+          <span>Donate</span>
         </span>
       </DialogTrigger>
       <DialogContent className="sm:max-w-xs">
@@ -221,14 +231,16 @@ export default function FeedbackButtons() {
     <div className="flex items-center gap-1.5">
       <FeedbackDialog
         type="bug"
-        icon={<Bug className="w-3 h-3" />}
-        label="Report bug"
+        icon={<Bug className="w-4 h-4" />}
+        label="Bug"
+        fullLabel="Report bug"
         placeholder="What happened? What did you expect to happen?"
       />
       <FeedbackDialog
         type="suggestion"
-        icon={<Lightbulb className="w-3 h-3" />}
-        label="Suggest idea"
+        icon={<Lightbulb className="w-4 h-4" />}
+        label="Feature"
+        fullLabel="Suggest idea"
         placeholder="What feature or improvement would you like to see?"
       />
       <DonateButton />
