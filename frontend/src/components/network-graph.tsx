@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getCompanyNetwork, getDeepNetwork } from "@/lib/api";
+import { getDeepNetwork } from "@/lib/api";
 import type { DeepNetworkResponse } from "@/lib/api";
 import { useTranslation } from "@/components/language-provider";
 import { Card, CardContent } from "@/components/ui/card";
@@ -59,8 +59,12 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
   const [data, setData] = useState<NetworkData | null>(null);
   const [loading, setLoading] = useState(true);
   const [depth, setDepth] = useState(2);
-  const [deepMode, setDeepMode] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Initialize with a viewport-aware default so the first render isn't 0-wide
+  // on mobile; the layout effect below refines it to the actual container width.
+  const [graphWidth, setGraphWidth] = useState(() =>
+    typeof window !== "undefined" ? Math.min(window.innerWidth - 32, 1000) : 800,
+  );
   const [ForceGraph, setForceGraph] = useState<typeof import("react-force-graph-2d").default | null>(null);
 
   // Dynamic import of react-force-graph-2d (it uses canvas, SSR-incompatible)
@@ -72,37 +76,29 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    if (deepMode) {
-      getDeepNetwork(cbe, depth)
-        .then((resp: DeepNetworkResponse) => {
-          // Adapt deep network response to the shared NetworkData format
-          const adapted: NetworkData = {
-            nodes: resp.nodes.map((n) => ({
-              id: n.id,
-              label: n.name,
-              type: n.type,
-              depth: n.depth,
-            })),
-            edges: resp.edges.map((e) => ({
-              source: e.source,
-              target: e.target,
-              relation: e.relationship || e.label,
-              pct: null,
-            })),
-            truncated: resp.truncated,
-            depth_reached: resp.depth_reached,
-          };
-          setData(adapted);
-        })
-        .catch(() => setData(null))
-        .finally(() => setLoading(false));
-    } else {
-      getCompanyNetwork(cbe, depth)
-        .then(setData)
-        .catch(() => setData(null))
-        .finally(() => setLoading(false));
-    }
-  }, [cbe, depth, deepMode]);
+    getDeepNetwork(cbe, depth)
+      .then((resp: DeepNetworkResponse) => {
+        const adapted: NetworkData = {
+          nodes: resp.nodes.map((n) => ({
+            id: n.id,
+            label: n.name,
+            type: n.type,
+            depth: n.depth,
+          })),
+          edges: resp.edges.map((e) => ({
+            source: e.source,
+            target: e.target,
+            relation: e.relationship || e.label,
+            pct: null,
+          })),
+          truncated: resp.truncated,
+          depth_reached: resp.depth_reached,
+        };
+        setData(adapted);
+      })
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [cbe, depth]);
 
   // Close fullscreen on Escape
   useEffect(() => {
@@ -121,7 +117,29 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
       graphRef.current.d3Force("link")?.distance(120);
       setTimeout(() => graphRef.current?.zoomToFit(400), 100);
     }
-  }, [deepMode, depth, isFullscreen]);
+  }, [depth, isFullscreen, graphWidth]);
+
+  // Track container width so the graph fits cleanly on mobile. Falling
+  // back to a hard-coded 800px used to overflow the viewport on phones.
+  useLayoutEffect(() => {
+    if (loading || !ForceGraph || !data) return;
+    if (isFullscreen) {
+      const update = () => setGraphWidth(window.innerWidth - 32);
+      update();
+      window.addEventListener("resize", update);
+      return () => window.removeEventListener("resize", update);
+    }
+    const el = containerRef.current;
+    if (!el) return;
+    setGraphWidth(el.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width;
+      if (w) setGraphWidth(w);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [isFullscreen, loading, ForceGraph, data]);
 
   const handleNodeClick = useCallback(
     (node: { id?: string }) => {
@@ -156,19 +174,11 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
     );
   }
 
-  // Color nodes: in deep mode use depth-based colors, otherwise use type-based
+  // Depth-based node colors (darker closer to target)
   const nodeColor = (node: { type?: string; id?: string; depth?: number }) => {
-    if (node.id === cbe) return "#4f46e5"; // indigo — current company
-    if (deepMode && node.depth != null) {
-      return DEPTH_COLORS[node.depth] || "#c7d2fe";
-    }
-    switch (node.type) {
-      case "company": return "#6366f1";
-      case "shareholder": return "#059669";
-      case "subsidiary": return "#d97706";
-      case "admin": return "#dc2626";
-      default: return "#94a3b8";
-    }
+    if (node.id === cbe) return "#4f46e5";
+    if (node.depth != null) return DEPTH_COLORS[node.depth] || "#c7d2fe";
+    return "#94a3b8";
   };
 
   // Color edges by relation type: green for shareholder, orange for subsidiary
@@ -198,18 +208,12 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
   };
 
   const graphHeight = isFullscreen ? window.innerHeight - 60 : 700;
-  const graphWidth = isFullscreen
-    ? window.innerWidth - 32
-    : containerRef.current?.clientWidth || 800;
 
   const wrapperClass = isFullscreen
     ? "fixed inset-0 z-50 bg-white flex flex-col"
     : "";
 
-  // Determine which depth levels are present for legend
-  const depthLevels = deepMode
-    ? [...new Set(data.nodes.map((n) => n.depth ?? 0))].sort()
-    : [];
+  const depthLevels = [...new Set(data.nodes.map((n) => n.depth ?? 0))].sort();
 
   return (
     <div className={wrapperClass}>
@@ -219,83 +223,30 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
             <h3 className="text-sm font-semibold text-slate-700">
               {t("company.networkTab.title")}
             </h3>
-            {!deepMode ? (
-              <div className="flex gap-3 text-[11px] text-slate-500">
-                <span className="flex items-center gap-1">
-                  <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 inline-block" />
-                  {t("company.networkTab.company")}
+            <div className="flex flex-wrap gap-3 text-[11px] text-slate-500">
+              {depthLevels.map((d) => (
+                <span key={d} className="flex items-center gap-1">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full inline-block"
+                    style={{ backgroundColor: DEPTH_COLORS[d] || "#c7d2fe" }}
+                  />
+                  {DEPTH_LABELS[d] || `Depth ${d}`}
                 </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 inline-block" />
-                  {t("company.networkTab.shareholder")}
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-600 inline-block" />
-                  {t("company.networkTab.subsidiary")}
-                </span>
-                {/* Edge color legend */}
-                <span className="flex items-center gap-1 ml-2 border-l border-slate-200 pl-2">
-                  <span className="w-4 h-0.5 bg-emerald-600 inline-block rounded" />
-                  {t("company.networkTab.shLink")}
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="w-4 h-0.5 bg-amber-600 inline-block rounded" />
-                  {t("company.networkTab.subLink")}
-                </span>
-              </div>
-            ) : (
-              /* Deep mode legend: color-coded by depth */
-              <div className="flex gap-3 text-[11px] text-slate-500">
-                {depthLevels.map((d) => (
-                  <span key={d} className="flex items-center gap-1">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full inline-block"
-                      style={{ backgroundColor: DEPTH_COLORS[d] || "#c7d2fe" }}
-                    />
-                    {DEPTH_LABELS[d] || `Depth ${d}`}
-                  </span>
-                ))}
-              </div>
-            )}
+              ))}
+            </div>
           </div>
 
           {/* Truncation warning */}
-          {deepMode && data.truncated && (
+          {data.truncated && (
             <div className="flex items-center gap-2 px-3 py-2 mb-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
               {t("company.networkTab.truncationWarning").replace("{depth}", String(data.depth_reached ?? depth))}
             </div>
           )}
 
-          <div className="flex items-center gap-2 mb-2">
-            {/* Mode toggle */}
-            <div className="flex items-center rounded-md border border-slate-200 overflow-hidden">
-              <button
-                onClick={() => { setDeepMode(false); setDepth(Math.min(depth, 3)); }}
-                className={`px-2.5 py-1 text-xs font-medium transition-colors ${
-                  !deepMode
-                    ? "bg-indigo-600 text-white"
-                    : "bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {t("company.networkTab.simple")}
-              </button>
-              <button
-                onClick={() => setDeepMode(true)}
-                className={`px-2.5 py-1 text-xs font-medium transition-colors ${
-                  deepMode
-                    ? "bg-indigo-600 text-white"
-                    : "bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {t("company.networkTab.deep")}
-              </button>
-            </div>
-
-            <span className="text-[10px] text-slate-300">|</span>
-
+          <div className="flex flex-wrap items-center gap-2 mb-2">
             <span className="text-xs text-slate-500 font-medium">{t("company.networkTab.depth")}</span>
-            {(deepMode ? [1, 2, 3, 4] : [1, 2, 3]).map(d => (
+            {[1, 2, 3, 4].map(d => (
               <button
                 key={d}
                 onClick={() => setDepth(d)}
@@ -390,7 +341,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                 const x = node.x || 0;
                 const y = node.y || 0;
                 const isCenter = node.id === cbe;
-                const r = isCenter ? 12 : (deepMode && node.depth != null ? Math.max(4, 8 - node.depth) : 5);
+                const r = isCenter ? 12 : (node.depth != null ? Math.max(4, 8 - node.depth) : 5);
                 const color = nodeColor(node);
 
                 // Circle -- central company is bigger with bold border
@@ -428,7 +379,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
           </div>
           <p className="text-[11px] text-slate-400 mt-2 text-center">
             {t("company.networkTab.footer")} &middot; {t("company.networkTab.nodesConnections").replace("{nodes}", String(data.nodes.length)).replace("{connections}", String(data.edges.length))}
-            {deepMode && data.depth_reached != null && ` \u00b7 Depth reached: ${data.depth_reached}`}
+            {data.depth_reached != null && ` \u00b7 Depth reached: ${data.depth_reached}`}
             {isFullscreen && ` \u00b7 ${t("company.networkTab.pressEsc")}`}
           </p>
         </CardContent>
