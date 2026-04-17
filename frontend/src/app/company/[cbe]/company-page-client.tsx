@@ -841,8 +841,8 @@ export function CompanyPageClient({
                 ))}
               </TabsList>
 
-              <div className="border-b border-slate-100 flex items-end justify-between gap-3 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 no-print">
-                <div className="flex md:flex-wrap">
+              <div className="border-b border-slate-100 flex flex-col md:flex-row md:items-end md:justify-between gap-2 md:gap-3 no-print">
+                <div className="flex flex-wrap">
                   {TAB_GROUPS.map((g) => {
                     const active = currentGroup?.id === g.id;
                     return (
@@ -861,7 +861,7 @@ export function CompanyPageClient({
                     );
                   })}
                 </div>
-                <div className="flex items-center gap-1.5 pb-1.5 shrink-0">
+                <div className="flex items-center gap-1.5 flex-wrap pb-1.5 md:shrink-0">
                   <Button
                     variant="outline"
                     size="sm"
