@@ -20,8 +20,10 @@ Defaults to dry-run mode — pass ``--send`` to actually email. ``--user
 """
 
 import argparse
+import html
 import logging
 import os
+import re
 import smtplib
 import ssl
 import sys
@@ -48,6 +50,13 @@ SMTP_PASS = os.getenv("SMTP_PASS")
 SMTP_FROM = os.getenv("SMTP_FROM", "claude@datasnoop.be")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://datasnoop.be")
 DEFAULT_LOOKBACK_DAYS = 7
+
+# Defensive: never let a misconfigured env value become a javascript: href
+# in the digest. If the operator sets a malformed URL, fall back to the
+# safe default so a tampered env can't be amplified by html_escape skipping.
+if not re.match(r"^https?://", PUBLIC_BASE_URL):
+    log.warning("PUBLIC_BASE_URL '%s' is not http(s); falling back to default", PUBLIC_BASE_URL)
+    PUBLIC_BASE_URL = "https://datasnoop.be"
 
 
 def _ensure_log_table() -> None:
@@ -149,10 +158,17 @@ def _build_email(email: str, events: dict) -> tuple[str, str, str]:
 
     text_body = "\n".join(lines)
 
+    def _safe_cbe(cbe: str) -> str:
+        """CBE digits only — never let a tampered DB row inject into the URL."""
+        return "".join(c for c in (cbe or "") if c.isdigit())[:10]
+
     def _row(name: str, link: str, sub: str) -> str:
+        # Every interpolated value is HTML-escaped — KBO names are
+        # user-supplied at registration and could contain `<`, `>`, `"`.
         return (
-            f'<li style="margin:4px 0"><a href="{link}" style="color:#4f46e5">{name}</a> '
-            f'<span style="color:#94a3b8;font-size:12px">{sub}</span></li>'
+            f'<li style="margin:4px 0"><a href="{html.escape(link, quote=True)}" '
+            f'style="color:#4f46e5">{html.escape(name)}</a> '
+            f'<span style="color:#94a3b8;font-size:12px">{html.escape(sub)}</span></li>'
         )
 
     html_parts = [
@@ -165,7 +181,7 @@ def _build_email(email: str, events: dict) -> tuple[str, str, str]:
             html_parts.append(
                 _row(
                     str(r["name"]),
-                    f"{PUBLIC_BASE_URL}/company/{r['enterprise_number']}",
+                    f"{PUBLIC_BASE_URL}/company/{_safe_cbe(r['enterprise_number'])}",
                     f"FY{r['fiscal_year']}",
                 )
             )
@@ -176,8 +192,8 @@ def _build_email(email: str, events: dict) -> tuple[str, str, str]:
             html_parts.append(
                 _row(
                     str(r["name"]),
-                    f"{PUBLIC_BASE_URL}/company/{r['enterprise_number']}",
-                    f"{r['pub_date']} — {r.get('pub_type') or 'publication'}",
+                    f"{PUBLIC_BASE_URL}/company/{_safe_cbe(r['enterprise_number'])}",
+                    f"{r['pub_date']} \u2014 {r.get('pub_type') or 'publication'}",
                 )
             )
         html_parts.append("</ul>")
