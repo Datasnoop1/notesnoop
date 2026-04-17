@@ -22,9 +22,13 @@ import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 
 /** Routes that should always render without the staging admin-only blocker.
- *  These are public demo / share pages that need to work for external viewers
- *  regardless of login state. */
+ *  Public demos / share pages that external viewers must reach regardless
+ *  of login state. */
 const PUBLIC_DEMO_PATHS = ["/demo/"];
+
+/** Routes that must stay reachable on staging for anonymous users —
+ *  otherwise they'd have no way to sign in and become admin. */
+const PUBLIC_AUTH_PATHS = ["/login", "/auth/"];
 
 type GateState =
   | { kind: "unknown" } // before the first check completes
@@ -43,9 +47,10 @@ function looksLikeStaging(): boolean {
 export default function StagingGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
   const isPublicDemo = PUBLIC_DEMO_PATHS.some((p) => pathname.startsWith(p));
+  const isPublicAuth = PUBLIC_AUTH_PATHS.some(
+    (p) => pathname === p || pathname.startsWith(p),
+  );
   const [state, setState] = useState<GateState>({ kind: "unknown" });
-  const pathname = usePathname();
-  const isPublicPath = PUBLIC_PATHS.some((p) => pathname === p || pathname?.startsWith(p));
 
   useEffect(() => {
     let cancelled = false;
@@ -102,10 +107,11 @@ export default function StagingGate({ children }: { children: React.ReactNode })
     };
   }, [isPublicDemo]);
 
-  // Always let the login + oauth-callback pages render, even if the
-  // visitor would otherwise be blocked — otherwise they'd have no way
-  // to sign in to become admin.
-  if (isPublicPath) {
+  // Always let login / oauth-callback and public demo pages render,
+  // even if the visitor would otherwise be blocked. Otherwise
+  // anonymous users would have no way to sign in to become admin,
+  // and share/demo links would break for external viewers.
+  if (isPublicAuth || isPublicDemo) {
     return <>{children}</>;
   }
 
