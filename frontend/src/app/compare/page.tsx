@@ -526,13 +526,13 @@ export default function ComparePage() {
           <table className="w-full">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[180px] sm:min-w-[220px]">
+                <th className="sticky left-0 z-10 bg-slate-50 px-2 md:px-4 py-2 text-left text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[120px] md:w-auto md:min-w-[220px] shadow-[1px_0_0_rgba(226,232,240,1)]">
                   {t("compare.lineItem")}
                 </th>
                 {companies.map((c) => (
                   <th
                     key={c.cbe}
-                    className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[110px] sm:min-w-[120px]"
+                    className="px-3 py-2 text-right text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[110px] sm:min-w-[120px]"
                   >
                     <div className="flex flex-col items-end gap-0.5">
                       <Link
@@ -544,7 +544,7 @@ export default function ComparePage() {
                           : c.name}
                       </Link>
                       {c.financials && (
-                        <span className="text-[10px] text-slate-400 font-normal">
+                        <span className="text-[11px] md:text-[10px] text-slate-400 font-normal">
                           FY{c.financials.fiscal_year}
                         </span>
                       )}
@@ -564,11 +564,11 @@ export default function ComparePage() {
                     className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}
                   >
                     <td
-                      className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}
+                      className={`sticky left-0 z-[5] bg-white px-2 md:px-4 py-1 text-[11px] md:text-xs whitespace-normal break-words w-[120px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)] ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-4 md:pl-8" : ""}`}
                     >
                       {showSection && (
                         <div className="pb-1 pt-2">
-                          <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
                             {t(line.section!)}
                           </span>
                         </div>

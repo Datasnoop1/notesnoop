@@ -121,7 +121,7 @@ function BucketCard({
             {meta.icon}
           </div>
           {selected && (
-            <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-600 bg-white/70 px-2 py-0.5 rounded">
+            <span className="text-[11px] uppercase tracking-wider font-semibold text-slate-600 bg-white/70 px-2 py-0.5 rounded">
               Selected
             </span>
           )}
@@ -190,6 +190,14 @@ export default function OutperformersPage() {
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [loadingBreakdown, setLoadingBreakdown] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   useEffect(() => {
     setLoadingOverview(true);
@@ -290,18 +298,21 @@ export default function OutperformersPage() {
               <BarChart
                 data={[...breakdown.sectors].reverse()}
                 layout="vertical"
-                margin={{ top: 5, right: 40, left: 10, bottom: 5 }}
+                margin={{ top: 5, right: isMobile ? 12 : 40, left: isMobile ? 0 : 10, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#cbd5e1" }} />
                 <YAxis
                   type="category"
                   dataKey="sector"
-                  width={240}
+                  width={isMobile ? 120 : 240}
                   tick={{ fontSize: 11, fill: "#475569" }}
                   axisLine={false}
                   tickLine={false}
-                  tickFormatter={(v: string) => (v.length > 34 ? v.slice(0, 32) + "\u2026" : v)}
+                  tickFormatter={(v: string) => {
+                    const limit = isMobile ? 16 : 34;
+                    return v.length > limit ? v.slice(0, limit - 2) + "\u2026" : v;
+                  }}
                 />
                 <Tooltip
                   content={({ active, payload }: any) => {
@@ -393,9 +404,9 @@ export default function OutperformersPage() {
                           >
                             {c.name || fmtCbe(c.cbe)}
                           </Link>
-                          <div className="text-[10px] text-slate-400 font-mono">{fmtCbe(c.cbe)}</div>
+                          <div className="text-[11px] text-slate-400 font-mono">{fmtCbe(c.cbe)}</div>
                         </TableCell>
-                        <TableCell className="py-2 max-w-[240px] truncate" title={c.sector ?? ""}>
+                        <TableCell className="py-2 max-w-[140px] sm:max-w-[240px] truncate" title={c.sector ?? ""}>
                           {c.sector ?? <span className="text-slate-400 italic">—</span>}
                         </TableCell>
                         <TableCell className="py-2 text-slate-600">{c.city ?? "—"}</TableCell>

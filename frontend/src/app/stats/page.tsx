@@ -513,7 +513,7 @@ export default function StatsPage() {
               </BarChart>
             </ResponsiveContainer>
           )}
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-slate-400 px-2">
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400 px-2">
             <span>Bar color = median EBITDA margin:</span>
             <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{ background: "#059669" }} /> &ge;20%</span>
             <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded" style={{ background: "#10b981" }} /> 12-20%</span>
@@ -562,7 +562,7 @@ export default function StatsPage() {
                 </BarChart>
               </ResponsiveContainer>
             )}
-            <p className="text-[10px] text-slate-400 mt-2 px-1">Number of companies in each revenue bracket</p>
+            <p className="text-[11px] text-slate-400 mt-2 px-1">Number of companies in each revenue bracket</p>
           </Card>
         </div>
 
@@ -598,7 +598,7 @@ export default function StatsPage() {
                 </BarChart>
               </ResponsiveContainer>
             )}
-            <p className="text-[10px] text-slate-400 mt-2 px-1">Distribution of EBITDA margins (5% buckets, companies with revenue &gt; 100K)</p>
+            <p className="text-[11px] text-slate-400 mt-2 px-1">Distribution of EBITDA margins (5% buckets, companies with revenue &gt; 100K)</p>
           </Card>
         </div>
       </div>
@@ -661,7 +661,7 @@ export default function StatsPage() {
               </LineChart>
             </ResponsiveContainer>
           )}
-          <p className="text-[10px] text-slate-400 mt-2 px-1">All figures in millions EUR (aggregate of all companies in database)</p>
+          <p className="text-[11px] text-slate-400 mt-2 px-1">All figures in millions EUR (aggregate of all companies in database)</p>
         </Card>
       </div>
 
@@ -755,7 +755,7 @@ export default function StatsPage() {
                 </BarChart>
               </ResponsiveContainer>
             )}
-            <p className="text-[10px] text-slate-400 mt-2 px-1">Top 15 sectors by average revenue per company (in thousands EUR)</p>
+            <p className="text-[11px] text-slate-400 mt-2 px-1">Top 15 sectors by average revenue per company (in thousands EUR)</p>
           </Card>
         </div>
       </div>

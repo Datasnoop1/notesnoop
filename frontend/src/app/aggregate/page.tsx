@@ -725,11 +725,11 @@ export default function AggregatePage() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[180px] sm:min-w-[220px]">
+                    <th className="sticky left-0 z-10 bg-slate-50 px-2 md:px-4 py-2 text-left text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[120px] md:w-auto md:min-w-[220px] shadow-[1px_0_0_rgba(226,232,240,1)]">
                       {t("aggregate.lineItem")}
                     </th>
                     {allYears.map((year) => (
-                      <th key={year} className="px-3 py-2 text-right text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[110px]">
+                      <th key={year} className="px-2 md:px-3 py-2 text-right text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[80px] md:min-w-[110px]">
                         FY{year}
                       </th>
                     ))}
@@ -746,20 +746,20 @@ export default function AggregatePage() {
                         <React.Fragment key={line.label}>
                           {showSection && (
                             <tr>
-                              <td colSpan={allYears.length + 1} className="px-4 pt-3 pb-1">
-                                <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
+                              <td colSpan={allYears.length + 1} className="sticky left-0 bg-white px-4 pt-3 pb-1">
+                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
                               </td>
                             </tr>
                           )}
                           <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
-                            <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
+                            <td className={`sticky left-0 z-[5] bg-white px-2 md:px-4 py-1 text-[11px] md:text-xs whitespace-normal break-words w-[120px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)] ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-4 md:pl-8" : ""}`}>
                               {line.label}
                             </td>
                             {allYears.map((year) => {
                               const val = sumMetric(companies, year, line.metric);
                               if (line.metric.format === "pct") {
                                 return (
-                                  <td key={year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                  <td key={year} className={`px-2 md:px-3 py-1 text-right text-[11px] md:text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
                                     {val != null ? (
                                       <span className={val >= 15 ? "text-emerald-600" : val >= 5 ? "text-amber-600" : "text-rose-400"}>
                                         {val.toFixed(1)}%
@@ -771,7 +771,7 @@ export default function AggregatePage() {
                                 );
                               }
                               return (
-                                <td key={year} className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                <td key={year} className={`px-2 md:px-3 py-1 text-right text-[11px] md:text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
                                   {fmtAggAcct(val, isCost, line.isKeyMetric)}
                                 </td>
                               );
