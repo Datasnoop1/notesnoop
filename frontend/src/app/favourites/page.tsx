@@ -160,7 +160,7 @@ function ProjectCard({
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 text-xs text-indigo-600 hover:text-indigo-800"
+                className="h-10 md:h-7 px-3 md:px-2 text-xs text-indigo-600 hover:text-indigo-800"
                 onClick={() => setShowAddMenu((prev) => !prev)}
               >
                 <Plus className="h-3.5 w-3.5 mr-1" />
@@ -290,10 +290,10 @@ function ProjectCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 w-7 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
+              className="h-10 w-10 md:h-7 md:w-7 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50"
               onClick={() => onDelete(project.id)}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-4 w-4 md:h-3.5 md:w-3.5" />
             </Button>
           </div>
         </div>
@@ -319,7 +319,7 @@ function ProjectCard({
                       >
                         {m.name || fmtCbe(m.enterprise_number)}
                       </Link>
-                      <span className="text-[10px] text-slate-400 shrink-0">
+                      <span className="text-[11px] text-slate-400 shrink-0">
                         {fmtCbe(m.enterprise_number)}
                       </span>
                     </div>
@@ -333,9 +333,10 @@ function ProjectCard({
                         onClick={() =>
                           onRemoveMember(project.id, m.enterprise_number)
                         }
-                        className="hover:bg-red-50 rounded p-0.5 text-slate-400 hover:text-red-600 transition-colors"
+                        className="h-10 w-10 md:h-auto md:w-auto -m-2 md:m-0 md:p-0.5 flex items-center justify-center hover:bg-red-50 rounded text-slate-400 hover:text-red-600 transition-colors"
+                        title="Remove from project"
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-4 w-4 md:h-3 md:w-3" />
                       </button>
                     </div>
                   </div>

@@ -305,8 +305,8 @@ function PeoplePageInner() {
                                     <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
                                       Administrator Roles
                                     </h4>
-                                    <div className="rounded-lg border bg-white">
-                                      <Table>
+                                    <div className="rounded-lg border bg-white overflow-x-auto">
+                                      <Table className="min-w-[640px]">
                                         <TableHeader>
                                           <TableRow>
                                             <TableHead>Company</TableHead>
@@ -353,8 +353,8 @@ function PeoplePageInner() {
                                     <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
                                       Holdings
                                     </h4>
-                                    <div className="rounded-lg border bg-white">
-                                      <Table>
+                                    <div className="rounded-lg border bg-white overflow-x-auto">
+                                      <Table className="min-w-[640px]">
                                         <TableHeader>
                                           <TableRow>
                                             <TableHead>Company</TableHead>
