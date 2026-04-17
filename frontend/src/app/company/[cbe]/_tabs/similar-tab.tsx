@@ -353,16 +353,18 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
         </table>
       </div>
 
-      {/* Find more — hidden once expanded, or once we know the LLM has nothing
-          left to hand over. The min-height on the wrapper keeps the slot the
-          same size whether it contains the button, the "no more" notice, or
-          nothing at all, so the rows above don't jump. */}
+      {/* Find more — visible whenever there are any results and we haven't
+          either expanded yet or learned the LLM has nothing more. Clicking
+          either grows the list or flips to the "no more" notice, so the
+          user always has a way to check. The min-height on the wrapper
+          keeps the slot the same size whether it contains the button, the
+          notice, or nothing at all, so the rows above don't jump. */}
       <div className="mt-4 text-center min-h-[40px] flex items-center justify-center">
         {noMoreAvailable ? (
           <p className="text-[11px] text-slate-400 italic">
             No more similar companies to show.
           </p>
-        ) : !expanded && companies.length >= 10 ? (
+        ) : !expanded && companies.length > 0 ? (
           <button
             onClick={expandResults}
             disabled={loading}
