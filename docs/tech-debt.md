@@ -10,6 +10,34 @@ item the operator wants to tackle becomes its own branch.
 
 ---
 
+## Recommended triage (2026-04-17)
+
+The 27 items below cluster into seven natural groups. Each group can be
+tackled as a single branch/sprint. The table below gives effort, blast
+radius if left undone, and the order I'd tackle them if I were picking.
+
+| # | Group | Items | Effort | Blast radius if skipped | Order |
+|---|---|---|---|---|---|
+| A | **PII / GDPR lockdown** | 1, 4, 10, 13, 14, 27 | 1–2 days | **Regulatory** — the Belgian DPA or the KBO office can pull the licence over uncapped bulk director exports. This is the single most urgent group. | **1st** |
+| B | **Async correctness + observability** | 3, 11, 15, 16, 25 | 1 day | Sporadic production hangs + silent data loss during NBB ingest. Debugging prod issues today is needle-in-haystack because half the exceptions get swallowed. | **2nd** |
+| C | **Performance hot paths** | 5, 6, 7, 8, 9 | 2–3 days | Every user notices. Tier-limit middleware is 2 DB round-trips per request, stats page pulls hundreds of thousands of rows into Python, people-search ILIKE without trigram index. Cache hit rate on company profile is poor. | **3rd** |
+| D | **Async footguns + quick fixes** | 2, 12, 20 | 2–3 hours | Stripe redirects to prod from staging; admin N+1 queries; stats SQL is whitelisted-but-fragile. Low-effort wins. | Parallel to A/B/C whenever a slot opens |
+| E | **Mobile polish — admin + deep** | 18, 19 | 3–4 hours | Admin-only cockpit on mobile is clunky (iOS zooms on input focus, inline row actions push off-screen). Operator-facing, not customer-facing. | **4th** |
+| F | **Code cleanup** | 17, 23, 24 | 1 hour | Dead code + `as any` + `console.log`. Zero runtime risk, but compounds over time. | Fold into any touching-file branch |
+| G | **Server resource prune** | the 2026-04-17 server audit | 5 minutes | Disk at 82%; one `docker builder prune` + removing two stale staging images takes it to ~70%. Not urgent until disk gets tight, but trivial. | Approve anytime |
+
+**If you only have half a day this week, do Group D (quick fixes) + approve
+Group G (server prune). Both low-effort, visible impact.**
+
+**If you have two days, add Group A (PII lockdown). This is the one you
+probably can't defer indefinitely.**
+
+Group C (performance) is the biggest user-visible upside but also the
+heaviest engineering. Worth scheduling once the regulatory items are
+handled.
+
+---
+
 ## CRITICAL — prod-affecting, should be scheduled
 
 ### 1. Security: anonymous PII exposure on people / structure / network endpoints
