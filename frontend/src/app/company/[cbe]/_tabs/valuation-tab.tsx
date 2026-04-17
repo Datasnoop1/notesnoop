@@ -234,7 +234,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                 <button
                   key={s.key}
                   onClick={() => handleSourceChange(s.key)}
-                  className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+                  className={`rounded-md px-2.5 py-2 md:py-1 text-[11px] font-medium transition ${
                     sourceKey === s.key
                       ? "bg-indigo-600 text-white"
                       : "text-slate-500 hover:text-slate-700"
@@ -252,7 +252,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             <button
               onClick={() => srcHasSector && setView("sector")}
               disabled={!srcHasSector}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              className={`rounded-md px-3 py-2 md:py-1.5 text-xs font-medium transition ${
                 view === "sector"
                   ? "bg-indigo-600 text-white"
                   : srcHasSector
@@ -266,7 +266,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             <button
               onClick={() => srcHasSize && setView("size")}
               disabled={!srcHasSize}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              className={`rounded-md px-3 py-2 md:py-1.5 text-xs font-medium transition ${
                 view === "size"
                   ? "bg-indigo-600 text-white"
                   : srcHasSize
@@ -285,7 +285,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           <select
             value={sectorOverride ?? profile.vlerick_sector}
             onChange={(e) => handleSectorChange(e.target.value)}
-            className={`rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none ${view === "sector" ? "" : "invisible"}`}
+            className={`rounded-md border border-slate-200 bg-white px-2 py-2 md:py-1 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none ${view === "sector" ? "" : "invisible"}`}
             title={sourceTag}
             aria-hidden={view !== "sector"}
           >
@@ -307,7 +307,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               <button
                 key={opt.key}
                 onClick={() => setUnit(opt.key)}
-                className={`rounded-md px-2 py-1 text-[11px] font-medium transition ${
+                className={`rounded-md px-2 py-2 md:py-1 text-[11px] font-medium transition ${
                   unit === opt.key
                     ? "bg-slate-800 text-white"
                     : "text-slate-500 hover:text-slate-700"
@@ -323,7 +323,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             <button
               onClick={handleExportExcel}
               disabled={exporting}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 transition"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-2 md:py-1 text-[11px] font-medium text-slate-600 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 transition"
               title="Export to Excel"
             >
               {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSpreadsheet className="h-3 w-3 text-emerald-600" />}
@@ -332,7 +332,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             <button
               onClick={handleExportPdf}
               disabled={exporting}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-rose-300 hover:text-rose-600 disabled:opacity-50 transition"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-2 md:py-1 text-[11px] font-medium text-slate-600 hover:border-rose-300 hover:text-rose-600 disabled:opacity-50 transition"
               title="Export to PDF"
             >
               {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3 text-rose-500" />}

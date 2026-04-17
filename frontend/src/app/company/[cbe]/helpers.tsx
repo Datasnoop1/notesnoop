@@ -43,7 +43,8 @@ export function FormulaTooltip({ children, formula, detail }: { children: React.
         {children}
       </span>
       <div
-        className={`absolute z-50 bottom-full left-0 mb-2 px-3 py-2 bg-slate-800 text-white text-[11px] rounded-lg shadow-lg transition-opacity duration-100 max-w-[260px] whitespace-normal break-words ${
+        onClick={(e) => e.stopPropagation()}
+        className={`absolute z-50 top-full left-0 mt-2 px-3 py-2 bg-slate-800 text-white text-[11px] rounded-lg shadow-lg transition-opacity duration-100 max-w-[260px] whitespace-normal break-words ${
           open
             ? "opacity-100"
             : "opacity-0 pointer-events-none group-hover/tip:opacity-100 group-hover/tip:pointer-events-auto"
@@ -51,7 +52,7 @@ export function FormulaTooltip({ children, formula, detail }: { children: React.
       >
         <div className="font-medium">{formula}</div>
         {detail && <div className="text-slate-300 font-mono mt-0.5">{detail}</div>}
-        <div className="absolute top-full left-4 border-4 border-transparent border-t-slate-800" />
+        <div className="absolute bottom-full left-4 border-4 border-transparent border-b-slate-800" />
       </div>
     </span>
   );
