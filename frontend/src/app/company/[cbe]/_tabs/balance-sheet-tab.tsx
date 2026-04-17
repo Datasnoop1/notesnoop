@@ -224,7 +224,7 @@ export function BalanceSheetTab({
                       return (
                         <React.Fragment key={`bs-${r.fiscal_year}-${line.key}`}>
                           {colIdx > 0 && (
-                            <td className="px-1 py-1 text-center align-top">
+                            <td className="px-0.5 md:px-1 py-1 text-center align-top w-[40px] md:w-[70px]">
                               {renderDelta(currentVal, prevVal)}
                             </td>
                           )}

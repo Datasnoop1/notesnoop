@@ -362,7 +362,7 @@ export function PnlTab({
                       return (
                         <React.Fragment key={`cell-${r.fiscal_year}-${line.key}`}>
                           {colIdx > 0 && (
-                            <td className="px-1 py-1 text-center align-top">
+                            <td className="px-0.5 md:px-1 py-1 text-center align-top w-[40px] md:w-[70px]">
                               {!line.isPct ? renderDelta(currentVal, prevVal) : null}
                             </td>
                           )}
