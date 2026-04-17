@@ -85,8 +85,17 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
     }
   };
 
-  const handleExportPdf = () => {
-    window.print();
+  const handleExportPdf = async () => {
+    if (!data) return;
+    setExporting(true);
+    try {
+      const { generateValuationPdf } = await import("@/lib/export/valuation-pdf");
+      await generateValuationPdf(data, companyName || fmtCbe(cbe), cbe, view);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const load = useCallback(
@@ -319,6 +328,59 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                 <div className="mt-0.5 text-[10px] text-emerald-700/70">
                   Shareholders receive
                 </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Average EBITDA valuation — 3-year average EBITDA × multiple − LATEST net debt */}
+      {(() => {
+        const validEbitdas = years.map((y) => y.ebitda).filter((v): v is number => v != null);
+        if (validEbitdas.length < 2) return null;
+        const avgEbitda = validEbitdas.reduce((s, v) => s + v, 0) / validEbitdas.length;
+        const avgEv = avgEbitda * activeMultiple;
+        const latestRow = years[years.length - 1];
+        const latestNd = latestRow?.net_debt ?? 0;
+        const avgEquity = avgEv - latestNd;
+        const avgYears = years.filter((y) => y.ebitda != null && y.fiscal_year != null).map((y) => `FY${y.fiscal_year}`);
+
+        return (
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+            <div className="mb-2 flex items-baseline justify-between gap-2">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Average EBITDA valuation ({validEbitdas.length}-year avg)
+              </div>
+              <div className="text-[10px] text-slate-400">
+                Smooths year-to-year swings · uses latest net debt
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div>
+                <div className="text-[10px] text-slate-400">Avg EBITDA</div>
+                <div className="mt-0.5 text-lg font-bold text-slate-800">{fmt(avgEbitda)}</div>
+                <div className="text-[9px] text-slate-400">{avgYears.join(" · ")}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-400">× Multiple</div>
+                <div className="mt-0.5 text-lg font-bold text-indigo-600">{fmtMultiple(activeMultiple)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-400">= Enterprise value</div>
+                <div className="mt-0.5 text-lg font-bold text-slate-800">{fmt(avgEv)}</div>
+              </div>
+              <div>
+                <div className="text-[10px] text-slate-400" title="Latest-year net debt (bank debt minus cash)">
+                  − Net debt (latest)
+                </div>
+                <div className="mt-0.5 text-lg font-bold text-slate-700">{fmt(latestNd)}</div>
+                <div className="text-[9px] text-slate-400">
+                  {latestRow?.fiscal_year ? `FY${latestRow.fiscal_year}` : ""}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] text-emerald-700">= Equity value</div>
+                <div className="mt-0.5 text-lg font-bold text-emerald-800">{fmt(avgEquity)}</div>
               </div>
             </div>
           </div>

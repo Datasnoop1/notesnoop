@@ -96,6 +96,32 @@ export async function generateValuationExcel(
   addLadderRow("= Equity Value", years.map((y) => (view === "size" ? y.by_size.equity_value : y.by_sector.equity_value)), { bold: true, fill: BRAND.greenFill });
 
   ws.addRow([]);
+
+  // Average EBITDA valuation (3-year avg EBITDA x multiple - latest net debt)
+  const validEbitdas = years.map((y) => y.ebitda).filter((v): v is number => v != null);
+  if (validEbitdas.length >= 2) {
+    const avgEbitda = validEbitdas.reduce((s, v) => s + v, 0) / validEbitdas.length;
+    const avgEv = avgEbitda * multiple;
+    const latestRow = years[years.length - 1];
+    const latestNd = latestRow?.net_debt ?? 0;
+    const avgEquity = avgEv - latestNd;
+
+    const avgTitle = ws.addRow([`Average EBITDA valuation (${validEbitdas.length}-year avg)`]);
+    avgTitle.font = { bold: true, size: 10, color: { argb: "334155" } };
+    const avgSub = ws.addRow(["Avg EBITDA", "× Multiple", "= EV", "− Net debt (latest)", "= Equity value"]);
+    avgSub.font = { bold: true, size: 8, color: { argb: "64748B" } };
+    const avgRow = ws.addRow([avgEbitda, multiple, avgEv, latestNd, avgEquity]);
+    avgRow.font = { bold: true, size: 10 };
+    avgRow.getCell(1).numFmt = "#,##0";
+    avgRow.getCell(2).numFmt = '0.0"x"';
+    avgRow.getCell(3).numFmt = "#,##0";
+    avgRow.getCell(4).numFmt = "#,##0";
+    avgRow.getCell(5).numFmt = "#,##0";
+    avgRow.getCell(5).fill = { type: "pattern", pattern: "solid", fgColor: { argb: BRAND.greenFill } };
+    avgRow.getCell(5).font = { bold: true, size: 10, color: { argb: BRAND.greenFont } };
+    ws.addRow([]);
+  }
+
   ws.addRow([]);
 
   // Pro memoria
