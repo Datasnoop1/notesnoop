@@ -886,8 +886,8 @@ export function CompanyPageClient({
               { value: "cashflow", label: t("company.tabs.cashflow") as string },
               { value: "balancesheet", label: t("company.tabs.balanceSheet") as string },
               { value: "credit", label: t("company.tabs.credit") as string },
-              { value: "valuation", label: t("company.tabs.valuation") as string },
             ]},
+            { id: "valuation", label: t("company.tabs.valuation") as string, subs: [{ value: "valuation", label: "" }] },
             { id: "network", label: t("company.tabs.network") as string, subs: [{ value: "network", label: "" }] },
             { id: "people", label: "People & Ownership", subs: [
               { value: "administrators", label: t("company.tabs.administrators") as string },
