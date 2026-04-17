@@ -16,7 +16,13 @@
  */
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+
+/** Routes that should always render without the staging admin-only blocker.
+ *  These are public demo / share pages that need to work for external viewers
+ *  regardless of login state. */
+const PUBLIC_DEMO_PATHS = ["/demo/"];
 
 type GateState =
   | { kind: "unknown" } // before the first check completes
@@ -24,10 +30,19 @@ type GateState =
   | { kind: "block"; email: string | null };
 
 export default function StagingGate({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() || "";
+  const isPublicDemo = PUBLIC_DEMO_PATHS.some((p) => pathname.startsWith(p));
   const [state, setState] = useState<GateState>({ kind: "unknown" });
 
   useEffect(() => {
     let cancelled = false;
+
+    // Public demo routes never show the blocker — external viewers with no
+    // login (or non-admin login) must be able to see them.
+    if (isPublicDemo) {
+      setState({ kind: "allow" });
+      return;
+    }
 
     async function check() {
       try {
@@ -78,7 +93,7 @@ export default function StagingGate({ children }: { children: React.ReactNode })
       cancelled = true;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [isPublicDemo]);
 
   if (state.kind === "block") {
     return <BlockerCard email={state.email} />;
