@@ -683,57 +683,23 @@ export function CompanyPageClient({
 
       {/* Company Header */}
       <div className="mb-6">
-        {/* Top row: name + actions */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
+        <div className="flex flex-col md:flex-row items-start md:items-start justify-between gap-3">
+          {/* Left: name + CBE */}
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-semibold text-slate-900">
               <SearchableText text={detail.name || fmtCbe(cbe)} mapsQuery={address || undefined}>
                 {detail.name || fmtCbe(cbe)}
               </SearchableText>
             </h1>
-            {/* Single info line: status dot + CBE | address | website | NACE */}
-            <div className="mt-0.5 flex flex-wrap items-center text-xs text-slate-400">
-              {(() => {
-                const parts: React.ReactNode[] = [];
-                // CBE with status dot
-                parts.push(
-                  <span key="cbe" className="inline-flex items-center gap-1.5">
-                    <span className={`inline-block h-1.5 w-1.5 rounded-full ${detail.status === "AC" ? "bg-emerald-500" : "bg-red-400"}`} />
-                    <span className="font-mono">CBE {fmtCbe(cbe)}</span>
-                  </span>
-                );
-                if (address) parts.push(<GoogleSearchLink key="addr" query={address} type="maps">{address}</GoogleSearchLink>);
-                // Website as clickable link
-                if (detail.website) {
-                  parts.push(
-                    <a
-                      key="web"
-                      href={detail.website.startsWith("http") ? detail.website : `https://${detail.website}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-500 hover:text-indigo-700 transition-colors"
-                    >
-                      {detail.website.replace(/^https?:\/\//, "")}
-                    </a>
-                  );
-                }
-                if (detail.nace_code) {
-                  parts.push(
-                    <span key="nace">
-                      NACE {detail.nace_code}{detail.nace_label && detail.nace_label !== detail.nace_code ? ` \u2014 ${detail.nace_label}` : ""}
-                    </span>
-                  );
-                }
-                return parts.map((part, idx) => (
-                  <span key={idx} className="inline-flex items-center">
-                    {part}
-                    {idx < parts.length - 1 && <span className="mx-1.5 text-slate-300">|</span>}
-                  </span>
-                ));
-              })()}
+            <div className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-slate-400">
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${detail.status === "AC" ? "bg-emerald-500" : "bg-red-400"}`} />
+              <span className="font-mono">CBE {fmtCbe(cbe)}</span>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0 no-print">
+
+          {/* Right: action buttons + metadata stacked */}
+          <div className="flex flex-col items-start md:items-end gap-2 shrink-0 w-full md:w-auto">
+            <div className="flex items-center gap-1.5 no-print flex-wrap">
             <Button
               variant="outline"
               size="sm"
@@ -765,15 +731,6 @@ export function CompanyPageClient({
                 <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
               )}
               <span className="hidden sm:inline">{t("company.aiInsights")}</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setActiveTab("similar")}
-              className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400`}
-            >
-              <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
-              <span className="hidden sm:inline">{t("company.findSimilar")}</span>
             </Button>
             <Button
               variant="outline"
@@ -811,10 +768,33 @@ export function CompanyPageClient({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </div>
+
+            {/* Metadata: address + website + NACE stacked, right-aligned on desktop */}
+            <div className="flex flex-col items-start md:items-end gap-0.5 text-xs text-slate-500 max-w-full">
+              {address && (
+                <GoogleSearchLink query={address} type="maps">
+                  <span className="truncate">{address}</span>
+                </GoogleSearchLink>
+              )}
+              {detail.website && (
+                <a
+                  href={detail.website.startsWith("http") ? detail.website : `https://${detail.website}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-indigo-500 hover:text-indigo-700 transition-colors truncate"
+                >
+                  {detail.website.replace(/^https?:\/\//, "")}
+                </a>
+              )}
+              {detail.nace_code && (
+                <span className="truncate">
+                  NACE {detail.nace_code}{detail.nace_label && detail.nace_label !== detail.nace_code ? ` \u2014 ${detail.nace_label}` : ""}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-
-        {/* KPI cards */}
       </div>
 
       {/* AI Insights overlay */}
@@ -899,45 +879,113 @@ export function CompanyPageClient({
         <AdUnit slot="3722838377" format="fluid" className="rounded-lg" />
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — grouped primary + sub-nav pattern */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList variant="line" className="border-b border-slate-100 gap-0 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 md:flex-wrap no-print">
-          <TabsTrigger value="summary" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.summary")}
-          </TabsTrigger>
-          <TabsTrigger value="pnl" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.pnl")}
-          </TabsTrigger>
-          <TabsTrigger value="cashflow" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.cashflow")}
-          </TabsTrigger>
-          <TabsTrigger value="balancesheet" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.balanceSheet")}
-          </TabsTrigger>
-          <TabsTrigger value="credit" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.credit")}
-          </TabsTrigger>
-          <TabsTrigger value="valuation" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.valuation")}
-          </TabsTrigger>
-          <TabsTrigger value="administrators" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.administrators")}
-          </TabsTrigger>
-          <TabsTrigger value="structure" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.structure")}
-          </TabsTrigger>
-          <TabsTrigger value="network" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.network")}
-          </TabsTrigger>
-          <TabsTrigger value="publications" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.publications")}
-          </TabsTrigger>
-          <TabsTrigger value="benchmark" className="text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap data-active:text-indigo-600 data-active:after:bg-indigo-600">
-            {t("company.tabs.benchmark")}
-          </TabsTrigger>
-          {/* "Similar" tab deliberately has no trigger here — the header's
-              AI-similar button jumps into it via setActiveTab("similar"). */}
-        </TabsList>
+        {(() => {
+          const TAB_GROUPS: Array<{ id: string; label: string; subs: Array<{ value: string; label: string }> }> = [
+            { id: "overview", label: t("company.tabs.summary") as string, subs: [{ value: "summary", label: "" }] },
+            { id: "financials", label: "Financials", subs: [
+              { value: "pnl", label: t("company.tabs.pnl") as string },
+              { value: "cashflow", label: t("company.tabs.cashflow") as string },
+              { value: "balancesheet", label: t("company.tabs.balanceSheet") as string },
+              { value: "credit", label: t("company.tabs.credit") as string },
+              { value: "valuation", label: t("company.tabs.valuation") as string },
+            ]},
+            { id: "network", label: t("company.tabs.network") as string, subs: [{ value: "network", label: "" }] },
+            { id: "people", label: "People & Ownership", subs: [
+              { value: "administrators", label: t("company.tabs.administrators") as string },
+              { value: "structure", label: t("company.tabs.structure") as string },
+            ]},
+            { id: "activity", label: t("company.tabs.publications") as string, subs: [{ value: "publications", label: "" }] },
+          ];
+          // When on benchmark/similar (action buttons), no primary group is active.
+          const currentGroup = TAB_GROUPS.find((g) => g.subs.some((s) => s.value === activeTab)) ?? null;
+
+          return (
+            <>
+              {/* Screen-reader-only flat tab list so base-ui keyboard/ARIA still works.
+                  Visually hidden; the decorative buttons below drive interaction. */}
+              <TabsList variant="line" className="sr-only">
+                {TAB_GROUPS.flatMap((g) => g.subs).concat([
+                  { value: "benchmark", label: "Benchmark" },
+                  { value: "similar", label: "Similar" },
+                ]).map((s) => (
+                  <TabsTrigger key={s.value} value={s.value}>{s.label}</TabsTrigger>
+                ))}
+              </TabsList>
+
+              <div className="border-b border-slate-100 flex items-end justify-between gap-3 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 no-print">
+                <div className="flex md:flex-wrap">
+                  {TAB_GROUPS.map((g) => {
+                    const active = currentGroup?.id === g.id;
+                    return (
+                      <button
+                        key={g.id}
+                        type="button"
+                        onClick={() => handleTabChange(g.subs[0].value)}
+                        className={`text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap border-b-2 transition ${
+                          active
+                            ? "border-indigo-600 text-indigo-600"
+                            : "border-transparent text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        {g.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center gap-1.5 pb-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleTabChange("benchmark")}
+                    className={`inline-flex items-center gap-1 h-9 md:h-7 text-[11px] px-2.5 md:px-2 rounded-md border transition ${
+                      activeTab === "benchmark"
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        : "border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400"
+                    }`}
+                  >
+                    {t("company.tabs.benchmark")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTabChange("similar")}
+                    className={`inline-flex items-center gap-1 h-9 md:h-7 text-[11px] px-2.5 md:px-2 rounded-md border transition ${
+                      activeTab === "similar"
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        : "border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400"
+                    }`}
+                  >
+                    <Sparkles className="h-3 w-3 mr-0.5" />
+                    {t("company.findSimilar")}
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-navigation — only when the current group has multiple sections */}
+              {currentGroup && currentGroup.subs.length > 1 && (
+                <div className="mt-3 inline-flex rounded-lg bg-slate-100 p-1 no-print overflow-x-auto max-w-full">
+                  {currentGroup.subs.map((s) => {
+                    const active = activeTab === s.value;
+                    return (
+                      <button
+                        key={s.value}
+                        type="button"
+                        onClick={() => handleTabChange(s.value)}
+                        className={`rounded-md px-3 py-2 md:py-1 text-[11px] font-medium whitespace-nowrap transition ${
+                          active
+                            ? "bg-white text-slate-800 shadow-sm"
+                            : "text-slate-500 hover:text-slate-700"
+                        }`}
+                      >
+                        {s.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* ===== Summary ===== */}
         <TabsContent value="summary" className="mt-6">
