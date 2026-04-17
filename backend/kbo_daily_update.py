@@ -104,7 +104,7 @@ def discover_update_zips():
 
 def download_zip(url, dest_dir):
     """Download a ZIP file to a temporary directory."""
-    filename = url.split("/")[-1]
+    filename = os.path.basename(url.rstrip("/"))
     dest = os.path.join(dest_dir, filename)
     log.info(f"Downloading {filename}...")
     resp = requests.get(url, timeout=120, stream=True, headers={
