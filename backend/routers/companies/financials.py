@@ -98,8 +98,15 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
             "status": "no_filings",
         }
 
-    # Try up to 15 references to find 5 successful filings (some return 404)
-    refs_to_load = references[:15]
+    # Sort newest-first then try up to 15 references to find 5 successful
+    # filings — old filings are PDF-only by virtue of pre-XBRL age and
+    # would burn slots without ever loading data.
+    sorted_refs = sorted(
+        references,
+        key=lambda r: (r.get("DepositDate") or "", r.get("ReferenceNumber") or ""),
+        reverse=True,
+    )
+    refs_to_load = sorted_refs[:15]
 
     # --- Step 2-4: Fetch, parse, and insert each filing ---
     conn = get_connection()
@@ -111,11 +118,18 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
     # the -p suffix get a 404 with body containing "no published json xbrl".
     # We track these so we can flag the company as PDF-only on the profile
     # — distinguishes "we tried and got nothing structured" from "the data
-    # just hasn't been requested yet".
+    # just hasn't been requested yet". Look only at recent (post-2022 Apr)
+    # filings since older ones are pre-XBRL by definition and wouldn't be
+    # extractable regardless of model.
     pdf_only_404s = 0
-    json_xbrl_eligible_count = sum(
+    post2022_eligible_count = sum(
         1 for r in references
-        if isinstance(r.get("ModelType"), str) and not r["ModelType"].endswith("-p")
+        if r.get("DepositDate", "") >= "2022-04"
+        and isinstance(r.get("ModelType"), str)
+        and not r["ModelType"].endswith("-p")
+    )
+    post2022_total = sum(
+        1 for r in references if r.get("DepositDate", "") >= "2022-04"
     )
 
     try:
@@ -345,15 +359,18 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
         from db import put_connection
         put_connection(conn)
 
-    # Final flag: this CBE's filings appear to be PDF-only (NBB hasn't
-    # published a JSON-XBRL version for any of the recent deposits).
-    # True when we actually tried at least one ref and every miss was the
-    # "no published json xbrl" 404 — defensive against treating a generic
-    # 404 / network blip as PDF-only.
-    pdf_only = (
-        filings_loaded == 0
-        and pdf_only_404s > 0
-        and json_xbrl_eligible_count == 0
+    # Final flag: this CBE's recent filings are PDF-only.
+    # Two equivalent paths to true (either is sufficient):
+    #   (a) NBB has at least one post-2022 filing for this company, but
+    #       NONE of them are JSON-XBRL eligible (every model ends in -p).
+    #       This is the cleanest signal — derived from references metadata
+    #       alone, no per-filing fetch required.
+    #   (b) We actually tried to load and got the explicit "no published
+    #       json xbrl" diagnostic from NBB. Belt + suspenders for the case
+    #       where NBB's reference metadata lies about model availability.
+    pdf_only = filings_loaded == 0 and (
+        (post2022_total > 0 and post2022_eligible_count == 0)
+        or pdf_only_404s > 0
     )
 
     if pdf_only:
