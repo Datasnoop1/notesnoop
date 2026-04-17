@@ -57,13 +57,11 @@ VLERICK_SOURCE_URL = (
     "https://www.moore.be/sites/default/files/2025-05/2025%20MA%20Monitor.pdf"
 )
 
-# Vlerick 2025 Monitor — Belgian M&A transactions in calendar year 2024.
-# See scripts/seed_vlerick.py for the canonical seed; duplicated here so the
-# router can self-initialize on fresh Postgres (matches the pattern used by
-# tier_config and company_enrichment).
-_VLERICK_YEAR = 2024
+# Reference data year — all three sources publish for calendar year 2024 data.
+_DATA_YEAR = 2024
 
-_SIZE_MULTIPLES = [
+# ── Vlerick 2025 M&A Monitor — Belgian transactions in 2024 ──────────────────
+_VLERICK_SIZE = [
     ("lt_5m",    5.0,  "<5M EUR deal size"),
     ("5_20m",    6.4,  "5M-20M EUR deal size"),
     ("20_50m",   7.7,  "20M-50M EUR deal size"),
@@ -71,14 +69,78 @@ _SIZE_MULTIPLES = [
     ("gt_100m", 10.5,  ">100M EUR deal size"),
     ("overall",  6.5,  "Belgian M&A market overall"),
 ]
-
-_SECTOR_MULTIPLES = [
+_VLERICK_SECTOR = [
     ("technology", 9.1), ("pharmaceutical", 8.5), ("healthcare", 8.0),
     ("energy_utilities", 7.2), ("business_services", 6.7),
     ("entertainment_media", 6.3), ("chemistry", 6.2), ("consumer_goods", 6.1),
     ("industrial_products", 5.7), ("real_estate", 5.7), ("retail", 5.6),
     ("transport_logistics", 5.5), ("construction", 4.8),
 ]
+
+# ── Damodaran Europe (NYU Stern) — Jan 2025 update, listed-company averages ──
+# NOTE: these are APPROXIMATIONS of the public dataset and should be refreshed
+# annually from https://pages.stern.nyu.edu/~adamodar/ (vebitda.xls). Values
+# reflect EV/EBITDA medians for European public companies by industry group.
+# No size breakdown — listed-company aggregates don't cut by deal size.
+_DAMODARAN_SECTOR = [
+    ("technology", 19.0), ("pharmaceutical", 16.5), ("healthcare", 13.5),
+    ("energy_utilities", 8.5), ("business_services", 12.0),
+    ("entertainment_media", 11.0), ("chemistry", 10.5), ("consumer_goods", 11.0),
+    ("industrial_products", 11.0), ("real_estate", 15.0), ("retail", 10.0),
+    ("transport_logistics", 8.5), ("construction", 8.5),
+]
+
+# ── Argos Index (Argos Wityu / Epsilon Research) — Euro mid-market Q4 2024 ──
+# Focus on €15M-€500M EV deals. Transaction-based (not listed-company), so
+# closer to private-deal reality than Damodaran. Quarterly refresh.
+# No granular sector breakdown in the free index — size-bucketed only.
+_ARGOS_SIZE = [
+    ("lt_5m",    8.0,   "<5M EUR (extrapolated — Argos covers mid-market)"),
+    ("5_20m",    8.5,   "5M-20M EUR (Argos small-mid bracket)"),
+    ("20_50m",   9.0,   "20M-50M EUR (Argos mid bracket)"),
+    ("50_100m", 10.0,   "50M-100M EUR (Argos upper-mid bracket)"),
+    ("gt_100m", 10.5,   ">100M EUR (Argos large bracket)"),
+    ("overall",  9.5,   "Euro mid-market overall"),
+]
+
+_ALL_SEEDS = [
+    ("vlerick",    _VLERICK_SIZE,    _VLERICK_SECTOR),
+    ("damodaran",  [],               _DAMODARAN_SECTOR),
+    ("argos",      _ARGOS_SIZE,      []),
+]
+
+_SOURCE_META = {
+    "vlerick": {
+        "label": "Vlerick M&A Monitor",
+        "publisher": "Vlerick Business School — Centre for Mergers, Acquisitions and Buyouts",
+        "url": "https://www.moore.be/sites/default/files/2025-05/2025%20MA%20Monitor.pdf",
+        "kind": "transaction",
+        "scope": "Belgian M&A transactions",
+        "note": "Belgian mid-market transaction medians — most relevant for Belgian SMEs. Multiples applied to each reported year so evolution reflects EBITDA growth.",
+        "has_size": True,
+        "has_sector": True,
+    },
+    "damodaran": {
+        "label": "Damodaran Europe (NYU Stern)",
+        "publisher": "Prof. Aswath Damodaran, NYU Stern School of Business",
+        "url": "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/dataarchived.html",
+        "kind": "listed",
+        "scope": "European public-company industry medians",
+        "note": "Based on LISTED company market caps — systematically higher than private Belgian SME transactions. Treat as an upper reference.",
+        "has_size": False,
+        "has_sector": True,
+    },
+    "argos": {
+        "label": "Argos Index (Euro mid-market)",
+        "publisher": "Argos Wityu & Epsilon Research",
+        "url": "https://argos.wityu.fund/argos-index/",
+        "kind": "transaction",
+        "scope": "Eurozone mid-market deals (€15M-€500M EV)",
+        "note": "Transaction-based Eurozone mid-market medians. Closer to private-deal reality than listed-company data, but broader geography than Belgium.",
+        "has_size": True,
+        "has_sector": False,
+    },
+}
 
 _NACE_MAPPING = {
     "01": "industrial_products", "02": "industrial_products", "03": "industrial_products",
@@ -118,7 +180,7 @@ _NACE_MAPPING = {
 
 
 def _ensure_tables_and_seed():
-    """Create tables and seed Vlerick data if empty. Runs once per process."""
+    """Create tables and seed all multiple sources. Runs once per process."""
     global _INITIALIZED
     if _INITIALIZED:
         return
@@ -126,6 +188,7 @@ def _ensure_tables_and_seed():
     conn = get_connection()
     try:
         cur = conn.cursor()
+        # Base table (name kept for backward compat; now multi-source).
         cur.execute("""
             CREATE TABLE IF NOT EXISTS vlerick_multiple (
                 year INTEGER NOT NULL,
@@ -136,6 +199,27 @@ def _ensure_tables_and_seed():
                 PRIMARY KEY (year, bucket_type, bucket_key)
             )
         """)
+        # Add 'source' column, default 'vlerick' so existing rows are tagged.
+        cur.execute("""
+            ALTER TABLE vlerick_multiple
+            ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'vlerick'
+        """)
+        # Drop the old single-source PK and install a multi-source one
+        # (idempotent: only proceeds if the new constraint isn't already there).
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'vlerick_multiple_multi_pkey'
+                      AND conrelid = 'vlerick_multiple'::regclass
+                ) THEN
+                    ALTER TABLE vlerick_multiple DROP CONSTRAINT IF EXISTS vlerick_multiple_pkey;
+                    ALTER TABLE vlerick_multiple ADD CONSTRAINT vlerick_multiple_multi_pkey
+                        PRIMARY KEY (source, year, bucket_type, bucket_key);
+                END IF;
+            END $$
+        """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS nace_vlerick_mapping (
                 nace_prefix TEXT PRIMARY KEY,
@@ -143,20 +227,27 @@ def _ensure_tables_and_seed():
             )
         """)
 
-        cur.execute("SELECT COUNT(*) FROM vlerick_multiple WHERE year = %s", (_VLERICK_YEAR,))
-        if cur.fetchone()[0] == 0:
-            for key, mult, note in _SIZE_MULTIPLES:
+        # Seed each source if not present for _DATA_YEAR
+        for src_key, size_rows, sector_rows in _ALL_SEEDS:
+            cur.execute(
+                "SELECT COUNT(*) FROM vlerick_multiple WHERE year = %s AND source = %s",
+                (_DATA_YEAR, src_key),
+            )
+            if cur.fetchone()[0] > 0:
+                continue
+            for key, mult, *note in size_rows:
                 cur.execute("""
-                    INSERT INTO vlerick_multiple (year, bucket_type, bucket_key, multiple, source_note)
-                    VALUES (%s, 'size', %s, %s, %s)
-                    ON CONFLICT (year, bucket_type, bucket_key) DO NOTHING
-                """, (_VLERICK_YEAR, key, mult, note))
-            for key, mult in _SECTOR_MULTIPLES:
+                    INSERT INTO vlerick_multiple (source, year, bucket_type, bucket_key, multiple, source_note)
+                    VALUES (%s, %s, 'size', %s, %s, %s)
+                    ON CONFLICT (source, year, bucket_type, bucket_key) DO NOTHING
+                """, (src_key, _DATA_YEAR, key, mult, note[0] if note else None))
+            for row in sector_rows:
+                key, mult = row[0], row[1]
                 cur.execute("""
-                    INSERT INTO vlerick_multiple (year, bucket_type, bucket_key, multiple)
-                    VALUES (%s, 'sector', %s, %s)
-                    ON CONFLICT (year, bucket_type, bucket_key) DO NOTHING
-                """, (_VLERICK_YEAR, key, mult))
+                    INSERT INTO vlerick_multiple (source, year, bucket_type, bucket_key, multiple)
+                    VALUES (%s, %s, 'sector', %s, %s)
+                    ON CONFLICT (source, year, bucket_type, bucket_key) DO NOTHING
+                """, (src_key, _DATA_YEAR, key, mult))
 
         cur.execute("SELECT COUNT(*) FROM nace_vlerick_mapping")
         if cur.fetchone()[0] == 0:
@@ -170,10 +261,10 @@ def _ensure_tables_and_seed():
         conn.commit()
         cur.close()
         _INITIALIZED = True
-        logger.info("Vlerick valuation tables ensured and seeded")
+        logger.info("Valuation tables ensured and seeded (vlerick + damodaran + argos)")
     except Exception:
         conn.rollback()
-        logger.exception("Failed to initialize Vlerick tables")
+        logger.exception("Failed to initialize valuation tables")
         raise
     finally:
         put_connection(conn)
@@ -395,6 +486,7 @@ def _ebitda_to_size_bracket(ebitda: Optional[float], overall_multiple: float) ->
 async def get_company_valuation(
     cbe: str,
     sector: Optional[str] = Query(None, description="Override Vlerick sector key"),
+    source: Optional[str] = Query("vlerick", description="Multiple source: vlerick | damodaran | argos"),
 ):
     """Return 3-year EV/EBITDA-based valuation ladder using Vlerick M&A Monitor.
 
@@ -409,23 +501,36 @@ async def get_company_valuation(
         _ensure_tables_and_seed()
         _ensure_sector_columns()
 
-        # Latest year in our Vlerick data (currently 2024)
-        year_row = fetch_one("SELECT MAX(year) AS max_year FROM vlerick_multiple")
+        # Validate source
+        active_source = (source or "vlerick").lower()
+        if active_source not in _SOURCE_META:
+            active_source = "vlerick"
+        src_meta = _SOURCE_META[active_source]
+
+        # Latest year in the chosen source
+        year_row = fetch_one(
+            "SELECT MAX(year) AS max_year FROM vlerick_multiple WHERE source = %s",
+            (active_source,),
+        )
         if not year_row or year_row.get("max_year") is None:
             raise HTTPException(
                 status_code=503,
-                detail="Vlerick reference data not seeded. Run scripts/seed_vlerick.py.",
+                detail=f"Reference data not seeded for source '{active_source}'.",
             )
         data_year = int(year_row["max_year"])
 
-        # Fetch size + sector multiples for that year in one pass
+        # Fetch size + sector multiples for that year+source in one pass
         mults = fetch_all(
-            "SELECT bucket_type, bucket_key, multiple FROM vlerick_multiple WHERE year = %s",
-            (data_year,),
+            "SELECT bucket_type, bucket_key, multiple FROM vlerick_multiple WHERE year = %s AND source = %s",
+            (data_year, active_source),
         )
         size_mults = {m["bucket_key"]: float(m["multiple"]) for m in mults if m["bucket_type"] == "size"}
         sector_mults = {m["bucket_key"]: float(m["multiple"]) for m in mults if m["bucket_type"] == "sector"}
-        overall_mult = size_mults.get("overall", 6.5)
+        # 'overall' multiple: prefer size-overall; else fall back to the mean of the sector multiples
+        overall_mult = size_mults.get("overall")
+        if overall_mult is None and sector_mults:
+            overall_mult = sum(sector_mults.values()) / len(sector_mults)
+        overall_mult = overall_mult or 6.5
 
         # Last 3 fiscal years of financials. `financial_summary` can have
         # multiple rows per fiscal year (one per filing / amendment), so
@@ -453,6 +558,20 @@ async def get_company_valuation(
             return {
                 "status": "no_financial_data",
                 "years": [],
+                "source": {
+                    "key": active_source,
+                    "label": src_meta["label"],
+                    "publisher": src_meta["publisher"],
+                    "url": src_meta["url"],
+                    "kind": src_meta["kind"],
+                    "has_size": src_meta["has_size"],
+                    "has_sector": src_meta["has_sector"],
+                    "data_year": data_year,
+                },
+                "available_sources": [
+                    {"key": k, "label": v["label"], "has_size": v["has_size"], "has_sector": v["has_sector"]}
+                    for k, v in _SOURCE_META.items()
+                ],
                 "vlerick_reference": {
                     "data_year": data_year,
                     "report": f"Vlerick M&A Monitor {data_year + 1}",
@@ -593,15 +712,28 @@ async def get_company_valuation(
                 "available_sectors": available_sectors,
             },
             "years": years,
+            "source": {
+                "key": active_source,
+                "label": src_meta["label"],
+                "publisher": src_meta["publisher"],
+                "url": src_meta["url"],
+                "kind": src_meta["kind"],
+                "scope": src_meta["scope"],
+                "note": src_meta["note"],
+                "has_size": src_meta["has_size"],
+                "has_sector": src_meta["has_sector"],
+                "data_year": data_year,
+            },
+            "available_sources": [
+                {"key": k, "label": v["label"], "has_size": v["has_size"], "has_sector": v["has_sector"]}
+                for k, v in _SOURCE_META.items()
+            ],
             "vlerick_reference": {
                 "data_year": data_year,
-                "report": f"Vlerick M&A Monitor {data_year + 1}",
-                "publisher": "Vlerick Business School — Centre for Mergers, Acquisitions and Buyouts",
-                "url": VLERICK_SOURCE_URL,
-                "note": (
-                    f"Multiples shown are Vlerick medians for {data_year} Belgian transactions. "
-                    "Applied to each reported year so evolution reflects EBITDA growth, not market-multiple drift."
-                ),
+                "report": f"{src_meta['label']} ({data_year} data)",
+                "publisher": src_meta["publisher"],
+                "url": src_meta["url"],
+                "note": src_meta["note"],
             },
             "pro_memoria_note": PRO_MEMORIA_NOTE,
         }
