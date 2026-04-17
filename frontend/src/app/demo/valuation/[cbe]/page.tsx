@@ -79,7 +79,7 @@ export default async function ValuationDemoPage({
       </div>
 
       {/* Valuation tab content */}
-      <ValuationTab cbe={cleanCbe} />
+      <ValuationTab cbe={cleanCbe} companyName={detail?.name ?? null} />
 
       {/* Demo footer note */}
       <div className="mt-8 border-t border-slate-100 pt-4 text-center text-[11px] text-slate-400">
