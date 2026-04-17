@@ -186,29 +186,66 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
         </div>
       </div>
 
-      {/* Headline summary card */}
-      <div className="rounded-lg border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              Applied multiple
-            </div>
-            <div className="mt-0.5 text-3xl font-bold text-indigo-600">
-              {fmtMultiple(activeMultiple)}
-            </div>
-            <div className="mt-1 text-[11px] text-slate-500">
-              EV/EBITDA for <b>{activeLabel}</b>
-              <br />
-              <span className="text-slate-400">
-                Vlerick M&amp;A Monitor {vlerick_reference.data_year + 1} (data for {vlerick_reference.data_year})
-              </span>
+      {/* Headline snapshot — horizontal 4-column summary for the latest year */}
+      {(() => {
+        const latest = years[years.length - 1];
+        const latestEv = view === "size" ? latest?.by_size.enterprise_value : latest?.by_sector.enterprise_value;
+        const latestEquity = view === "size" ? latest?.by_size.equity_value : latest?.by_sector.equity_value;
+        const fyLabel = latest?.fiscal_year ? `FY${latest.fiscal_year}` : "latest";
+        return (
+          <div className="relative rounded-lg border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
+            {loading && (
+              <Loader2 className="absolute top-3 right-3 h-4 w-4 animate-spin text-slate-400" />
+            )}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Applied multiple
+                </div>
+                <div className="mt-0.5 text-2xl font-bold text-indigo-600">
+                  {fmtMultiple(activeMultiple)}
+                </div>
+                <div className="mt-0.5 text-[10px] text-slate-500 truncate" title={activeLabel}>
+                  {activeLabel}
+                </div>
+              </div>
+              <div className="sm:border-l sm:border-slate-200 sm:pl-4">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  EBITDA ({fyLabel})
+                </div>
+                <div className="mt-0.5 text-2xl font-bold text-slate-800">
+                  {fmtEur(latest?.ebitda ?? null)}
+                </div>
+                <div className="mt-0.5 text-[10px] text-slate-400">
+                  Profit before int., tax &amp; D&amp;A
+                </div>
+              </div>
+              <div className="sm:border-l sm:border-slate-200 sm:pl-4">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  Enterprise value
+                </div>
+                <div className="mt-0.5 text-2xl font-bold text-slate-800">
+                  {fmtEur(latestEv ?? null)}
+                </div>
+                <div className="mt-0.5 text-[10px] text-slate-400">
+                  What a buyer pays
+                </div>
+              </div>
+              <div className="sm:border-l sm:border-slate-200 sm:pl-4">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+                  Equity value
+                </div>
+                <div className="mt-0.5 text-2xl font-bold text-emerald-800">
+                  {fmtEur(latestEquity ?? null)}
+                </div>
+                <div className="mt-0.5 text-[10px] text-emerald-700/70">
+                  Shareholders receive
+                </div>
+              </div>
             </div>
           </div>
-          {loading && (
-            <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
-          )}
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Three-year ladder */}
       <div>
