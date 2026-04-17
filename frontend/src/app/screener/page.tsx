@@ -596,7 +596,7 @@ export default function ScreenerPage() {
   }, [filters]);
 
   return (
-    <div className="flex h-[calc(100dvh-100px)] md:h-[calc(100vh-64px)] overflow-hidden relative">
+    <div className="flex h-[calc(100dvh-116px)] md:h-[calc(100vh-64px)] overflow-hidden relative">
       {/* Mobile filter toggle — positioned above the ad banner */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -949,7 +949,7 @@ export default function ScreenerPage() {
               {t("screener.marginMin")}
             </Label>
             <Input
-              className="h-7 text-xs font-mono"
+              className="h-10 md:h-7 text-base md:text-xs font-mono"
               type="number"
               placeholder="0"
               value={filters.margin_min}
@@ -964,7 +964,7 @@ export default function ScreenerPage() {
               {t("screener.maxNetDebtEbitda")}
             </Label>
             <Input
-              className="h-7 text-xs font-mono"
+              className="h-10 md:h-7 text-base md:text-xs font-mono"
               type="number"
               placeholder="e.g. 4"
               value={filters.nd_ebitda_max}
