@@ -91,22 +91,12 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
     }
   };
 
-  const handleExportPdf = async () => {
-    console.log("[valuation] PDF export clicked, data:", !!data);
-    if (!data) {
-      alert("No valuation data loaded yet — wait for the table to render.");
-      return;
-    }
-    setExporting(true);
-    try {
-      const mod = await import("@/lib/export/valuation-pdf");
-      await mod.generateValuationPdf(data, companyName || fmtCbe(cbe), cbe, view);
-    } catch (err) {
-      console.error("[valuation] PDF export failed:", err);
-      alert("PDF export failed: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setExporting(false);
-    }
+  const handleExportPdf = () => {
+    // "Exact copy of the current webpage": use the browser's native print
+    // dialog. The site's @media print CSS hides nav/footer/ads; the no-print
+    // class on the controls row hides the toggles. User picks "Save as PDF"
+    // in the print dialog to download.
+    window.print();
   };
 
   const load = useCallback(
@@ -221,7 +211,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 no-print">
           {/* Source toggle — pick which reference dataset's multiples to use */}
           {sources.length > 1 && (
             <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5" title="Multiple source">
