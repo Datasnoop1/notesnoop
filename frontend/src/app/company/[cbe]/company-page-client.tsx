@@ -1016,7 +1016,7 @@ export function CompanyPageClient({
 
         {/* ===== Valuation ===== */}
         <TabsContent value="valuation" className="mt-3">
-          <ValuationTab cbe={cbe} />
+          <ValuationTab cbe={cbe} companyName={detail.name} />
         </TabsContent>
 
         {/* ===== Administrators ===== */}

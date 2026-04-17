@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { getCompanyValuation } from "@/lib/api";
 import type { ValuationData } from "@/lib/api";
-import { fmtEur } from "@/lib/format";
+import { fmtEur, fmtCbe } from "@/lib/format";
 import {
   Table,
   TableHeader,
@@ -12,10 +12,11 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
-import { ExternalLink, Loader2 } from "lucide-react";
+import { ExternalLink, Loader2, FileSpreadsheet, FileText } from "lucide-react";
 
 interface ValuationTabProps {
   cbe: string;
+  companyName?: string | null;
 }
 
 function fmtMultiple(v: number | null | undefined): string {
@@ -61,14 +62,32 @@ function VlerickBanner({ url }: { url: string }) {
   );
 }
 
-export function ValuationTab({ cbe }: ValuationTabProps) {
+export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   const [data, setData] = useState<ValuationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"size" | "sector">("sector");
   const [sectorOverride, setSectorOverride] = useState<string | null>(null);
   const [unit, setUnit] = useState<Unit>("auto");
+  const [exporting, setExporting] = useState(false);
   const fmt = (v: number | null | undefined) => fmtEurUnit(v, unit);
+
+  const handleExportExcel = async () => {
+    if (!data) return;
+    setExporting(true);
+    try {
+      const { generateValuationExcel } = await import("@/lib/export/valuation");
+      await generateValuationExcel(data, companyName || fmtCbe(cbe), cbe, view);
+    } catch (err) {
+      console.error("Excel export failed:", err);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleExportPdf = () => {
+    window.print();
+  };
 
   const load = useCallback(
     async (override?: string | null) => {
@@ -220,6 +239,27 @@ export function ValuationTab({ cbe }: ValuationTabProps) {
                 {opt.label}
               </button>
             ))}
+          </div>
+
+          {/* Export buttons */}
+          <div className="inline-flex items-center gap-1 no-print">
+            <button
+              onClick={handleExportExcel}
+              disabled={exporting}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 transition"
+              title="Export to Excel"
+            >
+              {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSpreadsheet className="h-3 w-3 text-emerald-600" />}
+              Excel
+            </button>
+            <button
+              onClick={handleExportPdf}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-rose-300 hover:text-rose-600 transition"
+              title="Print / save as PDF"
+            >
+              <FileText className="h-3 w-3 text-rose-500" />
+              PDF
+            </button>
           </div>
         </div>
       </div>
