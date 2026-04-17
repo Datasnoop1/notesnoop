@@ -352,7 +352,7 @@ def _refresh_materialized_for_company(cur, conn, cbe: str):
         SELECT enterprise_number, fiscal_year, filing_model,
                revenue, ebit, da, ebitda, net_profit,
                equity, lt_financial_debt, st_financial_debt, cash,
-               total_assets, fte_total, personnel_costs
+               total_assets, fixed_assets, fte_total, personnel_costs
         FROM (
             SELECT *,
                    ROW_NUMBER() OVER (

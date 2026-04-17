@@ -54,7 +54,7 @@ interface ScreenerRow {
   jf_label: string | null;
   juridical_situation: string | null;
   start_date: string | null;
-  real_estate: number | null;
+  fixed_assets: number | null;
 }
 
 interface Filters {
@@ -77,8 +77,8 @@ interface Filters {
   assets_growth_max: string;
   fte_growth_3y_min: string;
   fte_growth_3y_max: string;
-  real_estate_min: string;
-  real_estate_max: string;
+  fixed_assets_min: string;
+  fixed_assets_max: string;
   distress: "" | "bankruptcy" | "wco" | "any" | "healthy";
   sort: string;
   limit: string;
@@ -104,8 +104,8 @@ const DEFAULT_FILTERS: Filters = {
   assets_growth_max: "",
   fte_growth_3y_min: "",
   fte_growth_3y_max: "",
-  real_estate_min: "",
-  real_estate_max: "",
+  fixed_assets_min: "",
+  fixed_assets_max: "",
   distress: "",
   sort: "revenue_desc",
   limit: "100",
@@ -132,7 +132,7 @@ type SortKey =
   | "ebit_desc"
   | "ebitda_desc"
   | "fte_desc"
-  | "real_estate_desc"
+  | "fixed_assets_desc"
   | "name_asc";
 
 const LIMIT_OPTIONS = ["50", "100", "250", "500"];
@@ -192,7 +192,7 @@ function exportCsv(rows: ScreenerRow[]) {
     "Net Profit",
     "FTE",
     "FTE Growth 3y %",
-    "Real estate (land + buildings)",
+    "Fixed assets",
     "Juridical situation",
   ];
   const csvRows = rows.map((r) =>
@@ -211,7 +211,7 @@ function exportCsv(rows: ScreenerRow[]) {
       r.net_profit ?? "",
       r.fte ?? "",
       (r as any).fte_growth_3y_pct ?? "",
-      r.real_estate ?? "",
+      r.fixed_assets ?? "",
       r.juridical_situation ?? "",
     ].join(",")
   );
@@ -354,10 +354,24 @@ function loadPresets(): FilterPreset[] {
     // empty strings rather than undefined.
     return raw.map((p) => {
       // Cast through unknown so we can pick up legacy keys (e.g. the
-      // removed `mgmt_change_days`) without TS complaining about a
-      // direct Filters → Record conversion.
+      // removed `mgmt_change_days`, the renamed real_estate_*) without
+      // TS complaining about a direct Filters → Record conversion.
       const filters = { ...(p.filters as unknown as Record<string, unknown>) };
       delete filters["mgmt_change_days"];
+      // Migrate the brief-lived `real_estate_min/max` filter that was
+      // renamed to `fixed_assets_*` after the operator asked us to widen
+      // the metric from rubric 22 (land+buildings) to rubric 20/28.
+      if ("real_estate_min" in filters) {
+        if (filters["real_estate_min"]) filters["fixed_assets_min"] = filters["real_estate_min"];
+        delete filters["real_estate_min"];
+      }
+      if ("real_estate_max" in filters) {
+        if (filters["real_estate_max"]) filters["fixed_assets_max"] = filters["real_estate_max"];
+        delete filters["real_estate_max"];
+      }
+      // Sort key was renamed too — would otherwise yield a 400 from the
+      // backend the next time the preset is loaded.
+      if (filters["sort"] === "real_estate_desc") filters["sort"] = "fixed_assets_desc";
       return { ...p, filters: { ...DEFAULT_FILTERS, ...filters } as Filters };
     });
   } catch {
@@ -480,10 +494,10 @@ export default function ScreenerPage() {
         if (f.assets_growth_max) params.assets_growth_max = f.assets_growth_max;
         if (f.fte_growth_3y_min) params.fte_growth_3y_min = f.fte_growth_3y_min;
         if (f.fte_growth_3y_max) params.fte_growth_3y_max = f.fte_growth_3y_max;
-        if (f.real_estate_min)
-          params.real_estate_min = String(Number(f.real_estate_min) * multiplier);
-        if (f.real_estate_max)
-          params.real_estate_max = String(Number(f.real_estate_max) * multiplier);
+        if (f.fixed_assets_min)
+          params.fixed_assets_min = String(Number(f.fixed_assets_min) * multiplier);
+        if (f.fixed_assets_max)
+          params.fixed_assets_max = String(Number(f.fixed_assets_max) * multiplier);
         if (f.distress) params.distress = f.distress;
         params.sort = f.sort;
         params.limit = f.limit;
@@ -630,7 +644,7 @@ export default function ScreenerPage() {
     if (filters.ebitda_growth_min || filters.ebitda_growth_max) c++;
     if (filters.assets_growth_min || filters.assets_growth_max) c++;
     if (filters.fte_growth_3y_min || filters.fte_growth_3y_max) c++;
-    if (filters.real_estate_min || filters.real_estate_max) c++;
+    if (filters.fixed_assets_min || filters.fixed_assets_max) c++;
     if (filters.distress) c++;
     return c;
   }, [filters]);
@@ -1082,25 +1096,25 @@ export default function ScreenerPage() {
             </div>
           </div>
 
-          {/* Real estate (rubric 22 — land + buildings) */}
+          {/* Fixed assets (rubric 20/28 — intangible + tangible + financial) */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              {t("screener.realEstate")}
+              {t("screener.fixedAssets")}
             </Label>
             <div className="grid grid-cols-2 gap-1">
               <Input
                 className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Min"
-                value={filters.real_estate_min}
-                onChange={(e) => updateFilter("real_estate_min", e.target.value)}
+                value={filters.fixed_assets_min}
+                onChange={(e) => updateFilter("fixed_assets_min", e.target.value)}
               />
               <Input
                 className="h-10 md:h-7 text-base md:text-xs font-mono"
                 type="number"
                 placeholder="Max"
-                value={filters.real_estate_max}
-                onChange={(e) => updateFilter("real_estate_max", e.target.value)}
+                value={filters.fixed_assets_max}
+                onChange={(e) => updateFilter("fixed_assets_max", e.target.value)}
               />
             </div>
           </div>
@@ -1305,8 +1319,8 @@ export default function ScreenerPage() {
                   onSort={handleSort}
                 />
                 <SortHeader
-                  label={t("screener.realEstateShort")}
-                  sortKey="real_estate_desc"
+                  label={t("screener.fixedAssetsShort")}
+                  sortKey="fixed_assets_desc"
                   currentSort={filters.sort}
                   onSort={handleSort}
                 />
@@ -1406,9 +1420,9 @@ export default function ScreenerPage() {
                     {fmtNumber(row.fte)}
                   </td>
 
-                  {/* Vastgoed (real estate, rubric 22) */}
+                  {/* Vaste activa (fixed assets, rubric 20/28) */}
                   <td className="py-1.5 px-2 text-right font-mono text-sm text-slate-600 whitespace-nowrap">
-                    {fmtEur(row.real_estate)}
+                    {fmtEur(row.fixed_assets)}
                   </td>
 
                   {/* FY */}

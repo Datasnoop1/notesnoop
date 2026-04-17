@@ -6,6 +6,7 @@ Disallow: /login
 Disallow: /account
 Disallow: /favourites
 Disallow: /graveyard
+Disallow: /fallen-heroes
 
 Sitemap: https://datasnoop.be/sitemap.xml
 

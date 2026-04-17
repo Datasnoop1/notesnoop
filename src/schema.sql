@@ -167,7 +167,14 @@ SELECT
     MAX(CASE WHEN f.rubric_code = '9904'   THEN f.value END) AS net_profit,
     MAX(CASE WHEN f.rubric_code = '65'     THEN f.value END) AS financial_charges,
     -- Balance sheet
-    MAX(CASE WHEN f.rubric_code = '20/28'  THEN f.value END) AS fixed_assets,
+    -- Modern NBB filings use rubric ``21/28`` (intangible + tangible +
+    -- financial fixed assets, excluding the deprecated establishment-costs
+    -- rubric 20). Empirical: in our DB ``21/28`` has ~900k rows, ``20/28``
+    -- has 0. Falling back to ``21/28`` here keeps the column populated.
+    COALESCE(
+        MAX(CASE WHEN f.rubric_code = '20/28'  THEN f.value END),
+        MAX(CASE WHEN f.rubric_code = '21/28'  THEN f.value END)
+    ) AS fixed_assets,
     MAX(CASE WHEN f.rubric_code = '20/58'  THEN f.value END) AS total_assets,
     MAX(CASE WHEN f.rubric_code = '10/15'  THEN f.value END) AS equity,
     MAX(CASE WHEN f.rubric_code = '17'     THEN f.value END) AS lt_debt,
@@ -375,9 +382,12 @@ CREATE TABLE IF NOT EXISTS financial_latest (
     st_financial_debt   REAL,
     cash                REAL,
     total_assets        REAL,
+    fixed_assets        REAL,                 -- rubric 20/28
     fte_total           REAL,
     personnel_costs     REAL
 );
+-- Backfill column for live DBs that pre-date this addition.
+ALTER TABLE financial_latest ADD COLUMN IF NOT EXISTS fixed_assets REAL;
 
 -- All financial years per company (materialized from financial_summary view)
 CREATE TABLE IF NOT EXISTS financial_by_year (

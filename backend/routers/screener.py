@@ -22,8 +22,9 @@ SORT_OPTIONS = {
     "ebitda_desc": "fl.ebitda DESC NULLS LAST",
     "fte_desc": "fl.fte_total DESC NULLS LAST",
     "name_asc": "ci.name ASC NULLS LAST",
-    # ``re`` alias is always in scope (real_estate_join is unconditional).
-    "real_estate_desc": "re.land_buildings DESC NULLS LAST",
+    # Fixed assets = rubric 20/28 (intangible + tangible + financial).
+    # Already pre-pivoted on financial_latest — no LATERAL join needed.
+    "fixed_assets_desc": "fl.fixed_assets DESC NULLS LAST",
 }
 
 
@@ -62,8 +63,8 @@ async def screener(
     assets_growth_max: Optional[float] = Query(None, description="Max total assets growth % YoY"),
     fte_growth_3y_min: Optional[float] = Query(None, description="Min FTE 3y growth %"),
     fte_growth_3y_max: Optional[float] = Query(None, description="Max FTE 3y growth %"),
-    real_estate_min: Optional[float] = Query(None, ge=0, description="Min real estate (rubric 22 — land + buildings) in EUR"),
-    real_estate_max: Optional[float] = Query(None, ge=0, description="Max real estate (rubric 22 — land + buildings) in EUR"),
+    fixed_assets_min: Optional[float] = Query(None, ge=0, description="Min fixed assets (rubric 20/28 \u2014 intangible + tangible + financial) in EUR"),
+    fixed_assets_max: Optional[float] = Query(None, ge=0, description="Max fixed assets (rubric 20/28 \u2014 intangible + tangible + financial) in EUR"),
     distress: Optional[str] = Query(None, description="Distress filter: 'bankruptcy', 'wco', or 'any'"),
     sort: str = Query("ebit_desc", description="Sort order"),
     limit: int = Query(100, ge=1, le=1000),
@@ -178,16 +179,16 @@ async def screener(
         conditions.append("prev3.fte_total > 0 AND ((fl.fte_total - prev3.fte_total) / prev3.fte_total * 100) <= %s")
         params.append(fte_growth_3y_max)
 
-    # Real estate (rubric 22 — Terreinen en gebouwen / land and buildings).
-    # Looked up from financial_data per fiscal year aligned with financial_latest.
-    # The LATERAL join is unconditional now (so every row in the result table
-    # shows a Vastgoed value), so no `needs_real_estate` gate is needed.
-    if real_estate_min is not None:
-        conditions.append("COALESCE(re.land_buildings, 0) >= %s")
-        params.append(real_estate_min)
-    if real_estate_max is not None:
-        conditions.append("COALESCE(re.land_buildings, 0) <= %s")
-        params.append(real_estate_max)
+    # Fixed assets — rubric 20/28 = intangible + tangible + financial fixed
+    # assets. Already pre-pivoted on `financial_latest.fixed_assets` so no
+    # LATERAL join is needed; this also means we no longer pay the
+    # rubric-22 lookup cost on every screener call.
+    if fixed_assets_min is not None:
+        conditions.append("COALESCE(fl.fixed_assets, 0) >= %s")
+        params.append(fixed_assets_min)
+    if fixed_assets_max is not None:
+        conditions.append("COALESCE(fl.fixed_assets, 0) <= %s")
+        params.append(fixed_assets_max)
 
     # Distress / juridical situation. Codes per docs/belgian-gaap.md +
     # graveyard.py; bankruptcy = 048-053, WCO/reorganisation = 020-026.
@@ -221,25 +222,10 @@ async def screener(
             AND prev3.fiscal_year = fl.fiscal_year - 3
     """ if needs_fte_3y else ""
 
-    # Real-estate join: pulls rubric 22 (land + buildings) for the same
-    # fiscal year as financial_latest. Always joined so the result column
-    # is populated even when the user hasn't set a filter — the operator
-    # wants the value visible in the table to spot real-estate-rich
-    # companies at a glance.
-    # ``period = 'N'`` filters to the current-year column on each filing
-    # (rather than the comparative ``NM1`` prior-year column from a later
-    # filing) so the value matches what the company actually reported for
-    # that fiscal_year.
-    real_estate_join = """
-        LEFT JOIN LATERAL (
-            SELECT MAX(value) AS land_buildings
-            FROM financial_data fd
-            WHERE fd.enterprise_number = fl.enterprise_number
-              AND fd.fiscal_year = fl.fiscal_year
-              AND fd.rubric_code = '22'
-              AND fd.period = 'N'
-        ) re ON TRUE
-    """
+    # Fixed assets are already pivoted on financial_latest.fixed_assets,
+    # so no LATERAL join is needed (the previous rubric-22 / real-estate
+    # LATERAL was removed when we switched to the broader 20/28 value).
+    fixed_assets_join = ""
 
     # Growth select columns
     growth_cols = ""
@@ -263,8 +249,9 @@ async def screener(
                END AS "fte_growth_3y_pct"
         """
 
-    # Real-estate column is always returned (see real_estate_join comment).
-    real_estate_col = ', re.land_buildings AS "real_estate"'
+    # Fixed-assets column always returned (drives the result table column
+    # and lets the user see the value without setting a filter).
+    fixed_assets_col = ', fl.fixed_assets AS "fixed_assets"'
 
     # When the user filters by distress (bankruptcy / WCO / any-distress),
     # anchor the query on `enterprise` instead of `financial_latest`. Most
@@ -340,11 +327,11 @@ async def screener(
                e.start_date AS "start_date"
                {growth_cols}
                {fte_3y_col}
-               {real_estate_col}
+               {fixed_assets_col}
         {anchor_from}
         {prev_join}
         {prev3_join}
-        {real_estate_join}
+        {fixed_assets_join}
         WHERE 1=1 {where}
         ORDER BY {sort_sql}
         LIMIT %s
@@ -360,7 +347,7 @@ async def screener(
         for row in rows:
             for key in ("revenue", "ebit", "ebitda", "margin_pct", "net_profit", "fte",
                         "rev_growth_pct", "ebitda_growth_pct", "assets_growth_pct",
-                        "fte_growth_3y_pct", "real_estate"):
+                        "fte_growth_3y_pct", "fixed_assets"):
                 if row.get(key) is not None:
                     row[key] = float(row[key])
             if isinstance(row.get("start_date"), (datetime.date, datetime.datetime)):
@@ -401,9 +388,9 @@ async def nl_screener(body: NLScreenerBody, user=Depends(get_current_user)):
         "- ebitda_growth_min / ebitda_growth_max: EBITDA growth % YoY\n"
         "- assets_growth_min / assets_growth_max: total assets growth % YoY\n"
         "- fte_growth_3y_min / fte_growth_3y_max: 3-year FTE headcount growth %\n"
-        "- real_estate_min / real_estate_max: land + buildings (rubric 22) in EUR\n"
+        "- fixed_assets_min / fixed_assets_max: fixed assets (rubric 20/28 \u2014 intangible + tangible + financial) in EUR\n"
         "- distress: 'healthy' | 'bankruptcy' | 'wco' | 'any' — filter on juridical situation\n"
-        "- sort: revenue_desc | ebit_desc | ebitda_desc | fte_desc | name_asc | real_estate_desc\n"
+        "- sort: revenue_desc | ebit_desc | ebitda_desc | fte_desc | name_asc | fixed_assets_desc\n"
         "- limit: max results (default 100)\n\n"
         "Common NACE codes: 10-33 Manufacturing, 41-43 Construction, 45-47 Wholesale/Retail, "
         "49-53 Transport, 55-56 Hotels/Restaurants, 58-63 ICT/Media, 64-66 Finance, "
