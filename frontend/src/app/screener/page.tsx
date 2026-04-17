@@ -1509,7 +1509,89 @@ export default function ScreenerPage() {
             </tbody>
           </table>
         </div>
+        {/* Recently viewed companies — frontend-only via localStorage */}
+        <RecentlyViewedPanel />
       </main>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Recently-viewed panel (collapsible)                                */
+/* ------------------------------------------------------------------ */
+
+import { getRecentlyViewed, removeRecentlyViewed, clearRecentlyViewed, type RecentlyViewedEntry } from "@/lib/recently-viewed";
+
+function RecentlyViewedPanel() {
+  const { t } = useTranslation();
+  const [items, setItems] = useState<RecentlyViewedEntry[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const refresh = () => setItems(getRecentlyViewed());
+    refresh();
+    const storageHandler = (e: StorageEvent) => {
+      if (e.key && !e.key.startsWith("datasnoop_recently_viewed")) return;
+      refresh();
+    };
+    window.addEventListener("storage", storageHandler);
+    window.addEventListener("datasnoop:recently-viewed-changed", refresh);
+    return () => {
+      window.removeEventListener("storage", storageHandler);
+      window.removeEventListener("datasnoop:recently-viewed-changed", refresh);
+    };
+  }, []);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="border-t border-slate-100 px-3 md:px-4 py-2 bg-slate-50/40">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700"
+      >
+        <span>{t("screener.recentlyViewed")}</span>
+        <span className="text-slate-300">·</span>
+        <span className="text-slate-400 normal-case tracking-normal font-medium">
+          {items.length}
+        </span>
+        <span className="text-slate-400 ml-1">{open ? "\u25BE" : "\u25B8"}</span>
+      </button>
+      {open && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {items.map((it) => (
+            <div
+              key={it.cbe}
+              className="group inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[11px] hover:border-indigo-300"
+            >
+              <Link
+                href={`/company/${it.cbe}`}
+                className="text-slate-700 hover:text-indigo-600 max-w-[180px] truncate"
+                title={`${it.name}${it.city ? ` · ${it.city}` : ""}`}
+              >
+                {it.name}
+              </Link>
+              <button
+                onClick={() => {
+                  removeRecentlyViewed(it.cbe);
+                }}
+                className="text-slate-300 opacity-0 group-hover:opacity-100 hover:text-slate-600"
+                title={t("screener.recentlyViewedRemove")}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {items.length > 0 && (
+            <button
+              onClick={clearRecentlyViewed}
+              className="text-[10px] text-slate-400 hover:text-slate-600 ml-1"
+            >
+              {t("screener.recentlyViewedClear")}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

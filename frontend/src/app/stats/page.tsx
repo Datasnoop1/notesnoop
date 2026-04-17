@@ -19,6 +19,8 @@ import {
   getStatsOverview,
   getStatsSectors,
   getStatsMarginDistribution,
+  getStatsSectorScatter,
+  type SectorScatterPoint,
   getStatsSizeDistribution,
   getStatsEvolution,
   getStatsProvinces,
@@ -54,6 +56,9 @@ import {
   LineChart,
   Line,
   Legend,
+  ScatterChart,
+  Scatter,
+  ZAxis,
 } from "recharts";
 
 /* ============================================================
@@ -866,6 +871,128 @@ export default function StatsPage() {
         </Card>
       </div>
 
+      {/* ━━━━━━━━━━ SECTION 7: SECTOR SCATTER ━━━━━━━━━━ */}
+      <SectorScatter />
+
+    </div>
+  );
+}
+
+/* ============================================================
+   Sector scatter chart — pick a NACE, see revenue × margin × FTE
+   ============================================================ */
+
+function SectorScatter() {
+  const [nace, setNace] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [points, setPoints] = useState<SectorScatterPoint[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(nace.trim()), 400);
+    return () => clearTimeout(id);
+  }, [nace]);
+
+  useEffect(() => {
+    if (!/^\d{2,5}$/.test(debounced)) {
+      setPoints([]);
+      return;
+    }
+    setLoading(true);
+    getStatsSectorScatter(debounced)
+      .then(setPoints)
+      .catch(() => setPoints([]))
+      .finally(() => setLoading(false));
+  }, [debounced]);
+
+  const data = useMemo(
+    () =>
+      points.map((p) => ({
+        x: p.revenue,
+        y: p.margin_pct ?? 0,
+        z: Math.max(p.fte ?? 1, 1),
+        name: p.name || p.cbe,
+        cbe: p.cbe,
+        city: p.city,
+      })),
+    [points]
+  );
+
+  return (
+    <div>
+      <SectionHeader icon={<TrendingUp className="w-3.5 h-3.5" />}>
+        Sector scatter \u2014 revenue \u00d7 margin \u00d7 FTE
+      </SectionHeader>
+      <Card className="bg-white">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs text-slate-500">NACE prefix</label>
+            <input
+              value={nace}
+              onChange={(e) => setNace(e.target.value.replace(/\D/g, "").slice(0, 5))}
+              placeholder="e.g. 62 (IT) or 461 (wholesale)"
+              className="h-9 px-2 text-sm font-mono border border-slate-200 rounded w-48"
+            />
+            {loading && <span className="text-[11px] text-slate-400">Loading...</span>}
+            {!loading && data.length > 0 && (
+              <span className="text-[11px] text-slate-400">{data.length} companies</span>
+            )}
+          </div>
+          {data.length === 0 && !loading && (
+            <p className="text-xs text-slate-400 italic">
+              {debounced
+                ? "No companies for this NACE prefix."
+                : "Enter a NACE prefix (2\u20135 digits) to scatter every company in that sector by revenue and EBITDA margin."}
+            </p>
+          )}
+          {data.length > 0 && (
+            <ResponsiveContainer width="100%" height={420}>
+              <ScatterChart margin={{ top: 10, right: 24, bottom: 30, left: 8 }}>
+                <CartesianGrid stroke="#f1f5f9" strokeDasharray="3 3" />
+                <XAxis
+                  type="number"
+                  dataKey="x"
+                  name="Revenue"
+                  tick={{ fontSize: 11 }}
+                  scale="log"
+                  domain={["auto", "auto"]}
+                  tickFormatter={(v: number) => fmtEur(v)}
+                />
+                <YAxis
+                  type="number"
+                  dataKey="y"
+                  name="EBITDA margin %"
+                  unit="%"
+                  tick={{ fontSize: 11 }}
+                  domain={[-50, 80]}
+                />
+                <ZAxis type="number" dataKey="z" range={[20, 250]} name="FTE" />
+                <Tooltip
+                  cursor={{ strokeDasharray: "3 3" }}
+                  content={({ active, payload }) => {
+                    if (!active || !payload || !payload.length) return null;
+                    const p = payload[0].payload as { name: string; cbe: string; city: string | null; x: number; y: number; z: number };
+                    return (
+                      <div className="rounded-md border border-slate-200 bg-white p-2 shadow-md text-[11px] space-y-0.5">
+                        <div className="font-semibold text-slate-800">{p.name}</div>
+                        {p.city && <div className="text-slate-400">{p.city}</div>}
+                        <div className="text-slate-600">Revenue: <span className="font-mono">{fmtEur(p.x)}</span></div>
+                        <div className="text-slate-600">EBITDA margin: <span className="font-mono">{p.y.toFixed(1)}%</span></div>
+                        <div className="text-slate-600">FTE: <span className="font-mono">{Math.round(p.z)}</span></div>
+                      </div>
+                    );
+                  }}
+                />
+                <Scatter data={data} fill="#6366f1" fillOpacity={0.55} />
+              </ScatterChart>
+            </ResponsiveContainer>
+          )}
+          <p className="text-[10px] text-slate-400 italic">
+            X = revenue (log scale) \u00b7 Y = EBITDA margin % \u00b7 dot size = FTE. Outliers
+            beyond \u00b150%/80% margin are clipped to keep the chart legible.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

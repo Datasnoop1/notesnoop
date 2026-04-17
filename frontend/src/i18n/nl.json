@@ -183,7 +183,10 @@
     "min": "Min",
     "max": "Max",
     "noFinancialsOnly": "Alleen zonder jaarrekening",
-    "trend": "Trend"
+    "trend": "Trend",
+    "recentlyViewed": "Recent bekeken",
+    "recentlyViewedClear": "alles wissen",
+    "recentlyViewedRemove": "Uit geschiedenis verwijderen"
   },
 
   "company": {

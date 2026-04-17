@@ -183,7 +183,10 @@
     "min": "Min",
     "max": "Max",
     "noFinancialsOnly": "No financials loaded yet",
-    "trend": "Trend"
+    "trend": "Trend",
+    "recentlyViewed": "Recently viewed",
+    "recentlyViewedClear": "clear all",
+    "recentlyViewedRemove": "Remove from history"
   },
 
   "company": {

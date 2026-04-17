@@ -167,6 +167,16 @@ export function CompanyPageClient({
     return () => clearInterval(interval);
   }, [loadStartTime]);
 
+  /* Track this profile in localStorage so the screener / dashboard can
+     surface a "Recently viewed" panel. Only fires after we've resolved
+     a real company name (skip 404s and the initial null state). */
+  useEffect(() => {
+    if (!detail || !detail.name) return;
+    import("@/lib/recently-viewed").then((mod) => {
+      mod.recordCompanyView({ cbe, name: detail.name, city: detail.city ?? null });
+    });
+  }, [cbe, detail?.name, detail?.city]);
+
   /* -- Check for existing AI enrichment on load.
      Re-runs when `locale` changes so cached AI gets re-fetched
      translated to the user's new site language. */

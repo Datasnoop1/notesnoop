@@ -183,7 +183,10 @@
     "min": "Min",
     "max": "Max",
     "noFinancialsOnly": "Sans compte d\u00e9pos\u00e9",
-    "trend": "Tendance"
+    "trend": "Tendance",
+    "recentlyViewed": "R\u00e9cemment consult\u00e9",
+    "recentlyViewedClear": "tout effacer",
+    "recentlyViewedRemove": "Supprimer de l'historique"
   },
 
   "company": {

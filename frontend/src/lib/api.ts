@@ -504,6 +504,19 @@ export interface ProvinceStats {
 export const getStatsMarginDistribution = (province?: string) =>
   apiFetch<MarginBucket[]>(`/api/stats/margin-distribution${province ? `?province=${province}` : ""}`);
 
+export interface SectorScatterPoint {
+  cbe: string;
+  name: string | null;
+  city: string | null;
+  revenue: number;
+  ebitda: number;
+  fte: number | null;
+  margin_pct: number | null;
+}
+
+export const getStatsSectorScatter = (nace: string, limit = 300) =>
+  apiFetch<SectorScatterPoint[]>(`/api/stats/sector-scatter?nace=${encodeURIComponent(nace)}&limit=${limit}`);
+
 export const getStatsSizeDistribution = (province?: string) =>
   apiFetch<SizeBucket[]>(`/api/stats/size-distribution${province ? `?province=${province}` : ""}`);
 
@@ -648,6 +661,24 @@ export interface ImportConfirmResponse {
   skipped: number;
   not_found: string[];
 }
+
+// ── Timeline ──────────────────────────────────────────────
+export type TimelineEventKind =
+  | "founding"
+  | "filing"
+  | "publication"
+  | "mandate_start"
+  | "mandate_end";
+
+export interface TimelineEvent {
+  date: string;
+  kind: TimelineEventKind;
+  label: string;
+  ref: string | null;
+}
+
+export const getCompanyTimeline = (cbe: string) =>
+  apiFetch<{ events: TimelineEvent[] }>(`/api/companies/${cbe}/timeline`);
 
 export const importMatchNames = (names: string[]) =>
   apiFetch<ImportMatchResponse>("/api/import/match", {

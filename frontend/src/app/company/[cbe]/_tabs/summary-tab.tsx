@@ -1,9 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { fmtEur, fmtPct, fmtNumber } from "@/lib/format";
+import { getCompanyTimeline, type TimelineEvent } from "@/lib/api";
 import {
   ChevronRight,
   Users,
@@ -591,8 +592,91 @@ export function SummaryTab({
         )}
       </div>
 
+      {/* Corporate events timeline */}
+      <CompanyTimeline cbe={cbe} />
+
       {/* Old AI enrichment and web enrichment sections removed —
            AI Insights now available via the Sparkles button in the header */}
+    </div>
+  );
+}
+
+/* ---------- Corporate events timeline ---------- */
+
+function CompanyTimeline({ cbe }: { cbe: string }) {
+  const [open, setOpen] = useState(false);
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || events.length > 0 || loading) return;
+    setLoading(true);
+    getCompanyTimeline(cbe)
+      .then((res) => setEvents(res.events))
+      .catch(() => setEvents([]))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, cbe]);
+
+  const dotColor: Record<string, string> = {
+    founding: "bg-emerald-500",
+    filing: "bg-indigo-400",
+    publication: "bg-amber-400",
+    mandate_start: "bg-sky-400",
+    mandate_end: "bg-rose-400",
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-4 py-2.5"
+      >
+        <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <Calendar className="h-3 w-3" /> Corporate events timeline
+        </span>
+        <span className="text-slate-400 text-xs">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3">
+          {loading && <p className="text-xs text-slate-400 italic">Loading timeline...</p>}
+          {!loading && events.length === 0 && (
+            <p className="text-xs text-slate-400 italic">No events on file.</p>
+          )}
+          {!loading && events.length > 0 && (
+            <ol className="relative border-l border-slate-200 ml-2 mt-1 space-y-2.5 max-h-[420px] overflow-y-auto">
+              {events.map((e, idx) => (
+                <li key={`${e.date}-${idx}`} className="ml-3">
+                  <span
+                    className={`absolute -left-1.5 mt-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${
+                      dotColor[e.kind] ?? "bg-slate-400"
+                    }`}
+                  />
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[10px] font-mono text-slate-400 tabular-nums shrink-0">
+                      {e.date.slice(0, 10)}
+                    </span>
+                    <span className="text-[11px] text-slate-700">
+                      {e.ref ? (
+                        <a
+                          href={e.ref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:text-indigo-600 hover:underline"
+                        >
+                          {e.label}
+                        </a>
+                      ) : (
+                        e.label
+                      )}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
     </div>
   );
 }
