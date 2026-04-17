@@ -124,7 +124,7 @@ export default function Nav() {
               <span className="text-base font-semibold text-slate-900 tracking-tight">
                 Datasnoop
               </span>
-              <span className="text-[7px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
+              <span className="text-[9px] sm:text-[10px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
             </Link>
           )}
 
@@ -139,7 +139,7 @@ export default function Nav() {
                   onChange={(e) => setHeaderQuery(e.target.value)}
                   placeholder="Search"
                   aria-label="Search companies or persons"
-                  className="w-full h-9 pl-9 pr-3 text-[13px] rounded-full bg-transparent focus:outline-none placeholder:text-gray-400 text-gray-900"
+                  className="w-full h-11 md:h-9 pl-9 pr-3 text-base md:text-[13px] rounded-full bg-transparent focus:outline-none placeholder:text-gray-400 text-gray-900"
                   enterKeyHint="search"
                   autoCapitalize="off"
                   autoCorrect="off"
@@ -260,7 +260,7 @@ export default function Nav() {
                 or under the search (landing), so they're NOT duplicated here. */}
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger>
-                <span className="md:hidden inline-flex items-center justify-center rounded-md p-2 text-slate-600 hover:bg-slate-100">
+                <span className="md:hidden inline-flex items-center justify-center rounded-md p-2.5 min-w-[44px] min-h-[44px] text-slate-600 hover:bg-slate-100">
                   <Menu className="h-5 w-5" />
                 </span>
               </SheetTrigger>
@@ -313,13 +313,13 @@ export default function Nav() {
             is still one tap away without opening the hamburger */}
         {!isLanding && (
           <div className="md:hidden border-t border-slate-100">
-            <nav className="flex items-center justify-center gap-0 py-1.5 text-[12px] text-gray-600 overflow-x-auto">
+            <nav className="flex items-center justify-center gap-0 py-1 text-[13px] text-gray-600 overflow-x-auto">
               {NAV_LINKS.map((item, idx) => (
                 <React.Fragment key={item.href}>
                   {idx > 0 && <span className="text-gray-300 select-none shrink-0" aria-hidden>·</span>}
                   <Link
                     href={item.href}
-                    className={`px-2.5 py-1 rounded-md transition-colors shrink-0 ${
+                    className={`px-3 py-2.5 min-h-[44px] inline-flex items-center rounded-md transition-colors shrink-0 ${
                       isActive(item.href)
                         ? "text-gray-900 font-medium"
                         : "hover:text-gray-900"
