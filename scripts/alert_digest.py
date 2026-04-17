@@ -31,8 +31,12 @@ from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-# Make `from db import ...` work when running standalone from /scripts.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+# Make `from db import ...` work in both invocation modes:
+# - Standalone from repo root: `python scripts/alert_digest.py` → db lives in ../backend
+# - Inside the prod container at /app/scripts/: db lives one level up at /app
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_HERE, "..", "backend"))
+sys.path.insert(0, os.path.join(_HERE, ".."))
 
 from db import fetch_all, fetch_one, execute  # noqa: E402
 
