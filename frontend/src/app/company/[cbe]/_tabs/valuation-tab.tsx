@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { ExternalLink, Loader2, FileSpreadsheet, FileText, Sparkles, Plus, X, Users } from "lucide-react";
+import { useTranslation } from "@/components/language-provider";
 
 interface ValuationTabProps {
   cbe: string;
@@ -64,6 +65,7 @@ function VlerickBanner({ url }: { url: string }) {
 }
 
 export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
+  const { locale } = useTranslation();
   const [data, setData] = useState<ValuationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -260,6 +262,18 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
       setAiLoading(false);
     }
   }, [cbe, sectorOverride, sourceKey, includeMembers]);
+
+  /* Auto re-fetch the AI commentary when the user switches site
+     language — otherwise the commentary stays in the language it was
+     first rendered in even though the surrounding chrome has flipped.
+     Only refires if the commentary is already on screen so we don't
+     surprise users with a fresh LLM call they didn't ask for. */
+  useEffect(() => {
+    if (aiCommentary) {
+      fetchAiCommentary();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale]);
 
   const handleSectorChange = (newSector: string) => {
     const override = newSector === "" ? null : newSector;

@@ -570,6 +570,34 @@ export function CompanyPageClient({
     }
   }, [personEnrichments]);
 
+  /* Auto re-fetch all already-loaded person summaries when the user
+     switches site language. `getPersonEnrichment` threads ?lang= so
+     the backend translates the cached entry. Untouched persons stay
+     untouched (don't generate fresh enrichments out of nowhere). */
+  useEffect(() => {
+    const namesToRefresh = Object.entries(personEnrichments)
+      .filter(([, v]) => v.summary && !v.loading)
+      .map(([n]) => n);
+    if (namesToRefresh.length === 0) return;
+    let cancelled = false;
+    namesToRefresh.forEach(async (name) => {
+      try {
+        const refreshed = await getPersonEnrichment(name);
+        if (cancelled || !refreshed?.summary) return;
+        setPersonEnrichments((prev) => ({
+          ...prev,
+          [name]: { summary: refreshed.summary, loading: false },
+        }));
+      } catch {
+        // silently ignore — old text stays
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locale]);
+
   const handleAddPeopleFavourite = useCallback(async (name: string) => {
     try {
       await addPeopleFavourite(name);
