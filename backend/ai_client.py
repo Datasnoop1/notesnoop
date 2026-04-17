@@ -5,6 +5,7 @@ import os
 import logging
 import re
 import time
+from contextvars import ContextVar
 from urllib.parse import urlparse
 
 import httpx
@@ -16,6 +17,119 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions"
+
+# Request-scoped contextvar holding the current API endpoint path, set by
+# middleware in main.py. Threads the endpoint identifier down to `ai_complete`
+# so every LLM call can be attributed to the user-facing feature that
+# triggered it without polluting every caller signature with an extra arg.
+_current_endpoint: ContextVar[str | None] = ContextVar(
+    "ai_current_endpoint", default=None
+)
+
+
+def set_current_endpoint(path: str | None):
+    """Set the request-scoped endpoint label. Returns a token for reset."""
+    return _current_endpoint.set(path)
+
+
+def reset_current_endpoint(token) -> None:
+    """Reset the endpoint contextvar using the token from set_current_endpoint."""
+    try:
+        _current_endpoint.reset(token)
+    except Exception:
+        # Token mismatch across contexts — non-fatal for observability.
+        pass
+
+
+# Lazy guards for schema migrations. Each flag flips True after a successful
+# CREATE TABLE IF NOT EXISTS, so the DDL runs at most once per process.
+_translation_cache_migrated = False
+_llm_call_log_migrated = False
+
+
+def _ensure_translation_cache_table() -> None:
+    """Create the translation_cache table if missing (idempotent)."""
+    global _translation_cache_migrated
+    if _translation_cache_migrated:
+        return
+    try:
+        from db import execute
+        execute(
+            """
+            CREATE TABLE IF NOT EXISTS translation_cache (
+                cbe             TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                lang            TEXT NOT NULL,
+                value           TEXT NOT NULL,
+                generated_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (cbe, kind, lang)
+            )
+            """
+        )
+        execute(
+            "CREATE INDEX IF NOT EXISTS idx_translation_cache_gen "
+            "ON translation_cache(generated_at)"
+        )
+        _translation_cache_migrated = True
+    except Exception:
+        logger.exception("translation_cache table migration failed (non-fatal)")
+
+
+def _ensure_llm_call_log_table() -> None:
+    """Create the llm_call_log table if missing (idempotent)."""
+    global _llm_call_log_migrated
+    if _llm_call_log_migrated:
+        return
+    try:
+        from db import execute
+        execute(
+            """
+            CREATE TABLE IF NOT EXISTS llm_call_log (
+                id                  SERIAL PRIMARY KEY,
+                ts                  TIMESTAMP NOT NULL DEFAULT NOW(),
+                endpoint            TEXT,
+                model               TEXT,
+                prompt_tokens       INTEGER,
+                completion_tokens   INTEGER,
+                cost_usd            REAL
+            )
+            """
+        )
+        execute(
+            "CREATE INDEX IF NOT EXISTS idx_llm_call_log_ts ON llm_call_log(ts)"
+        )
+        execute(
+            "CREATE INDEX IF NOT EXISTS idx_llm_call_log_endpoint "
+            "ON llm_call_log(endpoint)"
+        )
+        _llm_call_log_migrated = True
+    except Exception:
+        logger.exception("llm_call_log table migration failed (non-fatal)")
+
+
+def _log_llm_call(
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cost_usd: float | None,
+) -> None:
+    """Insert one row into llm_call_log. Best-effort — never raises."""
+    try:
+        _ensure_llm_call_log_table()
+        from db import execute
+        execute(
+            "INSERT INTO llm_call_log (endpoint, model, prompt_tokens, "
+            "completion_tokens, cost_usd) VALUES (%s, %s, %s, %s, %s)",
+            (
+                _current_endpoint.get(),
+                model,
+                int(prompt_tokens) if prompt_tokens else 0,
+                int(completion_tokens) if completion_tokens else 0,
+                float(cost_usd) if cost_usd is not None else None,
+            ),
+        )
+    except Exception:
+        logger.debug("llm_call_log insert failed", exc_info=True)
 
 # ── Model routing per pipeline step ────────────────────────
 MODELS = {
@@ -85,22 +199,66 @@ async def translate_text(text: str, target_lang: str, max_tokens: int = 1200) ->
     )
 
 
-# In-process translation cache for cached AI outputs. Keyed by
-# (cbe, kind, target_lang) so a Dutch user sees Dutch immediately on the
-# second visit instead of paying for a re-translation.
+# Two-tier translation cache:
+#   - In-process OrderedDict (hot tier) keyed by (cbe, kind, target_lang)
+#   - Postgres `translation_cache` table (cold tier) with a 30-day TTL
+# The DB tier survives container restarts so anonymous visitors don't
+# re-pay OpenRouter for the same cached enrichment after every deploy.
+# In-process TTL stays shorter so a long-lived worker picks up the latest
+# DB refresh rather than serving indefinitely-old strings from RAM.
 from collections import OrderedDict as _OD
 from time import time as _ttime
 _TRANSLATION_CACHE: "_OD[tuple[str, str, str], tuple[float, str]]" = _OD()
-_TRANSLATION_CACHE_TTL = 3600 * 24  # 24h — cached enrichments rarely change
+_TRANSLATION_CACHE_TTL = 3600 * 24  # 24h hot-tier freshness
 _TRANSLATION_CACHE_MAX = 10_000
+_TRANSLATION_DB_TTL_DAYS = 30
+
+
+def _hot_cache_set(key: tuple[str, str, str], value: str) -> None:
+    if len(_TRANSLATION_CACHE) >= _TRANSLATION_CACHE_MAX:
+        _TRANSLATION_CACHE.popitem(last=False)
+    _TRANSLATION_CACHE[key] = (_ttime(), value)
+
+
+def _translation_db_get(cbe: str, kind: str, lang: str) -> str | None:
+    """Return a fresh cached translation from Postgres, or None on miss/stale."""
+    try:
+        _ensure_translation_cache_table()
+        from db import fetch_one
+        row = fetch_one(
+            "SELECT value FROM translation_cache "
+            "WHERE cbe = %s AND kind = %s AND lang = %s "
+            "  AND generated_at >= NOW() - INTERVAL %s",
+            (cbe, kind, lang, f"{_TRANSLATION_DB_TTL_DAYS} days"),
+        )
+        return row["value"] if row and row.get("value") is not None else None
+    except Exception:
+        logger.debug("translation_cache DB read failed", exc_info=True)
+        return None
+
+
+def _translation_db_put(cbe: str, kind: str, lang: str, value: str) -> None:
+    """Upsert a translation into Postgres. Best-effort — never raises."""
+    try:
+        _ensure_translation_cache_table()
+        from db import execute
+        execute(
+            "INSERT INTO translation_cache (cbe, kind, lang, value, generated_at) "
+            "VALUES (%s, %s, %s, %s, NOW()) "
+            "ON CONFLICT (cbe, kind, lang) DO UPDATE SET "
+            "  value = EXCLUDED.value, generated_at = NOW()",
+            (cbe, kind, lang, value),
+        )
+    except Exception:
+        logger.debug("translation_cache DB write failed", exc_info=True)
 
 
 async def translate_cached(cbe: str, kind: str, text: str, target_lang: str | None) -> str:
     """Return ``text`` translated into ``target_lang``, or the original.
 
-    No-ops when ``target_lang`` is missing, empty, or invalid — caller gets
-    the source text back unchanged. Translation results are memoised per
-    ``(cbe, kind, lang)`` so repeated visits don't re-pay the LLM.
+    Two-tier cache: in-process OrderedDict (24h) in front of a
+    Postgres table (30d). No-ops when ``target_lang`` is missing, empty,
+    or invalid — caller gets the source text back unchanged.
     """
     target = _normalise_lang(target_lang)
     if not target or not text:
@@ -108,15 +266,19 @@ async def translate_cached(cbe: str, kind: str, text: str, target_lang: str | No
     key = (cbe, kind, target)
     entry = _TRANSLATION_CACHE.get(key)
     if entry and (_ttime() - entry[0]) < _TRANSLATION_CACHE_TTL:
-        # Refresh recency for LRU eviction.
         _TRANSLATION_CACHE.move_to_end(key)
         return entry[1]
+
+    db_value = _translation_db_get(cbe, kind, target)
+    if db_value:
+        _hot_cache_set(key, db_value)
+        return db_value
+
     translated = await translate_text(text, target)
     if not translated:
         return text  # graceful degradation — show source text
-    if len(_TRANSLATION_CACHE) >= _TRANSLATION_CACHE_MAX:
-        _TRANSLATION_CACHE.popitem(last=False)
-    _TRANSLATION_CACHE[key] = (_ttime(), translated)
+    _hot_cache_set(key, translated)
+    _translation_db_put(cbe, kind, target, translated)
     return translated
 
 
@@ -137,7 +299,8 @@ async def translate_cached_json(
     JSON, translates only the named scalar fields (``value_fields``) and
     each string item of the named list fields (``list_fields``), then
     re-serialises. Other keys, numbers, and structural fields are
-    preserved exactly.
+    preserved exactly. Backed by the same two-tier cache as
+    ``translate_cached``.
     """
     import json as _json
 
@@ -150,6 +313,11 @@ async def translate_cached_json(
     if entry and (_ttime() - entry[0]) < _TRANSLATION_CACHE_TTL:
         _TRANSLATION_CACHE.move_to_end(key)
         return entry[1]
+
+    db_value = _translation_db_get(cbe, kind, target)
+    if db_value:
+        _hot_cache_set(key, db_value)
+        return db_value
 
     try:
         data = _json.loads(json_text) if isinstance(json_text, str) else json_text
@@ -180,9 +348,8 @@ async def translate_cached_json(
             data[f] = translated_items
 
     out = _json.dumps(data, ensure_ascii=False)
-    if len(_TRANSLATION_CACHE) >= _TRANSLATION_CACHE_MAX:
-        _TRANSLATION_CACHE.popitem(last=False)
-    _TRANSLATION_CACHE[key] = (_ttime(), out)
+    _hot_cache_set(key, out)
+    _translation_db_put(cbe, kind, target, out)
     return out
 
 
@@ -217,6 +384,10 @@ async def ai_complete(
         "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
+        # Ask OpenRouter to include billed cost + token usage on the
+        # response so we can log real spend, not estimates. Flag is a
+        # no-op for providers that don't support it.
+        "usage": {"include": True},
     }
 
     # DeepSeek provider routing for better reliability
@@ -240,6 +411,13 @@ async def ai_complete(
             )
             if resp.status_code == 200:
                 data = resp.json()
+                usage = data.get("usage") or {}
+                _log_llm_call(
+                    model=model,
+                    prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                    completion_tokens=int(usage.get("completion_tokens") or 0),
+                    cost_usd=usage.get("cost"),
+                )
                 return data["choices"][0]["message"]["content"]
             logger.warning(
                 "OpenRouter returned %s: %s", resp.status_code, resp.text[:200]
@@ -301,6 +479,7 @@ async def ai_complete_with_meta(
         "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
+        "usage": {"include": True},
     }
     if temperature is not None:
         payload["temperature"] = temperature
@@ -334,6 +513,12 @@ async def ai_complete_with_meta(
                 meta["ok"] = bool(content.strip())
                 if not meta["ok"]:
                     meta["error"] = "empty_completion"
+                _log_llm_call(
+                    model=model,
+                    prompt_tokens=meta["input_tokens"],
+                    completion_tokens=meta["output_tokens"],
+                    cost_usd=usage.get("cost"),
+                )
             else:
                 meta["error"] = f"http_{resp.status_code}"
                 logger.warning(

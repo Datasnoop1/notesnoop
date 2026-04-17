@@ -469,3 +469,38 @@ CREATE TABLE IF NOT EXISTS nace_vlerick_mapping (
     nace_prefix     TEXT PRIMARY KEY,
     vlerick_sector  TEXT NOT NULL
 );
+
+-- ============================================================
+-- AI / LLM observability
+-- ============================================================
+-- Translation cache: persists translate_cached / translate_cached_json
+-- results so cached AI outputs (enrichments, valuation commentary,
+-- person enrichments) don't re-pay OpenRouter after a container restart.
+-- Read + written inline by backend/ai_client.py. 30-day TTL; rows older
+-- than that are treated as stale and re-translated.
+CREATE TABLE IF NOT EXISTS translation_cache (
+    cbe             TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    lang            TEXT NOT NULL,
+    value           TEXT NOT NULL,
+    generated_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (cbe, kind, lang)
+);
+CREATE INDEX IF NOT EXISTS idx_translation_cache_gen ON translation_cache(generated_at);
+
+-- Per-call OpenRouter spend log. Captures real `usage.cost` returned
+-- by OpenRouter when `usage: {include: true}` is passed, so the admin
+-- LLM cost panel can sum true billed amounts instead of heuristic
+-- per-call estimates. `endpoint` comes from a request-scoped contextvar
+-- set by middleware; null for background / non-request calls.
+CREATE TABLE IF NOT EXISTS llm_call_log (
+    id                  SERIAL PRIMARY KEY,
+    ts                  TIMESTAMP NOT NULL DEFAULT NOW(),
+    endpoint            TEXT,
+    model               TEXT,
+    prompt_tokens       INTEGER,
+    completion_tokens   INTEGER,
+    cost_usd            REAL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_call_log_ts ON llm_call_log(ts);
+CREATE INDEX IF NOT EXISTS idx_llm_call_log_endpoint ON llm_call_log(endpoint);

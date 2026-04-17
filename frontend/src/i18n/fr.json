@@ -568,7 +568,11 @@
     "rev": "CA",
     "margin": "Marge",
     "netProfit": "Resultat net",
-    "pnlNote": "Agrege sur {count} entreprises. Ratios calcules sur les totaux du portefeuille."
+    "pnlNote": "Agrege sur {count} entreprises. Ratios calcules sur les totaux du portefeuille.",
+    "suggestedFromGroup": "Suggestions du groupe\u00a0:",
+    "addAllN": "Ajouter les {count}",
+    "dismissSuggestions": "ignorer",
+    "suggestionTooltip": "Ajouter {name} (li\u00e9 via participation)"
   },
 
   "account": {

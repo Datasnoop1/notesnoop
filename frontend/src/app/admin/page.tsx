@@ -3088,7 +3088,7 @@ export default function AdminPanel() {
               </div>
             )}
 
-            {/* ── LLM cost breakdown by call type (estimated) ── */}
+            {/* ── LLM cost breakdown by call type (real) ── */}
             {llmCosts && (
               <Card className="bg-white">
                 <CardContent className="p-4">
@@ -3096,11 +3096,11 @@ export default function AdminPanel() {
                     <h3 className="text-sm font-semibold text-slate-800">
                       LLM cost by call type
                       <span className="ml-2 text-[11px] font-normal text-slate-400">
-                        (last {llmCosts.window_days} days, estimated)
+                        (last {llmCosts.window_days} days)
                       </span>
                     </h3>
                     <div className="text-right">
-                      <div className="text-[11px] text-slate-400">est. total</div>
+                      <div className="text-[11px] text-slate-400">total</div>
                       <div className="text-base font-bold text-rose-600 font-mono">
                         ${llmCosts.est_total_usd.toFixed(2)}
                       </div>

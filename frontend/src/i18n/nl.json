@@ -568,7 +568,11 @@
     "rev": "Omzet",
     "margin": "Marge",
     "netProfit": "Nettoresultaat",
-    "pnlNote": "Geaggregeerd over {count} bedrijven. Ratio's berekend op portefeuilletotalen."
+    "pnlNote": "Geaggregeerd over {count} bedrijven. Ratio's berekend op portefeuilletotalen.",
+    "suggestedFromGroup": "Voorgesteld uit groep:",
+    "addAllN": "Alle {count} toevoegen",
+    "dismissSuggestions": "sluiten",
+    "suggestionTooltip": "{name} toevoegen (verbonden via deelneming)"
   },
 
   "account": {

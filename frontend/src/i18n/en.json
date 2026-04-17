@@ -568,7 +568,11 @@
     "rev": "Rev",
     "margin": "Margin",
     "netProfit": "Net Profit",
-    "pnlNote": "Aggregated across {count} companies. Ratios computed on portfolio totals."
+    "pnlNote": "Aggregated across {count} companies. Ratios computed on portfolio totals.",
+    "suggestedFromGroup": "Suggested from group:",
+    "addAllN": "Add all {count}",
+    "dismissSuggestions": "dismiss",
+    "suggestionTooltip": "Add {name} (linked via participating interest)"
   },
 
   "account": {
