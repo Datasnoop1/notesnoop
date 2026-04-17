@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { fmtEur } from "@/lib/format";
 
 /* ---------- helper to clean CBE from identifier ---------- */
@@ -14,15 +14,47 @@ export function cleanCbe(id: string | null): string | null {
 /* ---------- Formula tooltip (credit tab) ---------- */
 
 export function FormulaTooltip({ children, formula, detail }: { children: React.ReactNode; formula: string; detail?: string }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    // Defer binding so the opening click doesn't immediately close us.
+    const t = setTimeout(() => document.addEventListener("click", () => setOpen(false), { once: true }), 0);
+    return () => clearTimeout(t);
+  }, [open]);
+
   return (
-    <div className="group/tip relative inline-block">
-      {children}
-      <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-slate-800 text-white text-[10px] rounded-lg shadow-lg opacity-0 pointer-events-none group-hover/tip:opacity-100 transition-opacity duration-100 whitespace-nowrap">
+    <span className="group/tip relative inline-block">
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen((v) => !v);
+          }
+        }}
+        className="cursor-help underline decoration-dotted decoration-slate-300 underline-offset-2 hover:decoration-solid hover:decoration-slate-500"
+      >
+        {children}
+      </span>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={`absolute z-50 top-full left-0 mt-2 px-3 py-2 bg-slate-800 text-white text-[11px] rounded-lg shadow-lg transition-opacity duration-100 max-w-[260px] whitespace-normal break-words ${
+          open
+            ? "opacity-100"
+            : "opacity-0 pointer-events-none group-hover/tip:opacity-100 group-hover/tip:pointer-events-auto"
+        }`}
+      >
         <div className="font-medium">{formula}</div>
         {detail && <div className="text-slate-300 font-mono mt-0.5">{detail}</div>}
-        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-800" />
+        <div className="absolute bottom-full left-4 border-4 border-transparent border-b-slate-800" />
       </div>
-    </div>
+    </span>
   );
 }
 

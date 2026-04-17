@@ -71,6 +71,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   const [unit, setUnit] = useState<Unit>("auto");
   const [sourceKey, setSourceKey] = useState<MultipleSourceKey>("vlerick");
   const [exporting, setExporting] = useState(false);
+  const [mobileOptionsOpen, setMobileOptionsOpen] = useState(false);
   const fmt = (v: number | null | undefined) => fmtEurUnit(v, unit);
 
   const handleExportExcel = async () => {
@@ -189,30 +190,43 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   return (
     <div className="space-y-4 valuation-print-root">
       {/* Compact header strip — title + source on 2 rows left; right-side
-          controls on ONE row aligned to the source line (bottom of left col). */}
+          controls on ONE row aligned to the source line (bottom of left col).
+          On mobile the controls row collapses behind an "Options" toggle so
+          the header doesn't blow up into 5-6 rows of tiny buttons. */}
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 pb-3 border-b border-slate-200">
-        <div className="min-w-0">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-            Indicative valuation
+        <div className="flex items-end justify-between gap-2 w-full md:w-auto md:min-w-0">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Indicative valuation
+            </div>
+            <div className="mt-0.5 text-[11px] text-slate-600">
+              Based on the{" "}
+              <a
+                href={vlerick_reference.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
+              >
+                {vlerick_reference.report}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+              {srcMeta?.scope && (
+                <span className="ml-1 text-slate-400">· {srcMeta.scope}</span>
+              )}
+            </div>
           </div>
-          <div className="mt-0.5 text-[11px] text-slate-600">
-            Based on the{" "}
-            <a
-              href={vlerick_reference.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
-            >
-              {vlerick_reference.report}
-              <ExternalLink className="h-3 w-3" />
-            </a>
-            {srcMeta?.scope && (
-              <span className="ml-1 text-slate-400">· {srcMeta.scope}</span>
-            )}
-          </div>
+          {/* Mobile-only options toggle. Keeps the control row hidden until
+              the user actually wants to tweak source/view/unit/export. */}
+          <button
+            onClick={() => setMobileOptionsOpen((v) => !v)}
+            aria-expanded={mobileOptionsOpen}
+            className="md:hidden shrink-0 inline-flex items-center gap-1 h-9 px-3 text-[11px] font-medium text-slate-600 border border-slate-200 rounded-md bg-white hover:border-slate-300"
+          >
+            {mobileOptionsOpen ? "Hide options" : "Options"}
+          </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 no-print">
+        <div className={`${mobileOptionsOpen ? "flex" : "hidden"} md:flex flex-wrap items-center gap-3 no-print w-full md:w-auto`}>
           {/* Source toggle — pick which reference dataset's multiples to use */}
           {sources.length > 1 && (
             <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5" title="Multiple source">
@@ -220,7 +234,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                 <button
                   key={s.key}
                   onClick={() => handleSourceChange(s.key)}
-                  className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+                  className={`rounded-md px-2.5 py-2 md:py-1 text-[11px] font-medium transition ${
                     sourceKey === s.key
                       ? "bg-indigo-600 text-white"
                       : "text-slate-500 hover:text-slate-700"
@@ -238,7 +252,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             <button
               onClick={() => srcHasSector && setView("sector")}
               disabled={!srcHasSector}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              className={`rounded-md px-3 py-2 md:py-1.5 text-xs font-medium transition ${
                 view === "sector"
                   ? "bg-indigo-600 text-white"
                   : srcHasSector
@@ -252,7 +266,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             <button
               onClick={() => srcHasSize && setView("size")}
               disabled={!srcHasSize}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              className={`rounded-md px-3 py-2 md:py-1.5 text-xs font-medium transition ${
                 view === "size"
                   ? "bg-indigo-600 text-white"
                   : srcHasSize
@@ -271,7 +285,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           <select
             value={sectorOverride ?? profile.vlerick_sector}
             onChange={(e) => handleSectorChange(e.target.value)}
-            className={`rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none ${view === "sector" ? "" : "invisible"}`}
+            className={`rounded-md border border-slate-200 bg-white px-2 py-2 md:py-1 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none ${view === "sector" ? "" : "invisible"}`}
             title={sourceTag}
             aria-hidden={view !== "sector"}
           >
@@ -293,7 +307,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               <button
                 key={opt.key}
                 onClick={() => setUnit(opt.key)}
-                className={`rounded-md px-2 py-1 text-[11px] font-medium transition ${
+                className={`rounded-md px-2 py-2 md:py-1 text-[11px] font-medium transition ${
                   unit === opt.key
                     ? "bg-slate-800 text-white"
                     : "text-slate-500 hover:text-slate-700"
@@ -309,7 +323,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             <button
               onClick={handleExportExcel}
               disabled={exporting}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 transition"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-2 md:py-1 text-[11px] font-medium text-slate-600 hover:border-emerald-300 hover:text-emerald-700 disabled:opacity-50 transition"
               title="Export to Excel"
             >
               {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileSpreadsheet className="h-3 w-3 text-emerald-600" />}
@@ -318,7 +332,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             <button
               onClick={handleExportPdf}
               disabled={exporting}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-rose-300 hover:text-rose-600 disabled:opacity-50 transition"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-2 md:py-1 text-[11px] font-medium text-slate-600 hover:border-rose-300 hover:text-rose-600 disabled:opacity-50 transition"
               title="Export to PDF"
             >
               {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3 text-rose-500" />}
