@@ -427,9 +427,9 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
-                    <TableHead className="text-xs min-w-[180px] sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">Step</TableHead>
+                    <TableHead className="text-[11px] md:text-xs min-w-[130px] md:min-w-[200px] sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">Step</TableHead>
                     {years.map((y) => (
-                      <TableHead key={y.fiscal_year ?? Math.random()} className="text-right text-xs min-w-[110px]">
+                      <TableHead key={y.fiscal_year ?? Math.random()} className="text-right text-[11px] md:text-xs min-w-[90px] md:min-w-[110px]">
                         FY{y.fiscal_year ?? "—"}
                       </TableHead>
                     ))}
@@ -447,7 +447,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                       <div className="text-[11px] text-slate-500 font-normal">Profit before interest, tax &amp; D&amp;A</div>
                     </TableCell>
                     {years.map((y, i) => (
-                      <TableCell key={i} className="text-right font-mono text-xs py-1.5">{fmt(y.ebitda)}</TableCell>
+                      <TableCell key={i} className="text-right font-mono text-[11px] md:text-xs py-1.5">{fmt(y.ebitda)}</TableCell>
                     ))}
                     {hasAvg && <TableCell className={avgCellCls + " font-semibold text-slate-800"}>{fmt(avgEbitda)}</TableCell>}
                   </TableRow>
@@ -469,7 +469,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {years.map((y, i) => {
                       const ev = view === "size" ? y.by_size.enterprise_value : y.by_sector.enterprise_value;
                       return (
-                        <TableCell key={i} className="text-right font-mono text-xs py-1.5 font-semibold text-slate-800">{fmt(ev || null)}</TableCell>
+                        <TableCell key={i} className="text-right font-mono text-[11px] md:text-xs py-1.5 font-semibold text-slate-800">{fmt(ev || null)}</TableCell>
                       );
                     })}
                     {hasAvg && <TableCell className={avgCellCls + " font-semibold text-slate-800"}>{fmt(avgEv)}</TableCell>}
