@@ -172,8 +172,9 @@ export function CompanyPageClient({
      a real company name (skip 404s and the initial null state). */
   useEffect(() => {
     if (!detail || !detail.name) return;
+    const name = detail.name;
     import("@/lib/recently-viewed").then((mod) => {
-      mod.recordCompanyView({ cbe, name: detail.name, city: detail.city ?? null });
+      mod.recordCompanyView({ cbe, name, city: detail.city ?? null });
     });
   }, [cbe, detail?.name, detail?.city]);
 
