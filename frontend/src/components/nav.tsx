@@ -254,27 +254,28 @@ export default function Nav() {
               </Link>
             )}
 
-            {/* Mobile hamburger — hidden on landing (nav lives under the hero there,
-                and the hero has no need for account controls above the fold) */}
-            {!isLanding && (
-              <Sheet open={open} onOpenChange={setOpen}>
-                <SheetTrigger>
-                  <span className="md:hidden inline-flex items-center justify-center rounded-md p-2 text-slate-600 hover:bg-slate-100">
-                    <Menu className="h-5 w-5" />
-                  </span>
-                </SheetTrigger>
-                <SheetContent side="left" className="w-64">
-                  <SheetTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
-                    <img src={logoPath} alt="Datasnoop" width={36} height={36} className="rounded-md bg-white/95" />
-                    Datasnoop
-                  </SheetTitle>
-                  <nav className="mt-6 flex flex-col gap-1">
-                    {/* Nav links are now in a dot-separated row below the header on
-                        mobile non-landing pages, so we don't duplicate them here. */}
+            {/* Mobile hamburger — always available on mobile (it holds Sign in,
+                Language, Feedback on phone since those are md:flex-only in the
+                header). Nav links live in a dot-row below the header (non-landing)
+                or under the search (landing), so they're NOT duplicated here. */}
+            <Sheet open={open} onOpenChange={setOpen}>
+              <SheetTrigger>
+                <span className="md:hidden inline-flex items-center justify-center rounded-md p-2 text-slate-600 hover:bg-slate-100">
+                  <Menu className="h-5 w-5" />
+                </span>
+              </SheetTrigger>
+              <SheetContent side="left" className="w-64">
+                <SheetTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
+                  <img src={logoPath} alt="Datasnoop" width={36} height={36} className="rounded-md bg-white/95" />
+                  Datasnoop
+                </SheetTitle>
+                <div className="mt-6 flex flex-col gap-4">
+                  <div>
+                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Account</div>
                     {user ? (
                       <button
                         onClick={() => { handleSignOut(); setOpen(false); }}
-                        className="px-3 py-2.5 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 text-left"
+                        className="w-full px-3 py-2.5 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 text-left"
                       >
                         {t("nav.signOut")}
                       </button>
@@ -282,15 +283,29 @@ export default function Nav() {
                       <Link
                         href="/login"
                         onClick={() => setOpen(false)}
-                        className="px-3 py-2.5 rounded-md text-sm font-medium text-indigo-600 hover:bg-indigo-50"
+                        className="block px-3 py-2.5 rounded-md text-sm font-medium text-indigo-600 hover:bg-indigo-50"
                       >
                         {t("nav.signIn")}
                       </Link>
                     )}
-                  </nav>
-                </SheetContent>
-              </Sheet>
-            )}
+                  </div>
+
+                  <div>
+                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Language</div>
+                    <div className="px-3">
+                      <LanguageSwitcher />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Feedback</div>
+                    <div className="px-3 flex flex-col items-start gap-1">
+                      <FeedbackButtons />
+                    </div>
+                  </div>
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
         </div>
 
