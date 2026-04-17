@@ -427,7 +427,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50">
-                    <TableHead className="text-[11px] md:text-xs min-w-[130px] md:min-w-[200px] sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">Step</TableHead>
+                    <TableHead className="text-[11px] md:text-xs w-[130px] md:w-auto md:min-w-[200px] sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">Step</TableHead>
                     {years.map((y) => (
                       <TableHead key={y.fiscal_year ?? Math.random()} className="text-right text-[11px] md:text-xs min-w-[90px] md:min-w-[110px]">
                         FY{y.fiscal_year ?? "—"}
@@ -442,7 +442,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                 </TableHeader>
                 <TableBody>
                   <TableRow>
-                    <TableCell className="text-xs py-1.5 text-slate-700 font-medium sticky left-0 z-[5] bg-white shadow-[1px_0_0_rgba(226,232,240,1)]">
+                    <TableCell className="text-xs py-1.5 text-slate-700 font-medium sticky left-0 z-[5] bg-white whitespace-normal break-words w-[130px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)]">
                       EBITDA
                       <div className="text-[11px] text-slate-500 font-normal">Profit before interest, tax &amp; D&amp;A</div>
                     </TableCell>
@@ -452,7 +452,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " font-semibold text-slate-800"}>{fmt(avgEbitda)}</TableCell>}
                   </TableRow>
                   <TableRow className="bg-indigo-50/30">
-                    <TableCell className="text-xs py-1.5 text-indigo-700 font-medium sticky left-0 z-[5] bg-indigo-50/30 shadow-[1px_0_0_rgba(226,232,240,1)]">
+                    <TableCell className="text-xs py-1.5 text-indigo-700 font-medium sticky left-0 z-[5] bg-indigo-50/30 whitespace-normal break-words w-[130px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)]">
                       × Vlerick M&amp;A Monitor multiple
                       <div className="text-[11px] text-slate-500 font-normal">Applied: {activeLabel}</div>
                     </TableCell>
@@ -462,7 +462,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " text-indigo-700 font-semibold"}>{fmtMultiple(activeMultiple)}</TableCell>}
                   </TableRow>
                   <TableRow className="border-t-2 border-slate-200">
-                    <TableCell className="text-xs py-1.5 text-slate-800 font-semibold sticky left-0 z-[5] bg-white shadow-[1px_0_0_rgba(226,232,240,1)]">
+                    <TableCell className="text-xs py-1.5 text-slate-800 font-semibold sticky left-0 z-[5] bg-white whitespace-normal break-words w-[130px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)]">
                       = Enterprise Value
                       <div className="text-[11px] text-slate-500 font-normal">What a buyer pays for the business</div>
                     </TableCell>
@@ -475,7 +475,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " font-semibold text-slate-800"}>{fmt(avgEv)}</TableCell>}
                   </TableRow>
                   <TableRow>
-                    <TableCell className="text-xs py-1.5 text-slate-600 sticky left-0 z-[5] bg-white shadow-[1px_0_0_rgba(226,232,240,1)]">
+                    <TableCell className="text-xs py-1.5 text-slate-600 sticky left-0 z-[5] bg-white whitespace-normal break-words w-[130px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)]">
                       − Financial debt
                       <div className="text-[11px] text-slate-500">Long-term + short-term bank debt</div>
                     </TableCell>
@@ -485,7 +485,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " text-slate-600 italic"} title="Latest-year figure — avg-EBITDA valuation uses latest balance sheet">{fmt(latestFd)}</TableCell>}
                   </TableRow>
                   <TableRow>
-                    <TableCell className="text-xs py-1.5 text-slate-600 sticky left-0 z-[5] bg-white shadow-[1px_0_0_rgba(226,232,240,1)]">
+                    <TableCell className="text-xs py-1.5 text-slate-600 sticky left-0 z-[5] bg-white whitespace-normal break-words w-[130px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)]">
                       + Cash &amp; equivalents
                       <div className="text-[11px] text-slate-500">Cash + short-term investments</div>
                     </TableCell>
@@ -495,7 +495,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " text-slate-600 italic"} title="Latest-year figure">{fmt(latestCe)}</TableCell>}
                   </TableRow>
                   <TableRow className="bg-slate-50/50">
-                    <TableCell className="text-xs py-1.5 text-slate-700 font-medium sticky left-0 z-[5] bg-slate-50/50 shadow-[1px_0_0_rgba(226,232,240,1)]">
+                    <TableCell className="text-xs py-1.5 text-slate-700 font-medium sticky left-0 z-[5] bg-slate-50/50 whitespace-normal break-words w-[130px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)]">
                       = Net debt
                       <div className="text-[11px] text-slate-500 font-normal">Debt minus cash</div>
                     </TableCell>
@@ -505,7 +505,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {hasAvg && <TableCell className={avgCellCls + " font-medium text-slate-700 italic"} title="Latest-year net debt is used for the avg-EBITDA valuation">{fmt(latestNd)}</TableCell>}
                   </TableRow>
                   <TableRow className="border-t-2 border-slate-300 bg-emerald-50/40">
-                    <TableCell className="text-xs py-2 text-emerald-900 font-bold sticky left-0 z-[5] bg-emerald-50/40 shadow-[1px_0_0_rgba(226,232,240,1)]">
+                    <TableCell className="text-xs py-2 text-emerald-900 font-bold sticky left-0 z-[5] bg-emerald-50/40 whitespace-normal break-words w-[130px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)]">
                       = Equity Value
                       <div className="text-[11px] text-emerald-700/80 font-normal">What shareholders receive</div>
                     </TableCell>
