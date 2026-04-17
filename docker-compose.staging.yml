@@ -12,6 +12,9 @@ services:
       - "host.docker.internal:host-gateway"
     expose:
       - "8000"
+    # Mount the repo's scripts/ dir read-only — see prod compose for context.
+    volumes:
+      - ./scripts:/app/scripts:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 30s
