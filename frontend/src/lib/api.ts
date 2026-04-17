@@ -298,7 +298,9 @@ export interface ValuationProfile {
   size_multiple: number;
   vlerick_sector: string;
   vlerick_sector_label: string;
-  vlerick_sector_source: "user_override" | "nace_mapping" | "fallback";
+  vlerick_sector_source: "user_override" | "ai_classification" | "nace_mapping" | "fallback";
+  ai_sector_confidence?: "high" | "medium" | "low" | null;
+  ai_sector_reasoning?: string | null;
   sector_multiple: number;
   available_sectors: ValuationSectorOption[];
 }

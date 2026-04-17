@@ -86,13 +86,20 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   };
 
   const handleExportPdf = async () => {
-    if (!data) return;
+    if (!data) {
+      alert("No valuation data loaded yet — wait for the table to render.");
+      return;
+    }
     setExporting(true);
     try {
-      const { generateValuationPdf } = await import("@/lib/export/valuation-pdf");
-      await generateValuationPdf(data, companyName || fmtCbe(cbe), cbe, view);
+      const mod = await import("@/lib/export/valuation-pdf");
+      await mod.generateValuationPdf(data, companyName || fmtCbe(cbe), cbe, view);
     } catch (err) {
       console.error("PDF export failed:", err);
+      alert(
+        "PDF export failed: " +
+          (err instanceof Error ? `${err.message}\n\n${err.stack ?? ""}` : String(err))
+      );
     } finally {
       setExporting(false);
     }
@@ -161,6 +168,8 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   const sourceTag =
     profile.vlerick_sector_source === "user_override"
       ? "Manual override"
+      : profile.vlerick_sector_source === "ai_classification"
+      ? `AI-classified${profile.ai_sector_confidence ? ` · confidence: ${profile.ai_sector_confidence}` : ""}${profile.ai_sector_reasoning ? ` · ${profile.ai_sector_reasoning}` : ""}`
       : profile.vlerick_sector_source === "nace_mapping"
       ? `Auto-detected from NACE ${profile.nace_code ?? ""}`
       : "Default (no NACE match)";
@@ -263,10 +272,11 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             </button>
             <button
               onClick={handleExportPdf}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-rose-300 hover:text-rose-600 transition"
-              title="Print / save as PDF"
+              disabled={exporting}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-rose-300 hover:text-rose-600 disabled:opacity-50 transition"
+              title="Export to PDF"
             >
-              <FileText className="h-3 w-3 text-rose-500" />
+              {exporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3 text-rose-500" />}
               PDF
             </button>
           </div>
@@ -334,166 +344,131 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
         );
       })()}
 
-      {/* Average EBITDA valuation — 3-year average EBITDA × multiple − LATEST net debt */}
+      {/* Valuation ladder — per-year + 3-year average column */}
       {(() => {
         const validEbitdas = years.map((y) => y.ebitda).filter((v): v is number => v != null);
-        if (validEbitdas.length < 2) return null;
-        const avgEbitda = validEbitdas.reduce((s, v) => s + v, 0) / validEbitdas.length;
-        const avgEv = avgEbitda * activeMultiple;
+        const hasAvg = validEbitdas.length >= 2;
+        const avgEbitda = hasAvg ? validEbitdas.reduce((s, v) => s + v, 0) / validEbitdas.length : null;
+        const avgEv = avgEbitda != null ? avgEbitda * activeMultiple : null;
         const latestRow = years[years.length - 1];
-        const latestNd = latestRow?.net_debt ?? 0;
-        const avgEquity = avgEv - latestNd;
-        const avgYears = years.filter((y) => y.ebitda != null && y.fiscal_year != null).map((y) => `FY${y.fiscal_year}`);
+        const latestNd = latestRow?.net_debt ?? null;
+        const latestFd = latestRow?.financial_debt ?? null;
+        const latestCe = latestRow?.cash_and_equivalents ?? null;
+        const avgEquity = avgEv != null && latestNd != null ? avgEv - latestNd : null;
+
+        const avgHeadCls = "text-right text-xs min-w-[120px] bg-indigo-50/70 border-l border-indigo-200";
+        const avgCellCls = "text-right font-mono text-xs py-1.5 bg-indigo-50/40 border-l border-indigo-200";
 
         return (
-          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-4">
-            <div className="mb-2 flex items-baseline justify-between gap-2">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                Average EBITDA valuation ({validEbitdas.length}-year avg)
-              </div>
-              <div className="text-[10px] text-slate-400">
-                Smooths year-to-year swings · uses latest net debt
-              </div>
+          <div>
+            <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-emerald-500 pl-2">
+              Valuation ladder
+            </h3>
+            <div className="overflow-x-auto rounded-lg border bg-white">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-slate-50">
+                    <TableHead className="text-xs min-w-[220px]">Step</TableHead>
+                    {years.map((y) => (
+                      <TableHead key={y.fiscal_year ?? Math.random()} className="text-right text-xs min-w-[110px]">
+                        FY{y.fiscal_year ?? "—"}
+                      </TableHead>
+                    ))}
+                    {hasAvg && (
+                      <TableHead className={avgHeadCls} title="3-year average EBITDA, multiplied by the Vlerick multiple, minus the LATEST year's net debt">
+                        <span className="text-indigo-700 font-semibold">Avg ({validEbitdas.length}y)</span>
+                      </TableHead>
+                    )}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow>
+                    <TableCell className="text-xs py-1.5 text-slate-700 font-medium">
+                      EBITDA
+                      <div className="text-[10px] text-slate-400 font-normal">Profit before interest, tax &amp; D&amp;A</div>
+                    </TableCell>
+                    {years.map((y, i) => (
+                      <TableCell key={i} className="text-right font-mono text-xs py-1.5">{fmt(y.ebitda)}</TableCell>
+                    ))}
+                    {hasAvg && <TableCell className={avgCellCls + " font-semibold text-slate-800"}>{fmt(avgEbitda)}</TableCell>}
+                  </TableRow>
+                  <TableRow className="bg-indigo-50/30">
+                    <TableCell className="text-xs py-1.5 text-indigo-700 font-medium">
+                      × Vlerick multiple
+                      <div className="text-[10px] text-slate-400 font-normal">Applied: {activeLabel}</div>
+                    </TableCell>
+                    {years.map((y, i) => (
+                      <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-indigo-700">{fmtMultiple(activeMultiple)}</TableCell>
+                    ))}
+                    {hasAvg && <TableCell className={avgCellCls + " text-indigo-700 font-semibold"}>{fmtMultiple(activeMultiple)}</TableCell>}
+                  </TableRow>
+                  <TableRow className="border-t-2 border-slate-200">
+                    <TableCell className="text-xs py-1.5 text-slate-800 font-semibold">
+                      = Enterprise Value
+                      <div className="text-[10px] text-slate-400 font-normal">What a buyer pays for the business</div>
+                    </TableCell>
+                    {years.map((y, i) => {
+                      const ev = view === "size" ? y.by_size.enterprise_value : y.by_sector.enterprise_value;
+                      return (
+                        <TableCell key={i} className="text-right font-mono text-xs py-1.5 font-semibold text-slate-800">{fmt(ev || null)}</TableCell>
+                      );
+                    })}
+                    {hasAvg && <TableCell className={avgCellCls + " font-semibold text-slate-800"}>{fmt(avgEv)}</TableCell>}
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs py-1.5 text-slate-600">
+                      − Financial debt
+                      <div className="text-[10px] text-slate-400">Long-term + short-term bank debt</div>
+                    </TableCell>
+                    {years.map((y, i) => (
+                      <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-slate-600">{fmt(y.financial_debt || null)}</TableCell>
+                    ))}
+                    {hasAvg && <TableCell className={avgCellCls + " text-slate-600 italic"} title="Latest-year figure — avg-EBITDA valuation uses latest balance sheet">{fmt(latestFd)}</TableCell>}
+                  </TableRow>
+                  <TableRow>
+                    <TableCell className="text-xs py-1.5 text-slate-600">
+                      + Cash &amp; equivalents
+                      <div className="text-[10px] text-slate-400">Cash + short-term investments</div>
+                    </TableCell>
+                    {years.map((y, i) => (
+                      <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-slate-600">{fmt(y.cash_and_equivalents || null)}</TableCell>
+                    ))}
+                    {hasAvg && <TableCell className={avgCellCls + " text-slate-600 italic"} title="Latest-year figure">{fmt(latestCe)}</TableCell>}
+                  </TableRow>
+                  <TableRow className="bg-slate-50/50">
+                    <TableCell className="text-xs py-1.5 text-slate-700 font-medium">
+                      = Net debt
+                      <div className="text-[10px] text-slate-400 font-normal">Debt minus cash</div>
+                    </TableCell>
+                    {years.map((y, i) => (
+                      <TableCell key={i} className="text-right font-mono text-xs py-1.5 font-medium text-slate-700">{fmt(y.net_debt || null)}</TableCell>
+                    ))}
+                    {hasAvg && <TableCell className={avgCellCls + " font-medium text-slate-700 italic"} title="Latest-year net debt is used for the avg-EBITDA valuation">{fmt(latestNd)}</TableCell>}
+                  </TableRow>
+                  <TableRow className="border-t-2 border-slate-300 bg-emerald-50/40">
+                    <TableCell className="text-xs py-2 text-emerald-900 font-bold">
+                      = Equity Value
+                      <div className="text-[10px] text-emerald-700/70 font-normal">What shareholders receive</div>
+                    </TableCell>
+                    {years.map((y, i) => {
+                      const eq = view === "size" ? y.by_size.equity_value : y.by_sector.equity_value;
+                      return (
+                        <TableCell key={i} className="text-right font-mono text-sm py-2 font-bold text-emerald-800">{fmt(eq)}</TableCell>
+                      );
+                    })}
+                    {hasAvg && <TableCell className="text-right font-mono text-sm py-2 font-bold text-emerald-800 bg-emerald-100/60 border-l border-emerald-300">{fmt(avgEquity)}</TableCell>}
+                  </TableRow>
+                </TableBody>
+              </Table>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-              <div>
-                <div className="text-[10px] text-slate-400">Avg EBITDA</div>
-                <div className="mt-0.5 text-lg font-bold text-slate-800">{fmt(avgEbitda)}</div>
-                <div className="text-[9px] text-slate-400">{avgYears.join(" · ")}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-slate-400">× Multiple</div>
-                <div className="mt-0.5 text-lg font-bold text-indigo-600">{fmtMultiple(activeMultiple)}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-slate-400">= Enterprise value</div>
-                <div className="mt-0.5 text-lg font-bold text-slate-800">{fmt(avgEv)}</div>
-              </div>
-              <div>
-                <div className="text-[10px] text-slate-400" title="Latest-year net debt (bank debt minus cash)">
-                  − Net debt (latest)
-                </div>
-                <div className="mt-0.5 text-lg font-bold text-slate-700">{fmt(latestNd)}</div>
-                <div className="text-[9px] text-slate-400">
-                  {latestRow?.fiscal_year ? `FY${latestRow.fiscal_year}` : ""}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] text-emerald-700">= Equity value</div>
-                <div className="mt-0.5 text-lg font-bold text-emerald-800">{fmt(avgEquity)}</div>
-              </div>
-            </div>
+            {hasAvg && (
+              <p className="mt-1.5 text-[10px] italic text-slate-500 px-1">
+                Avg column: {validEbitdas.length}-year average EBITDA × multiple, using the latest year&apos;s net debt.
+              </p>
+            )}
           </div>
         );
       })()}
-
-      {/* Three-year ladder */}
-      <div>
-        <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-emerald-500 pl-2">
-          Three-year valuation ladder
-        </h3>
-        <div className="overflow-x-auto rounded-lg border bg-white">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-slate-50">
-                <TableHead className="text-xs min-w-[220px]">Step</TableHead>
-                {years.map((y) => (
-                  <TableHead key={y.fiscal_year ?? Math.random()} className="text-right text-xs min-w-[120px]">
-                    FY{y.fiscal_year ?? "—"}
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow>
-                <TableCell className="text-xs py-1.5 text-slate-700 font-medium">
-                  EBITDA
-                  <div className="text-[10px] text-slate-400 font-normal">Profit before interest, tax &amp; D&amp;A</div>
-                </TableCell>
-                {years.map((y, i) => (
-                  <TableCell key={i} className="text-right font-mono text-xs py-1.5">
-                    {fmt(y.ebitda)}
-                  </TableCell>
-                ))}
-              </TableRow>
-              <TableRow className="bg-indigo-50/30">
-                <TableCell className="text-xs py-1.5 text-indigo-700 font-medium">
-                  × Vlerick multiple
-                  <div className="text-[10px] text-slate-400 font-normal">
-                    Applied: {activeLabel}
-                  </div>
-                </TableCell>
-                {years.map((y, i) => (
-                  <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-indigo-700">
-                    {fmtMultiple(activeMultiple)}
-                  </TableCell>
-                ))}
-              </TableRow>
-              <TableRow className="border-t-2 border-slate-200">
-                <TableCell className="text-xs py-1.5 text-slate-800 font-semibold">
-                  = Enterprise Value
-                  <div className="text-[10px] text-slate-400 font-normal">What a buyer pays for the business</div>
-                </TableCell>
-                {years.map((y, i) => {
-                  const ev = view === "size" ? y.by_size.enterprise_value : y.by_sector.enterprise_value;
-                  return (
-                    <TableCell key={i} className="text-right font-mono text-xs py-1.5 font-semibold text-slate-800">
-                      {fmt(ev || null)}
-                    </TableCell>
-                  );
-                })}
-              </TableRow>
-              <TableRow>
-                <TableCell className="text-xs py-1.5 text-slate-600">
-                  − Financial debt
-                  <div className="text-[10px] text-slate-400">Long-term + short-term bank debt</div>
-                </TableCell>
-                {years.map((y, i) => (
-                  <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-slate-600">
-                    {fmt(y.financial_debt || null)}
-                  </TableCell>
-                ))}
-              </TableRow>
-              <TableRow>
-                <TableCell className="text-xs py-1.5 text-slate-600">
-                  + Cash &amp; equivalents
-                  <div className="text-[10px] text-slate-400">Cash + short-term investments</div>
-                </TableCell>
-                {years.map((y, i) => (
-                  <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-slate-600">
-                    {fmt(y.cash_and_equivalents || null)}
-                  </TableCell>
-                ))}
-              </TableRow>
-              <TableRow className="bg-slate-50/50">
-                <TableCell className="text-xs py-1.5 text-slate-700 font-medium">
-                  = Net debt
-                  <div className="text-[10px] text-slate-400 font-normal">Debt minus cash</div>
-                </TableCell>
-                {years.map((y, i) => (
-                  <TableCell key={i} className="text-right font-mono text-xs py-1.5 font-medium text-slate-700">
-                    {fmt(y.net_debt || null)}
-                  </TableCell>
-                ))}
-              </TableRow>
-              <TableRow className="border-t-2 border-slate-300 bg-emerald-50/40">
-                <TableCell className="text-xs py-2 text-emerald-900 font-bold">
-                  = Equity Value
-                  <div className="text-[10px] text-emerald-700/70 font-normal">What shareholders receive</div>
-                </TableCell>
-                {years.map((y, i) => {
-                  const eq = view === "size" ? y.by_size.equity_value : y.by_sector.equity_value;
-                  return (
-                    <TableCell key={i} className="text-right font-mono text-sm py-2 font-bold text-emerald-800">
-                      {fmt(eq)}
-                    </TableCell>
-                  );
-                })}
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </div>
 
       {/* Pro memoria — compact italic footnote, sits with the ladder */}
       {pro_memoria_note && (
