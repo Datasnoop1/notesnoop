@@ -682,7 +682,7 @@ export function CompanyPageClient({
       </Link>
 
       {/* Company Header */}
-      <div className="mb-6">
+      <div className="mb-3">
         <div className="flex flex-col md:flex-row items-start md:items-start justify-between gap-3">
           {/* Left: name + CBE */}
           <div className="min-w-0 flex-1">
@@ -875,7 +875,7 @@ export function CompanyPageClient({
       )}
 
       {/* Ad placement: between header and tabs */}
-      <div className="mb-4 no-print">
+      <div className="mb-2 no-print">
         <AdUnit slot="3722838377" format="fluid" className="rounded-lg" />
       </div>
 
@@ -889,7 +889,8 @@ export function CompanyPageClient({
               { value: "cashflow", label: t("company.tabs.cashflow") as string },
               { value: "balancesheet", label: t("company.tabs.balanceSheet") as string },
               { value: "credit", label: t("company.tabs.credit") as string },
-              { value: "valuation", label: t("company.tabs.valuation") as string },
+              // Valuation hidden from nav while still in alpha.
+              // TabsContent for "valuation" remains below for direct state access.
             ]},
             { id: "network", label: t("company.tabs.network") as string, subs: [{ value: "network", label: "" }] },
             { id: "people", label: "People & Ownership", subs: [
