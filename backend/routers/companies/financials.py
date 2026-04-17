@@ -8,7 +8,7 @@ import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import fetch_all, fetch_one, get_connection, put_connection
-from auth import get_current_user
+from auth import optional_user
 from utils import clean_cbe
 from ._helpers import _serialize_row
 
@@ -21,8 +21,13 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 @router.post("/{cbe}/load")
-async def load_company_data(cbe: str, fiscal_year: Optional[int] = Query(None, description="Only load filings for this fiscal year"), user=Depends(get_current_user)):
+async def load_company_data(cbe: str, fiscal_year: Optional[int] = Query(None, description="Only load filings for this fiscal year"), user=Depends(optional_user)):
     """Load financial data from NBB for this company.
+
+    Open to anonymous callers — the per-IP rate limiter in main.py
+    (200 req/min) plus NBB's own gateway throttling are sufficient
+    protection against quota exhaustion, and the UX of "sign in to
+    see the financials we already publicly link to" was surprising.
 
     1. Fetch filing references (optionally filtered by fiscal year)
     2. For each reference (most recent 5), fetch JSON-XBRL filing
