@@ -124,7 +124,13 @@ export interface ScreenerRow {
   net_profit: number | null;
   fte: number | null;
   jf_label: string | null;
+  juridical_situation: string | null;
   start_date: string | null;
+  real_estate: number | null;
+  fte_growth_3y_pct?: number | null;
+  rev_growth_pct?: number | null;
+  ebitda_growth_pct?: number | null;
+  assets_growth_pct?: number | null;
 }
 
 export interface ScreenerFilters {
