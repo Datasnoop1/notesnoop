@@ -54,7 +54,9 @@ PRO_MEMORIA_NOTE = (
 )
 
 VLERICK_SOURCE_URL = (
-    "https://www.moore.be/sites/default/files/2025-05/2025%20MA%20Monitor.pdf"
+    # Vlerick's Centre for M&A — official home of the annual M&A Monitor.
+    # Used with Vlerick's explicit permission (granted 2026-04).
+    "https://www.vlerick.com/en/for-companies/research-for-your-company/centre-for-mergers-acquisitions-and-buyouts/"
 )
 
 # Reference data year — all three sources publish for calendar year 2024 data.
@@ -85,7 +87,7 @@ _SOURCE_META = {
     "vlerick": {
         "label": "Vlerick M&A Monitor",
         "publisher": "Vlerick Business School — Centre for Mergers, Acquisitions and Buyouts",
-        "url": "https://www.moore.be/sites/default/files/2025-05/2025%20MA%20Monitor.pdf",
+        "url": "https://www.vlerick.com/en/for-companies/research-for-your-company/centre-for-mergers-acquisitions-and-buyouts/",
         "kind": "transaction",
         "scope": "Belgian M&A transactions",
         "note": "Belgian mid-market transaction medians. Multiples applied to each reported year so evolution reflects EBITDA growth.",
