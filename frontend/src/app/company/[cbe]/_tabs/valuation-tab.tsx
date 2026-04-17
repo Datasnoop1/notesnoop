@@ -168,6 +168,8 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   const sourceTag =
     profile.vlerick_sector_source === "user_override"
       ? "Manual override"
+      : profile.vlerick_sector_source === "ai_classification"
+      ? `AI-classified${profile.ai_sector_confidence ? ` · confidence: ${profile.ai_sector_confidence}` : ""}${profile.ai_sector_reasoning ? ` · ${profile.ai_sector_reasoning}` : ""}`
       : profile.vlerick_sector_source === "nace_mapping"
       ? `Auto-detected from NACE ${profile.nace_code ?? ""}`
       : "Default (no NACE match)";

@@ -3,11 +3,14 @@
 Reference: Vlerick Business School, M&A Monitor 2025 (covering 2024 Belgian M&A deals).
 """
 
+import json
 import logging
+import re
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ai_client import ai_complete
 from db import execute, fetch_all, fetch_one, get_connection, put_connection
 from utils import clean_cbe
 
@@ -176,6 +179,186 @@ def _ensure_tables_and_seed():
         put_connection(conn)
 
 
+_SECTOR_CLASSIFY_PROMPT = """You are a sector classifier for Belgian M&A deals. Pick exactly one label from the closed list. Return ONLY JSON.
+
+Company facts:
+- Name: {name}
+- NACE: {nace_code} — {nace_desc}
+{facts}
+
+Closed list (pick exactly one key):
+technology | pharmaceutical | healthcare | energy_utilities |
+business_services | entertainment_media | chemistry | consumer_goods |
+industrial_products | real_estate | retail | transport_logistics | construction
+
+Disambiguation rules:
+- retail = B2C sales to end-consumers. Wholesale/B2B distribution = consumer_goods or industrial_products depending on what is sold.
+- Holding companies with no own operations: classify by the dominant operating activity of the group. If diversified, use business_services.
+- Software/SaaS/IT services = technology. R&D services (non-software) = business_services.
+- Restaurants, hotels, food producers = consumer_goods. Food retail stores = retail.
+- Pharma manufacturing = pharmaceutical. Hospitals/clinics/elderly care = healthcare.
+
+Return ONLY: {{"sector": "<key from closed list>", "confidence": "high|medium|low", "reasoning": "<one sentence>"}}"""
+
+
+def _ensure_sector_columns():
+    """Add vlerick_sector cache columns to company_enrichment if missing (idempotent)."""
+    try:
+        execute("""
+            CREATE TABLE IF NOT EXISTS company_enrichment (
+                enterprise_number VARCHAR(10) PRIMARY KEY,
+                summary TEXT,
+                generated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        for col, typ in [
+            ("vlerick_sector", "TEXT"),
+            ("vlerick_sector_confidence", "TEXT"),
+            ("vlerick_sector_reasoning", "TEXT"),
+            ("vlerick_sector_generated_at", "TIMESTAMP"),
+        ]:
+            try:
+                execute(f"ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS {col} {typ}")
+            except Exception:
+                pass
+    except Exception:
+        logger.exception("Failed ensuring sector columns")
+
+
+def _build_classification_facts(cbe: str) -> str:
+    """Pull high-signal fields from company_enrichment to feed the classifier.
+
+    Returns a formatted fact-bullet string, or "" if no enrichment exists.
+    """
+    try:
+        enr = fetch_one("""
+            SELECT summary, website_summary, linkedin_summary, ai_insights
+            FROM company_enrichment
+            WHERE enterprise_number = %s
+        """, (cbe,))
+    except Exception:
+        return ""
+    if not enr:
+        return ""
+
+    parts: list[str] = []
+
+    # ai_insights: richest structured source
+    raw = enr.get("ai_insights")
+    if raw:
+        try:
+            insights = json.loads(raw) if isinstance(raw, str) else raw
+            for key, label in [
+                ("business_description", "Business description"),
+                ("products", "Products/services"),
+                ("customers", "Customers"),
+                ("market_position", "Market position"),
+                ("group_context", "Group context"),
+            ]:
+                v = insights.get(key)
+                if isinstance(v, list):
+                    v = "; ".join(str(x) for x in v if x)
+                if v:
+                    parts.append(f"{label}: {v}")
+        except Exception:
+            pass
+
+    # LinkedIn: industry + specialties are very high signal
+    raw = enr.get("linkedin_summary")
+    if raw:
+        try:
+            ls = json.loads(raw) if isinstance(raw, str) else raw
+            if ls.get("industry"):
+                parts.append(f"LinkedIn industry: {ls['industry']}")
+            if ls.get("specialties"):
+                parts.append(f"LinkedIn specialties: {ls['specialties']}")
+        except Exception:
+            pass
+
+    # Website summary: what they actually sell, in their own words
+    raw = enr.get("website_summary")
+    if raw:
+        try:
+            ws = json.loads(raw) if isinstance(raw, str) else raw
+            if ws.get("summary"):
+                parts.append(f"Website summary: {ws['summary']}")
+            if ws.get("products"):
+                parts.append(f"Products (website): {ws['products']}")
+        except Exception:
+            pass
+
+    # Fallback short summary
+    if not parts and enr.get("summary"):
+        parts.append(f"Short summary: {enr['summary']}")
+
+    return "\n".join(f"- {p}" for p in parts)
+
+
+async def _classify_sector_via_ai(
+    cbe: str, name: str, nace_code: str, nace_desc: str, valid_sectors: set[str]
+) -> Optional[dict]:
+    """Ask OpenRouter (gemini-2.5-flash) to pick one of the 13 Vlerick sectors.
+
+    Only runs if company has enrichment data to base the classification on.
+    Returns {"sector", "confidence", "reasoning"} or None.
+    """
+    facts = _build_classification_facts(cbe)
+    if not facts:
+        return None  # Nothing to classify on — fall back to NACE mapping
+
+    prompt = _SECTOR_CLASSIFY_PROMPT.format(
+        name=name or "Unknown",
+        nace_code=nace_code or "—",
+        nace_desc=nace_desc or "—",
+        facts=facts,
+    )
+
+    try:
+        response = await ai_complete(prompt, model="google/gemini-2.5-flash", max_tokens=150)
+    except Exception:
+        logger.exception("AI sector classification call failed for %s", cbe)
+        return None
+    if not response:
+        return None
+
+    # Parse JSON out of the response (model may wrap in markdown)
+    try:
+        m = re.search(r"\{.*\}", response, re.DOTALL)
+        if not m:
+            return None
+        parsed = json.loads(m.group())
+        sector = str(parsed.get("sector", "")).strip().lower()
+        if sector not in valid_sectors:
+            logger.info("AI returned invalid sector '%s' for %s", sector, cbe)
+            return None
+        confidence = str(parsed.get("confidence", "medium")).strip().lower()
+        if confidence not in {"high", "medium", "low"}:
+            confidence = "medium"
+        reasoning = str(parsed.get("reasoning", "")).strip()[:400]
+        return {"sector": sector, "confidence": confidence, "reasoning": reasoning}
+    except Exception:
+        logger.exception("Failed to parse sector classification response for %s", cbe)
+        return None
+
+
+def _save_ai_sector(cbe: str, sector: str, confidence: str, reasoning: str):
+    """Upsert the AI-classified sector into company_enrichment."""
+    try:
+        execute("""
+            INSERT INTO company_enrichment (enterprise_number, vlerick_sector,
+                vlerick_sector_confidence, vlerick_sector_reasoning, vlerick_sector_generated_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (enterprise_number)
+            DO UPDATE SET
+                vlerick_sector = EXCLUDED.vlerick_sector,
+                vlerick_sector_confidence = EXCLUDED.vlerick_sector_confidence,
+                vlerick_sector_reasoning = EXCLUDED.vlerick_sector_reasoning,
+                vlerick_sector_generated_at = EXCLUDED.vlerick_sector_generated_at
+        """, (cbe, sector, confidence, reasoning))
+    except Exception:
+        logger.exception("Failed to save AI sector for %s", cbe)
+
+
 def _ebitda_to_size_bracket(ebitda: Optional[float], overall_multiple: float) -> str:
     """Map EBITDA to a Vlerick EV-size bracket using the overall multiple as proxy.
 
@@ -213,6 +396,7 @@ async def get_company_valuation(
 
     try:
         _ensure_tables_and_seed()
+        _ensure_sector_columns()
 
         # Latest year in our Vlerick data (currently 2024)
         year_row = fetch_one("SELECT MAX(year) AS max_year FROM vlerick_multiple")
@@ -265,12 +449,17 @@ async def get_company_valuation(
                 },
             }
 
-        # Resolve NACE code → auto-detected Vlerick sector
+        # Resolve NACE code → auto-detected Vlerick sector (baseline)
         company = fetch_one(
-            "SELECT nace_code FROM company_info WHERE enterprise_number = %s",
+            "SELECT ci.nace_code, ci.name, nl.description AS nace_desc "
+            "FROM company_info ci "
+            "LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code "
+            "WHERE ci.enterprise_number = %s",
             (cbe,),
         )
         nace_code = company.get("nace_code") if company else None
+        company_name = company.get("name") if company else ""
+        nace_desc = company.get("nace_desc") if company else ""
         nace_sector = None
         if nace_code:
             prefix = nace_code[:2]
@@ -281,10 +470,43 @@ async def get_company_valuation(
             if row:
                 nace_sector = row["vlerick_sector"]
 
-        # Apply override or fall back: user param > NACE mapping > business_services
+        # AI-classified sector (cached in company_enrichment.vlerick_sector).
+        # Only used when the user hasn't explicitly overridden via ?sector=.
+        ai_sector: Optional[str] = None
+        ai_confidence: Optional[str] = None
+        ai_reasoning: Optional[str] = None
+        if not sector:
+            try:
+                cached = fetch_one("""
+                    SELECT vlerick_sector, vlerick_sector_confidence, vlerick_sector_reasoning
+                    FROM company_enrichment
+                    WHERE enterprise_number = %s AND vlerick_sector IS NOT NULL
+                """, (cbe,))
+            except Exception:
+                cached = None
+            if cached and cached.get("vlerick_sector") in sector_mults:
+                ai_sector = cached["vlerick_sector"]
+                ai_confidence = cached.get("vlerick_sector_confidence")
+                ai_reasoning = cached.get("vlerick_sector_reasoning")
+            else:
+                # Try to classify live — only succeeds if enrichment data already exists
+                result = await _classify_sector_via_ai(
+                    cbe, company_name, nace_code or "", nace_desc or "",
+                    valid_sectors=set(sector_mults.keys()),
+                )
+                if result:
+                    ai_sector = result["sector"]
+                    ai_confidence = result["confidence"]
+                    ai_reasoning = result["reasoning"]
+                    _save_ai_sector(cbe, ai_sector, ai_confidence, ai_reasoning)
+
+        # Precedence: user param > AI classification > NACE mapping > fallback
         if sector and sector in sector_mults:
             active_sector = sector
             sector_source = "user_override"
+        elif ai_sector and ai_sector in sector_mults:
+            active_sector = ai_sector
+            sector_source = "ai_classification"
         elif nace_sector and nace_sector in sector_mults:
             active_sector = nace_sector
             sector_source = "nace_mapping"
@@ -354,6 +576,8 @@ async def get_company_valuation(
                 "vlerick_sector": active_sector,
                 "vlerick_sector_label": SECTOR_LABELS.get(active_sector, active_sector),
                 "vlerick_sector_source": sector_source,
+                "ai_sector_confidence": ai_confidence,
+                "ai_sector_reasoning": ai_reasoning,
                 "sector_multiple": sector_multiple,
                 "available_sectors": available_sectors,
             },
