@@ -195,38 +195,19 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
             Indicative valuation
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-600">
-            <span>
-              Based on the{" "}
-              <a
-                href={vlerick_reference.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
-              >
-                {vlerick_reference.report}
-                <ExternalLink className="h-3 w-3" />
-              </a>
-              {srcMeta?.scope && (
-                <span className="ml-1 text-slate-400">· {srcMeta.scope}</span>
-              )}
-            </span>
-            {view === "sector" && (
-              <span className="inline-flex items-center gap-1 no-print">
-                <span className="text-slate-400">·</span>
-                <select
-                  value={sectorOverride ?? profile.vlerick_sector}
-                  onChange={(e) => handleSectorChange(e.target.value)}
-                  className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700 focus:border-indigo-400 focus:outline-none"
-                  title={sourceTag}
-                >
-                  {profile.available_sectors.map((s) => (
-                    <option key={s.key} value={s.key}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </span>
+          <div className="mt-0.5 text-[11px] text-slate-600">
+            Based on the{" "}
+            <a
+              href={vlerick_reference.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
+            >
+              {vlerick_reference.report}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+            {srcMeta?.scope && (
+              <span className="ml-1 text-slate-400">· {srcMeta.scope}</span>
             )}
           </div>
         </div>
@@ -252,10 +233,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             </div>
           )}
 
-          {/* View toggle: By sector / By size. Kept as buttons (user
-              preference). The sector-specific dropdown sits at the end
-              of the row so its disappearance in size mode doesn't push
-              anything around. */}
+          {/* View toggle: By sector / By size. */}
           <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
             <button
               onClick={() => srcHasSector && setView("sector")}
@@ -286,6 +264,23 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               By size
             </button>
           </div>
+
+          {/* Sector picker — between the view toggle and unit toggle.
+              Always rendered so its space is reserved; made invisible in
+              size view so nothing horizontally jumps when switching modes. */}
+          <select
+            value={sectorOverride ?? profile.vlerick_sector}
+            onChange={(e) => handleSectorChange(e.target.value)}
+            className={`rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none ${view === "sector" ? "" : "invisible"}`}
+            title={sourceTag}
+            aria-hidden={view !== "sector"}
+          >
+            {profile.available_sectors.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
 
           {/* Unit toggle */}
           <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5" title="Display unit">
