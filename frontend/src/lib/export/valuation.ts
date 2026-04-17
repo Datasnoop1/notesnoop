@@ -83,7 +83,7 @@ export async function generateValuationExcel(
 
   addLadderRow("EBITDA", years.map((y) => y.ebitda));
   // Multiple row — same value repeated, styled as ratio
-  const mRow = ws.addRow(["× Vlerick multiple", ...years.map(() => multiple)]);
+  const mRow = ws.addRow(["× Vlerick M&A Monitor multiple", ...years.map(() => multiple)]);
   for (let c = 2; c <= 1 + years.length; c++) {
     mRow.getCell(c).numFmt = '0.0"x"';
     mRow.getCell(c).alignment = { horizontal: "right" };

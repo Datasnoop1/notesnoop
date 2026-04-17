@@ -1,44 +1,22 @@
-"use client";
-
 /**
- * PrintLogo — a client-only component that fetches the current site logo
- * (from /api/site-config) and renders it as an <img> that is hidden on
- * screen and only visible in print. Used in company headers so the PDF
- * export carries a branded letterhead aligned with the company name.
- *
- * Matches the same lookup Nav uses, so the print logo always tracks
- * whatever the admin has currently configured.
+ * PrintLogo — despite the name, now renders a plain-text "Generated on
+ * www.datasnoop.be" attribution that appears only in the printed PDF.
+ * Kept as a component so the two callers (company page header + demo
+ * page header) share the exact same markup/styling. Hidden on screen
+ * via Tailwind `hidden print:block`.
  */
 
-import { useEffect, useState } from "react";
-
 interface PrintLogoProps {
+  /** Ignored — kept in the signature so existing callers don't need to change. */
   heightPx?: number;
   className?: string;
 }
 
-export default function PrintLogo({ heightPx = 32, className = "" }: PrintLogoProps) {
-  const [logoPath, setLogoPath] = useState<string>("/logos/dog-telescope.jpg");
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/site-config")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!cancelled && data?.site_logo) setLogoPath(data.site_logo);
-      })
-      .catch(() => {
-        // Fall back to default — the only cost is the wrong logo in print.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
+export default function PrintLogo({ className = "" }: PrintLogoProps) {
   return (
-    <div className={`hidden print:block shrink-0 ${className}`}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={logoPath} alt="DataSnoop" style={{ height: `${heightPx}px` }} />
+    <div className={`hidden print:block shrink-0 text-[9pt] text-slate-500 ${className}`}>
+      Generated on{" "}
+      <span className="font-semibold text-slate-700">www.datasnoop.be</span>
     </div>
   );
 }

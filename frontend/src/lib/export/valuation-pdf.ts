@@ -157,7 +157,7 @@ export async function generateValuationPdf(
   const head = [["Step", ...yearHeaders]];
   const body = [
     ["EBITDA", ...years.map((y2) => fmtVal(y2.ebitda))],
-    [`× Vlerick multiple (${viewLabel})`, ...years.map(() => fmtMult(multiple))],
+    [`× Vlerick M&A Monitor multiple (${viewLabel})`, ...years.map(() => fmtMult(multiple))],
     [
       "= Enterprise Value",
       ...years.map((y2) => fmtVal(view === "size" ? y2.by_size.enterprise_value : y2.by_sector.enterprise_value)),

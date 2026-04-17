@@ -188,49 +188,48 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
 
   return (
     <div className="space-y-4 valuation-print-root">
-      {/* Compact header strip — title, source, sector picker, view toggle, unit, export */}
+      {/* Compact header strip — everything on one line: title pill, source,
+          sector picker, view toggle, unit, export */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pb-3 border-b border-slate-200">
-        <div className="min-w-0">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+        <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-600">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap">
             Indicative valuation
-          </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-600">
-            <span>
-              Based on the{" "}
-              <a
-                href={vlerick_reference.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
-              >
-                {vlerick_reference.report}
-                <ExternalLink className="h-3 w-3" />
-              </a>
-              {srcMeta?.scope && (
-                <span className="ml-1 text-slate-400">· {srcMeta.scope}</span>
-              )}
-            </span>
-            {/* Sector dropdown lives next to the source attribution, so
-                appearing/disappearing it doesn't shift the right-side
-                buttons. */}
-            {view === "sector" && (
-              <span className="inline-flex items-center gap-1 no-print">
-                <span className="text-slate-400">·</span>
-                <select
-                  value={sectorOverride ?? profile.vlerick_sector}
-                  onChange={(e) => handleSectorChange(e.target.value)}
-                  className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700 focus:border-indigo-400 focus:outline-none"
-                  title={sourceTag}
-                >
-                  {profile.available_sectors.map((s) => (
-                    <option key={s.key} value={s.key}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </span>
+          </span>
+          <span className="text-slate-300">·</span>
+          <span>
+            Based on the{" "}
+            <a
+              href={vlerick_reference.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
+            >
+              {vlerick_reference.report}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+            {srcMeta?.scope && (
+              <span className="ml-1 text-slate-400">· {srcMeta.scope}</span>
             )}
-          </div>
+          </span>
+          {/* Sector dropdown lives inline with the source attribution so
+              hiding it in size view doesn't shift the right-side buttons. */}
+          {view === "sector" && (
+            <span className="inline-flex items-center gap-1 no-print">
+              <span className="text-slate-400">·</span>
+              <select
+                value={sectorOverride ?? profile.vlerick_sector}
+                onChange={(e) => handleSectorChange(e.target.value)}
+                className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700 focus:border-indigo-400 focus:outline-none"
+                title={sourceTag}
+              >
+                {profile.available_sectors.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </span>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-3 no-print">
@@ -427,7 +426,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                       </TableHead>
                     ))}
                     {hasAvg && (
-                      <TableHead className={avgHeadCls} title="3-year average EBITDA, multiplied by the Vlerick multiple, minus the LATEST year's net debt">
+                      <TableHead className={avgHeadCls} title="3-year average EBITDA, multiplied by the Vlerick M&A Monitor multiple, minus the LATEST year's net debt">
                         <span className="text-indigo-700 font-semibold">Avg ({validEbitdas.length}y)</span>
                       </TableHead>
                     )}
@@ -446,7 +445,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                   </TableRow>
                   <TableRow className="bg-indigo-50/30">
                     <TableCell className="text-xs py-1.5 text-indigo-700 font-medium">
-                      × Vlerick multiple
+                      × Vlerick M&amp;A Monitor multiple
                       <div className="text-[10px] text-slate-400 font-normal">Applied: {activeLabel}</div>
                     </TableCell>
                     {years.map((y, i) => (
