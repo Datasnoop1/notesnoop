@@ -187,7 +187,16 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
       : "Default (no NACE match)";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 valuation-print-root">
+      {/* Print-only header: DataSnoop logo + branding. Hidden on screen. */}
+      <div className="hidden print:flex items-center gap-2 pb-2 mb-2 border-b border-slate-300">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo-with-text.svg" alt="DataSnoop" style={{ height: "24px" }} />
+        <span className="ml-auto text-[9px] text-slate-500">
+          Indicative valuation · {new Date().toLocaleDateString("en-GB")}
+        </span>
+      </div>
+
       {/* Compact header strip — title, source, view toggle, sector picker, unit toggle */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pb-3 border-b border-slate-200">
         <div className="min-w-0">
@@ -232,53 +241,39 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             </div>
           )}
 
-          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
-            <button
-              onClick={() => srcHasSector && setView("sector")}
-              disabled={!srcHasSector}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                view === "sector"
-                  ? "bg-indigo-600 text-white"
-                  : srcHasSector
-                  ? "text-slate-500 hover:text-slate-700"
-                  : "text-slate-300 cursor-not-allowed"
-              }`}
-              title={srcHasSector ? "" : "This source has no sector breakdown"}
-            >
-              By sector
-            </button>
-            <button
-              onClick={() => srcHasSize && setView("size")}
-              disabled={!srcHasSize}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                view === "size"
-                  ? "bg-indigo-600 text-white"
-                  : srcHasSize
-                  ? "text-slate-500 hover:text-slate-700"
-                  : "text-slate-300 cursor-not-allowed"
-              }`}
-              title={srcHasSize ? "" : "This source has no size breakdown"}
-            >
-              By size
-            </button>
-          </div>
-
-          {view === "sector" && (
-            <div className="flex items-center gap-2">
-              <select
-                value={sectorOverride ?? profile.vlerick_sector}
-                onChange={(e) => handleSectorChange(e.target.value)}
-                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
-                title={sourceTag}
-              >
+          {/* Single combined basis selector — view + sector grouped in one
+              dropdown so the layout doesn't shift when switching modes. */}
+          <select
+            value={view === "sector" ? `sector:${sectorOverride ?? profile.vlerick_sector}` : "size:auto"}
+            onChange={(e) => {
+              const [kind, key] = e.target.value.split(":");
+              if (kind === "sector") {
+                setView("sector");
+                handleSectorChange(key);
+              } else {
+                setView("size");
+              }
+            }}
+            className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none min-w-[180px]"
+            title={sourceTag}
+          >
+            {srcHasSector && (
+              <optgroup label="By sector">
                 {profile.available_sectors.map((s) => (
-                  <option key={s.key} value={s.key}>
-                    {s.label}
+                  <option key={s.key} value={`sector:${s.key}`}>
+                    By sector — {s.label}
                   </option>
                 ))}
-              </select>
-            </div>
-          )}
+              </optgroup>
+            )}
+            {srcHasSize && (
+              <optgroup label="By size">
+                <option value="size:auto">
+                  By size — {profile.size_bracket_label} (auto)
+                </option>
+              </optgroup>
+            )}
+          </select>
 
           {/* Unit toggle */}
           <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5" title="Display unit">
