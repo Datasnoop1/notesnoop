@@ -59,7 +59,7 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
     <div className="space-y-5">
       {/* Header card */}
       <div className="rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-5">
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <BarChart3 className="h-4 w-4 text-amber-500" />
@@ -69,11 +69,11 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
               {t("company.benchmarkTab.vs")} <span className="font-medium text-slate-700">{benchmark.peer_count.toLocaleString()}</span> {t("company.benchmarkTab.companiesIn")}{" "}
               <span className="font-medium text-slate-700">{benchmark.nace_label}</span>
             </p>
-            <p className="text-[10px] text-slate-400 mt-0.5">NACE {benchmark.nace_code} · FY{benchmark.fiscal_year}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">NACE {benchmark.nace_code} · FY{benchmark.fiscal_year}</p>
           </div>
-          <div className="text-right">
+          <div className="text-left sm:text-right">
             <div className="text-2xl font-bold text-slate-800 font-mono">P{avgPercentile.toFixed(0)}</div>
-            <span className={`inline-flex items-center gap-1.5 text-[10px] font-medium rounded-full border px-2 py-0.5 mt-1 ${overallQuartile.color}`}>
+            <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium rounded-full border px-2 py-0.5 mt-1 ${overallQuartile.color}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${overallQuartile.dot}`} />
               {overallQuartile.label} {t("company.benchmarkTab.overall")}
             </span>
@@ -93,7 +93,7 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
               {/* Metric header */}
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold text-slate-700">{b.metric}</span>
-                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold rounded-full border px-2 py-0.5 ${q.color}`}>
+                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold rounded-full border px-2 py-0.5 ${q.color}`}>
                   <span className={`h-1.5 w-1.5 rounded-full ${q.dot}`} />
                   P{pct.toFixed(0)}
                 </span>
@@ -118,15 +118,15 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
               {/* Peer distribution */}
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-md bg-slate-50 py-1.5 px-1">
-                  <div className="text-[9px] text-slate-400 uppercase tracking-wider">{t("company.benchmarkTab.p25")}</div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider">{t("company.benchmarkTab.p25")}</div>
                   <div className="text-[11px] font-mono font-medium text-slate-600">{fmtBenchVal(b.p25, b.format)}</div>
                 </div>
                 <div className="rounded-md bg-slate-50 py-1.5 px-1">
-                  <div className="text-[9px] text-slate-400 uppercase tracking-wider">{t("company.benchmarkTab.median")}</div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider">{t("company.benchmarkTab.median")}</div>
                   <div className="text-[11px] font-mono font-medium text-slate-600">{fmtBenchVal(b.median, b.format)}</div>
                 </div>
                 <div className="rounded-md bg-slate-50 py-1.5 px-1">
-                  <div className="text-[9px] text-slate-400 uppercase tracking-wider">{t("company.benchmarkTab.p75")}</div>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider">{t("company.benchmarkTab.p75")}</div>
                   <div className="text-[11px] font-mono font-medium text-slate-600">{fmtBenchVal(b.p75, b.format)}</div>
                 </div>
               </div>
@@ -135,7 +135,7 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
         })}
       </div>
 
-      <p className="text-[10px] text-slate-400 italic flex items-center gap-1.5">
+      <p className="text-[11px] text-slate-400 italic flex items-center gap-1.5">
         <Shield className="h-3 w-3" />
         {t("company.benchmarkTab.footnote").replace("{nace}", benchmark.nace_code)}
       </p>

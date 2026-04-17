@@ -250,7 +250,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
               <button
                 key={d}
                 onClick={() => setDepth(d)}
-                className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
+                className={`px-3 py-2 md:px-2.5 md:py-1 text-xs rounded-md font-medium transition-colors ${
                   depth === d
                     ? "bg-indigo-600 text-white"
                     : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
@@ -266,13 +266,13 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                     graphRef.current.zoomToFit(400);
                   }
                 }}
-                className="px-2.5 py-1 text-xs rounded-md font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                className="px-3 py-2 md:px-2.5 md:py-1 text-xs rounded-md font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
               >
                 {t("company.networkTab.resetView")}
               </button>
               <button
                 onClick={() => setIsFullscreen((prev) => !prev)}
-                className="px-2.5 py-1 text-xs rounded-md font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 inline-flex items-center gap-1"
+                className="px-3 py-2 md:px-2.5 md:py-1 text-xs rounded-md font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 inline-flex items-center gap-1"
               >
                 {isFullscreen ? (
                   <><Minimize2 className="h-3 w-3" /> {t("company.networkTab.exitFullscreen")}</>

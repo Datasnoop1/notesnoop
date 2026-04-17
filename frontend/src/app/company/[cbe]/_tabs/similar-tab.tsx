@@ -239,13 +239,13 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
 
       {/* Selection action bar */}
       {selected.size > 0 && (
-        <div className="mb-3 flex items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2">
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2">
           <span className="text-[11px] text-indigo-600 font-medium">{selected.size} selected</span>
           <div className="flex-1" />
           <button
             onClick={addSelectedToFavourites}
             disabled={addingFavs}
-            className="inline-flex items-center gap-1 h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-100 disabled:opacity-50 transition-colors bg-white"
+            className="inline-flex items-center gap-1 h-10 md:h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-100 disabled:opacity-50 transition-colors bg-white"
           >
             {addingFavs ? <Loader2 className="w-3 h-3 animate-spin" /> : <Heart className="w-3 h-3" />}
             Favourites
@@ -253,14 +253,14 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
           <div className="relative">
             <button
               onClick={() => { setShowProjectMenu(!showProjectMenu); if (!showProjectMenu) loadProjects(); }}
-              className="inline-flex items-center gap-1 h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-100 transition-colors bg-white"
+              className="inline-flex items-center gap-1 h-10 md:h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-100 transition-colors bg-white"
             >
               <FolderPlus className="w-3 h-3" />
               Project
               <ChevronDown className="w-2.5 h-2.5" />
             </button>
             {showProjectMenu && (
-              <div className="absolute top-full right-0 mt-1 w-56 bg-white rounded-lg border border-slate-200 shadow-lg z-50 py-1">
+              <div className="absolute top-full right-0 mt-1 w-56 max-w-[calc(100vw-2rem)] bg-white rounded-lg border border-slate-200 shadow-lg z-50 py-1">
                 {projects.map((p) => (
                   <button
                     key={p.id}
@@ -294,7 +294,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-[11px] text-indigo-600 border-indigo-200 hover:bg-indigo-100 px-3 bg-white"
+            className="h-10 md:h-7 text-[11px] text-indigo-600 border-indigo-200 hover:bg-indigo-100 px-3 bg-white"
             onClick={() => {
               const cbes = [...selected];
               if (!cbes.includes(cbe)) cbes.unshift(cbe);
@@ -309,44 +309,52 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
       )}
 
       {/* Results table */}
-      <div className="rounded-xl border border-slate-200 overflow-x-auto scrollbar-none bg-white">
-        <table className="w-full">
+      <div className="rounded-xl border border-slate-200 overflow-x-auto bg-white">
+        <table className="w-full min-w-[720px]">
           <thead>
             <tr className="bg-slate-50/80 border-b border-slate-100">
-              <th className="px-2 py-2 w-8">
-                <button onClick={toggleAll} className="text-slate-400 hover:text-indigo-600 transition-colors">
-                  {selected.size === companies.length ? <CheckSquare className="w-3.5 h-3.5" /> : <Square className="w-3.5 h-3.5" />}
+              <th className="px-2 py-2 w-11">
+                <button
+                  onClick={toggleAll}
+                  className="h-10 w-10 md:h-auto md:w-auto flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-colors"
+                  title={selected.size === companies.length ? "Unselect all" : "Select all"}
+                >
+                  {selected.size === companies.length ? <CheckSquare className="w-4 h-4 md:w-3.5 md:h-3.5" /> : <Square className="w-4 h-4 md:w-3.5 md:h-3.5" />}
                 </button>
               </th>
-              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-6">#</th>
-              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400">Company</th>
-              <th className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-400 min-w-[180px]">Why similar</th>
-              <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-slate-400">Revenue</th>
-              <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-slate-400">EBITDA</th>
-              <th className="px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-wider text-slate-400">FTE</th>
+              <th className="px-3 py-2 text-left text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-6 hidden sm:table-cell">#</th>
+              <th className="px-3 py-2 text-left text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400">Company</th>
+              <th className="px-3 py-2 text-left text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400 min-w-[180px]">Why similar</th>
+              <th className="px-3 py-2 text-right text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400">Revenue</th>
+              <th className="px-3 py-2 text-right text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400">EBITDA</th>
+              <th className="px-3 py-2 text-right text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400 hidden sm:table-cell">FTE</th>
             </tr>
           </thead>
           <tbody>
             {companies.map((sc, idx) => (
               <tr key={sc.enterprise_number} className={`border-t border-slate-50 hover:bg-indigo-50/30 transition-colors ${selected.has(sc.enterprise_number) ? "bg-indigo-50/40" : ""}`}>
                 <td className="px-2 py-2.5">
-                  <button onClick={() => toggleSelect(sc.enterprise_number)} className="text-slate-300 hover:text-indigo-600 transition-colors">
-                    {selected.has(sc.enterprise_number) ? <CheckSquare className="w-3.5 h-3.5 text-indigo-500" /> : <Square className="w-3.5 h-3.5" />}
+                  <button
+                    onClick={() => toggleSelect(sc.enterprise_number)}
+                    className="h-10 w-10 md:h-auto md:w-auto flex items-center justify-center text-slate-300 hover:text-indigo-600 transition-colors"
+                    title={selected.has(sc.enterprise_number) ? "Unselect" : "Select"}
+                  >
+                    {selected.has(sc.enterprise_number) ? <CheckSquare className="w-4 h-4 md:w-3.5 md:h-3.5 text-indigo-500" /> : <Square className="w-4 h-4 md:w-3.5 md:h-3.5" />}
                   </button>
                 </td>
-                <td className="px-3 py-2.5 text-[10px] font-mono text-slate-300">{idx + 1}</td>
+                <td className="px-3 py-2.5 text-[11px] md:text-[10px] font-mono text-slate-300 hidden sm:table-cell">{idx + 1}</td>
                 <td className="px-3 py-2.5">
                   <Link href={`/company/${sc.enterprise_number}`} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline">
                     {sc.name}
                   </Link>
-                  {sc.city && <div className="text-[10px] text-slate-400 mt-0.5">{sc.city}</div>}
+                  {sc.city && <div className="text-[11px] md:text-[10px] text-slate-400 mt-0.5">{sc.city}</div>}
                 </td>
-                <td className="px-3 py-2.5 text-[10px] text-slate-500 leading-relaxed max-w-[250px]">
+                <td className="px-3 py-2.5 text-[11px] md:text-[10px] text-slate-500 leading-relaxed max-w-[250px]">
                   {sc.ai_reason || "\u2014"}
                 </td>
-                <td className="px-3 py-2.5 text-right text-xs font-mono text-slate-700">{fmtEur(sc.revenue)}</td>
-                <td className="px-3 py-2.5 text-right text-xs font-mono text-slate-600">{fmtEur(sc.ebitda)}</td>
-                <td className="px-3 py-2.5 text-right text-xs font-mono text-slate-600">{sc.fte_total != null ? fmtNumber(sc.fte_total) : "\u2014"}</td>
+                <td className="px-3 py-2.5 text-right text-[11px] md:text-xs font-mono text-slate-700">{fmtEur(sc.revenue)}</td>
+                <td className="px-3 py-2.5 text-right text-[11px] md:text-xs font-mono text-slate-600">{fmtEur(sc.ebitda)}</td>
+                <td className="px-3 py-2.5 text-right text-[11px] md:text-xs font-mono text-slate-600 hidden sm:table-cell">{sc.fte_total != null ? fmtNumber(sc.fte_total) : "\u2014"}</td>
               </tr>
             ))}
           </tbody>

@@ -70,7 +70,7 @@ export function StructureTab({
                     if (content) content.classList.toggle("hidden");
                     if (chevron) chevron.classList.toggle("rotate-180");
                   }}
-                  className="w-full flex items-center justify-between mb-2"
+                  className="w-full flex items-center justify-between mb-2 py-2 md:py-0 min-h-[44px] md:min-h-0"
                 >
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
                     Shareholders ({structure.shareholders.length})
@@ -83,7 +83,7 @@ export function StructureTab({
                     return (
                       <div
                         key={`${sh.name}-${i}`}
-                        className="rounded-md border px-3 py-2"
+                        className="rounded-md border px-3 py-3 md:py-2"
                       >
                         <div className="flex items-center justify-between gap-2">
                           {shCbe ? (
@@ -110,7 +110,7 @@ export function StructureTab({
                             {sh.shareholder_type && (
                               <Badge
                                 variant="secondary"
-                                className="text-[10px]"
+                                className="text-[11px]"
                               >
                                 {sh.shareholder_type}
                               </Badge>
@@ -137,7 +137,7 @@ export function StructureTab({
                     if (content) content.classList.toggle("hidden");
                     if (chevron) chevron.classList.toggle("rotate-180");
                   }}
-                  className="w-full flex items-center justify-between mb-2"
+                  className="w-full flex items-center justify-between mb-2 py-2 md:py-0 min-h-[44px] md:min-h-0"
                 >
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-orange-500 pl-2">
                     Participating Interests ({structure.participating_interests.length})
@@ -150,7 +150,7 @@ export function StructureTab({
                     return (
                       <div
                         key={`${pi.name}-${i}`}
-                        className="rounded-md border px-3 py-2"
+                        className="rounded-md border px-3 py-3 md:py-2"
                       >
                         <div className="flex items-center justify-between gap-2">
                           {piCbe ? (
@@ -177,7 +177,7 @@ export function StructureTab({
                             {pi.country && (
                               <Badge
                                 variant="secondary"
-                                className="text-[10px]"
+                                className="text-[11px]"
                               >
                                 {pi.country}
                               </Badge>

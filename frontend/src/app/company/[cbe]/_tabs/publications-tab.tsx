@@ -258,15 +258,15 @@ export function PublicationsTab({
           downloadCsv(`${detail?.name || cbe}_publications.csv`, headers, rows);
         }} onPrint={() => window.print()} />
       </div>
-      <div className="rounded-lg border overflow-x-auto scrollbar-none bg-white">
-        <table className="w-full">
+      <div className="rounded-lg border overflow-x-auto bg-white">
+        <table className="w-full min-w-[640px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[90px]">Date</th>
-              <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[90px]">Type</th>
-              <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider">Summary</th>
-              <th className="px-3 py-1.5 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[100px]">Reference</th>
-              <th className="px-3 py-1.5 text-center text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[40px]">PDF</th>
+              <th className="px-3 py-1.5 text-left text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[90px]">Date</th>
+              <th className="px-3 py-1.5 text-left text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[90px]">Type</th>
+              <th className="px-3 py-1.5 text-left text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider">Summary</th>
+              <th className="px-3 py-1.5 text-left text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[100px]">Reference</th>
+              <th className="px-3 py-1.5 text-center text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[44px]">PDF</th>
             </tr>
           </thead>
           <tbody>
@@ -284,11 +284,11 @@ export function PublicationsTab({
                   <td className="px-3 py-1 text-xs font-mono text-slate-600">{pub.pub_date}</td>
                   <td className="px-3 py-1">
                     {typeInfo ? (
-                      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${typeInfo.color}`}>
+                      <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] md:text-[10px] font-semibold ${typeInfo.color}`}>
                         {typeInfo.label}
                       </span>
                     ) : pub.pub_type ? (
-                      <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold bg-slate-100 text-slate-500">
+                      <span className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[11px] md:text-[10px] font-semibold bg-slate-100 text-slate-500">
                         {pub.pub_type.length > 15 ? pub.pub_type.slice(0, 15) + "..." : pub.pub_type}
                       </span>
                     ) : null}
@@ -311,10 +311,10 @@ export function PublicationsTab({
                         }
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center h-6 w-6 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition-colors"
+                        className="inline-flex items-center justify-center h-10 w-10 md:h-6 md:w-6 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition-colors"
                         title="View PDF"
                       >
-                        <FileText className="h-3.5 w-3.5" />
+                        <FileText className="h-4 w-4 md:h-3.5 md:w-3.5" />
                       </a>
                     ) : (
                       <span className="text-slate-200">{"\u2014"}</span>
@@ -327,7 +327,7 @@ export function PublicationsTab({
         </table>
       </div>
       {structure.staatsblad_publications.length > 50 && (
-        <p className="mt-1 text-[10px] text-slate-400 italic">
+        <p className="mt-1 text-[11px] text-slate-400 italic">
           {t("company.pubShowing", { count: String(structure.staatsblad_publications.length) })}
         </p>
       )}
