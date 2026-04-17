@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { getCompanyValuation } from "@/lib/api";
-import type { ValuationData } from "@/lib/api";
+import type { ValuationData, MultipleSourceKey } from "@/lib/api";
 import { fmtEur, fmtCbe } from "@/lib/format";
 import {
   Table,
@@ -69,6 +69,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   const [view, setView] = useState<"size" | "sector">("sector");
   const [sectorOverride, setSectorOverride] = useState<string | null>(null);
   const [unit, setUnit] = useState<Unit>("auto");
+  const [sourceKey, setSourceKey] = useState<MultipleSourceKey>("vlerick");
   const [exporting, setExporting] = useState(false);
   const fmt = (v: number | null | undefined) => fmtEurUnit(v, unit);
 
@@ -106,29 +107,42 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   };
 
   const load = useCallback(
-    async (override?: string | null) => {
+    async (override?: string | null, src?: MultipleSourceKey) => {
       setLoading(true);
       setError(null);
       try {
-        const result = await getCompanyValuation(cbe, override ?? undefined);
+        const result = await getCompanyValuation(cbe, override ?? undefined, src ?? sourceKey);
         setData(result);
+        // If the selected source doesn't support the current view, auto-switch.
+        if (result?.source) {
+          if (view === "size" && !result.source.has_size) setView("sector");
+          if (view === "sector" && !result.source.has_sector) setView("size");
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load valuation");
       } finally {
         setLoading(false);
       }
     },
-    [cbe]
+    [cbe, sourceKey, view]
   );
 
   useEffect(() => {
     load();
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cbe]);
 
   const handleSectorChange = (newSector: string) => {
     const override = newSector === "" ? null : newSector;
     setSectorOverride(override);
     load(override);
+  };
+
+  const handleSourceChange = (next: MultipleSourceKey) => {
+    if (next === sourceKey) return;
+    setSourceKey(next);
+    setSectorOverride(null); // source change resets any manual sector override
+    load(null, next);
   };
 
   if (loading && !data) {
@@ -165,6 +179,11 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
       ? `${profile.size_bracket_label} size bracket`
       : profile.vlerick_sector_label;
 
+  const srcMeta = data.source;
+  const sources = data.available_sources ?? [];
+  const srcHasSize = srcMeta?.has_size ?? true;
+  const srcHasSector = srcMeta?.has_sector ?? true;
+
   const sourceTag =
     profile.vlerick_sector_source === "user_override"
       ? "Manual override"
@@ -176,7 +195,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
 
   return (
     <div className="space-y-4">
-      {/* Compact header strip — title, Vlerick source, toggle, sector picker all in one row */}
+      {/* Compact header strip — title, source, view toggle, sector picker, unit toggle */}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pb-3 border-b border-slate-200">
         <div className="min-w-0">
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -193,28 +212,59 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               {vlerick_reference.report}
               <ExternalLink className="h-3 w-3" />
             </a>
+            {srcMeta?.scope && (
+              <span className="ml-1 text-slate-400">· {srcMeta.scope}</span>
+            )}
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          {/* Source toggle — pick which reference dataset's multiples to use */}
+          {sources.length > 1 && (
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5" title="Multiple source">
+              {sources.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => handleSourceChange(s.key)}
+                  className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+                    sourceKey === s.key
+                      ? "bg-indigo-600 text-white"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                  title={s.label}
+                >
+                  {s.key === "vlerick" ? "Vlerick" : s.key === "damodaran" ? "Damodaran" : "Argos"}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5">
             <button
-              onClick={() => setView("sector")}
+              onClick={() => srcHasSector && setView("sector")}
+              disabled={!srcHasSector}
               className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
                 view === "sector"
                   ? "bg-indigo-600 text-white"
-                  : "text-slate-500 hover:text-slate-700"
+                  : srcHasSector
+                  ? "text-slate-500 hover:text-slate-700"
+                  : "text-slate-300 cursor-not-allowed"
               }`}
+              title={srcHasSector ? "" : "This source has no sector breakdown"}
             >
               By sector
             </button>
             <button
-              onClick={() => setView("size")}
+              onClick={() => srcHasSize && setView("size")}
+              disabled={!srcHasSize}
               className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
                 view === "size"
                   ? "bg-indigo-600 text-white"
-                  : "text-slate-500 hover:text-slate-700"
+                  : srcHasSize
+                  ? "text-slate-500 hover:text-slate-700"
+                  : "text-slate-300 cursor-not-allowed"
               }`}
+              title={srcHasSize ? "" : "This source has no size breakdown"}
             >
               By size
             </button>

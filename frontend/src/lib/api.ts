@@ -313,17 +313,41 @@ export interface ValuationReference {
   note: string;
 }
 
+export type MultipleSourceKey = "vlerick" | "damodaran" | "argos";
+
+export interface MultipleSource {
+  key: MultipleSourceKey;
+  label: string;
+  publisher?: string;
+  url?: string;
+  kind?: "transaction" | "listed";
+  scope?: string;
+  note?: string;
+  has_size: boolean;
+  has_sector: boolean;
+  data_year?: number;
+}
+
 export interface ValuationData {
   status: "ok" | "no_financial_data";
   profile?: ValuationProfile;
   years: ValuationYear[];
+  source?: MultipleSource;
+  available_sources?: MultipleSource[];
   vlerick_reference: ValuationReference;
   pro_memoria_note?: string;
 }
 
-export const getCompanyValuation = (cbe: string, sectorOverride?: string) => {
-  const qs = sectorOverride ? `?sector=${encodeURIComponent(sectorOverride)}` : "";
-  return apiFetch<ValuationData>(`/api/companies/${cbe}/valuation${qs}`);
+export const getCompanyValuation = (
+  cbe: string,
+  sectorOverride?: string,
+  source?: MultipleSourceKey,
+) => {
+  const params = new URLSearchParams();
+  if (sectorOverride) params.set("sector", sectorOverride);
+  if (source) params.set("source", source);
+  const qs = params.toString();
+  return apiFetch<ValuationData>(`/api/companies/${cbe}/valuation${qs ? `?${qs}` : ""}`);
 };
 
 // ── Deep Network (hidden connections through 3rd/4th degree) ──
