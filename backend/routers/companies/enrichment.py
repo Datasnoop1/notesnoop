@@ -540,7 +540,7 @@ async def scrape_company_linkedin(cbe: str, user=Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 @router.post("/{cbe}/ai-insights")
-async def generate_ai_insights(cbe: str, user=Depends(get_current_user)):
+async def generate_ai_insights(cbe: str, user=Depends(optional_user)):
     """Generate structured AI company insights via a multi-step LLM pipeline.
 
     Step 1 (cheap): Discover website + LinkedIn URLs
