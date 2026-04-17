@@ -886,8 +886,7 @@ export function CompanyPageClient({
               { value: "cashflow", label: t("company.tabs.cashflow") as string },
               { value: "balancesheet", label: t("company.tabs.balanceSheet") as string },
               { value: "credit", label: t("company.tabs.credit") as string },
-              // Valuation hidden from nav while still in alpha.
-              // TabsContent for "valuation" remains below for direct state access.
+              { value: "valuation", label: t("company.tabs.valuation") as string },
             ]},
             { id: "network", label: t("company.tabs.network") as string, subs: [{ value: "network", label: "" }] },
             { id: "people", label: "People & Ownership", subs: [
