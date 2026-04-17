@@ -331,8 +331,21 @@ async def enrich_company(
 
 
 @router.get("/{cbe}/enrichment")
-async def get_enrichment(cbe: str, user=Depends(optional_user)):
-    """Fetch existing AI-generated enrichment for a company."""
+async def get_enrichment(cbe: str, lang: str | None = None, user=Depends(optional_user)):
+    """Fetch existing AI-generated enrichment for a company.
+
+    ``lang`` (``nl``/``fr``/``en``) translates the cached ``summary`` and
+    ``ai_insights`` blobs on the fly via a cheap LLM call so the user sees
+    the page in their site language without forcing a full regeneration.
+    Translations are memoised per ``(cbe, kind, lang)`` for the day.
+
+    Translation is only run for signed-in users so anonymous crawlers
+    can't drive uncapped OpenRouter spend by enumerating CBEs × langs.
+    Anonymous callers get the source text (still readable, just not in
+    their site language).
+    """
+    from ai_client import translate_cached_json, translate_cached
+
     _ensure_enrichment_table()
 
     cbe = clean_cbe(cbe)
@@ -346,7 +359,28 @@ async def get_enrichment(cbe: str, user=Depends(optional_user)):
     if not row:
         return None
 
-    return _serialize_row(row)
+    serialized = _serialize_row(row)
+
+    # Translate user-visible fields when the site language is set AND the
+    # caller is authenticated. Other fields (website_url, structured
+    # website/linkedin metadata) stay as source — they're URLs and tags,
+    # not narrative text.
+    if lang and user:
+        if serialized.get("summary"):
+            serialized["summary"] = await translate_cached(cbe, "summary", serialized["summary"], lang)
+        if serialized.get("ai_insights"):
+            # ai_insights is a JSON blob; translate per-string-field rather
+            # than passing the whole blob to the LLM (which would translate
+            # the keys too and break the frontend's `insights.business_description`
+            # destructuring).
+            serialized["ai_insights"] = await translate_cached_json(
+                cbe, "ai_insights", serialized["ai_insights"], lang,
+                value_fields=("business_description", "customers", "market_position",
+                              "history", "group_context"),
+                list_fields=("products",),
+            )
+
+    return serialized
 
 
 # ---------------------------------------------------------------------------

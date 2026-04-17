@@ -45,6 +45,12 @@ _LANG_INSTRUCTION = {
     "en": "Respond in English.",
 }
 
+_LANG_NAME = {
+    "nl": "Dutch",
+    "fr": "French",
+    "en": "English",
+}
+
 
 def _normalise_lang(lang: str | None) -> str | None:
     """Reduce locale-ish strings (`nl-BE`, `NL`, ` fr `) to one of nl/fr/en."""
@@ -52,6 +58,132 @@ def _normalise_lang(lang: str | None) -> str | None:
         return None
     code = lang.strip().lower().split("-")[0]
     return code if code in _LANG_INSTRUCTION else None
+
+
+async def translate_text(text: str, target_lang: str, max_tokens: int = 1200) -> str:
+    """Translate ``text`` to ``target_lang`` (nl/fr/en) using a cheap model.
+
+    Used to honour the user's site language for cached AI outputs without
+    regenerating the whole response. Returns empty string on failure or
+    when no API key is configured. Caller should fall back to the original
+    text in that case so the user still sees something.
+    """
+    target = _normalise_lang(target_lang)
+    if not target or not text:
+        return ""
+    name = _LANG_NAME[target]
+    system = (
+        f"You are a professional translator. Translate the user's text into {name}. "
+        "Preserve formatting, line breaks, JSON structure, numbers, and proper "
+        "nouns (people, company, brand names). Do NOT add commentary."
+    )
+    return await ai_complete(
+        prompt=text,
+        system=system,
+        model="google/gemini-2.5-flash",
+        max_tokens=max_tokens,
+    )
+
+
+# In-process translation cache for cached AI outputs. Keyed by
+# (cbe, kind, target_lang) so a Dutch user sees Dutch immediately on the
+# second visit instead of paying for a re-translation.
+from collections import OrderedDict as _OD
+from time import time as _ttime
+_TRANSLATION_CACHE: "_OD[tuple[str, str, str], tuple[float, str]]" = _OD()
+_TRANSLATION_CACHE_TTL = 3600 * 24  # 24h — cached enrichments rarely change
+_TRANSLATION_CACHE_MAX = 10_000
+
+
+async def translate_cached(cbe: str, kind: str, text: str, target_lang: str | None) -> str:
+    """Return ``text`` translated into ``target_lang``, or the original.
+
+    No-ops when ``target_lang`` is missing, empty, or invalid — caller gets
+    the source text back unchanged. Translation results are memoised per
+    ``(cbe, kind, lang)`` so repeated visits don't re-pay the LLM.
+    """
+    target = _normalise_lang(target_lang)
+    if not target or not text:
+        return text
+    key = (cbe, kind, target)
+    entry = _TRANSLATION_CACHE.get(key)
+    if entry and (_ttime() - entry[0]) < _TRANSLATION_CACHE_TTL:
+        # Refresh recency for LRU eviction.
+        _TRANSLATION_CACHE.move_to_end(key)
+        return entry[1]
+    translated = await translate_text(text, target)
+    if not translated:
+        return text  # graceful degradation — show source text
+    if len(_TRANSLATION_CACHE) >= _TRANSLATION_CACHE_MAX:
+        _TRANSLATION_CACHE.popitem(last=False)
+    _TRANSLATION_CACHE[key] = (_ttime(), translated)
+    return translated
+
+
+async def translate_cached_json(
+    cbe: str,
+    kind: str,
+    json_text: str,
+    target_lang: str | None,
+    *,
+    value_fields: tuple[str, ...] = (),
+    list_fields: tuple[str, ...] = (),
+) -> str:
+    """Translate selected string fields inside a JSON blob, preserving keys.
+
+    Naive whole-blob translation lets the LLM rename JSON keys
+    (``business_description`` → ``bedrijfsbeschrijving``) which silently
+    breaks consumers that destructure those keys. This walks the parsed
+    JSON, translates only the named scalar fields (``value_fields``) and
+    each string item of the named list fields (``list_fields``), then
+    re-serialises. Other keys, numbers, and structural fields are
+    preserved exactly.
+    """
+    import json as _json
+
+    target = _normalise_lang(target_lang)
+    if not target or not json_text:
+        return json_text
+
+    key = (cbe, kind, target)
+    entry = _TRANSLATION_CACHE.get(key)
+    if entry and (_ttime() - entry[0]) < _TRANSLATION_CACHE_TTL:
+        _TRANSLATION_CACHE.move_to_end(key)
+        return entry[1]
+
+    try:
+        data = _json.loads(json_text) if isinstance(json_text, str) else json_text
+    except Exception:
+        return json_text  # not parseable — leave as source
+
+    if not isinstance(data, dict):
+        return json_text  # only handle dict shapes for now
+
+    # Translate scalar string fields one at a time, preserving keys.
+    for f in value_fields:
+        v = data.get(f)
+        if isinstance(v, str) and v.strip():
+            t = await translate_text(v, target, max_tokens=600)
+            if t:
+                data[f] = t
+
+    for f in list_fields:
+        items = data.get(f)
+        if isinstance(items, list):
+            translated_items = []
+            for item in items:
+                if isinstance(item, str) and item.strip():
+                    t = await translate_text(item, target, max_tokens=200)
+                    translated_items.append(t or item)
+                else:
+                    translated_items.append(item)
+            data[f] = translated_items
+
+    out = _json.dumps(data, ensure_ascii=False)
+    if len(_TRANSLATION_CACHE) >= _TRANSLATION_CACHE_MAX:
+        _TRANSLATION_CACHE.popitem(last=False)
+    _TRANSLATION_CACHE[key] = (_ttime(), out)
+    return out
 
 
 async def ai_complete(

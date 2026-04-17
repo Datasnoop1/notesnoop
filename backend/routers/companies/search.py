@@ -18,11 +18,28 @@ router = APIRouter()
 
 @router.get("/search")
 async def search_companies(q: str = Query(..., min_length=1)):
-    """Search companies by name or CBE number.
+    """Search companies by name, CBE number, or address.
 
-    SQL extracted from app/pages/2_company.py search_companies().
+    Tolerates sloppy input: trims leading/trailing whitespace and collapses
+    runs of internal whitespace to a single space, so a copy-pasted name
+    with stray double-spaces or a trailing space still matches.
+    Address fallback (street / municipality / zipcode) kicks in when the
+    name search returns fewer than 5 results, so e.g. typing a Brussels
+    street name surfaces companies registered there.
     """
-    query = q.strip()
+    # Collapse multiple whitespace characters and strip — the previous
+    # `q.strip()` left "Acme   NV" with three spaces between tokens,
+    # which would never match the canonical "Acme NV" entry via ILIKE.
+    query = " ".join(q.split())
+    if not query:
+        return []
+    # Escape ILIKE wildcards so a literal `%` in the user input doesn't
+    # blow up the pattern. Used by the address-fallback path which builds
+    # `%{query}%` patterns (the CBE-prefix path strips non-digits first
+    # so it's already safe). Use this escaped form everywhere we wrap in
+    # `%...%` for ILIKE; leave `query` itself alone for trigram/exact
+    # comparisons that don't interpret wildcards.
+    safe_q = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     # Normalise CBE / VAT input so all of the following route to the
     # same CBE search path:
     #   "0403170701", "0403.170.701", "0403 170 701"
@@ -164,11 +181,13 @@ async def search_companies(q: str = Query(..., min_length=1)):
                     """, (nq, nq))
 
             # Address fallback: search by street, city, or zipcode when
-            # name-based search returned few results
-            if len(rows) < 5 and len(query) >= 2:
+            # name-based search returned few results. Gated to ≥4 chars
+            # (same threshold as people search) so a 2-char query doesn't
+            # full-scan the address table even with the trigram indexes.
+            if len(rows) < 5 and len(query) >= 4:
                 remaining = 20 - len(rows)
                 existing_cbes = {r["enterprise_number"] for r in rows}
-                like_q = f"%{query}%"
+                like_q = f"%{safe_q}%"
                 # Check if query looks like a pure zipcode (4-digit Belgian postal code)
                 zip_q = query if query.isdigit() and len(query) == 4 else None
                 addr_rows = fetch_all("""
@@ -185,10 +204,10 @@ async def search_companies(q: str = Query(..., min_length=1)):
                     LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
                     WHERE a.type_of_address = 'REGO'
                       AND (
-                          a.street_nl ILIKE %s
-                          OR a.street_fr ILIKE %s
-                          OR a.municipality_nl ILIKE %s
-                          OR a.municipality_fr ILIKE %s
+                          a.street_nl ILIKE %s ESCAPE '\\'
+                          OR a.street_fr ILIKE %s ESCAPE '\\'
+                          OR a.municipality_nl ILIKE %s ESCAPE '\\'
+                          OR a.municipality_fr ILIKE %s ESCAPE '\\'
                           OR (%s IS NOT NULL AND a.zipcode = %s)
                       )
                     ORDER BY ci.name

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { getCompanyValuation, getValuationAiCommentary, searchCompanies } from "@/lib/api";
+import { getCompanyValuation, getValuationAiCommentary, searchCompanies, getCompanyStructure } from "@/lib/api";
 import type { ValuationData, MultipleSourceKey, SearchResult } from "@/lib/api";
 import { fmtEur, fmtCbe } from "@/lib/format";
 import {
@@ -81,6 +81,11 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   const [groupSearchResults, setGroupSearchResults] = useState<SearchResult[]>([]);
   const [groupSearchLoading, setGroupSearchLoading] = useState(false);
   const groupSearchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* Pre-suggested candidates pulled from the company's known
+     subsidiaries / participating-interest links. Loaded lazily when the
+     picker opens; light touch — purely a hint, user can ignore. */
+  const [groupSuggestions, setGroupSuggestions] = useState<{ cbe: string; name: string }[]>([]);
+  const groupSuggestionsLoaded = useRef(false);
 
   /* AI commentary state. */
   const [aiCommentary, setAiCommentary] = useState<string | null>(null);
@@ -153,6 +158,33 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cbe]);
+
+  /* ---------- Group: lazy-load suggestion candidates ----------
+     Pull subsidiaries (participating_interest) once when the picker
+     first opens. Light touch: failure is silent, user can still type. */
+  useEffect(() => {
+    if (!groupSearchOpen || groupSuggestionsLoaded.current) return;
+    groupSuggestionsLoaded.current = true;
+    (async () => {
+      try {
+        const struct = await getCompanyStructure(cbe);
+        const seen = new Set<string>();
+        const items: { cbe: string; name: string }[] = [];
+        for (const pi of struct.participating_interests ?? []) {
+          // identifier may be a CBE (10-digit) or a foreign reg number; only keep CBEs
+          const candidateCbe = (pi as any).identifier?.replace?.(/\D/g, "");
+          if (candidateCbe && candidateCbe.length === 10 && !seen.has(candidateCbe)) {
+            seen.add(candidateCbe);
+            items.push({ cbe: candidateCbe, name: (pi as any).name || candidateCbe });
+          }
+          if (items.length >= 6) break;
+        }
+        setGroupSuggestions(items);
+      } catch {
+        // Non-critical — picker still works without suggestions
+      }
+    })();
+  }, [groupSearchOpen, cbe]);
 
   /* ---------- Group: search-and-add company picker ---------- */
   useEffect(() => {
@@ -299,8 +331,23 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 pb-3 border-b border-slate-200">
         <div className="flex items-end justify-between gap-2 w-full md:w-auto md:min-w-0">
           <div className="min-w-0 flex-1">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
               Indicative valuation
+              {includeMembers.length > 0 && (
+                /* Visible cue that the headline numbers reflect the
+                   consolidated group, not the primary alone. The Group
+                   panel itself sits below the table now (per operator
+                   preference), so this chip is the only above-the-fold
+                   indication that the group toggle is active. */
+                <a
+                  href="#valuation-group"
+                  className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 hover:bg-indigo-100 normal-case tracking-normal"
+                  title="Headline reflects this primary plus the listed group companies"
+                >
+                  <Users className="h-3 w-3" />
+                  Consolidated &middot; {includeMembers.length + 1} cos.
+                </a>
+              )}
             </div>
             <div className="mt-0.5 text-[11px] text-slate-600">
               Based on the{" "}
@@ -456,82 +503,6 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
         </div>
       </div>
 
-      {/* Group consolidation — add other group companies to aggregate EBITDA / debt */}
-      <div className="rounded-lg border border-slate-200 bg-white p-3 no-print">
-        <div className="flex flex-wrap items-center gap-2">
-          <Users className="h-3.5 w-3.5 text-slate-500" />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            Group valuation
-          </span>
-          <span className="text-[11px] text-slate-400">
-            Add companies in the same group to consolidate EBITDA / net debt.
-          </span>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
-            {companyName || fmtCbe(cbe)}
-            <span className="text-indigo-400">(primary)</span>
-          </span>
-          {includeMembers.map((m) => (
-            <span
-              key={m.cbe}
-              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700"
-            >
-              {m.name}
-              <button
-                onClick={() => removeGroupMember(m.cbe)}
-                className="ml-1 inline-flex items-center justify-center text-slate-400 hover:text-rose-500"
-                aria-label={`Remove ${m.name}`}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-          <button
-            onClick={() => setGroupSearchOpen((v) => !v)}
-            className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700"
-            disabled={includeMembers.length >= 9}
-          >
-            <Plus className="h-3 w-3" />
-            Add company
-          </button>
-        </div>
-        {groupSearchOpen && (
-          <div className="mt-2 max-w-md">
-            <Input
-              autoFocus
-              placeholder="Search by name or CBE..."
-              value={groupSearchQuery}
-              onChange={(e) => setGroupSearchQuery(e.target.value)}
-              className="h-9 text-sm"
-            />
-            {groupSearchLoading && (
-              <div className="mt-1 text-[11px] text-slate-400">Searching...</div>
-            )}
-            {!groupSearchLoading && groupSearchResults.length > 0 && (
-              <ul className="mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white">
-                {groupSearchResults.map((r) => (
-                  <li key={r.enterprise_number}>
-                    <button
-                      onClick={() => addGroupMember({ cbe: r.enterprise_number, name: r.name || r.enterprise_number })}
-                      className="block w-full px-3 py-2 text-left text-[12px] hover:bg-indigo-50"
-                    >
-                      <div className="font-medium text-slate-800">{r.name || r.enterprise_number}</div>
-                      <div className="text-[10px] text-slate-400">{fmtCbe(r.enterprise_number)}</div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-        {data?.group?.partial_years && data.group.partial_years.length > 0 && (
-          <div className="mt-2 text-[11px] text-amber-700">
-            Note: years {data.group.partial_years.join(", ")} have partial coverage{" \u2014 "}not all selected companies filed.
-          </div>
-        )}
-      </div>
-
       {/* AI commentary card */}
       {(aiCommentary || aiError) && (
         <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-3 no-print">
@@ -549,12 +520,24 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
         </div>
       )}
 
-      {/* Headline snapshot — horizontal 4-column summary for the latest year */}
+      {/* Headline snapshot — horizontal 4-column summary for the latest year.
+          When the latest reported EBITDA is negative (loss-making year)
+          the EV / Equity columns show "—" with a subtle "loss-making"
+          subtitle, because EBITDA × multiple is meaningless on a loss. */}
       {(() => {
         const latest = years[years.length - 1];
-        const latestEv = view === "size" ? latest?.by_size.enterprise_value : latest?.by_sector.enterprise_value;
-        const latestEquity = view === "size" ? latest?.by_size.equity_value : latest?.by_sector.equity_value;
+        const latestEbitda = latest?.ebitda ?? null;
+        const ebitdaIsPositive = latestEbitda != null && latestEbitda > 0;
+        const latestEv = ebitdaIsPositive
+          ? (view === "size" ? latest?.by_size.enterprise_value : latest?.by_sector.enterprise_value)
+          : null;
+        const latestEquity = ebitdaIsPositive
+          ? (view === "size" ? latest?.by_size.equity_value : latest?.by_sector.equity_value)
+          : null;
         const fyLabel = latest?.fiscal_year ? `FY${latest.fiscal_year}` : "latest";
+        const lossSubtitle = latestEbitda != null && latestEbitda <= 0
+          ? "Loss-making year — EV/Equity not meaningful"
+          : null;
         return (
           <div className="relative rounded-lg border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-4">
             {loading && (
@@ -576,8 +559,8 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                   EBITDA ({fyLabel})
                 </div>
-                <div className="mt-0.5 text-2xl font-bold text-slate-800">
-                  {fmt(latest?.ebitda ?? null)}
+                <div className={`mt-0.5 text-2xl font-bold ${latestEbitda != null && latestEbitda < 0 ? "text-rose-700" : "text-slate-800"}`}>
+                  {fmt(latestEbitda)}
                 </div>
                 <div className="mt-0.5 text-[10px] text-slate-400">
                   Profit before int., tax &amp; D&amp;A
@@ -591,7 +574,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                   {fmt(latestEv ?? null)}
                 </div>
                 <div className="mt-0.5 text-[10px] text-slate-400">
-                  What a buyer pays
+                  {lossSubtitle ?? "What a buyer pays"}
                 </div>
               </div>
               <div className="sm:border-l sm:border-slate-200 sm:pl-4">
@@ -602,7 +585,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                   {fmt(latestEquity ?? null)}
                 </div>
                 <div className="mt-0.5 text-[10px] text-emerald-700/70">
-                  Shareholders receive
+                  {lossSubtitle ?? "Shareholders receive"}
                 </div>
               </div>
             </div>
@@ -610,17 +593,25 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
         );
       })()}
 
-      {/* Valuation ladder — per-year + 3-year average column */}
+      {/* Valuation ladder — per-year + N-year average column.
+          Negative-EBITDA years are EXCLUDED from the average (multiplying
+          a loss by a positive multiple yields a meaningless negative EV).
+          The header reads "Avg (Xy)" where X = number of POSITIVE years
+          actually included. The backend already returns EV=0 for negative
+          years, so per-year EV cells render as "—" via fmt(0 || null). */}
       {(() => {
-        const validEbitdas = years.map((y) => y.ebitda).filter((v): v is number => v != null);
-        const hasAvg = validEbitdas.length >= 2;
-        const avgEbitda = hasAvg ? validEbitdas.reduce((s, v) => s + v, 0) / validEbitdas.length : null;
+        const positiveEbitdas = years.map((y) => y.ebitda).filter((v): v is number => v != null && v > 0);
+        const totalReportedYears = years.filter((y) => y.ebitda != null).length;
+        const hasAvg = positiveEbitdas.length >= 2;
+        const avgEbitda = hasAvg ? positiveEbitdas.reduce((s, v) => s + v, 0) / positiveEbitdas.length : null;
         const avgEv = avgEbitda != null ? avgEbitda * activeMultiple : null;
         const latestRow = years[years.length - 1];
         const latestNd = latestRow?.net_debt ?? null;
         const latestFd = latestRow?.financial_debt ?? null;
         const latestCe = latestRow?.cash_and_equivalents ?? null;
         const avgEquity = avgEv != null && latestNd != null ? avgEv - latestNd : null;
+        const avgYearsLabel = positiveEbitdas.length;
+        const someNegativeExcluded = positiveEbitdas.length < totalReportedYears;
 
         const avgHeadCls = "text-right text-xs min-w-[120px] bg-indigo-50/70 border-l border-indigo-200";
         const avgCellCls = "text-right font-mono text-xs py-1.5 bg-indigo-50/40 border-l border-indigo-200";
@@ -641,8 +632,11 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                       </TableHead>
                     ))}
                     {hasAvg && (
-                      <TableHead className={avgHeadCls} title="3-year average EBITDA, multiplied by the Vlerick M&A Monitor multiple, minus the LATEST year's net debt">
-                        <span className="text-indigo-700 font-semibold">Avg ({validEbitdas.length}y)</span>
+                      <TableHead
+                        className={avgHeadCls}
+                        title={`Average across ${avgYearsLabel} positive-EBITDA year${avgYearsLabel === 1 ? "" : "s"}, multiplied by the Vlerick M&A Monitor multiple, minus the LATEST year's net debt${someNegativeExcluded ? " — loss-making years excluded" : ""}`}
+                      >
+                        <span className="text-indigo-700 font-semibold">Avg ({avgYearsLabel}y)</span>
                       </TableHead>
                     )}
                   </TableRow>
@@ -729,7 +723,8 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             </div>
             {hasAvg && (
               <p className="mt-1.5 text-[10px] italic text-slate-500 px-1">
-                Avg column: {validEbitdas.length}-year average EBITDA × multiple, using the latest year&apos;s net debt.
+                Avg column: {avgYearsLabel}-year average EBITDA &times; multiple, using the latest year&apos;s net debt.
+                {someNegativeExcluded && " Loss-making years are excluded — multiplying a loss by a positive multiple is not meaningful."}
               </p>
             )}
           </div>
@@ -743,6 +738,110 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           {pro_memoria_note}
         </p>
       )}
+
+      {/* Group consolidation — sits BELOW pro memoria per operator preference,
+          so the headline valuation reads cleanly first and the "add other group
+          companies" affordance appears once the user is ready to drill in. */}
+      <div id="valuation-group" className="rounded-lg border border-slate-200 bg-white p-3 no-print">
+        <div className="flex flex-wrap items-center gap-2">
+          <Users className="h-3.5 w-3.5 text-slate-500" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Group valuation
+          </span>
+          <span className="text-[11px] text-slate-400">
+            Add companies in the same group to consolidate EBITDA / net debt.
+          </span>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
+            {companyName || fmtCbe(cbe)}
+            <span className="text-indigo-400">(primary)</span>
+          </span>
+          {includeMembers.map((m) => (
+            <span
+              key={m.cbe}
+              className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-700"
+            >
+              {m.name}
+              <button
+                onClick={() => removeGroupMember(m.cbe)}
+                className="ml-1 inline-flex items-center justify-center text-slate-400 hover:text-rose-500"
+                aria-label={`Remove ${m.name}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          <button
+            onClick={() => setGroupSearchOpen((v) => !v)}
+            className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700"
+            disabled={includeMembers.length >= 9}
+          >
+            <Plus className="h-3 w-3" />
+            Add company
+          </button>
+        </div>
+        {groupSearchOpen && (
+          <div className="mt-2 max-w-md">
+            <Input
+              autoFocus
+              placeholder="Search by name or CBE..."
+              value={groupSearchQuery}
+              onChange={(e) => setGroupSearchQuery(e.target.value)}
+              className="h-9 text-sm"
+            />
+            {/* Pre-suggestions from KBO group links — only when the user
+                hasn't started typing, so it's a light hint, not a default. */}
+            {!groupSearchQuery.trim() && groupSuggestions.length > 0 && (
+              <div className="mt-1 rounded-md border border-slate-200 bg-white">
+                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 bg-slate-50/60 border-b border-slate-100">
+                  Suggested (from group links)
+                </div>
+                <ul className="max-h-48 overflow-y-auto">
+                  {groupSuggestions
+                    .filter((s) => !includeMembers.some((m) => m.cbe === s.cbe))
+                    .map((s) => (
+                      <li key={s.cbe}>
+                        <button
+                          onClick={() => addGroupMember(s)}
+                          className="block w-full px-3 py-2 text-left text-[12px] hover:bg-indigo-50"
+                        >
+                          <div className="font-medium text-slate-800">{s.name}</div>
+                          <div className="text-[10px] text-slate-400">{fmtCbe(s.cbe)}</div>
+                        </button>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            )}
+            {groupSearchLoading && (
+              <div className="mt-1 text-[11px] text-slate-400">Searching...</div>
+            )}
+            {!groupSearchLoading && groupSearchResults.length > 0 && (
+              <ul className="mt-1 max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white">
+                {groupSearchResults
+                  .filter((r) => r.enterprise_number !== cbe)
+                  .map((r) => (
+                  <li key={r.enterprise_number}>
+                    <button
+                      onClick={() => addGroupMember({ cbe: r.enterprise_number, name: r.name || r.enterprise_number })}
+                      className="block w-full px-3 py-2 text-left text-[12px] hover:bg-indigo-50"
+                    >
+                      <div className="font-medium text-slate-800">{r.name || r.enterprise_number}</div>
+                      <div className="text-[10px] text-slate-400">{fmtCbe(r.enterprise_number)}</div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {data?.group?.partial_years && data.group.partial_years.length > 0 && (
+          <div className="mt-2 text-[11px] text-amber-700">
+            Note: years {data.group.partial_years.join(", ")} have partial coverage{" \u2014 "}not all selected companies filed.
+          </div>
+        )}
+      </div>
 
       {/* Combined explainer + source block */}
       <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-4 space-y-4">

@@ -22,7 +22,10 @@ LIST_URL = BASE_URL + "/cgi_tsv/list.pl"
 def _fetch_publications(cbe: str):
     """Scrape Staatsblad publications for a CBE number."""
     params = {"language": "nl", "btw": cbe}
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    # Identify ourselves to the Belgian government endpoint so they can
+    # contact us before IP-banning. Faking a generic browser UA was the
+    # previous behaviour and is bad netiquette toward a public service.
+    headers = {"User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence; +https://datasnoop.be)"}
     publications = []
     page = 1
 
@@ -87,10 +90,40 @@ def _parse_item(html: str, cbe: str):
 
 @router.post("/{cbe}/load")
 async def load_publications(cbe: str, user=Depends(optional_user)):
-    """Scrape and store Staatsblad publications for a company."""
+    """Scrape and store Staatsblad publications for a company.
+
+    Per-CBE cooldown: skips the outbound ejustice scrape if we already
+    fetched this CBE within the last 24h. Without this guard, every
+    profile reload re-scraped 5 pages from a Belgian gov server, which
+    would risk an IP block and waste outbound bandwidth.
+    """
+    from db import fetch_one
+
     cbe = cbe.strip().replace(".", "").zfill(10)
 
     try:
+        # Cooldown check: if any row for this CBE was loaded in the last
+        # 24h, return the cached state instead of hitting ejustice again.
+        # Postgres handles the date math so we don't have to deal with
+        # TEXT-vs-TIMESTAMP timezone quirks in Python.
+        recent = fetch_one(
+            "SELECT COUNT(*) AS n FROM staatsblad_publication "
+            "WHERE enterprise_number = %s "
+            "  AND loaded_at::timestamptz >= NOW() - INTERVAL '24 hours'",
+            (cbe,),
+        )
+        if recent and recent.get("n", 0) > 0:
+            count_row = fetch_one(
+                "SELECT COUNT(*) AS n FROM staatsblad_publication WHERE enterprise_number = %s",
+                (cbe,),
+            )
+            return {
+                "enterprise_number": cbe,
+                "publications_found": count_row["n"] if count_row else 0,
+                "publications_stored": 0,
+                "cached": True,
+            }
+
         pubs = _fetch_publications(cbe)
 
         stored = 0

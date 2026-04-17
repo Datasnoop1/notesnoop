@@ -577,6 +577,7 @@ export interface PersonResult {
   companies: number;
   holdings: number;
   company_count: number;
+  top_companies?: string[];
 }
 
 export interface PersonConnection {
@@ -841,6 +842,7 @@ export const getSimilarCompanies = (cbe: string) =>
 export const enrichCompany = (cbe: string) =>
   apiFetch<{ summary: string }>(withLang(`/api/companies/${cbe}/enrich`), { method: "POST" });
 
+// Threads ?lang= so cached AI is auto-translated to the user's site language.
 export const getEnrichment = (cbe: string) =>
   apiFetch<{
     summary: string;
@@ -849,13 +851,13 @@ export const getEnrichment = (cbe: string) =>
     linkedin_summary: string | null;
     website_url: string | null;
     ai_insights: string | null;
-  } | null>(`/api/companies/${cbe}/enrichment`);
+  } | null>(withLang(`/api/companies/${cbe}/enrichment`));
 
 export const enrichPerson = (name: string) =>
   apiFetch<{ summary: string }>(withLang(`/api/people/${encodeURIComponent(name)}/enrich`), { method: "POST" });
 
 export const getPersonEnrichment = (name: string) =>
-  apiFetch<{ summary: string; generated_at: string } | null>(`/api/people/${encodeURIComponent(name)}/enrichment`);
+  apiFetch<{ summary: string; generated_at: string } | null>(withLang(`/api/people/${encodeURIComponent(name)}/enrichment`));
 
 // ── AI Insights: Website & LinkedIn ──────────────────────
 export const scrapeCompanyWebsite = (cbe: string) =>

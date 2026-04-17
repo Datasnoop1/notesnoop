@@ -97,16 +97,23 @@ export async function generateValuationExcel(
 
   ws.addRow([]);
 
-  // Average EBITDA valuation (3-year avg EBITDA x multiple - latest net debt)
-  const validEbitdas = years.map((y) => y.ebitda).filter((v): v is number => v != null);
-  if (validEbitdas.length >= 2) {
-    const avgEbitda = validEbitdas.reduce((s, v) => s + v, 0) / validEbitdas.length;
+  // Average EBITDA valuation — uses ONLY positive-EBITDA years to mirror
+  // the on-screen ladder. Multiplying a loss by a positive multiple is
+  // not meaningful, and including it in the average would produce a
+  // number that disagrees with what the user just saw on screen.
+  const positiveEbitdas = years.map((y) => y.ebitda).filter((v): v is number => v != null && v > 0);
+  if (positiveEbitdas.length >= 2) {
+    const avgEbitda = positiveEbitdas.reduce((s, v) => s + v, 0) / positiveEbitdas.length;
     const avgEv = avgEbitda * multiple;
     const latestRow = years[years.length - 1];
     const latestNd = latestRow?.net_debt ?? 0;
     const avgEquity = avgEv - latestNd;
+    const totalReported = years.filter((y) => y.ebitda != null).length;
+    const avgTitleText = positiveEbitdas.length === totalReported
+      ? `Average EBITDA valuation (${positiveEbitdas.length}-year avg)`
+      : `Average EBITDA valuation (${positiveEbitdas.length} of ${totalReported} years \u2014 loss-making years excluded)`;
 
-    const avgTitle = ws.addRow([`Average EBITDA valuation (${validEbitdas.length}-year avg)`]);
+    const avgTitle = ws.addRow([avgTitleText]);
     avgTitle.font = { bold: true, size: 10, color: { argb: "334155" } };
     const avgSub = ws.addRow(["Avg EBITDA", "× Multiple", "= EV", "− Net debt (latest)", "= Equity value"]);
     avgSub.font = { bold: true, size: 8, color: { argb: "64748B" } };

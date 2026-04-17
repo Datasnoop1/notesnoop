@@ -31,8 +31,6 @@ import {
   Trash2,
   SlidersHorizontal,
   X,
-  Sparkles,
-  Users,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
 import AdUnit from "@/components/ad-unit";
@@ -54,7 +52,9 @@ interface ScreenerRow {
   net_profit: number | null;
   fte: number | null;
   jf_label: string | null;
+  juridical_situation: string | null;
   start_date: string | null;
+  real_estate: number | null;
 }
 
 interface Filters {
@@ -75,10 +75,11 @@ interface Filters {
   ebitda_growth_max: string;
   assets_growth_min: string;
   assets_growth_max: string;
-  mgmt_change_days: string;
+  fte_growth_3y_min: string;
+  fte_growth_3y_max: string;
   real_estate_min: string;
   real_estate_max: string;
-  distress: "" | "bankruptcy" | "wco" | "any";
+  distress: "" | "bankruptcy" | "wco" | "any" | "healthy";
   sort: string;
   limit: string;
 }
@@ -101,7 +102,8 @@ const DEFAULT_FILTERS: Filters = {
   ebitda_growth_max: "",
   assets_growth_min: "",
   assets_growth_max: "",
-  mgmt_change_days: "",
+  fte_growth_3y_min: "",
+  fte_growth_3y_max: "",
   real_estate_min: "",
   real_estate_max: "",
   distress: "",
@@ -188,6 +190,9 @@ function exportCsv(rows: ScreenerRow[]) {
     "Margin %",
     "Net Profit",
     "FTE",
+    "FTE Growth 3y %",
+    "Real estate (land + buildings)",
+    "Juridical situation",
   ];
   const csvRows = rows.map((r) =>
     [
@@ -204,6 +209,9 @@ function exportCsv(rows: ScreenerRow[]) {
       r.margin_pct ?? "",
       r.net_profit ?? "",
       r.fte ?? "",
+      (r as any).fte_growth_3y_pct ?? "",
+      r.real_estate ?? "",
+      r.juridical_situation ?? "",
     ].join(",")
   );
   const blob = new Blob([headers.join(",") + "\n" + csvRows.join("\n")], {
@@ -234,7 +242,7 @@ function SkeletonRows({ count }: { count: number }) {
     <>
       {Array.from({ length: count }).map((_, i) => (
         <tr key={i} className="border-b border-slate-100">
-          <td className="py-2 px-3" colSpan={7}>
+          <td className="py-2 px-3" colSpan={8}>
             <div className="h-3 w-3/4 animate-pulse rounded bg-slate-200 mb-1" />
             <div className="h-2.5 w-1/2 animate-pulse rounded bg-slate-100" />
           </td>
@@ -337,7 +345,20 @@ const PRESETS_KEY = "datasnoop_screener_presets";
 
 function loadPresets(): FilterPreset[] {
   if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem(PRESETS_KEY) || "[]"); } catch { return []; }
+  try {
+    const raw = JSON.parse(localStorage.getItem(PRESETS_KEY) || "[]") as FilterPreset[];
+    // Migrate stale presets that contain the removed `mgmt_change_days`
+    // key — drop it and merge with current DEFAULT_FILTERS so newly-added
+    // filter slots (fte_growth_3y_min/max etc.) hydrate as controlled
+    // empty strings rather than undefined.
+    return raw.map((p) => {
+      const { ...filters } = p.filters as Record<string, unknown>;
+      if ("mgmt_change_days" in filters) delete filters["mgmt_change_days"];
+      return { ...p, filters: { ...DEFAULT_FILTERS, ...filters } as Filters };
+    });
+  } catch {
+    return [];
+  }
 }
 
 function savePresets(presets: FilterPreset[]) {
@@ -453,7 +474,8 @@ export default function ScreenerPage() {
         if (f.ebitda_growth_max) params.ebitda_growth_max = f.ebitda_growth_max;
         if (f.assets_growth_min) params.assets_growth_min = f.assets_growth_min;
         if (f.assets_growth_max) params.assets_growth_max = f.assets_growth_max;
-        if (f.mgmt_change_days) params.mgmt_change_days = f.mgmt_change_days;
+        if (f.fte_growth_3y_min) params.fte_growth_3y_min = f.fte_growth_3y_min;
+        if (f.fte_growth_3y_max) params.fte_growth_3y_max = f.fte_growth_3y_max;
         if (f.real_estate_min)
           params.real_estate_min = String(Number(f.real_estate_min) * multiplier);
         if (f.real_estate_max)
@@ -603,6 +625,7 @@ export default function ScreenerPage() {
     if (filters.rev_growth_min || filters.rev_growth_max) c++;
     if (filters.ebitda_growth_min || filters.ebitda_growth_max) c++;
     if (filters.assets_growth_min || filters.assets_growth_max) c++;
+    if (filters.fte_growth_3y_min || filters.fte_growth_3y_max) c++;
     if (filters.real_estate_min || filters.real_estate_max) c++;
     if (filters.distress) c++;
     return c;
@@ -1088,7 +1111,7 @@ export default function ScreenerPage() {
               onValueChange={(v) =>
                 updateFilter(
                   "distress",
-                  v === "none" || !v ? "" : (v as "bankruptcy" | "wco" | "any")
+                  v === "none" || !v ? "" : (v as "bankruptcy" | "wco" | "any" | "healthy")
                 )
               }
             >
@@ -1097,6 +1120,7 @@ export default function ScreenerPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">{t("screener.distressAny")}</SelectItem>
+                <SelectItem value="healthy">{t("screener.distressHealthy")}</SelectItem>
                 <SelectItem value="bankruptcy">{t("screener.distressBankruptcy")}</SelectItem>
                 <SelectItem value="wco">{t("screener.distressWco")}</SelectItem>
                 <SelectItem value="any">{t("screener.distressAnyDistress")}</SelectItem>
@@ -1104,27 +1128,30 @@ export default function ScreenerPage() {
             </Select>
           </div>
 
-          {/* Management Changes */}
+          {/* FTE 3-year growth — replaces the old Mgmt Change filter.
+              Sustained headcount growth is a stronger signal of scale-up
+              than a flag for a single management change in the last X days. */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              <Users className="w-3 h-3 inline mr-1" />
-              Mgmt Changed (days)
+              <TrendingUp className="w-3 h-3 inline mr-1" />
+              {t("screener.fteGrowth3y")}
             </Label>
-            <Select
-              value={filters.mgmt_change_days || "none"}
-              onValueChange={(v) => updateFilter("mgmt_change_days", v === "none" || !v ? "" : v)}
-            >
-              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
-                <SelectValue placeholder="Any" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Any</SelectItem>
-                <SelectItem value="30">Last 30 days</SelectItem>
-                <SelectItem value="90">Last 90 days</SelectItem>
-                <SelectItem value="180">Last 6 months</SelectItem>
-                <SelectItem value="365">Last year</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="grid grid-cols-2 gap-1">
+              <Input
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
+                type="number"
+                placeholder="Min"
+                value={filters.fte_growth_3y_min}
+                onChange={(e) => updateFilter("fte_growth_3y_min", e.target.value)}
+              />
+              <Input
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
+                type="number"
+                placeholder="Max"
+                value={filters.fte_growth_3y_max}
+                onChange={(e) => updateFilter("fte_growth_3y_max", e.target.value)}
+              />
+            </div>
           </div>
 
           {/* Limit */}
@@ -1226,7 +1253,19 @@ export default function ScreenerPage() {
         </div>
 
         {/* Results table */}
-        <div className="flex-1 overflow-y-auto overflow-x-auto scrollbar-none">
+        <div className="flex-1 overflow-y-auto overflow-x-auto scrollbar-none relative">
+          {/* Loading overlay — sticky so it stays visible at the top-right
+              of the visible viewport even when the user has scrolled the
+              table down. The previous `absolute top-2` scrolled away with
+              the content, defeating the purpose. */}
+          {loading && (
+            <div className="pointer-events-none sticky top-0 z-20 h-0">
+              <div className="absolute right-3 top-2 inline-flex items-center gap-1.5 rounded-full bg-indigo-600 text-white px-3 py-1 text-[11px] font-medium shadow-lg">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t("screener.loading")}
+              </div>
+            </div>
+          )}
           <table className="w-full border-collapse min-w-[700px]">
             {/* Sticky header */}
             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
@@ -1261,6 +1300,12 @@ export default function ScreenerPage() {
                   currentSort={filters.sort}
                   onSort={handleSort}
                 />
+                <SortHeader
+                  label={t("screener.realEstateShort")}
+                  sortKey="real_estate_desc"
+                  currentSort={filters.sort}
+                  onSort={handleSort}
+                />
                 <th className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right">
                   {t("screener.fy")}
                 </th>
@@ -1273,7 +1318,7 @@ export default function ScreenerPage() {
               {!loading && filteredResults.length === 0 && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="py-20 text-center text-sm text-slate-400"
                   >
                     {t("screener.noMatchFilters")}
@@ -1355,6 +1400,11 @@ export default function ScreenerPage() {
                   {/* FTE */}
                   <td className="py-1.5 px-2 text-right font-mono text-sm text-slate-600 whitespace-nowrap">
                     {fmtNumber(row.fte)}
+                  </td>
+
+                  {/* Vastgoed (real estate, rubric 22) */}
+                  <td className="py-1.5 px-2 text-right font-mono text-sm text-slate-600 whitespace-nowrap">
+                    {fmtEur(row.real_estate)}
                   </td>
 
                   {/* FY */}

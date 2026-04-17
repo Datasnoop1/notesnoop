@@ -97,11 +97,19 @@ CREATE TABLE IF NOT EXISTS kbo_extract_log (
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_enterprise_status ON enterprise(status);
 CREATE INDEX IF NOT EXISTS idx_enterprise_juridical_form ON enterprise(juridical_form);
+CREATE INDEX IF NOT EXISTS idx_enterprise_juridical_situation ON enterprise(juridical_situation);
 CREATE INDEX IF NOT EXISTS idx_enterprise_type ON enterprise(type_of_enterprise);
 CREATE INDEX IF NOT EXISTS idx_establishment_enterprise ON establishment(enterprise_number);
 CREATE INDEX IF NOT EXISTS idx_denomination_entity ON denomination(entity_number);
 CREATE INDEX IF NOT EXISTS idx_denomination_type ON denomination(type_of_denomination);
 CREATE INDEX IF NOT EXISTS idx_address_entity ON address(entity_number);
+-- Trigram indexes on the address text columns. Without them, the
+-- people-search address fallback ILIKEs on `address` (3M+ rows) seq-scan
+-- the entire table even with a per-CTE LIMIT cap.
+CREATE INDEX IF NOT EXISTS idx_addr_street_nl_trgm ON address USING GIN (street_nl gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_addr_street_fr_trgm ON address USING GIN (street_fr gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_addr_munic_nl_trgm  ON address USING GIN (municipality_nl gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_addr_munic_fr_trgm  ON address USING GIN (municipality_fr gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_address_zipcode ON address(zipcode);
 CREATE INDEX IF NOT EXISTS idx_activity_entity ON activity(entity_number);
 CREATE INDEX IF NOT EXISTS idx_activity_nace ON activity(nace_code);

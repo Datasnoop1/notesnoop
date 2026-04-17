@@ -45,12 +45,7 @@ export default function Nav() {
     { label: t("nav.screener"), href: "/screener" },
   ];
 
-  const MOBILE_NAV = [
-    { label: t("nav.favourites"), href: "/favourites" },
-    { label: t("nav.compare"), href: "/compare" },
-    { label: t("nav.aggregate"), href: "/aggregate" },
-    { label: t("nav.screener"), href: "/screener" },
-  ];
+  // Mobile dot-row uses NAV_LINKS — keep one source of truth.
 
   useEffect(() => {
     const supabase = createClient();
@@ -250,19 +245,21 @@ export default function Nav() {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              !isLanding && (
-                <Link href="/login">
-                  <Button variant="outline" size="sm" className="hidden md:inline-flex text-[13px]">
-                    {t("nav.signIn")}
-                  </Button>
-                </Link>
-              )
+              /* Sign-in is visible on every page including landing AND
+                 on mobile, per operator preference: "keep login on top
+                 (not in hamburger)". The hamburger no longer carries
+                 a Sign-in entry, so this button is the only path in. */
+              <Link href="/login">
+                <Button variant="outline" size="sm" className="inline-flex text-[12px] md:text-[13px] h-8 md:h-9 px-2.5 md:px-3">
+                  {t("nav.signIn")}
+                </Button>
+              </Link>
             )}
 
-            {/* Mobile hamburger — always available on mobile (it holds Sign in,
-                Language, Feedback on phone since those are md:flex-only in the
-                header). Nav links live in a dot-row below the header (non-landing)
-                or under the search (landing), so they're NOT duplicated here. */}
+            {/* Mobile hamburger — holds Language + Feedback on phone (those
+                are md:flex-only in the header). Sign-in lives in the header
+                bar on every viewport (per operator preference). Nav links
+                live in the bottom dot-row on non-landing, /screener excepted. */}
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger>
                 <span className="md:hidden inline-flex items-center justify-center rounded-md p-2.5 min-w-[44px] min-h-[44px] text-slate-600 hover:bg-slate-100">
@@ -275,49 +272,20 @@ export default function Nav() {
                   Datasnoop
                 </SheetTitle>
                 <div className="mt-6 flex flex-col gap-4">
-                  {/* Primary destinations. Critical on landing, where the
-                      desktop nav is hidden behind md: and the dot-row is
-                      gated to non-landing — without this, mobile landing
-                      visitors had no tap path to Screener / Favourites etc. */}
-                  <div>
-                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Navigate</div>
-                    <div className="flex flex-col">
-                      {MOBILE_NAV.map((item) => (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          onClick={() => setOpen(false)}
-                          className={`px-3 py-2.5 rounded-md text-sm font-medium ${
-                            isActive(item.href)
-                              ? "text-gray-900 bg-gray-100"
-                              : "text-gray-700 hover:bg-gray-50"
-                          }`}
-                        >
-                          {item.label}
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Account</div>
-                    {user ? (
+                  {/* Sign in lives only in the top header per operator
+                      preference; the hamburger keeps Account just for
+                      signed-in users (Sign out). */}
+                  {user && (
+                    <div>
+                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Account</div>
                       <button
                         onClick={() => { handleSignOut(); setOpen(false); }}
                         className="w-full px-3 py-2.5 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 text-left"
                       >
                         {t("nav.signOut")}
                       </button>
-                    ) : (
-                      <Link
-                        href="/login"
-                        onClick={() => setOpen(false)}
-                        className="block px-3 py-2.5 rounded-md text-sm font-medium text-indigo-600 hover:bg-indigo-50"
-                      >
-                        {t("nav.signIn")}
-                      </Link>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
                   <div>
                     <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Language</div>
@@ -338,9 +306,11 @@ export default function Nav() {
           </div>
         </div>
 
-        {/* Mobile dot-nav — visible only on mobile non-landing pages, so the nav
-            is still one tap away without opening the hamburger */}
-        {!isLanding && (
+        {/* Mobile dot-nav — visible only on mobile non-landing pages.
+            Hidden on /screener because the screener owns the full mobile
+            viewport (split-pane filters/results) and the dot-row collides
+            with its top toolbar. */}
+        {!isLanding && !pathname.startsWith("/screener") && (
           <div className="md:hidden border-t border-slate-100">
             <nav className="flex items-center justify-center gap-0 py-1 text-[13px] text-gray-600 overflow-x-auto">
               {NAV_LINKS.map((item, idx) => (
