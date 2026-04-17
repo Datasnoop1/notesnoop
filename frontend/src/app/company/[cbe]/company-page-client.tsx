@@ -898,8 +898,8 @@ export function CompanyPageClient({
             ]},
             { id: "activity", label: t("company.tabs.publications") as string, subs: [{ value: "publications", label: "" }] },
           ];
-          const currentGroup = TAB_GROUPS.find((g) => g.subs.some((s) => s.value === activeTab))
-            ?? TAB_GROUPS[0];
+          // When on benchmark/similar (action buttons), no primary group is active.
+          const currentGroup = TAB_GROUPS.find((g) => g.subs.some((s) => s.value === activeTab)) ?? null;
 
           return (
             <>
@@ -917,7 +917,7 @@ export function CompanyPageClient({
               <div className="border-b border-slate-100 flex items-end justify-between gap-3 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 no-print">
                 <div className="flex md:flex-wrap">
                   {TAB_GROUPS.map((g) => {
-                    const active = currentGroup.id === g.id;
+                    const active = currentGroup?.id === g.id;
                     return (
                       <button
                         key={g.id}
@@ -938,7 +938,7 @@ export function CompanyPageClient({
                   <button
                     type="button"
                     onClick={() => handleTabChange("benchmark")}
-                    className={`inline-flex items-center gap-1 h-7 text-[11px] px-2 rounded-md border transition ${
+                    className={`inline-flex items-center gap-1 h-9 md:h-7 text-[11px] px-2.5 md:px-2 rounded-md border transition ${
                       activeTab === "benchmark"
                         ? "border-indigo-500 bg-indigo-50 text-indigo-700"
                         : "border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400"
@@ -949,7 +949,7 @@ export function CompanyPageClient({
                   <button
                     type="button"
                     onClick={() => handleTabChange("similar")}
-                    className={`inline-flex items-center gap-1 h-7 text-[11px] px-2 rounded-md border transition ${
+                    className={`inline-flex items-center gap-1 h-9 md:h-7 text-[11px] px-2.5 md:px-2 rounded-md border transition ${
                       activeTab === "similar"
                         ? "border-indigo-500 bg-indigo-50 text-indigo-700"
                         : "border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400"
@@ -962,7 +962,7 @@ export function CompanyPageClient({
               </div>
 
               {/* Sub-navigation — only when the current group has multiple sections */}
-              {currentGroup.subs.length > 1 && (
+              {currentGroup && currentGroup.subs.length > 1 && (
                 <div className="mt-3 inline-flex rounded-lg bg-slate-100 p-1 no-print overflow-x-auto max-w-full">
                   {currentGroup.subs.map((s) => {
                     const active = activeTab === s.value;
@@ -971,7 +971,7 @@ export function CompanyPageClient({
                         key={s.value}
                         type="button"
                         onClick={() => handleTabChange(s.value)}
-                        className={`rounded-md px-3 py-1 text-[11px] font-medium whitespace-nowrap transition ${
+                        className={`rounded-md px-3 py-2 md:py-1 text-[11px] font-medium whitespace-nowrap transition ${
                           active
                             ? "bg-white text-slate-800 shadow-sm"
                             : "text-slate-500 hover:text-slate-700"
