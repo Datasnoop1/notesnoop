@@ -299,12 +299,23 @@ async def _classify_sector_via_ai(
 ) -> Optional[dict]:
     """Ask OpenRouter (gemini-2.5-flash) to pick one of the 13 Vlerick sectors.
 
-    Only runs if company has enrichment data to base the classification on.
-    Returns {"sector", "confidence", "reasoning"} or None.
+    If no enrichment data exists for the company, first triggers the light
+    enrichment path (NACE + financials-based summary, no scraping) so the
+    classifier has at least something to work with. Returns
+    {"sector", "confidence", "reasoning"} or None on any failure.
     """
     facts = _build_classification_facts(cbe)
     if not facts:
-        return None  # Nothing to classify on — fall back to NACE mapping
+        # No cached enrichment — run the light summary path to seed something.
+        try:
+            from .enrichment import generate_light_summary
+            summary = await generate_light_summary(cbe)
+            if summary:
+                facts = _build_classification_facts(cbe)
+        except Exception:
+            logger.exception("Light summary generation failed for %s", cbe)
+    if not facts:
+        return None  # Still nothing — fall back to NACE mapping
 
     prompt = _SECTOR_CLASSIFY_PROMPT.format(
         name=name or "Unknown",

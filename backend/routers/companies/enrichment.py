@@ -131,6 +131,74 @@ async def summarize_publications(cbe: str, body: Optional[SummarizePublicationsB
 _enrichment_table_ensured = False
 
 
+async def generate_light_summary(cbe: str) -> Optional[str]:
+    """Generate and cache a short NACE + financials-only company summary.
+
+    Intended for internal reuse from other routers (e.g. valuation's sector
+    classifier). Idempotent: returns the cached summary if one already exists,
+    otherwise generates one, stores it in company_enrichment, and returns it.
+    Returns None if generation failed or the company isn't in company_info yet.
+    """
+    _ensure_enrichment_table()
+    cbe = clean_cbe(cbe)
+
+    existing = fetch_one(
+        "SELECT summary FROM company_enrichment WHERE enterprise_number = %s",
+        (cbe,),
+    )
+    if existing and existing.get("summary"):
+        return existing["summary"]
+
+    company = fetch_one("""
+        SELECT ci.name, ci.city, ci.nace_code,
+               COALESCE(nl.description, ci.nace_code) AS sector,
+               fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
+        FROM company_info ci
+        LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+        LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+        WHERE ci.enterprise_number = %s
+    """, (cbe,))
+    if not company:
+        return None
+
+    parts: list[str] = []
+    if company.get("name"): parts.append(f"Company: {company['name']}")
+    if company.get("sector"): parts.append(f"Sector: {company['sector']}")
+    if company.get("city"): parts.append(f"Location: {company['city']}, Belgium")
+    if company.get("revenue"): parts.append(f"Revenue: EUR {company['revenue']:,.0f}")
+    if company.get("ebitda"): parts.append(f"EBITDA: EUR {company['ebitda']:,.0f}")
+    if company.get("fte_total"): parts.append(f"FTE: {company['fte_total']:,.0f}")
+    if company.get("fiscal_year"): parts.append(f"Fiscal year: {company['fiscal_year']}")
+    if not parts:
+        return None
+
+    prompt = (
+        "Based on the following data about a Belgian company, write a concise "
+        "2-3 sentence company profile summary suitable for an investor audience. "
+        "Be factual, do not speculate.\n\n" + "\n".join(parts)
+    )
+    system = (
+        "You are a financial analyst assistant. Write concise, professional "
+        "company summaries for private equity deal sourcing."
+    )
+
+    summary = await ai_complete(prompt, system=system)
+    if not summary:
+        return None
+
+    try:
+        execute("""
+            INSERT INTO company_enrichment (enterprise_number, summary, generated_at)
+            VALUES (%s, %s, NOW())
+            ON CONFLICT (enterprise_number)
+            DO UPDATE SET summary = EXCLUDED.summary, generated_at = NOW()
+        """, (cbe, summary))
+    except Exception:
+        logger.exception("Failed to store light summary for %s", cbe)
+
+    return summary
+
+
 def _ensure_enrichment_table():
     """Create enrichment table if it does not exist (idempotent)."""
     global _enrichment_table_ensured
