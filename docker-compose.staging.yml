@@ -4,10 +4,10 @@ services:
     restart: always
     env_file: .env.production
     environment:
-      # Gate all /api/* routes to admin users only. The StagingGate
-      # middleware in backend/main.py consults user_roles for role='admin'
-      # and returns 403 otherwise. Prod never sets this, so prod is open.
-      STAGING_MODE: "true"
+      # Staging is open for browsing so the operator can verify UI without
+      # signing in. Admin routes remain locked at the router level via
+      # `_require_admin` dependencies, independent of STAGING_MODE.
+      STAGING_MODE: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
