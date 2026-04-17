@@ -240,7 +240,7 @@ export function SummaryTab({
           {sorted.length > 1 && (
             <>
               <div className="px-5 pt-3 pb-2 border-t border-slate-100">
-                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Financial History</h3>
+                <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Financial History Summary</h3>
               </div>
               <table className="w-full text-xs">
                 <thead>
@@ -255,7 +255,7 @@ export function SummaryTab({
                 </thead>
                 <tbody>
                   {(() => {
-                    const recentFirst = sorted.slice(0, 5);
+                    const recentFirst = sorted.slice(0, 3);
                     return recentFirst.map((r, i) => {
                       const prevRow = i < recentFirst.length - 1 ? recentFirst[i + 1] : null;
                       const isLatest = i === 0;
