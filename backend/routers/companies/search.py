@@ -1,6 +1,7 @@
 """Companies search router — name/CBE search, semantic search, fuzzy match."""
 
 import logging
+import re
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -22,12 +23,23 @@ async def search_companies(q: str = Query(..., min_length=1)):
     SQL extracted from app/pages/2_company.py search_companies().
     """
     query = q.strip()
-    # Use the raw digit string (no zero-padding) for prefix matching so
-    # "0403" still matches CBEs starting with 0403. clean_cbe() would pad
-    # "0403" to "0000000403" and break the LIKE prefix. The 4-digit floor
-    # prevents "1" from being treated as a CBE and hijacking a name search.
-    query_digits = query.replace(".", "").replace(" ", "")
-    is_cbe_search = query_digits.isdigit() and len(query_digits) >= 4
+    # Normalise CBE / VAT input so all of the following route to the
+    # same CBE search path:
+    #   "0403170701", "0403.170.701", "0403 170 701"
+    #   "BE0403170701", "BE 0403.170.701", "BE-0403170701", "be0403170701"
+    # The "BE" prefix is only stripped when the remainder is all digits,
+    # so a real name like "BE International" still falls through to
+    # name search. Use the raw digit string (no zero-padding) for
+    # prefix matching so "0403" still matches CBEs starting with 0403.
+    # The 4-digit floor prevents "1" from being treated as a CBE.
+    candidate = re.sub(r"^\s*BE[\s.\-]*", "", query, flags=re.IGNORECASE)
+    candidate = re.sub(r"[\s.\-]", "", candidate)
+    if candidate.isdigit() and len(candidate) >= 4:
+        query_digits = candidate
+        is_cbe_search = True
+    else:
+        query_digits = query.replace(".", "").replace(" ", "")
+        is_cbe_search = query_digits.isdigit() and len(query_digits) >= 4
 
     try:
         if is_cbe_search:
