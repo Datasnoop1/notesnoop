@@ -87,7 +87,7 @@ async def search_people(q: str = Query(..., min_length=2)):
             cur.execute("""
                 WITH addr_match AS (
                     -- Skip the entire scan when neither addr_q nor zip_q
-                    -- are set; the leading `%s IS NOT NULL` short-circuits
+                    -- are set; the leading IS-NOT-NULL pair short-circuits
                     -- the WHERE so the planner returns zero rows cheaply.
                     SELECT DISTINCT entity_number
                     FROM address
