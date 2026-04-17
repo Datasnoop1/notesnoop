@@ -47,6 +47,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
+import { createClient } from "@/lib/supabase";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
 import PrintLogo from "@/components/print-logo";
 import {
@@ -125,9 +126,21 @@ export function CompanyPageClient({
   const [activeTab, setActiveTab] = useState("summary");
   const [nbbLoading, setNbbLoading] = useState(false);
   const [nbbResult, setNbbResult] = useState<"success" | "error" | "no-data" | null>(null);
+  /* Auth-aware: gates the passive scrape+extract chain so anonymous
+     visitors can't drive ejustice.fgov.be / OpenRouter spend. */
+  const [signedIn, setSignedIn] = useState(false);
   const nbbAutoTriggered = React.useRef(false);
   const aiPreloadTriggered = React.useRef(false);
   const router = useRouter();
+
+  useEffect(() => {
+    const sb = createClient();
+    sb.auth.getSession().then(({ data }) => setSignedIn(!!data.session?.user));
+    const { data: { subscription } } = sb.auth.onAuthStateChange(
+      (_event, session) => setSignedIn(!!session?.user)
+    );
+    return () => subscription.unsubscribe();
+  }, []);
 
   /* -- Auto-load overlay state -- */
   type LoadStage = { label: string; status: "pending" | "active" | "done" | "error" };
@@ -351,29 +364,61 @@ export function CompanyPageClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cbe]);
 
-  /* -- Extract admins from Staatsblad if company has none -- */
+  /* -- Auto-find admins on profile load when we have none. --
+     Chain of cheap → expensive fallbacks:
+       1) No Staatsblad pubs scraped yet?  Scrape first. Many companies
+          have never been fetched, so this is what typically unblocks
+          things (coverage today is ~2% of enterprises).
+       2) Pubs exist and include an appointment/resignation notice?
+          Run the LLM extractor.
+     Both calls are fire-and-forget; each rate-limits itself server-side
+     (the backend caches "recently tried empty" for 30 min) and counts
+     against the signed-in user's tier limits.
+     Gated to signed-in users to prevent anonymous crawlers driving
+     unbounded outbound traffic against ejustice.fgov.be + LLM costs. */
   const adminExtractTriggered = React.useRef(false);
   useEffect(() => {
     if (!structure || adminExtractTriggered.current) return;
+    if (!signedIn) return;
     const hasAdmins = structure.administrators.length > 0;
-    const hasAppointmentPubs = structure.staatsblad_publications?.some(
-      (p) => p.pub_type === "ONTSLAGEN - BENOEMINGEN"
-    );
-    if (hasAdmins || !hasAppointmentPubs) return;
+    if (hasAdmins) return;
+
+    const pubs = structure.staatsblad_publications ?? [];
+    const hasAppointmentPubs = pubs.some((p) => p.pub_type === "ONTSLAGEN - BENOEMINGEN");
 
     adminExtractTriggered.current = true;
-    extractAdminsFromStaatsblad(cbe)
-      .then((result) => {
-        if (result.extracted > 0) {
-          getCompanyStructure(cbe).then((refreshed) =>
-            setStructure(refreshed as unknown as StructureData)
-          );
-        }
-      })
-      .catch(() => {
-        // Non-critical — silently ignore
-      });
-  }, [cbe, structure]);
+
+    const runExtract = () =>
+      extractAdminsFromStaatsblad(cbe)
+        .then((result) => {
+          if (result.extracted > 0) {
+            return getCompanyStructure(cbe).then((refreshed) =>
+              setStructure(refreshed as unknown as StructureData)
+            );
+          }
+        })
+        .catch(() => {
+          // Non-critical — silently ignore
+        });
+
+    if (hasAppointmentPubs) {
+      runExtract();
+    } else if (pubs.length === 0) {
+      // No Staatsblad history loaded at all; scrape it then try extraction.
+      loadPublications(cbe)
+        .then(() => getCompanyStructure(cbe))
+        .then((refreshed) => {
+          setStructure(refreshed as unknown as StructureData);
+          const newPubs = (refreshed as unknown as StructureData).staatsblad_publications ?? [];
+          if (newPubs.some((p) => p.pub_type === "ONTSLAGEN - BENOEMINGEN")) {
+            return runExtract();
+          }
+        })
+        .catch(() => {
+          // Non-critical — silently ignore
+        });
+    }
+  }, [cbe, structure, signedIn]);
 
   /* -- Callbacks -- */
 

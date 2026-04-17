@@ -12,6 +12,29 @@ export interface LimitExceededDetail {
 
 export const LIMIT_EXCEEDED_EVENT = "datasnoop:limit-exceeded";
 
+/** Read the persisted UI locale (set by language-provider via localStorage).
+ *  Returns ``undefined`` server-side or when no locale has been set.
+ *  Used to thread ``?lang=`` into AI endpoints so the model writes in the
+ *  user's chosen language. */
+export function getStoredLocale(): "en" | "nl" | "fr" | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const v = localStorage.getItem("datasnoop_locale");
+    if (v === "en" || v === "nl" || v === "fr") return v;
+  } catch {
+    // localStorage unavailable
+  }
+  return undefined;
+}
+
+/** Append ``?lang=<locale>`` (or ``&lang=...``) to a URL when a locale is set. */
+function withLang(path: string): string {
+  const lang = getStoredLocale();
+  if (!lang) return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}lang=${lang}`;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -328,9 +351,23 @@ export interface MultipleSource {
   data_year?: number;
 }
 
+export interface ValuationGroupMember {
+  cbe: string;
+  name: string;
+}
+
+export interface ValuationGroup {
+  primary_cbe: string;
+  primary_name: string;
+  included: ValuationGroupMember[];
+  label: string;
+  partial_years: number[];
+}
+
 export interface ValuationData {
   status: "ok" | "no_financial_data";
   profile?: ValuationProfile;
+  group?: ValuationGroup | null;
   years: ValuationYear[];
   source?: MultipleSource;
   available_sources?: MultipleSource[];
@@ -342,12 +379,31 @@ export const getCompanyValuation = (
   cbe: string,
   sectorOverride?: string,
   source?: MultipleSourceKey,
+  includeCbes?: string[],
 ) => {
   const params = new URLSearchParams();
   if (sectorOverride) params.set("sector", sectorOverride);
   if (source) params.set("source", source);
+  if (includeCbes && includeCbes.length > 0) params.set("include", includeCbes.join(","));
   const qs = params.toString();
   return apiFetch<ValuationData>(`/api/companies/${cbe}/valuation${qs ? `?${qs}` : ""}`);
+};
+
+export const getValuationAiCommentary = (
+  cbe: string,
+  sectorOverride?: string,
+  source?: MultipleSourceKey,
+  includeCbes?: string[],
+) => {
+  const params = new URLSearchParams();
+  if (sectorOverride) params.set("sector", sectorOverride);
+  if (source) params.set("source", source);
+  if (includeCbes && includeCbes.length > 0) params.set("include", includeCbes.join(","));
+  const qs = params.toString();
+  return apiFetch<{ commentary: string | null; reason?: string }>(
+    withLang(`/api/companies/${cbe}/valuation/ai-commentary${qs ? `?${qs}` : ""}`),
+    { method: "POST" }
+  );
 };
 
 // ── Deep Network (hidden connections through 3rd/4th degree) ──
@@ -363,6 +419,8 @@ export interface DeepNetworkEdge {
   target: string;
   relationship: string;
   label: string;
+  is_active?: boolean;
+  mandate_end?: string | null;
 }
 
 export interface DeepNetworkResponse {
@@ -781,7 +839,7 @@ export const getSimilarCompanies = (cbe: string) =>
 
 // ── AI Enrichment ─────────────────────────────────────────
 export const enrichCompany = (cbe: string) =>
-  apiFetch<{ summary: string }>(`/api/companies/${cbe}/enrich`, { method: "POST" });
+  apiFetch<{ summary: string }>(withLang(`/api/companies/${cbe}/enrich`), { method: "POST" });
 
 export const getEnrichment = (cbe: string) =>
   apiFetch<{
@@ -794,7 +852,7 @@ export const getEnrichment = (cbe: string) =>
   } | null>(`/api/companies/${cbe}/enrichment`);
 
 export const enrichPerson = (name: string) =>
-  apiFetch<{ summary: string }>(`/api/people/${encodeURIComponent(name)}/enrich`, { method: "POST" });
+  apiFetch<{ summary: string }>(withLang(`/api/people/${encodeURIComponent(name)}/enrich`), { method: "POST" });
 
 export const getPersonEnrichment = (name: string) =>
   apiFetch<{ summary: string; generated_at: string } | null>(`/api/people/${encodeURIComponent(name)}/enrichment`);
@@ -901,13 +959,13 @@ export interface AiInsights {
 }
 
 export const generateAiInsights = (cbe: string) =>
-  apiFetch<AiInsights>(`/api/companies/${cbe}/ai-insights`, { method: "POST" });
+  apiFetch<AiInsights>(withLang(`/api/companies/${cbe}/ai-insights`), { method: "POST" });
 
 export const submitInsightsFeedback = (cbe: string, feedback: { overall: string; websiteCorrect?: boolean; linkedinCorrect?: boolean; insightCorrect?: boolean; comment?: string }) =>
   apiFetch<{ status: string }>(`/api/companies/${cbe}/ai-insights/feedback`, { method: "POST", body: JSON.stringify(feedback) });
 
 export const summarizePublications = (cbe: string, refresh = false) =>
-  apiFetch<{ summary: string | null; cached: boolean; error?: string }>(`/api/companies/${cbe}/summarize-publications`, {
+  apiFetch<{ summary: string | null; cached: boolean; error?: string }>(withLang(`/api/companies/${cbe}/summarize-publications`), {
     method: "POST",
     body: JSON.stringify({ refresh }),
   });

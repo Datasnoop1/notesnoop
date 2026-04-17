@@ -148,33 +148,36 @@ export default function Nav() {
             </form>
           )}
 
-          {/* Desktop nav — hidden on landing (links live under the search there).
-              Text-link style with dot separators, matching the landing secondary-actions row. */}
-          {!isLanding && (
-            <nav className="hidden md:flex items-center gap-0 shrink-0 text-[13px] text-gray-600">
-              {NAV_LINKS.map((item, idx) => (
-                <React.Fragment key={item.href}>
-                  {idx > 0 && <span className="text-gray-300 select-none" aria-hidden>·</span>}
-                  <Link
-                    href={item.href}
-                    className={`px-3 py-2 rounded-md transition-colors ${
-                      isActive(item.href)
-                        ? "text-gray-900 font-medium"
-                        : "hover:bg-gray-50 hover:text-gray-900"
-                    }`}
-                  >
-                    {item.label}
-                  </Link>
-                </React.Fragment>
-              ))}
-            </nav>
-          )}
+          {/* Desktop nav — Screener / Favourites / Compare / Aggregate.
+              Shown on landing AND non-landing so the primary actions are
+              always one tap away. Text-link style with dot separators. */}
+          <nav className="hidden md:flex items-center gap-0 shrink-0 text-[13px] text-gray-600">
+            {NAV_LINKS.map((item, idx) => (
+              <React.Fragment key={item.href}>
+                {idx > 0 && <span className="text-gray-300 select-none" aria-hidden>·</span>}
+                <Link
+                  href={item.href}
+                  className={`px-3 py-2 rounded-md transition-colors ${
+                    isActive(item.href)
+                      ? "text-gray-900 font-medium"
+                      : "hover:bg-gray-50 hover:text-gray-900"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              </React.Fragment>
+            ))}
+          </nav>
 
-          {/* Right side: feedback, notifications, auth */}
+          {/* Right side: feedback, notifications, auth.
+              On landing, feedback + sign-in are rendered in page.tsx
+              (under the search bar) — header keeps just bell + language. */}
           <div className="flex items-center gap-1.5">
-            <div className="hidden md:flex items-center gap-1 mr-0.5">
-              <FeedbackButtons />
-            </div>
+            {!isLanding && (
+              <div className="hidden md:flex items-center gap-1 mr-0.5">
+                <FeedbackButtons />
+              </div>
+            )}
 
             {/* Notification bell */}
             {user && (
@@ -247,11 +250,13 @@ export default function Nav() {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Link href="/login">
-                <Button variant="outline" size="sm" className="hidden md:inline-flex text-[13px]">
-                  {t("nav.signIn")}
-                </Button>
-              </Link>
+              !isLanding && (
+                <Link href="/login">
+                  <Button variant="outline" size="sm" className="hidden md:inline-flex text-[13px]">
+                    {t("nav.signIn")}
+                  </Button>
+                </Link>
+              )
             )}
 
             {/* Mobile hamburger — always available on mobile (it holds Sign in,
@@ -270,6 +275,30 @@ export default function Nav() {
                   Datasnoop
                 </SheetTitle>
                 <div className="mt-6 flex flex-col gap-4">
+                  {/* Primary destinations. Critical on landing, where the
+                      desktop nav is hidden behind md: and the dot-row is
+                      gated to non-landing — without this, mobile landing
+                      visitors had no tap path to Screener / Favourites etc. */}
+                  <div>
+                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Navigate</div>
+                    <div className="flex flex-col">
+                      {MOBILE_NAV.map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setOpen(false)}
+                          className={`px-3 py-2.5 rounded-md text-sm font-medium ${
+                            isActive(item.href)
+                              ? "text-gray-900 bg-gray-100"
+                              : "text-gray-700 hover:bg-gray-50"
+                          }`}
+                        >
+                          {item.label}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+
                   <div>
                     <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Account</div>
                     {user ? (

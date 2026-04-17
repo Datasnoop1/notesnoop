@@ -436,11 +436,35 @@ def _ebitda_to_size_bracket(ebitda: Optional[float], overall_multiple: float) ->
     return "gt_100m"
 
 
+def _parse_include_cbes(raw: Optional[str], primary: str) -> list[str]:
+    """Parse a comma-separated ``include`` query param into a clean list of
+    CBEs. Drops blanks, the primary itself, and duplicates. Capped at 9 so
+    the consolidated payload stays bounded."""
+    if not raw:
+        return []
+    out: list[str] = []
+    seen = {primary}
+    for raw_cbe in raw.split(","):
+        c = clean_cbe(raw_cbe)
+        if not c or c in seen:
+            continue
+        seen.add(c)
+        out.append(c)
+        if len(out) >= 9:
+            break
+    return out
+
+
+def _group_label(primary_name: str, n_extra: int) -> str:
+    return primary_name if n_extra == 0 else f"{primary_name} (+ {n_extra} group cos.)"
+
+
 @router.get("/{cbe}/valuation")
 async def get_company_valuation(
     cbe: str,
     sector: Optional[str] = Query(None, description="Override Vlerick sector key"),
     source: Optional[str] = Query("vlerick", description="Multiple source: vlerick | damodaran | argos"),
+    include: Optional[str] = Query(None, description="Comma-separated CBEs to consolidate as a group (max 9)"),
 ):
     """Return 3-year EV/EBITDA-based valuation ladder using Vlerick M&A Monitor.
 
@@ -448,8 +472,15 @@ async def get_company_valuation(
       drives the year-over-year delta, not market-multiple shifts).
     - Returns two parallel computations: by size bracket and by sector.
     - `sector` query param overrides auto-detected sector (from NACE mapping).
+    - `include` consolidates the primary CBE with one or more group companies:
+      EBITDA / debt / cash are summed per fiscal year, and the multiple lookup
+      uses the primary's profile (NACE, AI sector). Years where the primary
+      has no data are dropped; years where some included companies lack data
+      are still returned with a `partial_years` warning so the user can judge
+      coverage.
     """
     cbe = clean_cbe(cbe)
+    include_cbes = _parse_include_cbes(include, cbe)
 
     try:
         _ensure_tables_and_seed()
@@ -490,8 +521,8 @@ async def get_company_valuation(
         # multiple rows per fiscal year (one per filing / amendment), so
         # de-dup via ROW_NUMBER keeping the latest deposit_key per year —
         # same pattern used in financials.py and the NBB pipeline.
-        hist = fetch_all("""
-            SELECT fiscal_year, ebitda,
+        hist_primary = fetch_all("""
+            SELECT enterprise_number, fiscal_year, ebitda,
                    lt_financial_debt, st_financial_debt,
                    cash, current_investments
             FROM (
@@ -507,6 +538,84 @@ async def get_company_valuation(
             ORDER BY fiscal_year DESC
             LIMIT 3
         """, (cbe,))
+
+        # Group consolidation: for each year the primary reports, sum the same
+        # year across the included companies. Companies that don't report for
+        # that year are skipped (counted under ``partial_years``).
+        partial_years: list[int] = []
+        included_meta: list[dict] = []
+        if include_cbes and hist_primary:
+            primary_years = [int(r["fiscal_year"]) for r in hist_primary if r.get("fiscal_year") is not None]
+            ph = ",".join(["%s"] * len(include_cbes))
+            year_ph = ",".join(["%s"] * len(primary_years)) if primary_years else "NULL"
+            extra_rows = fetch_all(
+                f"""
+                SELECT enterprise_number, fiscal_year, ebitda,
+                       lt_financial_debt, st_financial_debt,
+                       cash, current_investments
+                FROM (
+                    SELECT *,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY enterprise_number, fiscal_year
+                               ORDER BY deposit_key DESC
+                           ) AS rn
+                    FROM financial_summary
+                    WHERE enterprise_number IN ({ph})
+                      AND fiscal_year IN ({year_ph})
+                ) sub
+                WHERE rn = 1
+                """,
+                include_cbes + primary_years,
+            )
+            extra_by_year: dict[int, list[dict]] = {}
+            for row in extra_rows:
+                fy = int(row["fiscal_year"])
+                extra_by_year.setdefault(fy, []).append(row)
+
+            # Build list of group company display names for the response
+            name_rows = fetch_all(
+                f"SELECT enterprise_number, name FROM company_info WHERE enterprise_number IN ({ph})",
+                include_cbes,
+            )
+            name_map = {r["enterprise_number"]: r.get("name") for r in name_rows}
+            for c in include_cbes:
+                included_meta.append({
+                    "cbe": c,
+                    "name": name_map.get(c) or c,
+                })
+
+            # Aggregate per primary year
+            agg: list[dict] = []
+            for primary_row in hist_primary:
+                fy = int(primary_row["fiscal_year"]) if primary_row.get("fiscal_year") is not None else None
+                if fy is None:
+                    continue
+                ebitda = float(primary_row.get("ebitda") or 0)
+                lt_d = float(primary_row.get("lt_financial_debt") or 0)
+                st_d = float(primary_row.get("st_financial_debt") or 0)
+                cash = float(primary_row.get("cash") or 0)
+                inv = float(primary_row.get("current_investments") or 0)
+                contributors = 1
+                for extra in extra_by_year.get(fy, []):
+                    ebitda += float(extra.get("ebitda") or 0)
+                    lt_d += float(extra.get("lt_financial_debt") or 0)
+                    st_d += float(extra.get("st_financial_debt") or 0)
+                    cash += float(extra.get("cash") or 0)
+                    inv += float(extra.get("current_investments") or 0)
+                    contributors += 1
+                if contributors < 1 + len(include_cbes):
+                    partial_years.append(fy)
+                agg.append({
+                    "fiscal_year": fy,
+                    "ebitda": ebitda,
+                    "lt_financial_debt": lt_d,
+                    "st_financial_debt": st_d,
+                    "cash": cash,
+                    "current_investments": inv,
+                })
+            hist = agg
+        else:
+            hist = hist_primary
 
         if not hist:
             return {
@@ -665,6 +774,13 @@ async def get_company_valuation(
                 "sector_multiple": sector_multiple,
                 "available_sectors": available_sectors,
             },
+            "group": {
+                "primary_cbe": cbe,
+                "primary_name": company_name,
+                "included": included_meta,
+                "label": _group_label(company_name or cbe, len(include_cbes)),
+                "partial_years": sorted(set(partial_years), reverse=True),
+            } if include_cbes else None,
             "years": years,
             "source": {
                 "key": active_source,
@@ -696,3 +812,107 @@ async def get_company_valuation(
     except Exception:
         logger.exception("Valuation query failed for %s", cbe)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
+# POST /api/companies/{cbe}/valuation/ai-commentary
+# ---------------------------------------------------------------------------
+
+
+def _format_eur(v: Optional[float]) -> str:
+    if v is None:
+        return "n/a"
+    if abs(v) >= 1_000_000:
+        return f"\u20AC{v / 1_000_000:.1f}M"
+    if abs(v) >= 1_000:
+        return f"\u20AC{v / 1_000:.0f}k"
+    return f"\u20AC{v:,.0f}"
+
+
+def _build_valuation_prompt(payload: dict) -> str:
+    """Format the valuation result into a compact prompt for the LLM.
+
+    The LLM is given numbers + sector + multiple, but no instructions on
+    direction so it can call out anything noteworthy: trend, sector vs
+    size disagreement, group-aggregation caveats, etc.
+    """
+    profile = payload.get("profile") or {}
+    years = payload.get("years") or []
+    src = payload.get("source") or {}
+    group = payload.get("group")
+
+    lines = [
+        f"Company: {payload.get('company_name') or profile.get('company_name') or 'Belgian company'}",
+        f"NACE: {profile.get('nace_code') or '\u2014'}",
+        f"Vlerick sector: {profile.get('vlerick_sector_label')} (multiple {profile.get('sector_multiple'):.1f}x)",
+        f"Size bracket: {profile.get('size_bracket_label')} (multiple {profile.get('size_multiple'):.1f}x)",
+        f"Multiple source: {src.get('label')} ({src.get('data_year')})",
+    ]
+    if group:
+        lines.append(
+            f"Consolidated group: {group.get('label')} "
+            f"({1 + len(group.get('included') or [])} cos.)"
+        )
+        if group.get("partial_years"):
+            lines.append(
+                "Partial-coverage years (one or more group cos. did not file): "
+                + ", ".join(str(y) for y in group["partial_years"])
+            )
+    lines.append("\nPer-year EV (EBITDA \u00d7 multiple), most-recent last:")
+    for y in years:
+        lines.append(
+            f"- FY{y.get('fiscal_year')}: EBITDA {_format_eur(y.get('ebitda'))}, "
+            f"net debt {_format_eur(y.get('net_debt'))}, "
+            f"EV(size) {_format_eur((y.get('by_size') or {}).get('enterprise_value'))}, "
+            f"EV(sector) {_format_eur((y.get('by_sector') or {}).get('enterprise_value'))}"
+        )
+    return "\n".join(lines)
+
+
+@router.post("/{cbe}/valuation/ai-commentary")
+async def valuation_ai_commentary(
+    cbe: str,
+    sector: Optional[str] = Query(None),
+    source: Optional[str] = Query("vlerick"),
+    include: Optional[str] = Query(None),
+    lang: Optional[str] = Query(None),
+):
+    """Generate a short AI commentary on the current valuation result.
+
+    Reuses the same parameters as ``/valuation`` so the commentary lines up
+    with what the user is looking at on screen. Output is a 3-4 sentence
+    plain-language note; deliberately not a number, since the screen already
+    shows the numbers.
+    """
+    cbe = clean_cbe(cbe)
+
+    try:
+        valuation = await get_company_valuation(cbe, sector=sector, source=source, include=include)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Underlying valuation call failed for %s", cbe)
+        raise HTTPException(status_code=500, detail="Could not compute valuation")
+
+    if isinstance(valuation, dict) and valuation.get("status") != "ok":
+        return {"commentary": None, "reason": "no_data"}
+
+    prompt = _build_valuation_prompt(valuation)
+    system = (
+        "You are a private-equity analyst writing a short commentary on a "
+        "Belgian company's EV/EBITDA-based valuation. Be concrete and concise "
+        "(3-4 sentences). Reference one or two of: EBITDA trend, sector vs "
+        "size-bracket spread, net-debt position, and any group-consolidation "
+        "caveat. Do not invent figures \u2014 only refer to numbers in the input."
+    )
+
+    try:
+        text = await ai_complete(prompt, system=system, max_tokens=400, lang=lang)
+    except Exception:
+        logger.exception("AI valuation commentary failed for %s", cbe)
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+
+    if not text:
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+
+    return {"commentary": text.strip()}

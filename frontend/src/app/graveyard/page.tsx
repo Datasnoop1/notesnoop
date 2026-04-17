@@ -239,12 +239,24 @@ export default function GraveyardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {/* Demo banner — Fallen Heroes is a side experiment, not a paid
+          DataSnoop product. Kept visible so PE-curious visitors don't
+          mistake it for a screening surface. */}
+      <div className="bg-amber-50 border-b border-amber-200">
+        <div className="mx-auto max-w-6xl px-4 py-2.5 flex items-center gap-2 text-[12px] text-amber-800">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            <strong>Demo page</strong> &middot; Fallen Heroes is a research playground built on top of DataSnoop&apos;s data.
+            It is not part of the official DataSnoop offering.
+          </span>
+        </div>
+      </div>
       {/* Header */}
       <div className="bg-slate-900 text-white">
         <div className="mx-auto max-w-6xl px-4 py-8">
           <div className="flex items-center gap-3 mb-2">
             <Skull className="h-7 w-7 text-rose-400" />
-            <h1 className="text-2xl font-bold tracking-tight">Company Graveyard</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Fallen Heroes</h1>
           </div>
           <p className="text-slate-400 text-sm max-w-xl">
             Non-active and failed Belgian companies. Track repeat directors and founders

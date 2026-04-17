@@ -76,6 +76,9 @@ interface Filters {
   assets_growth_min: string;
   assets_growth_max: string;
   mgmt_change_days: string;
+  real_estate_min: string;
+  real_estate_max: string;
+  distress: "" | "bankruptcy" | "wco" | "any";
   sort: string;
   limit: string;
 }
@@ -99,6 +102,9 @@ const DEFAULT_FILTERS: Filters = {
   assets_growth_min: "",
   assets_growth_max: "",
   mgmt_change_days: "",
+  real_estate_min: "",
+  real_estate_max: "",
+  distress: "",
   sort: "revenue_desc",
   limit: "100",
 };
@@ -448,6 +454,11 @@ export default function ScreenerPage() {
         if (f.assets_growth_min) params.assets_growth_min = f.assets_growth_min;
         if (f.assets_growth_max) params.assets_growth_max = f.assets_growth_max;
         if (f.mgmt_change_days) params.mgmt_change_days = f.mgmt_change_days;
+        if (f.real_estate_min)
+          params.real_estate_min = String(Number(f.real_estate_min) * multiplier);
+        if (f.real_estate_max)
+          params.real_estate_max = String(Number(f.real_estate_max) * multiplier);
+        if (f.distress) params.distress = f.distress;
         params.sort = f.sort;
         params.limit = f.limit;
 
@@ -592,6 +603,8 @@ export default function ScreenerPage() {
     if (filters.rev_growth_min || filters.rev_growth_max) c++;
     if (filters.ebitda_growth_min || filters.ebitda_growth_max) c++;
     if (filters.assets_growth_min || filters.assets_growth_max) c++;
+    if (filters.real_estate_min || filters.real_estate_max) c++;
+    if (filters.distress) c++;
     return c;
   }, [filters]);
 
@@ -1040,6 +1053,55 @@ export default function ScreenerPage() {
                 onChange={(e) => updateFilter("assets_growth_max", e.target.value)}
               />
             </div>
+          </div>
+
+          {/* Real estate (rubric 22 — land + buildings) */}
+          <div className="space-y-1 border-t border-slate-200 pt-2">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              {t("screener.realEstate")}
+            </Label>
+            <div className="grid grid-cols-2 gap-1">
+              <Input
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
+                type="number"
+                placeholder="Min"
+                value={filters.real_estate_min}
+                onChange={(e) => updateFilter("real_estate_min", e.target.value)}
+              />
+              <Input
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
+                type="number"
+                placeholder="Max"
+                value={filters.real_estate_max}
+                onChange={(e) => updateFilter("real_estate_max", e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Distress / juridical situation */}
+          <div className="space-y-1">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              {t("screener.distress")}
+            </Label>
+            <Select
+              value={filters.distress || "none"}
+              onValueChange={(v) =>
+                updateFilter(
+                  "distress",
+                  v === "none" || !v ? "" : (v as "bankruptcy" | "wco" | "any")
+                )
+              }
+            >
+              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
+                <SelectValue placeholder={t("screener.distressAny")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("screener.distressAny")}</SelectItem>
+                <SelectItem value="bankruptcy">{t("screener.distressBankruptcy")}</SelectItem>
+                <SelectItem value="wco">{t("screener.distressWco")}</SelectItem>
+                <SelectItem value="any">{t("screener.distressAnyDistress")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Management Changes */}

@@ -45,8 +45,8 @@
       "searchDesc": "Find companies by name, CBE, or keyword",
       "favouritesTitle": "Favourites",
       "favouritesDesc": "Your saved companies",
-      "graveyardTitle": "Graveyard",
-      "graveyardDesc": "Failed company analysis"
+      "fallenHeroesTitle": "Fallen Heroes (demo)",
+      "fallenHeroesDesc": "Research playground \u2014 not part of the DataSnoop offering"
     },
 
     "whatsNewItems": {
@@ -152,6 +152,12 @@
     "revenueGrowth": "Revenue Growth %",
     "ebitdaGrowth": "EBITDA Growth %",
     "totalAssetsGrowth": "Total Assets Growth %",
+    "realEstate": "Real estate (land + buildings) \u20AC",
+    "distress": "Status",
+    "distressAny": "Any (incl. healthy)",
+    "distressBankruptcy": "In bankruptcy",
+    "distressWco": "Reorganisation (WCO)",
+    "distressAnyDistress": "Bankruptcy or WCO",
     "limit": "Limit",
     "rows": "{count} rows",
     "searchResultsPlaceholder": "Search results by name or CBE...",
@@ -402,7 +408,8 @@
       "footer": "Click a node to navigate to that company",
       "nodesConnections": "{nodes} nodes, {connections} connections",
       "depthReached": "Depth reached: {depth}",
-      "pressEsc": "Press Esc to exit fullscreen"
+      "pressEsc": "Press Esc to exit fullscreen",
+      "endedMandate": "Ended mandate"
     }
   },
 

@@ -27,8 +27,19 @@ class SummarizePublicationsBody(BaseModel):
 
 
 @router.post("/{cbe}/summarize-publications")
-async def summarize_publications(cbe: str, body: Optional[SummarizePublicationsBody] = None, user=Depends(get_current_user)):
-    """Generate structured AI analysis of last 5 Staatsblad publications."""
+async def summarize_publications(
+    cbe: str,
+    body: Optional[SummarizePublicationsBody] = None,
+    lang: str | None = None,
+    user=Depends(get_current_user),
+):
+    """Generate structured AI analysis of last 5 Staatsblad publications.
+
+    ``lang`` (``nl``/``fr``/``en``) controls the language of the ``what`` /
+    ``context`` / ``pattern_note`` strings. Cached summaries are returned in
+    whatever language they were originally generated in — pass ``refresh=true``
+    to force a re-run.
+    """
     cbe = clean_cbe(cbe)
     refresh = body.refresh if body else False
 
@@ -92,7 +103,7 @@ async def summarize_publications(cbe: str, body: Optional[SummarizePublicationsB
     prompt = "Publications (most recent first):\n" + "\n".join(pub_lines)
 
     try:
-        raw = await ai_complete(prompt, system=system_prompt, max_tokens=512, model="openai/gpt-4o-mini")
+        raw = await ai_complete(prompt, system=system_prompt, max_tokens=512, model="openai/gpt-4o-mini", lang=lang)
     except Exception as e:
         logger.error("Publication summary failed for %s: %s", cbe, e)
         return {"summary": None, "error": "Summary generation failed"}
@@ -237,11 +248,16 @@ def _ensure_enrichment_table():
 
 
 @router.post("/{cbe}/enrich")
-async def enrich_company(cbe: str, user=Depends(get_current_user)):
+async def enrich_company(
+    cbe: str,
+    lang: str | None = None,
+    user=Depends(get_current_user),
+):
     """Generate an AI company profile summary via OpenRouter.
 
     Gathers existing company data (name, sector, city, financials) and asks
-    the LLM to write a concise 2-3 sentence company profile.
+    the LLM to write a concise 2-3 sentence company profile in ``lang``
+    (``nl``/``fr``/``en``) — defaults to English.
     """
     _ensure_enrichment_table()
 
@@ -295,7 +311,7 @@ async def enrich_company(cbe: str, user=Depends(get_current_user)):
         "company summaries for private equity deal sourcing."
     )
 
-    summary = await ai_complete(prompt, system=system)
+    summary = await ai_complete(prompt, system=system, lang=lang)
 
     if not summary:
         raise HTTPException(
@@ -540,13 +556,22 @@ async def scrape_company_linkedin(cbe: str, user=Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 @router.post("/{cbe}/ai-insights")
-async def generate_ai_insights(cbe: str, user=Depends(optional_user)):
+async def generate_ai_insights(
+    cbe: str,
+    lang: str | None = None,
+    user=Depends(optional_user),
+):
     """Generate structured AI company insights via a multi-step LLM pipeline.
 
     Step 1 (cheap): Discover website + LinkedIn URLs
     Step 2 (Grok):  Scrape & generate structured insights
     Step 3 (cheap): Review & validate output
     Step 4:         Store validated result in database
+
+    ``lang`` (``nl``/``fr``/``en``) controls the language of the generated
+    narrative so it matches the user's site language. Cached prior insights
+    are served regardless of language; pass ``force=true`` from a future
+    endpoint if cross-language regeneration is needed.
     """
     _ensure_enrichment_table()
     cbe = clean_cbe(cbe)
@@ -558,7 +583,7 @@ async def generate_ai_insights(cbe: str, user=Depends(optional_user)):
     }
 
     try:
-        insights = await ai_insights_pipeline(cbe, conn_helpers)
+        insights = await ai_insights_pipeline(cbe, conn_helpers, lang=lang)
     except Exception as e:
         logger.exception("AI insights pipeline failed for %s", cbe)
         raise HTTPException(
