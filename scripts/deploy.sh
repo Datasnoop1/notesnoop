@@ -15,7 +15,7 @@ echo "========================================="
 
 # Step 1: Install Docker on server (if needed)
 echo ""
-echo "[1/5] Installing Docker..."
+echo "[1/4] Installing Docker..."
 ssh $SSH_OPTS root@$SERVER_IP << 'INSTALL_DOCKER'
 if ! command -v docker &> /dev/null; then
     apt-get update -qq
@@ -34,7 +34,7 @@ INSTALL_DOCKER
 
 # Step 2: Set up firewall
 echo ""
-echo "[2/5] Configuring firewall..."
+echo "[2/4] Configuring firewall..."
 ssh $SSH_OPTS root@$SERVER_IP << 'FIREWALL'
 ufw allow 22/tcp
 ufw allow 80/tcp
@@ -45,7 +45,7 @@ FIREWALL
 
 # Step 3: Clone/update repo
 echo ""
-echo "[3/5] Deploying code..."
+echo "[3/4] Deploying code..."
 ssh $SSH_OPTS root@$SERVER_IP << 'DEPLOY_CODE'
 cd /opt
 if [ -d leadpeek ]; then
@@ -56,16 +56,21 @@ else
 fi
 DEPLOY_CODE
 
-# Step 4: Copy production env
+# Step 4: Build and start
+#
+# Note: /opt/leadpeek/.env.production is NOT uploaded from the laptop any more.
+# It's canonical on the server — deploy.sh used to scp the laptop copy over it,
+# which silently destroyed server-only secrets (e.g. OPENROUTER_API_KEY) when
+# the laptop copy was out of sync. To change env vars, SSH to the server and
+# edit /opt/leadpeek/.env.production directly. A dated backup is taken below
+# so a bad edit can be rolled back within 30 days.
 echo ""
-echo "[4/5] Uploading secrets..."
-scp $SSH_OPTS .env.production root@$SERVER_IP:/opt/leadpeek/.env.production
-
-# Step 5: Build and start
-echo ""
-echo "[5/5] Building and starting containers..."
+echo "[4/4] Building and starting containers..."
 ssh $SSH_OPTS root@$SERVER_IP << 'START'
 cd /opt/leadpeek
+# Dated backup of the env file — cheap insurance against fat-finger edits.
+# Keeps one snapshot per deploy; prune with `rm .env.production.bak-*` if needed.
+cp .env.production ".env.production.bak-$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true
 docker compose down 2>/dev/null || true
 docker compose up -d --build
 echo ""
