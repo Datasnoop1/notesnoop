@@ -151,21 +151,21 @@ export function CashFlowTab({
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-cyan-500 pl-2">
           {t("company.cf.title")}
         </h3>
-        <div className="flex items-center gap-2">
-          <button onClick={() => toggleSection("cf_wc")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.cf_wc ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => toggleSection("cf_wc")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.cf_wc ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
             {collapsedSections.cf_wc ? `\u25b8 ${t("company.cf.wcGrouped")}` : `\u25be ${t("company.cf.wcExpanded")}`}
           </button>
-          <button onClick={() => toggleSection("cf_fin")} className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.cf_fin ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+          <button onClick={() => toggleSection("cf_fin")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.cf_fin ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
             {collapsedSections.cf_fin ? `\u25b8 ${t("company.cf.finGrouped")}` : `\u25be ${t("company.cf.finExpanded")}`}
           </button>
           <ExportButtons onExportCSV={exportCfCsv} onPrint={() => window.print()} />
         </div>
       </div>
       <div className="rounded-lg border overflow-x-auto bg-white">
-        <table className="w-full">
+        <table className="w-full min-w-[900px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[260px]">{t("company.cf.lineItem")}</th>
+              <th className="sticky left-0 z-10 bg-slate-50 px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[160px] md:min-w-[260px] shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.cf.lineItem")}</th>
               {renderDeltaHeaders(cfRows.map(r => r.fiscal_year))}
             </tr>
           </thead>
@@ -179,13 +179,13 @@ export function CashFlowTab({
                 <React.Fragment key={line.key}>
                   {showSection && (
                     <tr>
-                      <td colSpan={cfRows.length * 2} className="px-4 pt-3 pb-1">
-                        <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
+                      <td colSpan={cfRows.length * 2} className="sticky left-0 bg-white px-4 pt-3 pb-1">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
                       </td>
                     </tr>
                   )}
                   <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
-                    <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
+                    <td className={`sticky left-0 z-[5] bg-white px-4 py-1 text-xs shadow-[1px_0_0_rgba(226,232,240,1)] ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
                       {line.label}
                     </td>
                     {cfRows.map((r, colIdx) => {
@@ -212,7 +212,7 @@ export function CashFlowTab({
           </tbody>
         </table>
       </div>
-      <p className="mt-1 text-[10px] text-slate-400 italic">
+      <p className="mt-1 text-[11px] text-slate-400 italic">
         {t("company.cf.footnote")}
       </p>
     </div>

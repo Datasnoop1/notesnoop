@@ -298,7 +298,7 @@ export function PnlTab({
             { label: t("company.pnl.netProfit"), value: fmtEur(latestPnl.netProfit), sub: null, icon: <DollarSign className="h-3 w-3" /> },
           ].map((m, i) => (
             <div key={i} className="rounded-lg border border-slate-100 bg-white p-2.5 text-center">
-              <div className="flex items-center justify-center gap-1 text-[9px] text-slate-400 uppercase tracking-wider mb-1">
+              <div className="flex items-center justify-center gap-1 text-[10px] text-slate-400 uppercase tracking-wider mb-1">
                 {m.icon} {m.label}
               </div>
               <div className="text-sm font-semibold text-slate-800 font-mono">{m.value}</div>
@@ -314,10 +314,10 @@ export function PnlTab({
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
           {t("company.pnl.title")}
         </h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => toggleSection("pnl_opex")}
-            className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${collapsedSections.pnl_opex ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}
+            className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.pnl_opex ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}
           >
             {collapsedSections.pnl_opex ? `\u25b8 ${t("company.pnl.opexGrouped")}` : `\u25be ${t("company.pnl.opexExpanded")}`}
           </button>
@@ -327,11 +327,11 @@ export function PnlTab({
           />
         </div>
       </div>
-      <div className="rounded-lg border overflow-x-auto scrollbar-none bg-white">
-        <table className="w-full min-w-[500px]">
+      <div className="rounded-lg border overflow-x-auto bg-white">
+        <table className="w-full min-w-[900px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[120px] md:min-w-[240px]">{t("company.pnl.lineItem")}</th>
+              <th className="sticky left-0 z-10 bg-slate-50 px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[140px] md:min-w-[240px] shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.pnl.lineItem")}</th>
               {renderDeltaHeaders(chronological.map(r => r.fiscal_year))}
             </tr>
           </thead>
@@ -346,13 +346,13 @@ export function PnlTab({
                 <React.Fragment key={line.key}>
                   {showSection && (
                     <tr>
-                      <td colSpan={chronological.length * 2} className="px-4 pt-3 pb-1">
-                        <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
+                      <td colSpan={chronological.length * 2} className="sticky left-0 bg-white px-4 pt-3 pb-1">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
                       </td>
                     </tr>
                   )}
                   <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
-                    <td className={`px-4 py-1 text-xs ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
+                    <td className={`sticky left-0 z-[5] bg-white px-4 py-1 text-xs shadow-[1px_0_0_rgba(226,232,240,1)] ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
                       {line.label}
                     </td>
                     {chronologicalPnl.map((r, colIdx) => {
@@ -383,7 +383,7 @@ export function PnlTab({
           </tbody>
         </table>
       </div>
-      <p className="mt-1 text-[10px] text-slate-400 italic">
+      <p className="mt-1 text-[11px] text-slate-400 italic">
         {t("company.pnl.footnote")}
       </p>
       </div>
