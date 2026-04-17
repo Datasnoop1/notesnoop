@@ -5,23 +5,13 @@ import logging
 import os
 import re
 import secrets
-import socket
 import time
 
-import urllib3.util.connection as _urllib3_conn
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-
-# Force IPv4-only resolution for all outbound HTTP in this process.
-# NBB's Azure gateway does not accept IPv6 (returns 403/500/501), and
-# the Hetzner host has IPv6 enabled, so Python's default AF_UNSPEC
-# resolution otherwise picks AAAA records and every NBB call fails.
-# The backend makes no outbound calls that require IPv6 (NBB,
-# OpenRouter, Zenrows, Stripe, Supabase JWKS all answer on IPv4).
-_urllib3_conn.allowed_gai_family = lambda: socket.AF_INET
 
 from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
