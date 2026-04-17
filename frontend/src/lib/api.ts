@@ -126,7 +126,7 @@ export interface ScreenerRow {
   jf_label: string | null;
   juridical_situation: string | null;
   start_date: string | null;
-  real_estate: number | null;
+  fixed_assets: number | null;
   fte_growth_3y_pct?: number | null;
   rev_growth_pct?: number | null;
   ebitda_growth_pct?: number | null;

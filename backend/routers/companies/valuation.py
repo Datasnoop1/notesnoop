@@ -829,25 +829,43 @@ def _format_eur(v: Optional[float]) -> str:
     return f"\u20AC{v:,.0f}"
 
 
-def _build_valuation_prompt(payload: dict) -> str:
+def _build_valuation_prompt(payload: dict, company_name: str | None = None) -> str:
     """Format the valuation result into a compact prompt for the LLM.
 
     The LLM is given numbers + sector + multiple, but no instructions on
     direction so it can call out anything noteworthy: trend, sector vs
-    size disagreement, group-aggregation caveats, etc.
+    size disagreement, group-aggregation caveats, etc. The sector source
+    (`user_override` / `ai_classification` / `nace_mapping` / `fallback`)
+    plus AI sector reasoning are passed through so the commentary can
+    explain WHY a given Vlerick sector is the right comp for this
+    company instead of just stating the number.
     """
     profile = payload.get("profile") or {}
     years = payload.get("years") or []
     src = payload.get("source") or {}
     group = payload.get("group")
 
+    sector_source_human = {
+        "user_override": "user manually selected this sector",
+        "ai_classification": "AI-classified from the company description",
+        "nace_mapping": f"derived from NACE prefix {profile.get('nace_code') or '?'}",
+        "fallback": "default fallback (no NACE / no AI signal)",
+    }.get(profile.get("vlerick_sector_source") or "", "unspecified")
+
     lines = [
-        f"Company: {payload.get('company_name') or profile.get('company_name') or 'Belgian company'}",
+        f"Company: {company_name or payload.get('company_name') or profile.get('company_name') or 'Belgian company'}",
         f"NACE: {profile.get('nace_code') or '\u2014'}",
         f"Vlerick sector: {profile.get('vlerick_sector_label')} (multiple {profile.get('sector_multiple'):.1f}x)",
+        f"Sector chosen because: {sector_source_human}",
+    ]
+    if profile.get("ai_sector_reasoning"):
+        lines.append(f"AI sector reasoning: {profile['ai_sector_reasoning']}")
+    if profile.get("ai_sector_confidence"):
+        lines.append(f"AI sector confidence: {profile['ai_sector_confidence']}")
+    lines.extend([
         f"Size bracket: {profile.get('size_bracket_label')} (multiple {profile.get('size_multiple'):.1f}x)",
         f"Multiple source: {src.get('label')} ({src.get('data_year')})",
-    ]
+    ])
     if group:
         lines.append(
             f"Consolidated group: {group.get('label')} "
@@ -897,17 +915,34 @@ async def valuation_ai_commentary(
     if isinstance(valuation, dict) and valuation.get("status") != "ok":
         return {"commentary": None, "reason": "no_data"}
 
-    prompt = _build_valuation_prompt(valuation)
+    # Pull a friendly company name to anchor the commentary (the
+    # underlying valuation function returns one in the `group.primary_name`
+    # slot; otherwise fall back to a CBE lookup so the LLM has the right
+    # subject in its first sentence).
+    company_name = (valuation.get("group") or {}).get("primary_name") or ""
+    if not company_name:
+        try:
+            row = fetch_one("SELECT name FROM company_info WHERE enterprise_number = %s", (cbe,))
+            company_name = (row or {}).get("name") or ""
+        except Exception:
+            pass
+
+    prompt = _build_valuation_prompt(valuation, company_name=company_name)
     system = (
         "You are a private-equity analyst writing a short commentary on a "
-        "Belgian company's EV/EBITDA-based valuation. Be concrete and concise "
-        "(3-4 sentences). Reference one or two of: EBITDA trend, sector vs "
-        "size-bracket spread, net-debt position, and any group-consolidation "
-        "caveat. Do not invent figures \u2014 only refer to numbers in the input."
+        "Belgian company's EV/EBITDA-based valuation. Write 4\u20135 sentences, "
+        "structured: (1) one sentence on WHY the chosen Vlerick sector is the "
+        "right comparable for this company \u2014 reference the AI sector "
+        "reasoning if provided, otherwise the NACE / activity. (2) one or two "
+        "sentences on EBITDA trend, sector vs size-bracket spread, and net-debt "
+        "position. (3) any group-consolidation or loss-making caveat. Do not "
+        "invent figures \u2014 only refer to numbers in the input."
     )
 
     try:
-        text = await ai_complete(prompt, system=system, max_tokens=400, lang=lang)
+        # 600 tokens covers the new 4-5 sentence + sector-reasoning structure
+        # in NL/FR (which run ~25% longer than English).
+        text = await ai_complete(prompt, system=system, max_tokens=600, lang=lang)
     except Exception:
         logger.exception("AI valuation commentary failed for %s", cbe)
         raise HTTPException(status_code=503, detail="AI service unavailable")

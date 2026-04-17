@@ -339,10 +339,10 @@ async def get_enrichment(cbe: str, lang: str | None = None, user=Depends(optiona
     the page in their site language without forcing a full regeneration.
     Translations are memoised per ``(cbe, kind, lang)`` for the day.
 
-    Translation is only run for signed-in users so anonymous crawlers
-    can't drive uncapped OpenRouter spend by enumerating CBEs × langs.
-    Anonymous callers get the source text (still readable, just not in
-    their site language).
+    Per operator policy, translation runs for everyone (anonymous + auth).
+    Cost is bounded by the in-process 24h cache (10k entries cap) and the
+    global per-IP 200 req/min rate-limit; once a CBE+lang is translated,
+    subsequent reads for that combo are free.
     """
     from ai_client import translate_cached_json, translate_cached
 
@@ -361,11 +361,10 @@ async def get_enrichment(cbe: str, lang: str | None = None, user=Depends(optiona
 
     serialized = _serialize_row(row)
 
-    # Translate user-visible fields when the site language is set AND the
-    # caller is authenticated. Other fields (website_url, structured
-    # website/linkedin metadata) stay as source — they're URLs and tags,
-    # not narrative text.
-    if lang and user:
+    # Translate user-visible fields when the site language is set. Other
+    # fields (website_url, structured website/linkedin metadata) stay as
+    # source — they're URLs and tags, not narrative text.
+    if lang:
         if serialized.get("summary"):
             serialized["summary"] = await translate_cached(cbe, "summary", serialized["summary"], lang)
         if serialized.get("ai_insights"):

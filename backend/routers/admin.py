@@ -947,6 +947,97 @@ async def admin_costs(user=Depends(_require_admin)):
     }
 
 
+# ---------------------------------------------------------------------------
+# GET /api/admin/llm-cost-breakdown — per-call-type estimated OpenRouter cost
+# ---------------------------------------------------------------------------
+
+# Estimated per-call cost in USD for each call type. These are budgeting
+# heuristics tied to (model, typical token counts) — NOT exact billed
+# amounts. Real per-call cost requires logging usage from each
+# OpenRouter response, which is on the follow-up roadmap.
+_LLM_CALL_COST_USD = {
+    # Heavy multi-step pipelines — multiple LLM calls per request.
+    # Numbers updated per the 2026-04 review using current OpenRouter pricing
+    # (Claude Haiku 4.5 = $1 in / $5 out per 1M; deepseek-chat-v3 ~$0.5 in /
+    # $1.5 out per 1M; gemini-2.5-flash ~$0.075 in / $0.30 out per 1M;
+    # gpt-4o-mini ~$0.15 in / $0.60 out per 1M).
+    "ai-insights":           0.018,   # 4 calls: URL discovery + validation + deepseek insight gen + review
+    "ai-commentary":         0.003,   # 1 call, gemini-flash, 600 tok
+    "extract-admins":        0.003,   # ~3 PDFs, gpt-4o-mini, 800 tok max
+    "summarize-publications":0.002,   # 1 call, gpt-4o-mini, 512 tok
+    "scrape-website":        0.002,   # 1 call, JSON extraction
+    "scrape-linkedin":       0.002,   # 1 call, JSON extraction
+    "similar-ai":            0.006,   # claude-haiku-4-5, 1200 tok output, ~2k tok input
+    "enrich":                0.002,   # 1 short summary
+    "screener-nl":           0.001,   # gemini-flash, 300 tok JSON output
+    "translation":           0.001,   # ai_client.translate_text per cached miss
+}
+
+
+@router.get("/llm-cost-breakdown")
+async def admin_llm_cost_breakdown(
+    days: int = 30,
+    user=Depends(_require_admin),
+):
+    """Per-call-type LLM cost breakdown for the admin panel.
+
+    Counts requests against `activity_log` by endpoint pattern, then
+    multiplies by the per-call cost estimates in `_LLM_CALL_COST_USD`.
+    Returns total + average per call type plus a grand total.
+
+    Use the existing `/api/admin/costs` for the canonical OpenRouter
+    lifetime spend; this endpoint shows the *attribution* by feature.
+    """
+    days = max(1, min(days, 365))
+    rows = fetch_all(f"""
+        SELECT
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/ai-insights%%')           AS "ai-insights",
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/ai-commentary%%')         AS "ai-commentary",
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/extract-admins%%')        AS "extract-admins",
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/summarize-publications%%') AS "summarize-publications",
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/scrape-website%%')        AS "scrape-website",
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/scrape-linkedin%%')       AS "scrape-linkedin",
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/similar/ai%%')            AS "similar-ai",
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/enrich%%' AND endpoint NOT LIKE '%%/enrichment%%') AS "enrich",
+            COUNT(*) FILTER (WHERE endpoint LIKE '%%/screener/nl%%')           AS "screener-nl"
+        FROM activity_log
+        WHERE created_at >= NOW() - INTERVAL '{days} days'
+    """)
+
+    counts = rows[0] if rows else {}
+    breakdown = []
+    grand_total = 0.0
+    grand_calls = 0
+    for kind, est_cost in _LLM_CALL_COST_USD.items():
+        if kind == "translation":
+            continue  # not counted in activity_log (runs inside other endpoints)
+        n = int(counts.get(kind) or 0)
+        total = n * est_cost
+        breakdown.append({
+            "kind": kind,
+            "calls": n,
+            "est_cost_per_call_usd": est_cost,
+            "est_total_usd": round(total, 2),
+        })
+        grand_total += total
+        grand_calls += n
+
+    breakdown.sort(key=lambda r: r["est_total_usd"], reverse=True)
+
+    return {
+        "window_days": days,
+        "calls_total": grand_calls,
+        "est_total_usd": round(grand_total, 2),
+        "est_avg_per_call_usd": round(grand_total / grand_calls, 4) if grand_calls else 0.0,
+        "breakdown": breakdown,
+        "note": (
+            "Per-call cost estimates are budgeting heuristics, not exact "
+            "OpenRouter billed amounts. For lifetime authoritative spend "
+            "see `openrouter_usage_usd` in /api/admin/costs."
+        ),
+    }
+
+
 class CostItemsBody(BaseModel):
     items: list[dict]  # [{"name": "Hosting", "amount": 18.34, "frequency": "monthly"}]
 

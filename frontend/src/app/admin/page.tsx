@@ -218,6 +218,22 @@ interface CostsData {
   ai_calls_30d: Record<string, number>;
 }
 
+interface LlmCostBreakdownRow {
+  kind: string;
+  calls: number;
+  est_cost_per_call_usd: number;
+  est_total_usd: number;
+}
+
+interface LlmCostBreakdown {
+  window_days: number;
+  calls_total: number;
+  est_total_usd: number;
+  est_avg_per_call_usd: number;
+  breakdown: LlmCostBreakdownRow[];
+  note: string;
+}
+
 interface Poll {
   id: number;
   title: string;
@@ -566,6 +582,7 @@ export default function AdminPanel() {
   const [adoptionData, setAdoptionData] = useState<AdoptionData | null>(null);
   const [tractionData, setTractionData] = useState<TractionData | null>(null);
   const [costsData, setCostsData] = useState<CostsData | null>(null);
+  const [llmCosts, setLlmCosts] = useState<LlmCostBreakdown | null>(null);
   const [costItems, setCostItems] = useState<CostItem[]>([]);
   const [costSaving, setCostSaving] = useState(false);
   const [newCostName, setNewCostName] = useState("");
@@ -585,7 +602,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac, costs] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac, costs, llmCosts] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -603,6 +620,7 @@ export default function AdminPanel() {
         adminFetch<AdoptionData>("/api/admin/adoption").catch(() => null),
         adminFetch<TractionData>("/api/admin/traction").catch(() => null),
         adminFetch<CostsData>("/api/admin/costs").catch(() => null),
+        adminFetch<LlmCostBreakdown>("/api/admin/llm-cost-breakdown").catch(() => null),
       ]);
       setStats(s);
       setUsers(u);
@@ -620,6 +638,7 @@ export default function AdminPanel() {
       setTractionData(trac);
       setCostsData(costs);
       if (costs?.cost_items) setCostItems(costs.cost_items);
+      setLlmCosts(llmCosts);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -3067,6 +3086,52 @@ export default function AdminPanel() {
                   </Card>
                 ))}
               </div>
+            )}
+
+            {/* ── LLM cost breakdown by call type (estimated) ── */}
+            {llmCosts && (
+              <Card className="bg-white">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-slate-800">
+                      LLM cost by call type
+                      <span className="ml-2 text-[11px] font-normal text-slate-400">
+                        (last {llmCosts.window_days} days, estimated)
+                      </span>
+                    </h3>
+                    <div className="text-right">
+                      <div className="text-[11px] text-slate-400">est. total</div>
+                      <div className="text-base font-bold text-rose-600 font-mono">
+                        ${llmCosts.est_total_usd.toFixed(2)}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        avg ${llmCosts.est_avg_per_call_usd.toFixed(4)} / call &middot; {llmCosts.calls_total} calls
+                      </div>
+                    </div>
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-[10px] uppercase tracking-wider text-slate-400 py-1">Call type</TableHead>
+                        <TableHead className="text-[10px] uppercase tracking-wider text-slate-400 text-right py-1">Calls</TableHead>
+                        <TableHead className="text-[10px] uppercase tracking-wider text-slate-400 text-right py-1">$/call</TableHead>
+                        <TableHead className="text-[10px] uppercase tracking-wider text-slate-400 text-right py-1">Total $</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {llmCosts.breakdown.map((r) => (
+                        <TableRow key={r.kind}>
+                          <TableCell className="text-xs py-1 text-slate-700">{r.kind}</TableCell>
+                          <TableCell className="text-xs font-mono text-right text-slate-600 py-1">{r.calls.toLocaleString()}</TableCell>
+                          <TableCell className="text-xs font-mono text-right text-slate-500 py-1">${r.est_cost_per_call_usd.toFixed(4)}</TableCell>
+                          <TableCell className="text-xs font-mono text-right font-semibold text-slate-800 py-1">${r.est_total_usd.toFixed(2)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <p className="mt-2 text-[10px] italic text-slate-400">{llmCosts.note}</p>
+                </CardContent>
+              </Card>
             )}
 
             {/* ── Manage Cost Items ── */}

@@ -19,6 +19,7 @@ import {
   getFavourites,
   loadCompanyNBB,
   getFavouriteProjects,
+  getCompanyStructure,
 } from "@/lib/api";
 import type { SearchResult, FinancialYear, FavouriteProject } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
@@ -271,6 +272,11 @@ function fmtAggAcct(
 export default function AggregatePage() {
   const { t } = useTranslation();
   const [companies, setCompanies] = useState<AggCompany[]>([]);
+  /* Pre-suggested group/subsidiary candidates pulled from
+     participating_interest links of any already-added company. Light
+     touch: chips appear below the input; user can add or ignore. */
+  const [groupSuggestions, setGroupSuggestions] = useState<{ cbe: string; name: string }[]>([]);
+  const groupSuggestSeen = React.useRef<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -368,6 +374,44 @@ export default function AggregatePage() {
         setCompanies((prev) =>
           prev.map((c) => (c.cbe === cbe ? { ...c, loading: false } : c))
         );
+      }
+
+      // Lazy-fetch group suggestions from this company's participating
+      // interests. Cached per primary CBE so adding & removing the same
+      // company doesn't refetch. Failure is silent — pure UX nicety.
+      if (!groupSuggestSeen.current.has(cbe)) {
+        groupSuggestSeen.current.add(cbe);
+        getCompanyStructure(cbe)
+          .then((struct) => {
+            const seen = new Set<string>();
+            const newOnes: { cbe: string; name: string }[] = [];
+            for (const pi of struct.participating_interests ?? []) {
+              const candidate = (pi as { identifier?: string | null }).identifier?.replace?.(/\D/g, "");
+              if (candidate && candidate.length === 10 && !seen.has(candidate)) {
+                seen.add(candidate);
+                newOnes.push({
+                  cbe: candidate,
+                  name: (pi as { name?: string | null }).name || candidate,
+                });
+              }
+              if (newOnes.length >= 6) break;
+            }
+            if (newOnes.length > 0) {
+              setGroupSuggestions((prev) => {
+                const existing = new Set(prev.map((s) => s.cbe));
+                const merged = [...prev];
+                for (const item of newOnes) {
+                  if (!existing.has(item.cbe)) {
+                    merged.push(item);
+                  }
+                }
+                return merged.slice(0, 12);
+              });
+            }
+          })
+          .catch(() => {
+            // Non-critical
+          });
       }
     },
     [companies]
@@ -672,6 +716,56 @@ export default function AggregatePage() {
           ))}
         </div>
       )}
+
+      {/* Group suggestions — companies linked via participating-interest
+          to any of the already-added companies. Light touch: chips only,
+          one click to add (or one click to add ALL), dismissible. */}
+      {(() => {
+        const existingSet = new Set(companies.map((c) => c.cbe));
+        const visible = groupSuggestions.filter((s) => !existingSet.has(s.cbe));
+        if (visible.length === 0) return null;
+        const room = MAX_COMPANIES - companies.length;
+        const addAllCount = Math.min(visible.length, room);
+        return (
+          <div className="flex flex-wrap items-center gap-2 text-[12px]">
+            <span className="text-slate-400 font-medium uppercase tracking-wider text-[10px]">
+              Suggested from group:
+            </span>
+            {visible.map((s) => (
+              <button
+                key={s.cbe}
+                onClick={() => addCompany(s.cbe, s.name)}
+                disabled={companies.length >= MAX_COMPANIES}
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-medium text-indigo-700 hover:border-indigo-400 hover:bg-indigo-50 disabled:opacity-40"
+                title={`Add ${s.name} (linked via participating interest)`}
+              >
+                <Plus className="h-3 w-3" />
+                <span className="max-w-[160px] truncate">{s.name}</span>
+              </button>
+            ))}
+            {addAllCount > 1 && (
+              <button
+                onClick={async () => {
+                  for (const s of visible.slice(0, room)) {
+                    await addCompany(s.cbe, s.name);
+                  }
+                }}
+                className="inline-flex items-center gap-1 rounded-full bg-indigo-600 text-white px-2.5 py-1 text-[11px] font-medium hover:bg-indigo-700"
+                title={`Add all ${addAllCount} suggested companies in one go`}
+              >
+                Add all {addAllCount}
+              </button>
+            )}
+            <button
+              onClick={() => setGroupSuggestions([])}
+              className="text-slate-400 hover:text-slate-600 ml-1 text-[10px]"
+              title="Dismiss suggestions"
+            >
+              dismiss
+            </button>
+          </div>
+        );
+      })()}
 
       {/* KPI Summary (text lines per company) */}
       {companies.length >= 1 && !anyLoading && (

@@ -431,8 +431,9 @@ async def get_person_enrichment(name: str, lang: str | None = None, user=Depends
     """Fetch existing AI-generated enrichment for a person.
 
     ``lang`` translates the cached summary on the fly; same in-process cache
-    as the company enrichment endpoint. Translation only runs for signed-in
-    users so anonymous traffic can't drive uncapped LLM spend.
+    as the company enrichment endpoint. Per operator policy, translation
+    runs for everyone (anon + auth) — cost is bounded by the in-process
+    24h cache plus the global per-IP rate limit.
     """
     from ai_client import translate_cached
 
@@ -448,6 +449,6 @@ async def get_person_enrichment(name: str, lang: str | None = None, user=Depends
         return None
 
     serialized = _serialize_row(row)
-    if lang and user and serialized.get("summary"):
+    if lang and serialized.get("summary"):
         serialized["summary"] = await translate_cached(name, "person_summary", serialized["summary"], lang)
     return serialized
