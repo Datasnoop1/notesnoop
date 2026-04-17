@@ -316,11 +316,18 @@ class StagingGateMiddleware(BaseHTTPMiddleware):
     the frontend's StagingGate component renders a friendly blocker
     based on that response.
 
-    Allowlisted paths stay open so the app shell and landing can render:
-      /api/health — for Docker healthchecks
-      /api/site-config, /api/polls/active, /api/dashboard — public landing data
-      /api/me/is-admin — must be callable by any signed-in user so the
-        frontend can decide whether to show the blocker
+    Allowlisted paths are kept to the minimum needed so the blocker UI
+    can render without exposing any app data:
+      /api/health — Docker healthcheck, must succeed without auth
+      /api/me/is-admin — the frontend probe that decides whether to show
+        the blocker. Callable by anyone (signed in or not) — the endpoint
+        itself returns a safe payload with is_admin=false when there's
+        no session.
+
+    Notably NOT on the allowlist: /api/site-config, /api/polls/active,
+    /api/dashboard, /api/sitemap/*. On staging we block those too, so
+    anonymous visitors can't load any data — the only page they'll see
+    is the admin-only blocker.
 
     This middleware is disabled entirely when STAGING_MODE is unset or
     "false", so production is untouched.
@@ -328,12 +335,9 @@ class StagingGateMiddleware(BaseHTTPMiddleware):
 
     ALLOWLIST_EXACT = {
         "/api/health",
-        "/api/site-config",
-        "/api/polls/active",
-        "/api/dashboard",
         "/api/me/is-admin",
     }
-    ALLOWLIST_PREFIXES = ("/api/sitemap/",)
+    ALLOWLIST_PREFIXES: tuple[str, ...] = ()
 
     def __init__(self, app):
         super().__init__(app)

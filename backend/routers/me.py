@@ -11,7 +11,7 @@ import os
 
 from fastapi import APIRouter, Depends
 
-from auth import get_current_user
+from auth import optional_user
 from db import fetch_one
 
 logger = logging.getLogger(__name__)
@@ -26,14 +26,18 @@ def _staging_mode_active() -> bool:
 
 
 @router.get("/is-admin")
-async def is_admin(user=Depends(get_current_user)):
-    """Return the current user's email, admin status, and whether the
-    deployment is in staging-gated mode.
+async def is_admin(user=Depends(optional_user)):
+    """Return the caller's email, admin status, and whether the deployment
+    is in staging-gated mode.
 
-    The frontend calls this to pick between the normal app shell and
-    the "Staging is restricted to admins" blocker. It's allowlisted by
-    the StagingGateMiddleware so non-admins can reach it without tripping
-    the 403; the payload tells them why they're blocked.
+    Accepts anonymous callers (returns {email: null, is_admin: false, …})
+    so the frontend StagingGate can decide whether to render the "admins
+    only" blocker even before a sign-in attempt — which matters because
+    on staging we also want to hide the landing page from strangers.
+
+    Allowlisted by StagingGateMiddleware precisely so unauth / non-admin
+    users get a real response instead of 403; the payload is itself
+    information-poor enough to hand out freely.
     """
     email = (user or {}).get("email") if isinstance(user, dict) else None
     is_admin_flag = False

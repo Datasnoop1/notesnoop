@@ -2,29 +2,48 @@
 
 /**
  * StagingGate — renders a "staging is admin-only" blocker card when the
- * backend reports STAGING_MODE=true and the current user is not admin.
+ * backend reports STAGING_MODE=true and the caller is not an admin
+ * (including anonymous visitors).
  *
  * We trust the backend's own self-report (from /api/me/is-admin) rather
  * than hostname-sniffing on the client, because staging gets hit via
  * staging.datasnoop.be, the raw IP, and occasionally LAN hostnames —
  * all of which would need bespoke detection rules.
  *
- * Initial render mirrors the children so the landing page stays fast
- * and SSR output matches client output on prod. The gate only flips to
- * "block" after we've heard from the server that we're on staging AND
- * the user is authenticated but not an admin.
+ * To avoid a flash of landing-page content on staging, we use a cheap
+ * hostname heuristic to decide whether to render children or a neutral
+ * loader while /api/me/is-admin is in flight. On prod hostnames we
+ * render children immediately (no perceptible cost); only a clear
+ * "staging + not admin" response flips us to the blocker.
  */
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+
+// Paths that must stay reachable on staging for anonymous users —
+// otherwise they'd have no way to sign in and become admin. These
+// pages render normally and do not trigger the blocker.
+const PUBLIC_PATHS = ["/login", "/auth/"];
 
 type GateState =
   | { kind: "unknown" } // before the first check completes
-  | { kind: "allow" } // prod, or admin on staging, or no session
+  | { kind: "allow" } // prod, or admin on staging
   | { kind: "block"; email: string | null };
+
+function looksLikeStaging(): boolean {
+  if (typeof window === "undefined") return false;
+  const { hostname, port } = window.location;
+  // staging.datasnoop.be, staging-*.datasnoop.be, and any :8080 origin
+  // (direct-IP staging access during deploys). Not exhaustive — the
+  // backend's staging_mode flag is the ground truth.
+  return hostname.includes("staging") || port === "8080";
+}
 
 export default function StagingGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<GateState>({ kind: "unknown" });
+  const pathname = usePathname();
+  const isPublicPath = PUBLIC_PATHS.some((p) => pathname === p || pathname?.startsWith(p));
 
   useEffect(() => {
     let cancelled = false;
@@ -35,21 +54,15 @@ export default function StagingGate({ children }: { children: React.ReactNode })
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
 
-        // No session → let the normal app render. Public pages don't
-        // need the gate, and protected pages will show their own "sign
-        // in" prompt when the user navigates to them.
-        if (!token) {
-          if (!cancelled) setState({ kind: "allow" });
-          return;
-        }
-
         const res = await fetch("/api/me/is-admin", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
+
         if (!res.ok) {
-          // 401 from the gate itself (invalid token) — let the app handle
-          // the redirect. 5xx — fail open, don't block the user on an
-          // infra hiccup.
+          // Fail-open on infra errors so we don't lock users out of
+          // prod on a 5xx. The backend middleware is the hard gate; if
+          // the endpoint itself is broken there's nothing to protect
+          // against anyway.
           if (!cancelled) setState({ kind: "allow" });
           return;
         }
@@ -80,14 +93,34 @@ export default function StagingGate({ children }: { children: React.ReactNode })
     };
   }, []);
 
+  // Always let the login + oauth-callback pages render, even if the
+  // visitor would otherwise be blocked — otherwise they'd have no way
+  // to sign in to become admin.
+  if (isPublicPath) {
+    return <>{children}</>;
+  }
+
   if (state.kind === "block") {
     return <BlockerCard email={state.email} />;
+  }
+
+  if (state.kind === "unknown" && looksLikeStaging()) {
+    return <GateLoader />;
   }
 
   return <>{children}</>;
 }
 
+function GateLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="text-xs text-slate-400">Checking access…</div>
+    </div>
+  );
+}
+
 function BlockerCard({ email }: { email: string | null }) {
+  const isAnonymous = !email;
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
       <div className="max-w-md w-full rounded-xl border border-slate-200 bg-white shadow-sm p-8 text-center">
@@ -114,6 +147,23 @@ function BlockerCard({ email }: { email: string | null }) {
           </a>
           .
         </p>
+        <div className="mt-5 flex items-center justify-center gap-2">
+          {isAnonymous ? (
+            <a
+              href="/login"
+              className="inline-flex items-center h-9 px-4 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors"
+            >
+              Sign in as admin
+            </a>
+          ) : (
+            <a
+              href="https://datasnoop.be"
+              className="inline-flex items-center h-9 px-4 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors"
+            >
+              Go to datasnoop.be
+            </a>
+          )}
+        </div>
         {email && (
           <p className="mt-3 text-[11px] text-slate-400">
             Signed in as <span className="font-mono">{email}</span>
