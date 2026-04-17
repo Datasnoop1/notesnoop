@@ -17,10 +17,37 @@ router = APIRouter(prefix="/api/stripe", tags=["stripe"])
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 
+# Checkout success/cancel URLs are relative to the caller's origin so
+# staging testers don't bounce back to prod after paying. Falls back
+# to prod if the caller didn't send an Origin header (server-side job).
+_DEFAULT_FRONTEND_BASE = os.getenv("FRONTEND_BASE_URL", "https://datasnoop.be").rstrip("/")
+
 # Price IDs — create these in Stripe Dashboard > Products
 # For now we create a checkout session with a custom price
 MONTHLY_PRICE = 4900  # €49.00 in cents
 PRODUCT_NAME = "Datasnoop Pro"
+
+
+def _frontend_base(request: Request) -> str:
+    """Resolve the caller's frontend origin for Stripe redirects.
+
+    Prefers the request's Origin header (so staging users testing
+    checkout land back on staging, not prod). Falls back to the env
+    default. Restricted to the allowed origins we already trust for
+    CORS in backend/main.py so a rogue client can't use us as an
+    open Stripe-redirect pivot.
+    """
+    allowed = {
+        "https://datasnoop.be",
+        "https://www.datasnoop.be",
+        "https://staging.datasnoop.be",
+        "https://datasnoop.eu",
+        "https://datapeak.invm.be",
+    }
+    origin = (request.headers.get("Origin") or "").rstrip("/")
+    if origin and origin in allowed:
+        return origin
+    return _DEFAULT_FRONTEND_BASE
 
 
 class CheckoutRequest(BaseModel):
@@ -32,7 +59,7 @@ class DonationRequest(BaseModel):
 
 
 @router.post("/checkout")
-async def create_checkout(body: CheckoutRequest, user=Depends(get_current_user)):
+async def create_checkout(body: CheckoutRequest, request: Request, user=Depends(get_current_user)):
     """Create a Stripe Checkout session for a Pro subscription."""
     if not stripe.api_key:
         raise HTTPException(status_code=503, detail="Stripe not configured")
@@ -50,8 +77,8 @@ async def create_checkout(body: CheckoutRequest, user=Depends(get_current_user))
                 "quantity": 1,
             }],
             mode="subscription",
-            success_url="https://datasnoop.be/account?payment=success",
-            cancel_url="https://datasnoop.be/account?payment=cancelled",
+            success_url=f"{_frontend_base(request)}/account?payment=success",
+            cancel_url=f"{_frontend_base(request)}/account?payment=cancelled",
             customer_email=user.get("email"),
             metadata={"user_id": user.get("id"), "email": user.get("email")},
         )
@@ -62,7 +89,7 @@ async def create_checkout(body: CheckoutRequest, user=Depends(get_current_user))
 
 
 @router.post("/donate")
-async def create_donation(body: DonationRequest, user=Depends(optional_user)):
+async def create_donation(body: DonationRequest, request: Request, user=Depends(optional_user)):
     """Create a one-time donation payment."""
     if not stripe.api_key:
         raise HTTPException(status_code=503, detail="Stripe not configured")
@@ -81,8 +108,8 @@ async def create_donation(body: DonationRequest, user=Depends(optional_user)):
                 "quantity": 1,
             }],
             mode="payment",
-            success_url="https://datasnoop.be/?donated=true",
-            cancel_url="https://datasnoop.be/",
+            success_url=f"{_frontend_base(request)}/?donated=true",
+            cancel_url=f"{_frontend_base(request)}/",
             customer_email=user.get("email") if user else None,
         )
         return {"checkout_url": session.url, "session_id": session.id}

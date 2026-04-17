@@ -19,7 +19,6 @@ import {
   loadPublications,
   extractAdminsFromStaatsblad,
   getSectorBenchmark,
-  getSimilarCompanies,
   addPeopleFavourite,
   enrichCompany,
   getEnrichment,
@@ -30,7 +29,7 @@ import {
   generateAiInsights,
   submitInsightsFeedback,
 } from "@/lib/api";
-import type { SectorBenchmark, SimilarCompany, AiInsights } from "@/lib/api";
+import type { SectorBenchmark, AiInsights } from "@/lib/api";
 import { fmtCbe } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import {
@@ -121,8 +120,6 @@ export function CompanyPageClient({
   const [financials, setFinancials] = useState<FinancialsData | null>(initialFinancials);
   const [structure, setStructure] = useState<StructureData | null>(initialStructure);
   const [benchmark, setBenchmark] = useState<SectorBenchmark | null>(null);
-  const [similarCompanies, setSimilarCompanies] = useState<SimilarCompany[] | null>(null);
-  const [similarSort, setSimilarSort] = useState<{ key: "name" | "revenue" | "ebitda" | "fte_total" | "ebit" | "net_profit" | "equity" | "total_assets" | "personnel_costs" | "ebitda_margin" | "equity_ratio"; direction: "asc" | "desc" }>({ key: "revenue", direction: "desc" });
   const [loading, setLoading] = useState(!initialDetail);
   const [isFavourite, setIsFavourite] = useState(false);
   const [activeTab, setActiveTab] = useState("summary");
@@ -404,15 +401,9 @@ export function CompanyPageClient({
             getSectorBenchmark(cbe).then(setBenchmark).catch(() => {});
           }
         }
-        // Lazy-load similar companies on first visit
-        if (value === "similar") {
-          if (!similarCompanies) {
-            getSimilarCompanies(cbe).then(setSimilarCompanies).catch(() => setSimilarCompanies([]));
-          }
-        }
       }
     },
-    [cbe, benchmark, similarCompanies]
+    [cbe, benchmark]
   );
 
   /* -- AI enrichment callbacks (passed to tabs) -- */
@@ -601,31 +592,6 @@ export function CompanyPageClient({
       setExporting(false);
     }
   }, [buildExportData]);
-
-  /* Sorted similar companies -- must be before early returns (rules of hooks) */
-  const sortedSimilar = useMemo(() => {
-    if (!similarCompanies) return null;
-    const list = similarCompanies.slice(0, 100);
-    const computeValue = (row: SimilarCompany, key: string): number | null => {
-      if (key === "ebitda_margin") {
-        return row.ebitda != null && row.revenue ? (row.ebitda / row.revenue) * 100 : null;
-      }
-      if (key === "equity_ratio") {
-        return row.equity != null && row.total_assets ? (row.equity / row.total_assets) * 100 : null;
-      }
-      return (row as unknown as Record<string, number | null>)[key] ?? null;
-    };
-    return [...list].sort((a, b) => {
-      const { key, direction } = similarSort;
-      const dir = direction === "asc" ? 1 : -1;
-      if (key === "name") {
-        return dir * (a.name ?? "").localeCompare(b.name ?? "");
-      }
-      const aVal = computeValue(a, key) ?? -Infinity;
-      const bVal = computeValue(b, key) ?? -Infinity;
-      return dir * (aVal - bVal);
-    });
-  }, [similarCompanies, similarSort]);
 
   /* -- Early returns -- */
 
