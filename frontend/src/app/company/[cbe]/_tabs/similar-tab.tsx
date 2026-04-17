@@ -53,6 +53,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
   const [newProjectName, setNewProjectName] = useState("");
   const [addingToProject, setAddingToProject] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [noMoreAvailable, setNoMoreAvailable] = useState(false);
   const triggered = useRef(false);
 
   const toggleSelect = (ent: string) => setSelected((prev) => {
@@ -111,13 +112,18 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
     finally { setAddingToProject(false); }
   };
 
-  const loadSimilar = async (limit?: number) => {
+  // Returns the mapped array on success, or null on error. expandResults
+  // needs the real fetched length (React state updates are batched / async,
+  // so reading `companies.length` after an await gives a stale closure value).
+  const loadSimilar = async (limit?: number): Promise<AiSimilarCompany[] | null> => {
     setLoading(true);
     setError(null);
     try {
       const data = await getAiSimilarCompanies(cbe, limit);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setCompanies(data.map((d) => ({ ...d, ai_reason: (d as any).ai_reason as string | undefined })));
+      const mapped = data.map((d) => ({ ...d, ai_reason: (d as any).ai_reason as string | undefined }));
+      setCompanies(mapped);
+      return mapped;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "";
       if (msg.includes("401") || msg.includes("403")) {
@@ -125,18 +131,27 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
       } else {
         setError("Could not load similar companies.");
       }
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
   const expandResults = async () => {
-    await loadSimilar(20);
-    setExpanded(true);
+    const prevCount = companies.length;
+    const data = await loadSimilar(20);
+    // Only flip the "no more" flag when the refetch actually succeeded AND
+    // didn't grow the list. On fetch error, keep existing rows + let the
+    // user retry via the Regenerate icon.
+    if (data !== null) {
+      setExpanded(true);
+      setNoMoreAvailable(data.length <= prevCount);
+    }
   };
 
   const resetResults = async () => {
     setExpanded(false);
+    setNoMoreAvailable(false);
     await loadSimilar();
   };
 
@@ -338,16 +353,25 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
         </table>
       </div>
 
-      {/* Find more */}
-      <div className="mt-4 text-center">
-        <button
-          onClick={() => loadSimilar()}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 px-5 py-2 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
-        >
-          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-          {loading ? "Finding more..." : "Find more similar companies"}
-        </button>
+      {/* Find more — hidden once expanded, or once we know the LLM has nothing
+          left to hand over. The min-height on the wrapper keeps the slot the
+          same size whether it contains the button, the "no more" notice, or
+          nothing at all, so the rows above don't jump. */}
+      <div className="mt-4 text-center min-h-[40px] flex items-center justify-center">
+        {noMoreAvailable ? (
+          <p className="text-[11px] text-slate-400 italic">
+            No more similar companies to show.
+          </p>
+        ) : !expanded && companies.length >= 10 ? (
+          <button
+            onClick={expandResults}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-5 py-2 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+          >
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            {loading ? "Finding more..." : "Find more similar companies"}
+          </button>
+        ) : null}
       </div>
     </div>
   );
