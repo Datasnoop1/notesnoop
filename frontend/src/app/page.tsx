@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Search } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
+import FeedbackButtons from "@/components/feedback-buttons";
+import { createClient } from "@/lib/supabase";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -13,6 +16,7 @@ export default function Home() {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [logoPath, setLogoPath] = useState("/logos/dog-telescope-clean.jpeg");
+  const [user, setUser] = useState<SupabaseUser | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const whatsNewItems = [
@@ -35,6 +39,15 @@ export default function Home() {
 
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_event, session) => setUser(session?.user ?? null)
+    );
+    return () => subscription.unsubscribe();
   }, []);
 
   function handleSubmit(e: React.FormEvent) {
@@ -83,24 +96,20 @@ export default function Home() {
           />
         </div>
 
-        {/* Secondary actions */}
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-y-1 text-[13px] text-gray-600">
-          <Link href="/screener" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
-            {t("nav.screener")}
-          </Link>
+        {/* Secondary actions — bug, feature, donate, sign-in, guide.
+            (Primary actions like Screener / Favourites / Compare / Aggregate
+            live in the header nav so they're visible on every page.) */}
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-y-1 text-[13px] text-gray-500">
+          <FeedbackButtons />
           <span className="text-gray-300" aria-hidden>·</span>
-          <Link href="/favourites" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
-            {t("nav.favourites")}
-          </Link>
-          <span className="text-gray-300" aria-hidden>·</span>
-          <Link href="/compare" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
-            {t("nav.compare")}
-          </Link>
-          <span className="text-gray-300" aria-hidden>·</span>
-          <Link href="/aggregate" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
-            {t("nav.aggregate")}
-          </Link>
-          <span className="text-gray-300" aria-hidden>·</span>
+          {!user && (
+            <>
+              <Link href="/login" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
+                {t("nav.signIn")}
+              </Link>
+              <span className="text-gray-300" aria-hidden>·</span>
+            </>
+          )}
           <Link href="/guide" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
             User guide
           </Link>

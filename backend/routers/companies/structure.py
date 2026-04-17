@@ -3,6 +3,8 @@
 import json
 import logging
 import re
+from collections import OrderedDict
+from time import time as _time
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -19,6 +21,34 @@ from ._helpers import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# In-process cache of recent extract-admins attempts. Profile visits can
+# fire this endpoint repeatedly for the same CBE; we don't want to burn
+# LLM calls every time a company genuinely has no extractable admins.
+# Single-process scope is fine while we run one backend container — when
+# we scale out, swap this for Redis/Postgres.
+_ADMIN_EXTRACT_CACHE: "OrderedDict[str, tuple[float, int]]" = OrderedDict()
+_ADMIN_EXTRACT_CACHE_TTL = 1800  # 30 min — re-try later in case Staatsblad gains a pub
+_ADMIN_EXTRACT_CACHE_MAX = 10_000
+
+
+def _admin_extract_cache_skip(cbe: str) -> bool:
+    """True if we recently tried this CBE and got 0 admins back."""
+    entry = _ADMIN_EXTRACT_CACHE.get(cbe)
+    if not entry:
+        return False
+    ts, count = entry
+    if _time() - ts > _ADMIN_EXTRACT_CACHE_TTL:
+        _ADMIN_EXTRACT_CACHE.pop(cbe, None)
+        return False
+    return count == 0
+
+
+def _admin_extract_cache_record(cbe: str, count: int) -> None:
+    if len(_ADMIN_EXTRACT_CACHE) >= _ADMIN_EXTRACT_CACHE_MAX:
+        _ADMIN_EXTRACT_CACHE.popitem(last=False)
+    _ADMIN_EXTRACT_CACHE[cbe] = (_time(), count)
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +170,13 @@ async def extract_admins_from_staatsblad(cbe: str):
         if existing and existing["cnt"] > 0:
             return {"extracted": 0, "message": "Company already has administrator data"}
 
+        # 1b. Skip if we recently tried this CBE and got nothing back. The
+        #     frontend fires this passively whenever a company profile loads
+        #     with zero admins; without the cache, we would hit the LLM on
+        #     every such page view.
+        if _admin_extract_cache_skip(cbe):
+            return {"extracted": 0, "message": "Recently attempted with no result", "cached": True}
+
         # 2. Fetch company name for the LLM prompt
         company = fetch_one(
             "SELECT name FROM company_info WHERE enterprise_number = %s", (cbe,),
@@ -159,6 +196,7 @@ async def extract_admins_from_staatsblad(cbe: str):
         )
 
         if not pubs:
+            _admin_extract_cache_record(cbe, 0)
             return {"extracted": 0, "message": "No appointment/resignation publications found"}
 
         # 4. Process each publication
@@ -270,6 +308,7 @@ async def extract_admins_from_staatsblad(cbe: str):
             "Staatsblad admin extraction for %s: %d appointments inserted, %d resignations processed",
             cbe, inserted, len(all_resignations),
         )
+        _admin_extract_cache_record(cbe, inserted)
         return {"extracted": inserted}
 
     except HTTPException:

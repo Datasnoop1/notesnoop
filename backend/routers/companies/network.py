@@ -2,6 +2,7 @@
 
 import logging
 from collections import deque
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -377,11 +378,19 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
             nodes.append({"id": nid, "name": name, "type": ntype, "depth": d})
             return True
 
-        def _add_edge(src: str, tgt: str, rel: str, label: str):
-            """Add an edge (duplicates possible between same pair via different rels)."""
+        def _add_edge(src: str, tgt: str, rel: str, label: str,
+                      is_active: bool = True, mandate_end: str | None = None):
+            """Add an edge (duplicates possible between same pair via different rels).
+
+            ``is_active`` distinguishes current vs ended administrator mandates so
+            the frontend can dim/dash the line. Shareholder + participating-interest
+            edges have no temporal data — they default to active=True.
+            """
             edges.append({
                 "source": src, "target": tgt,
                 "relationship": rel, "label": label,
+                "is_active": is_active,
+                "mandate_end": mandate_end,
             })
 
         # Seed node
@@ -389,6 +398,9 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
 
         # BFS frontier — set of CBE numbers to expand at the next depth
         frontier: set[str] = {cbe}
+
+        # Reference date for active-mandate classification.
+        today_str = date.today().isoformat()
 
         for current_depth in range(1, depth + 1):
             if not frontier or len(nodes) >= MAX_DEEP_NETWORK_NODES:
@@ -400,18 +412,29 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
             # ── Fetch all relationships for the current batch ──────────
             ph = ",".join(["%s"] * len(batch))
 
-            # 1. Administrators OF these companies
+            # 1. Administrators OF these companies. ``is_active`` is true
+            #    if ANY matching row has a NULL or future ``mandate_end``,
+            #    so a person with both an ended and an ongoing mandate is
+            #    still rendered as active. ``last_mandate_end`` is the
+            #    latest end-date and is shown in the tooltip when the
+            #    mandate has ended.
             admin_rows = fetch_all(
-                f"SELECT DISTINCT enterprise_number, name, role, person_type, identifier "
-                f"FROM administrator WHERE enterprise_number IN ({ph})",
-                batch,
+                f"SELECT enterprise_number, name, role, person_type, identifier, "
+                f"       BOOL_OR(mandate_end IS NULL OR mandate_end >= %s) AS is_active, "
+                f"       MAX(mandate_end) AS last_mandate_end "
+                f"FROM administrator WHERE enterprise_number IN ({ph}) "
+                f"GROUP BY enterprise_number, name, role, person_type, identifier",
+                [today_str] + batch,
             )
 
             # 2. Companies where these entities serve as administrator (reverse)
             admin_reverse_rows = fetch_all(
-                f"SELECT DISTINCT enterprise_number, name, role, person_type, identifier "
-                f"FROM administrator WHERE identifier IN ({ph})",
-                batch,
+                f"SELECT enterprise_number, name, role, person_type, identifier, "
+                f"       BOOL_OR(mandate_end IS NULL OR mandate_end >= %s) AS is_active, "
+                f"       MAX(mandate_end) AS last_mandate_end "
+                f"FROM administrator WHERE identifier IN ({ph}) "
+                f"GROUP BY enterprise_number, name, role, person_type, identifier",
+                [today_str] + batch,
             )
 
             # 3. Shareholders OF these companies
@@ -486,7 +509,10 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
                 label_name = name_map.get(cbe_id, aname) if cbe_id else aname
                 role_label = ROLE_LABELS.get(role_key, role_key or "Administrator")
                 added = _add_node(nid, label_name, ntype, current_depth)
-                _add_edge(nid, ent, "administrator", role_label)
+                is_active = bool(row.get("is_active", True))
+                _add_edge(nid, ent, "administrator", role_label,
+                          is_active=is_active,
+                          mandate_end=row.get("last_mandate_end"))
 
                 if cbe_id and added:
                     frontier.add(cbe_id)
@@ -508,7 +534,10 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
                 target_name = name_map.get(target_ent, row.get("name") or target_ent)
                 role_label = ROLE_LABELS.get(role_key, role_key or "Administrator")
                 added = _add_node(target_ent, target_name, "company", current_depth)
-                _add_edge(cbe_id, target_ent, "administrator", role_label)
+                is_active = bool(row.get("is_active", True))
+                _add_edge(cbe_id, target_ent, "administrator", role_label,
+                          is_active=is_active,
+                          mandate_end=row.get("last_mandate_end"))
                 if added:
                     frontier.add(target_ent)
 

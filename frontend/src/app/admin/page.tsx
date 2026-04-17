@@ -500,6 +500,24 @@ function ReadinessGauge({ score }: { score: number }) {
 
 /* ---------- Main component ---------- */
 
+/* Two-sheet consolidation. See docs/architecture.md or roadmap notes —
+   the user wanted "max 2 very intuitive sheets" instead of 10 flat tabs.
+   We collapse the 10 into:
+     - Pulse: growth & health metrics (what's the platform doing this week)
+     - Operations: people, configuration, money (the day-to-day ops desk)
+   The actual TabsContent panels are unchanged; only the visible TabsList
+   gets filtered by the current sheet. */
+const PULSE_TABS = ["traction", "readiness", "usage"] as const;
+const OPS_TABS = ["users", "feedback", "polls", "tiers", "activity", "revenue", "settings"] as const;
+type AdminSheet = "pulse" | "operations";
+type AdminTabKey = (typeof PULSE_TABS)[number] | (typeof OPS_TABS)[number];
+
+const SHEET_FOR_TAB: Record<AdminTabKey, AdminSheet> = {
+  traction: "pulse", readiness: "pulse", usage: "pulse",
+  users: "operations", feedback: "operations", polls: "operations",
+  tiers: "operations", activity: "operations", revenue: "operations", settings: "operations",
+};
+
 export default function AdminPanel() {
   const router = useRouter();
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -507,6 +525,17 @@ export default function AdminPanel() {
   const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<AdminSheet>("pulse");
+  const [activeTab, setActiveTab] = useState<AdminTabKey>("traction");
+
+  // Keep the active tab in sync with the active sheet — switching sheets
+  // jumps to the first tab inside it.
+  useEffect(() => {
+    const visible = sheet === "pulse" ? PULSE_TABS : OPS_TABS;
+    if (!visible.includes(activeTab as never)) {
+      setActiveTab(visible[0]);
+    }
+  }, [sheet, activeTab]);
   const [myEmail, setMyEmail] = useState<string>("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [confirmClearFeedback, setConfirmClearFeedback] = useState(false);
@@ -1007,53 +1036,84 @@ export default function AdminPanel() {
         </Button>
       </div>
 
-      <Tabs defaultValue="traction">
+      {/* Sheet toggle — Pulse vs Operations. Reframes the 10 admin
+          panels into 2 intuitive groups; the underlying TabsContent
+          panels are unchanged. */}
+      <div className="mb-3 inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
+        {(["pulse", "operations"] as AdminSheet[]).map((s) => (
+          <button
+            key={s}
+            onClick={() => setSheet(s)}
+            className={`px-4 py-1.5 text-xs font-semibold rounded-md transition ${
+              sheet === s
+                ? "bg-indigo-600 text-white"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+            title={
+              s === "pulse"
+                ? "Growth & health: traction, data readiness, usage"
+                : "Day-to-day ops: users, feedback, polls, tiers, activity, P&L, settings"
+            }
+          >
+            {s === "pulse" ? "Pulse" : "Operations"}
+          </button>
+        ))}
+      </div>
+
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AdminTabKey)}>
         <TabsList className="overflow-x-auto w-full">
-          <TabsTrigger value="traction">
-            <HeartPulse className="size-3.5 mr-1.5" />
-            Traction
-          </TabsTrigger>
-          <TabsTrigger value="readiness">
-            <Gauge className="size-3.5 mr-1.5" />
-            Readiness
-          </TabsTrigger>
-          <TabsTrigger value="usage">
-            <Activity className="size-3.5 mr-1.5" />
-            Usage
-          </TabsTrigger>
-          <TabsTrigger value="users">
-            <Users className="size-3.5 mr-1.5" />
-            Users
-          </TabsTrigger>
-          <TabsTrigger value="feedback">
-            <MessageSquare className="size-3.5 mr-1.5" />
-            Feedback
-            {feedback.length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 font-mono text-[10px] px-1.5 py-0">
-                {feedback.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="polls">
-            <Vote className="size-3.5 mr-1.5" />
-            Polls
-          </TabsTrigger>
-          <TabsTrigger value="tiers">
-            <Layers className="size-3.5 mr-1.5" />
-            Tiers
-          </TabsTrigger>
-          <TabsTrigger value="activity">
-            <Clock className="size-3.5 mr-1.5" />
-            Activity
-          </TabsTrigger>
-          <TabsTrigger value="revenue">
-            <CreditCard className="size-3.5 mr-1.5" />
-            P&L
-          </TabsTrigger>
-          <TabsTrigger value="settings">
-            <Settings className="size-3.5 mr-1.5" />
-            Settings
-          </TabsTrigger>
+          {sheet === "pulse" ? (
+            <>
+              <TabsTrigger value="traction">
+                <HeartPulse className="size-3.5 mr-1.5" />
+                Traction
+              </TabsTrigger>
+              <TabsTrigger value="readiness">
+                <Gauge className="size-3.5 mr-1.5" />
+                Readiness
+              </TabsTrigger>
+              <TabsTrigger value="usage">
+                <Activity className="size-3.5 mr-1.5" />
+                Usage
+              </TabsTrigger>
+            </>
+          ) : (
+            <>
+              <TabsTrigger value="users">
+                <Users className="size-3.5 mr-1.5" />
+                Users
+              </TabsTrigger>
+              <TabsTrigger value="feedback">
+                <MessageSquare className="size-3.5 mr-1.5" />
+                Feedback
+                {feedback.length > 0 && (
+                  <Badge variant="secondary" className="ml-1.5 font-mono text-[10px] px-1.5 py-0">
+                    {feedback.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="polls">
+                <Vote className="size-3.5 mr-1.5" />
+                Polls
+              </TabsTrigger>
+              <TabsTrigger value="tiers">
+                <Layers className="size-3.5 mr-1.5" />
+                Tiers
+              </TabsTrigger>
+              <TabsTrigger value="activity">
+                <Clock className="size-3.5 mr-1.5" />
+                Activity
+              </TabsTrigger>
+              <TabsTrigger value="revenue">
+                <CreditCard className="size-3.5 mr-1.5" />
+                P&L
+              </TabsTrigger>
+              <TabsTrigger value="settings">
+                <Settings className="size-3.5 mr-1.5" />
+                Settings
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         {/* ================================================================

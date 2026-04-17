@@ -214,11 +214,12 @@ def _ensure_people_enrichment_table():
 # ---------------------------------------------------------------------------
 
 @router.post("/{name}/enrich")
-async def enrich_person(name: str, user=Depends(get_current_user)):
+async def enrich_person(name: str, lang: str | None = None, user=Depends(get_current_user)):
     """Generate an AI professional profile summary for a person.
 
     Looks up their admin roles and holdings from the database,
     builds a prompt, and calls the AI to write a 2-3 sentence profile.
+    ``lang`` (``nl``/``fr``/``en``) controls the output language.
     """
     _ensure_people_enrichment_table()
 
@@ -295,7 +296,7 @@ async def enrich_person(name: str, user=Depends(get_current_user)):
         "person profiles for private equity deal sourcing."
     )
 
-    summary = await ai_complete(prompt, system=system)
+    summary = await ai_complete(prompt, system=system, lang=lang)
 
     if not summary:
         raise HTTPException(

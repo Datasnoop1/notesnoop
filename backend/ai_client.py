@@ -39,13 +39,33 @@ FORBIDDEN_TERMS_RE = re.compile(
 )
 
 
+_LANG_INSTRUCTION = {
+    "nl": "Antwoord in het Nederlands.",
+    "fr": "R\u00e9ponds en fran\u00e7ais.",
+    "en": "Respond in English.",
+}
+
+
+def _normalise_lang(lang: str | None) -> str | None:
+    """Reduce locale-ish strings (`nl-BE`, `NL`, ` fr `) to one of nl/fr/en."""
+    if not lang:
+        return None
+    code = lang.strip().lower().split("-")[0]
+    return code if code in _LANG_INSTRUCTION else None
+
+
 async def ai_complete(
     prompt: str,
     system: str = "",
     model: str = "google/gemini-2.5-flash",
     max_tokens: int = 500,
+    lang: str | None = None,
 ) -> str:
     """Call OpenRouter with the specified model.
+
+    ``lang`` (``nl``/``fr``/``en``) prepends a one-line language instruction
+    to the system prompt so the model replies in the user's site language.
+    Unknown values are ignored — model defaults apply (typically English).
 
     Returns the model's text response, or empty string on failure / no API key.
     """
@@ -53,6 +73,10 @@ async def ai_complete(
         return ""
 
     messages: list[dict] = []
+    lang_norm = _normalise_lang(lang)
+    if lang_norm:
+        instruction = _LANG_INSTRUCTION[lang_norm]
+        system = f"{instruction}\n\n{system}" if system else instruction
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
@@ -511,7 +535,7 @@ def _apply_review_diff(insights: dict, diff_items: list[dict]) -> dict:
     return insights
 
 
-async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
+async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = None) -> dict:
     """Multi-step AI pipeline to generate structured company insights.
 
     Parameters
@@ -520,6 +544,11 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
         The 10-digit enterprise number.
     conn_helpers : dict
         Must contain ``fetch_one``, ``fetch_all``, and ``execute`` callables.
+    lang : str | None
+        Site language (``nl``/``fr``/``en``). When supplied, the user-visible
+        narrative is generated in that language so the AI insight matches the
+        rest of the page. Internal reasoning steps (URL discovery, JSON
+        validation) stay locale-neutral.
 
     Returns a dict with structured insight fields, suitable for JSON storage.
     """
@@ -924,12 +953,15 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             + "\nPlease fix the issues identified above and return corrected JSON.\n"
         )
 
-    # Try primary model
+    # Try primary model. ``lang`` only flows into the user-visible
+    # insight generation; URL discovery / review steps stay locale-neutral
+    # because their output is JSON consumed by code, not by the user.
     insight_resp = await ai_complete(
         insight_prompt,
         system=insight_system,
         model=MODELS["insight_generation"]["primary"],
         max_tokens=MAX_TOKENS["insight_generation"],
+        lang=lang,
     )
 
     if not insight_resp:
@@ -939,6 +971,7 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
             system=insight_system,
             model=MODELS["insight_generation"]["fallback"],
             max_tokens=MAX_TOKENS["insight_generation"],
+            lang=lang,
         )
 
     insights = _extract_json(insight_resp) if insight_resp else None
@@ -1038,6 +1071,7 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
                         system=insight_system,
                         model=MODELS["insight_generation"]["primary"],
                         max_tokens=MAX_TOKENS["insight_generation"],
+                        lang=lang,
                     )
                     if not retry_resp:
                         retry_resp = await ai_complete(
@@ -1045,6 +1079,7 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict) -> dict:
                             system=insight_system,
                             model=MODELS["insight_generation"]["fallback"],
                             max_tokens=MAX_TOKENS["insight_generation"],
+                            lang=lang,
                         )
                     retry_insights = _extract_json(retry_resp) if retry_resp else None
 

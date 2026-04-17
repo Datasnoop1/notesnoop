@@ -45,8 +45,8 @@
       "searchDesc": "Zoek bedrijven op naam, KBO-nummer of trefwoord",
       "favouritesTitle": "Favorieten",
       "favouritesDesc": "Uw opgeslagen bedrijven",
-      "graveyardTitle": "Kerkhof",
-      "graveyardDesc": "Analyse van gefaalde bedrijven"
+      "fallenHeroesTitle": "Fallen Heroes (demo)",
+      "fallenHeroesDesc": "Onderzoeksspeeltuin \u2014 geen onderdeel van het DataSnoop-aanbod"
     },
 
     "whatsNewItems": {
@@ -152,6 +152,12 @@
     "revenueGrowth": "Omzetgroei %",
     "ebitdaGrowth": "EBITDA-groei %",
     "totalAssetsGrowth": "Groei totaal activa %",
+    "realEstate": "Vastgoed (terreinen + gebouwen) \u20AC",
+    "distress": "Status",
+    "distressAny": "Alle (incl. gezond)",
+    "distressBankruptcy": "In faillissement",
+    "distressWco": "Reorganisatie (WCO)",
+    "distressAnyDistress": "Faillissement of WCO",
     "limit": "Limiet",
     "rows": "{count} rijen",
     "searchResultsPlaceholder": "Zoek resultaten op naam of KBO...",
@@ -402,7 +408,8 @@
       "footer": "Klik op een knooppunt om naar dat bedrijf te navigeren",
       "nodesConnections": "{nodes} knooppunten, {connections} verbindingen",
       "depthReached": "Bereikte diepte: {depth}",
-      "pressEsc": "Druk Esc om volledig scherm te sluiten"
+      "pressEsc": "Druk Esc om volledig scherm te sluiten",
+      "endedMandate": "Be\u00ebindigd mandaat"
     }
   },
 

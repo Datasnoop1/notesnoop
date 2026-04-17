@@ -148,33 +148,36 @@ export default function Nav() {
             </form>
           )}
 
-          {/* Desktop nav — hidden on landing (links live under the search there).
-              Text-link style with dot separators, matching the landing secondary-actions row. */}
-          {!isLanding && (
-            <nav className="hidden md:flex items-center gap-0 shrink-0 text-[13px] text-gray-600">
-              {NAV_LINKS.map((item, idx) => (
-                <React.Fragment key={item.href}>
-                  {idx > 0 && <span className="text-gray-300 select-none" aria-hidden>·</span>}
-                  <Link
-                    href={item.href}
-                    className={`px-3 py-2 rounded-md transition-colors ${
-                      isActive(item.href)
-                        ? "text-gray-900 font-medium"
-                        : "hover:bg-gray-50 hover:text-gray-900"
-                    }`}
-                  >
-                    {item.label}
-                  </Link>
-                </React.Fragment>
-              ))}
-            </nav>
-          )}
+          {/* Desktop nav — Screener / Favourites / Compare / Aggregate.
+              Shown on landing AND non-landing so the primary actions are
+              always one tap away. Text-link style with dot separators. */}
+          <nav className="hidden md:flex items-center gap-0 shrink-0 text-[13px] text-gray-600">
+            {NAV_LINKS.map((item, idx) => (
+              <React.Fragment key={item.href}>
+                {idx > 0 && <span className="text-gray-300 select-none" aria-hidden>·</span>}
+                <Link
+                  href={item.href}
+                  className={`px-3 py-2 rounded-md transition-colors ${
+                    isActive(item.href)
+                      ? "text-gray-900 font-medium"
+                      : "hover:bg-gray-50 hover:text-gray-900"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              </React.Fragment>
+            ))}
+          </nav>
 
-          {/* Right side: feedback, notifications, auth */}
+          {/* Right side: feedback, notifications, auth.
+              On landing, feedback + sign-in are rendered in page.tsx
+              (under the search bar) — header keeps just bell + language. */}
           <div className="flex items-center gap-1.5">
-            <div className="hidden md:flex items-center gap-1 mr-0.5">
-              <FeedbackButtons />
-            </div>
+            {!isLanding && (
+              <div className="hidden md:flex items-center gap-1 mr-0.5">
+                <FeedbackButtons />
+              </div>
+            )}
 
             {/* Notification bell */}
             {user && (
@@ -247,11 +250,13 @@ export default function Nav() {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Link href="/login">
-                <Button variant="outline" size="sm" className="hidden md:inline-flex text-[13px]">
-                  {t("nav.signIn")}
-                </Button>
-              </Link>
+              !isLanding && (
+                <Link href="/login">
+                  <Button variant="outline" size="sm" className="hidden md:inline-flex text-[13px]">
+                    {t("nav.signIn")}
+                  </Button>
+                </Link>
+              )
             )}
 
             {/* Mobile hamburger — always available on mobile (it holds Sign in,

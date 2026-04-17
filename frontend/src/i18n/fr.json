@@ -45,8 +45,8 @@
       "searchDesc": "Trouvez des entreprises par nom, BCE ou mot-cle",
       "favouritesTitle": "Favoris",
       "favouritesDesc": "Vos entreprises sauvegardees",
-      "graveyardTitle": "Cimetiere",
-      "graveyardDesc": "Analyse des entreprises en faillite"
+      "fallenHeroesTitle": "Fallen Heroes (demo)",
+      "fallenHeroesDesc": "Terrain d&apos;exp\u00e9rimentation \u2014 ne fait pas partie de l&apos;offre DataSnoop"
     },
 
     "whatsNewItems": {
@@ -152,6 +152,12 @@
     "revenueGrowth": "Croissance CA %",
     "ebitdaGrowth": "Croissance EBITDA %",
     "totalAssetsGrowth": "Croissance total actifs %",
+    "realEstate": "Immobilier (terrains + b\u00e2timents) \u20AC",
+    "distress": "Statut",
+    "distressAny": "Tous (sains inclus)",
+    "distressBankruptcy": "En faillite",
+    "distressWco": "R\u00e9organisation (PRJ)",
+    "distressAnyDistress": "Faillite ou PRJ",
     "limit": "Limite",
     "rows": "{count} lignes",
     "searchResultsPlaceholder": "Chercher par nom ou BCE...",
@@ -402,7 +408,8 @@
       "footer": "Cliquez sur un noeud pour naviguer vers cette entreprise",
       "nodesConnections": "{nodes} noeuds, {connections} connexions",
       "depthReached": "Profondeur atteinte : {depth}",
-      "pressEsc": "Appuyez Echap pour quitter le plein ecran"
+      "pressEsc": "Appuyez Echap pour quitter le plein ecran",
+      "endedMandate": "Mandat termin\u00e9"
     }
   },
 

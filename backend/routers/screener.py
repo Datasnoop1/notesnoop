@@ -59,6 +59,9 @@ async def screener(
     ebitda_growth_max: Optional[float] = Query(None, description="Max EBITDA growth % YoY"),
     assets_growth_min: Optional[float] = Query(None, description="Min total assets growth % YoY"),
     assets_growth_max: Optional[float] = Query(None, description="Max total assets growth % YoY"),
+    real_estate_min: Optional[float] = Query(None, ge=0, description="Min real estate (rubric 22 — land + buildings) in EUR"),
+    real_estate_max: Optional[float] = Query(None, ge=0, description="Max real estate (rubric 22 — land + buildings) in EUR"),
+    distress: Optional[str] = Query(None, description="Distress filter: 'bankruptcy', 'wco', or 'any'"),
     sort: str = Query("ebit_desc", description="Sort order"),
     limit: int = Query(100, ge=1, le=1000),
 ):
@@ -156,6 +159,25 @@ async def screener(
         conditions.append("prev.total_assets > 0 AND ((fl.total_assets - prev.total_assets) / prev.total_assets * 100) <= %s")
         params.append(assets_growth_max)
 
+    # Real estate (rubric 22 — Terreinen en gebouwen / land and buildings).
+    # Looked up from financial_data per fiscal year aligned with financial_latest.
+    needs_real_estate = real_estate_min is not None or real_estate_max is not None
+    if real_estate_min is not None:
+        conditions.append("COALESCE(re.land_buildings, 0) >= %s")
+        params.append(real_estate_min)
+    if real_estate_max is not None:
+        conditions.append("COALESCE(re.land_buildings, 0) <= %s")
+        params.append(real_estate_max)
+
+    # Distress / juridical situation. Codes per docs/belgian-gaap.md +
+    # graveyard.py; bankruptcy = 048-053, WCO/reorganisation = 020-026.
+    if distress == "bankruptcy":
+        conditions.append("e.juridical_situation IN ('048','049','050','051','052','053')")
+    elif distress == "wco":
+        conditions.append("e.juridical_situation IN ('020','021','022','023','024','025','026')")
+    elif distress == "any":
+        conditions.append("e.juridical_situation IN ('048','049','050','051','052','053','020','021','022','023','024','025','026')")
+
     where = (" AND " + " AND ".join(conditions)) if conditions else ""
 
     prev_join = """
@@ -163,6 +185,19 @@ async def screener(
             ON prev.enterprise_number = fl.enterprise_number
             AND prev.fiscal_year = fl.fiscal_year - 1
     """ if needs_prev_year else ""
+
+    # Real-estate join: pulls rubric 22 (land + buildings) for the same
+    # fiscal year as financial_latest. Only joined when needed so the
+    # default screener stays fast.
+    real_estate_join = """
+        LEFT JOIN LATERAL (
+            SELECT MAX(value) AS land_buildings
+            FROM financial_data fd
+            WHERE fd.enterprise_number = fl.enterprise_number
+              AND fd.fiscal_year = fl.fiscal_year
+              AND fd.rubric_code = '22'
+        ) re ON TRUE
+    """ if needs_real_estate else ""
 
     # Growth select columns
     growth_cols = ""
@@ -179,6 +214,10 @@ async def screener(
                END AS "assets_growth_pct"
         """
 
+    real_estate_col = ""
+    if needs_real_estate:
+        real_estate_col = ', re.land_buildings AS "real_estate"'
+
     sql = f"""
         SELECT fl.enterprise_number AS "cbe",
                ci.name AS "name",
@@ -194,13 +233,16 @@ async def screener(
                fl.net_profit AS "net_profit",
                fl.fte_total AS "fte",
                e.juridical_form AS "jf_label",
+               e.juridical_situation AS "juridical_situation",
                e.start_date AS "start_date"
                {growth_cols}
+               {real_estate_col}
         FROM financial_latest fl
         JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
         LEFT JOIN enterprise e ON e.enterprise_number = fl.enterprise_number
         LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
         {prev_join}
+        {real_estate_join}
         WHERE 1=1 {where}
         ORDER BY {sort_sql}
         LIMIT %s
@@ -215,7 +257,8 @@ async def screener(
         import datetime
         for row in rows:
             for key in ("revenue", "ebit", "ebitda", "margin_pct", "net_profit", "fte",
-                        "rev_growth_pct", "ebitda_growth_pct", "assets_growth_pct"):
+                        "rev_growth_pct", "ebitda_growth_pct", "assets_growth_pct",
+                        "real_estate"):
                 if row.get(key) is not None:
                     row[key] = float(row[key])
             if isinstance(row.get("start_date"), (datetime.date, datetime.datetime)):
