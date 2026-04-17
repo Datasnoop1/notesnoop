@@ -17,14 +17,25 @@ Usage:
 """
 
 import os
+import socket
 import time
 import uuid
 from datetime import datetime
 
 import requests
+import urllib3.util.connection as _urllib3_conn
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Force IPv4-only address resolution for all outbound HTTP in this
+# process. NBB's Azure API gateway does not accept IPv6 traffic
+# (returns 403 / 500 / 501), and our Hetzner server has IPv6 enabled
+# — without this override, Python's default AF_UNSPEC resolution
+# picks the AAAA record and every NBB call fails. This patch is
+# module-global (urllib3 exposes it as a single function reference),
+# but the backend makes no outbound calls that require IPv6.
+_urllib3_conn.allowed_gai_family = lambda: socket.AF_INET
 
 UAT2_URL = "https://ws.uat2.cbso.nbb.be"
 PROD_URL = "https://ws.cbso.nbb.be"
