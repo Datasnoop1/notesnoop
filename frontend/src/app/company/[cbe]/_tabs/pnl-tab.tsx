@@ -331,7 +331,7 @@ export function PnlTab({
         <table className="w-full min-w-[900px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="sticky left-0 z-10 bg-slate-50 px-3 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[140px] md:min-w-[240px] shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.pnl.lineItem")}</th>
+              <th className="sticky left-0 z-10 bg-slate-50 px-2 md:px-4 py-2 text-left text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[110px] md:min-w-[240px] shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.pnl.lineItem")}</th>
               {renderDeltaHeaders(chronological.map(r => r.fiscal_year))}
             </tr>
           </thead>
@@ -352,7 +352,7 @@ export function PnlTab({
                     </tr>
                   )}
                   <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
-                    <td className={`sticky left-0 z-[5] bg-white px-4 py-1 text-xs shadow-[1px_0_0_rgba(226,232,240,1)] ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-8" : ""}`}>
+                    <td className={`sticky left-0 z-[5] bg-white px-2 md:px-4 py-1 text-[11px] md:text-xs shadow-[1px_0_0_rgba(226,232,240,1)] ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-5 md:pl-8" : ""}`}>
                       {line.label}
                     </td>
                     {chronologicalPnl.map((r, colIdx) => {
@@ -366,7 +366,7 @@ export function PnlTab({
                               {!line.isPct ? renderDelta(currentVal, prevVal) : null}
                             </td>
                           )}
-                          <td className={`px-3 py-1 text-right text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                          <td className={`px-2 md:px-3 py-1 text-right text-[11px] md:text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
                             {line.isPct
                               ? (currentVal != null
                                   ? <span className={`${(currentVal as number) >= 15 ? "text-emerald-600" : (currentVal as number) >= 5 ? "text-amber-600" : "text-rose-400"}`}>{(currentVal as number).toFixed(1)}%</span>
