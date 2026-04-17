@@ -410,7 +410,7 @@ export default function StatsPage() {
   ];
 
   return (
-    <div className="space-y-10 pb-16">
+    <div className="mx-auto w-full max-w-[1200px] space-y-10 pb-16">
 
       {/* ━━━━━━━━━━ HEADER ━━━━━━━━━━ */}
       <div>

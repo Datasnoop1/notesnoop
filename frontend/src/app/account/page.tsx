@@ -77,7 +77,7 @@ export default function AccountPage() {
   const provider = user.app_metadata?.provider || "email";
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="mx-auto w-full max-w-[1200px] space-y-6">
       {/* Profile header */}
       <div className="flex items-center gap-4">
         <div className="w-14 h-14 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xl font-bold shrink-0">
