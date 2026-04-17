@@ -71,6 +71,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   const [unit, setUnit] = useState<Unit>("auto");
   const [sourceKey, setSourceKey] = useState<MultipleSourceKey>("vlerick");
   const [exporting, setExporting] = useState(false);
+  const [mobileOptionsOpen, setMobileOptionsOpen] = useState(false);
   const fmt = (v: number | null | undefined) => fmtEurUnit(v, unit);
 
   const handleExportExcel = async () => {
@@ -189,30 +190,43 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   return (
     <div className="space-y-4 valuation-print-root">
       {/* Compact header strip — title + source on 2 rows left; right-side
-          controls on ONE row aligned to the source line (bottom of left col). */}
+          controls on ONE row aligned to the source line (bottom of left col).
+          On mobile the controls row collapses behind an "Options" toggle so
+          the header doesn't blow up into 5-6 rows of tiny buttons. */}
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 pb-3 border-b border-slate-200">
-        <div className="min-w-0">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-            Indicative valuation
+        <div className="flex items-end justify-between gap-2 w-full md:w-auto md:min-w-0">
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Indicative valuation
+            </div>
+            <div className="mt-0.5 text-[11px] text-slate-600">
+              Based on the{" "}
+              <a
+                href={vlerick_reference.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
+              >
+                {vlerick_reference.report}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+              {srcMeta?.scope && (
+                <span className="ml-1 text-slate-400">· {srcMeta.scope}</span>
+              )}
+            </div>
           </div>
-          <div className="mt-0.5 text-[11px] text-slate-600">
-            Based on the{" "}
-            <a
-              href={vlerick_reference.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
-            >
-              {vlerick_reference.report}
-              <ExternalLink className="h-3 w-3" />
-            </a>
-            {srcMeta?.scope && (
-              <span className="ml-1 text-slate-400">· {srcMeta.scope}</span>
-            )}
-          </div>
+          {/* Mobile-only options toggle. Keeps the control row hidden until
+              the user actually wants to tweak source/view/unit/export. */}
+          <button
+            onClick={() => setMobileOptionsOpen((v) => !v)}
+            aria-expanded={mobileOptionsOpen}
+            className="md:hidden shrink-0 inline-flex items-center gap-1 h-9 px-3 text-[11px] font-medium text-slate-600 border border-slate-200 rounded-md bg-white hover:border-slate-300"
+          >
+            {mobileOptionsOpen ? "Hide options" : "Options"}
+          </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 no-print">
+        <div className={`${mobileOptionsOpen ? "flex" : "hidden"} md:flex flex-wrap items-center gap-3 no-print w-full md:w-auto`}>
           {/* Source toggle — pick which reference dataset's multiples to use */}
           {sources.length > 1 && (
             <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5" title="Multiple source">
