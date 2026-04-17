@@ -4,6 +4,23 @@ A searchable database of Belgian companies combining KBO registry data with NBB
 annual accounts — a self-hosted Belfirst alternative for PE deal sourcing and
 screening. Now a multi-user web platform with tiered subscriptions.
 
+## READ FIRST (new context window onboarding)
+
+Before doing any substantive work in this repo, read these two
+documents. They exist specifically to prevent drift between Claude
+sessions on who the product is for, how it's put together, and what
+the non-obvious operational rules are:
+
+1. **[`docs/product.md`](docs/product.md)** — what DataSnoop is,
+   who uses it, how the tiering works, current state, direction.
+2. **[`docs/architecture.md`](docs/architecture.md)** — runtime
+   topology, data flow, auth model, deployment mechanics, and the
+   gotchas you'd otherwise rediscover the hard way (NBB keys, iOS
+   zoom, `docker compose restart` not re-reading env, etc).
+
+Then scan [`docs/tech-debt.md`](docs/tech-debt.md) for the current
+triage state.
+
 ## Tech Stack
 
 - **Database**: PostgreSQL (`DATABASE_URL` env var). SQLite era is over.
