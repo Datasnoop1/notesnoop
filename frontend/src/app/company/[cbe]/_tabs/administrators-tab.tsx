@@ -131,16 +131,16 @@ export function AdministratorsTab({
                             onEnrichPerson(admin.name);
                           }}
                           title="Enrich with AI"
-                          className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${
+                          className={`h-10 w-10 md:h-6 md:w-6 flex items-center justify-center rounded transition-colors ${
                             pe?.summary
                               ? "text-indigo-500"
                               : "text-slate-300 hover:text-indigo-500"
                           }`}
                         >
                           {pe?.loading ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            <Loader2 className="h-4 w-4 md:h-3.5 md:w-3.5 animate-spin" />
                           ) : (
-                            <Sparkles className="h-3.5 w-3.5" />
+                            <Sparkles className="h-4 w-4 md:h-3.5 md:w-3.5" />
                           )}
                         </button>
                         <button
@@ -152,13 +152,13 @@ export function AdministratorsTab({
                             btn.title = "Saved!";
                           }}
                           title="Save person to favourites"
-                          className="h-6 w-6 flex items-center justify-center rounded text-slate-300 hover:text-yellow-500 transition-colors"
+                          className="h-10 w-10 md:h-6 md:w-6 flex items-center justify-center rounded text-slate-300 hover:text-yellow-500 transition-colors"
                         >
-                          <Star className="h-3.5 w-3.5" />
+                          <Star className="h-4 w-4 md:h-3.5 md:w-3.5" />
                         </button>
                         <Badge
                           variant="secondary"
-                          className="text-[10px] bg-green-50 text-green-700 border-green-200"
+                          className="text-[11px] bg-green-50 text-green-700 border-green-200"
                         >
                           Active
                         </Badge>
@@ -185,7 +185,7 @@ export function AdministratorsTab({
         <div>
           <button
             type="button"
-            className="mb-3 flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-slate-400 border-l-[3px] border-slate-300 pl-2 hover:text-slate-600 transition-colors"
+            className="mb-3 flex items-center gap-1 py-2.5 md:py-0 min-h-[44px] md:min-h-0 text-xs font-bold uppercase tracking-wider text-slate-400 border-l-[3px] border-slate-300 pl-2 hover:text-slate-600 transition-colors"
             onClick={(e) => {
               const content = (e.currentTarget as HTMLElement).nextElementSibling;
               const chevron = (e.currentTarget as HTMLElement).querySelector('[data-chevron]');
@@ -248,21 +248,21 @@ export function AdministratorsTab({
                               onEnrichPerson(admin.name);
                             }}
                             title="Enrich with AI"
-                            className={`h-6 w-6 flex items-center justify-center rounded transition-colors ${
+                            className={`h-10 w-10 md:h-6 md:w-6 flex items-center justify-center rounded transition-colors ${
                               pe?.summary
                                 ? "text-indigo-500"
                                 : "text-slate-300 hover:text-indigo-500"
                             }`}
                           >
                             {pe?.loading ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              <Loader2 className="h-4 w-4 md:h-3.5 md:w-3.5 animate-spin" />
                             ) : (
-                              <Sparkles className="h-3.5 w-3.5" />
+                              <Sparkles className="h-4 w-4 md:h-3.5 md:w-3.5" />
                             )}
                           </button>
                           <Badge
                             variant="secondary"
-                            className="text-[10px] shrink-0 bg-slate-50 text-slate-400 border-slate-200"
+                            className="text-[11px] shrink-0 bg-slate-50 text-slate-400 border-slate-200"
                           >
                             Ended
                           </Badge>

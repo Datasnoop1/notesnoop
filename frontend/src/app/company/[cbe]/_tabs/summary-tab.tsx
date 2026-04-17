@@ -212,7 +212,7 @@ export function SummaryTab({
               <div className={`text-sm font-semibold font-mono ${netDebtEbitda != null && isFinite(netDebtEbitda) ? (netDebtEbitda < 3 ? "text-emerald-600" : netDebtEbitda <= 5 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
                 {netDebtEbitda != null && isFinite(netDebtEbitda) ? `${netDebtEbitda.toFixed(1)}x` : "\u2014"}
               </div>
-              <div className="text-[9px] text-slate-400 mt-0.5">Net Debt / EBITDA</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Net Debt / EBITDA</div>
             </div>
             {/* Equity Ratio */}
             <div className="rounded-lg bg-slate-50 px-3 py-2.5">
@@ -222,7 +222,7 @@ export function SummaryTab({
               <div className={`text-sm font-semibold font-mono ${equityRatio != null ? (equityRatio >= 30 ? "text-emerald-600" : equityRatio >= 15 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
                 {equityRatio != null ? `${equityRatio.toFixed(1)}%` : "\u2014"}
               </div>
-              <div className="text-[9px] text-slate-400 mt-0.5">Equity / Assets</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Equity / Assets</div>
             </div>
             {/* Interest Coverage */}
             <div className="rounded-lg bg-slate-50 px-3 py-2.5">
@@ -232,7 +232,7 @@ export function SummaryTab({
               <div className={`text-sm font-semibold font-mono ${interestCoverage != null ? (interestCoverage >= 3 ? "text-emerald-600" : interestCoverage >= 1.5 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
                 {interestCoverage != null && isFinite(interestCoverage) ? `${interestCoverage.toFixed(1)}x` : "\u2014"}
               </div>
-              <div className="text-[9px] text-slate-400 mt-0.5">EBITDA / Int. Exp</div>
+              <div className="text-[10px] text-slate-400 mt-0.5">EBITDA / Int. Exp</div>
             </div>
           </div>
 
@@ -242,7 +242,8 @@ export function SummaryTab({
               <div className="px-5 pt-3 pb-2 border-t border-slate-100">
                 <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider">Financial History Summary</h3>
               </div>
-              <table className="w-full text-xs">
+              <div className="overflow-x-auto">
+              <table className="w-full text-[11px] md:text-xs min-w-[600px]">
                 <thead>
                   <tr className="border-t border-slate-50">
                     <th className="px-5 py-2 text-left text-slate-400 font-medium">Year</th>
@@ -285,6 +286,7 @@ export function SummaryTab({
                   })()}
                 </tbody>
               </table>
+              </div>
             </>
           )}
         </div>
