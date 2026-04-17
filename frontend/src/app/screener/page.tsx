@@ -55,6 +55,9 @@ interface ScreenerRow {
   juridical_situation: string | null;
   start_date: string | null;
   fixed_assets: number | null;
+  rev_history?: (number | null)[] | null;
+  ebitda_history?: (number | null)[] | null;
+  year_history?: (number | null)[] | null;
 }
 
 interface Filters {
