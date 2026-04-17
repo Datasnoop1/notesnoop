@@ -697,84 +697,10 @@ export function CompanyPageClient({
             </div>
           </div>
 
-          {/* Right: action buttons + metadata stacked */}
+          {/* Right: metadata stacked (action buttons live in the tab-bar row) */}
           <div className="flex flex-col items-start md:items-end gap-2 shrink-0 w-full md:w-auto">
             {/* Print-only DataSnoop logo — uses current configured site logo */}
             <PrintLogo heightPx={28} />
-            <div className="flex items-center gap-1.5 no-print flex-wrap">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={toggleFavourite}
-              title={isFavourite ? "Remove from favourites" : "Add to favourites"}
-              className="h-9 w-9 md:h-7 md:w-7 p-0 text-slate-400 hover:text-yellow-500 border-slate-200"
-            >
-              <Star
-                className={`h-4 w-4 md:h-3.5 md:w-3.5 ${
-                  isFavourite
-                    ? "fill-yellow-400 text-yellow-500"
-                    : ""
-                }`}
-              />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setShowInsightsOverlay(true);
-                if (!aiInsights && !aiInsightsLoading) handleGenerateInsights();
-              }}
-              title="AI Insights"
-              className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${aiInsights ? "bg-indigo-50 border-indigo-400" : ""}`}
-            >
-              {aiInsightsLoading ? (
-                <Loader2 className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1 animate-spin" />
-              ) : (
-                <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
-              )}
-              <span className="hidden sm:inline">{t("company.aiInsights")}</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleTabChange("benchmark")}
-              title="Benchmark"
-              className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${activeTab === "benchmark" ? "bg-indigo-50 border-indigo-400" : ""}`}
-            >
-              <BarChart3 className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
-              <span className="hidden sm:inline">{t("company.tabs.benchmark")}</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleTabChange("similar")}
-              title="Find similar"
-              className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${activeTab === "similar" ? "bg-indigo-50 border-indigo-400" : ""}`}
-            >
-              <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
-              <span className="hidden sm:inline">{t("company.findSimilar")}</span>
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                disabled={exporting}
-                className="inline-flex items-center h-9 md:h-7 text-[11px] text-slate-500 border border-slate-200 hover:border-slate-300 px-2.5 md:px-2 rounded-md bg-white cursor-pointer"
-              >
-                {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <FileDown className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />}
-                Export
-                <ChevronDown className="w-3 h-3 ml-0.5" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleExportExcel} className="text-xs cursor-pointer">
-                  <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-600" />
-                  {t("company.exportExcel")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportPdf} className="text-xs cursor-pointer">
-                  <FileText className="w-4 h-4 mr-2 text-rose-500" />
-                  {t("company.exportPdf")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            </div>
 
             {/* Metadata: address + website + NACE stacked, right-aligned on desktop */}
             <div className="flex flex-col items-start md:items-end gap-0.5 text-xs text-slate-500 max-w-full">
@@ -915,7 +841,7 @@ export function CompanyPageClient({
                 ))}
               </TabsList>
 
-              <div className="border-b border-slate-100 flex items-end gap-3 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 no-print">
+              <div className="border-b border-slate-100 flex items-end justify-between gap-3 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 no-print">
                 <div className="flex md:flex-wrap">
                   {TAB_GROUPS.map((g) => {
                     const active = currentGroup?.id === g.id;
@@ -934,6 +860,78 @@ export function CompanyPageClient({
                       </button>
                     );
                   })}
+                </div>
+                <div className="flex items-center gap-1.5 pb-1.5 shrink-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleFavourite}
+                    title={isFavourite ? "Remove from favourites" : "Add to favourites"}
+                    className="h-9 w-9 md:h-7 md:w-7 p-0 text-slate-400 hover:text-yellow-500 border-slate-200"
+                  >
+                    <Star
+                      className={`h-4 w-4 md:h-3.5 md:w-3.5 ${
+                        isFavourite ? "fill-yellow-400 text-yellow-500" : ""
+                      }`}
+                    />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setShowInsightsOverlay(true);
+                      if (!aiInsights && !aiInsightsLoading) handleGenerateInsights();
+                    }}
+                    title="AI Insights"
+                    className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${aiInsights ? "bg-indigo-50 border-indigo-400" : ""}`}
+                  >
+                    {aiInsightsLoading ? (
+                      <Loader2 className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
+                    )}
+                    <span className="hidden sm:inline">{t("company.aiInsights")}</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleTabChange("benchmark")}
+                    title="Benchmark"
+                    className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${activeTab === "benchmark" ? "bg-indigo-50 border-indigo-400" : ""}`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
+                    <span className="hidden sm:inline">{t("company.tabs.benchmark")}</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleTabChange("similar")}
+                    title="Find similar"
+                    className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${activeTab === "similar" ? "bg-indigo-50 border-indigo-400" : ""}`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
+                    <span className="hidden sm:inline">{t("company.findSimilar")}</span>
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      disabled={exporting}
+                      className="inline-flex items-center h-9 md:h-7 text-[11px] text-slate-500 border border-slate-200 hover:border-slate-300 px-2.5 md:px-2 rounded-md bg-white cursor-pointer"
+                    >
+                      {exporting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <FileDown className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />}
+                      Export
+                      <ChevronDown className="w-3 h-3 ml-0.5" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={handleExportExcel} className="text-xs cursor-pointer">
+                        <FileSpreadsheet className="w-4 h-4 mr-2 text-emerald-600" />
+                        {t("company.exportExcel")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleExportPdf} className="text-xs cursor-pointer">
+                        <FileText className="w-4 h-4 mr-2 text-rose-500" />
+                        {t("company.exportPdf")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
 
