@@ -1008,7 +1008,7 @@ export default function AdminPanel() {
       </div>
 
       <Tabs defaultValue="traction">
-        <TabsList className="overflow-x-auto scrollbar-none w-full">
+        <TabsList className="overflow-x-auto w-full">
           <TabsTrigger value="traction">
             <HeartPulse className="size-3.5 mr-1.5" />
             Traction
@@ -1942,7 +1942,7 @@ export default function AdminPanel() {
                               <YAxis
                                 dataKey="feature"
                                 type="category"
-                                width={120}
+                                width={80}
                                 tick={{ fontSize: 10, fill: "#64748b" }}
                                 axisLine={false}
                                 tickLine={false}
@@ -3017,9 +3017,9 @@ export default function AdminPanel() {
                   {/* Existing items */}
                   <div className="space-y-2 mb-3">
                     {costItems.map((item, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
+                      <div key={idx} className="flex flex-wrap sm:flex-nowrap items-center gap-2">
                         <Input
-                          className="h-7 text-xs flex-1"
+                          className="h-10 sm:h-7 text-base sm:text-xs flex-1 min-w-[160px]"
                           value={item.name}
                           onChange={(e) => {
                             const next = [...costItems];
@@ -3030,7 +3030,7 @@ export default function AdminPanel() {
                         <Input
                           type="number"
                           step="0.01"
-                          className="h-7 text-xs font-mono w-24"
+                          className="h-10 sm:h-7 text-base sm:text-xs font-mono w-24"
                           value={item.amount}
                           onChange={(e) => {
                             const next = [...costItems];
@@ -3039,7 +3039,7 @@ export default function AdminPanel() {
                           }}
                         />
                         <select
-                          className="h-7 text-[10px] border rounded px-1 bg-white text-slate-600"
+                          className="h-10 sm:h-7 text-sm sm:text-[10px] border rounded px-2 sm:px-1 bg-white text-slate-600"
                           value={item.frequency}
                           onChange={(e) => {
                             const next = [...costItems];
@@ -3053,9 +3053,10 @@ export default function AdminPanel() {
                         </select>
                         <button
                           onClick={() => setCostItems(costItems.filter((_, i) => i !== idx))}
-                          className="text-slate-300 hover:text-rose-500 transition-colors"
+                          className="h-10 w-10 sm:h-auto sm:w-auto flex items-center justify-center text-slate-300 hover:text-rose-500 transition-colors"
+                          title="Remove item"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                         </button>
                       </div>
                     ))}
