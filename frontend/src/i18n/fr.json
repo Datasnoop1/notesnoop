@@ -151,7 +151,6 @@
     "maxNetDebtEbitda": "Max dette nette/EBITDA",
     "revenueGrowth": "Croissance CA %",
     "ebitdaGrowth": "Croissance EBITDA %",
-    "totalAssetsGrowth": "Croissance total actifs %",
     "fixedAssets": "Actifs immobilis\u00e9s (rubrique 20/28) \u20AC",
     "fixedAssetsShort": "Actifs immobilis\u00e9s \u20AC",
     "distress": "Statut",
@@ -182,7 +181,9 @@
     "hoverNetProfit": "Resultat net",
     "hoverFte": "ETP",
     "min": "Min",
-    "max": "Max"
+    "max": "Max",
+    "noFinancialsOnly": "Sans compte d\u00e9pos\u00e9",
+    "trend": "Tendance"
   },
 
   "company": {
@@ -486,7 +487,20 @@
     "notFound": "{count} non trouvee(s)",
     "noCustomersYet": "Pas encore de clients.",
     "noSuppliersYet": "Pas encore de fournisseurs.",
-    "uploadCsvHint": "Telechargez un fichier CSV ou Excel avec des numeros BCE pour remplir cette liste."
+    "uploadCsvHint": "Telechargez un fichier CSV ou Excel avec des numeros BCE pour remplir cette liste.",
+    "bulkImportTitle": "Import en masse par nom",
+    "bulkImportHint": "Collez une liste de noms d'entreprises (un par ligne). Nous proposons pour chaque ligne la meilleure correspondance belge. Validez puis ajoutez les entreprises selectionnees aux favoris.",
+    "bulkImportPlaceholder": "Un nom par ligne :\nSolvay\nUmicore\nKBC Group",
+    "bulkImportMatch": "Identifier les noms",
+    "bulkImportMatch2": "Meilleure correspondance",
+    "bulkImportInput": "Entree",
+    "bulkImportScore": "Score",
+    "bulkImportNoMatch": "aucune correspondance",
+    "bulkImportAlreadyStarred": "deja en favoris",
+    "bulkImportSelectedCount": "{selected} sur {total} selectionne(s)",
+    "bulkImportAddSelected": "Ajouter aux favoris",
+    "bulkImportNoResults": "Aucune correspondance. Essayez des noms plus complets (ex. \u00ab Solvay \u00bb plut\u00f4t que \u00ab Sol \u00bb).",
+    "bulkImportResultSummary": "{added} ajout\u00e9(s), {skipped} ignor\u00e9(s), {notFound} introuvable(s)"
   },
 
   "compare": {

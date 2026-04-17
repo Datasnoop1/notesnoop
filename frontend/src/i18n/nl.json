@@ -151,7 +151,6 @@
     "maxNetDebtEbitda": "Max nettoschuld/EBITDA",
     "revenueGrowth": "Omzetgroei %",
     "ebitdaGrowth": "EBITDA-groei %",
-    "totalAssetsGrowth": "Groei totaal activa %",
     "fixedAssets": "Vaste activa (rubriek 20/28) \u20AC",
     "fixedAssetsShort": "Vaste activa \u20AC",
     "distress": "Status",
@@ -182,7 +181,9 @@
     "hoverNetProfit": "Nettoresultaat",
     "hoverFte": "VTE",
     "min": "Min",
-    "max": "Max"
+    "max": "Max",
+    "noFinancialsOnly": "Alleen zonder jaarrekening",
+    "trend": "Trend"
   },
 
   "company": {
@@ -486,7 +487,20 @@
     "notFound": "{count} niet gevonden",
     "noCustomersYet": "Nog geen klanten.",
     "noSuppliersYet": "Nog geen leveranciers.",
-    "uploadCsvHint": "Upload een CSV- of Excel-bestand met KBO-nummers om deze lijst te vullen."
+    "uploadCsvHint": "Upload een CSV- of Excel-bestand met KBO-nummers om deze lijst te vullen.",
+    "bulkImportTitle": "Bulk-import op bedrijfsnaam",
+    "bulkImportHint": "Plak een lijst met bedrijfsnamen (een per regel). We zoeken voor elke naam de best passende Belgische onderneming. Controleer en voeg de geselecteerde bedrijven toe aan je favorieten.",
+    "bulkImportPlaceholder": "Een bedrijfsnaam per regel:\nSolvay\nUmicore\nKBC Group",
+    "bulkImportMatch": "Namen matchen",
+    "bulkImportMatch2": "Beste match",
+    "bulkImportInput": "Invoer",
+    "bulkImportScore": "Score",
+    "bulkImportNoMatch": "geen match",
+    "bulkImportAlreadyStarred": "al in favorieten",
+    "bulkImportSelectedCount": "{selected} van {total} geselecteerd",
+    "bulkImportAddSelected": "Geselecteerde toevoegen aan favorieten",
+    "bulkImportNoResults": "Geen matches gevonden. Probeer volledigere namen (bv. \"Solvay\" i.p.v. \"Sol\").",
+    "bulkImportResultSummary": "{added} toegevoegd, {skipped} overgeslagen, {notFound} niet gevonden"
   },
 
   "compare": {

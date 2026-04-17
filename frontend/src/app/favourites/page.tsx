@@ -37,6 +37,8 @@ import {
   removeCustomer,
   removeSupplier,
   suggestSimilarCustomers,
+  importMatchNames,
+  importConfirmCbes,
   type FavouriteItem,
   type FavouriteProject,
   type PeopleFavourite,
@@ -45,6 +47,7 @@ import {
   type CustomerSupplierItem,
   type CsUploadResult,
   type SimilarCustomerSuggestion,
+  type ImportMatchRow,
 } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
 import {
@@ -63,6 +66,8 @@ import {
   Truck,
   Search,
   Sparkles,
+  ClipboardList,
+  Check,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
 
@@ -729,6 +734,226 @@ function CsTab({
   );
 }
 
+/* ---------- bulk import by company name ---------- */
+
+function BulkImportPanel({
+  onImported,
+  existingCbes,
+}: {
+  onImported: () => void;
+  existingCbes: Set<string>;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [matching, setMatching] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [results, setResults] = useState<ImportMatchRow[] | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [summary, setSummary] = useState<{ added: number; skipped: number; notFound: number } | null>(null);
+
+  function runMatch() {
+    const names = text
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (names.length === 0) return;
+    setMatching(true);
+    setSummary(null);
+    importMatchNames(names)
+      .then((res) => {
+        setResults(res.results);
+        const pre = new Set(
+          res.results
+            .filter((r) => r.enterprise_number && r.score >= 80 && !existingCbes.has(r.enterprise_number))
+            .map((r) => r.enterprise_number as string)
+        );
+        setSelected(pre);
+      })
+      .catch(() => setResults([]))
+      .finally(() => setMatching(false));
+  }
+
+  function toggle(cbe: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(cbe)) next.delete(cbe);
+      else next.add(cbe);
+      return next;
+    });
+  }
+
+  function runConfirm() {
+    if (selected.size === 0) return;
+    setConfirming(true);
+    const cbes = Array.from(selected);
+    importConfirmCbes(cbes)
+      .then((res) => {
+        setSummary({ added: res.added, skipped: res.skipped, notFound: res.not_found.length });
+        setText("");
+        setResults(null);
+        setSelected(new Set());
+        onImported();
+      })
+      .catch(() => {
+        setSummary({ added: 0, skipped: 0, notFound: cbes.length });
+      })
+      .finally(() => setConfirming(false));
+  }
+
+  const selectableCount = results?.filter((r) => r.enterprise_number && !existingCbes.has(r.enterprise_number)).length ?? 0;
+
+  return (
+    <Card className="bg-white">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-4 py-2.5 text-left"
+      >
+        <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <ClipboardList className="h-4 w-4 text-indigo-500" />
+          {t("favourites.bulkImportTitle")}
+        </span>
+        {open ? (
+          <ChevronDown className="h-4 w-4 text-slate-400" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-slate-400" />
+        )}
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 px-4 py-3 space-y-3">
+          <p className="text-xs text-slate-500">{t("favourites.bulkImportHint")}</p>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={t("favourites.bulkImportPlaceholder")}
+            className="w-full min-h-[8rem] px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white resize-y focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-slate-300"
+            disabled={matching || confirming}
+          />
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={runMatch} disabled={matching || !text.trim()}>
+              {matching ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Search className="h-4 w-4 mr-1.5" />}
+              {t("favourites.bulkImportMatch")}
+            </Button>
+            {summary && (
+              <span className="text-xs text-emerald-600 inline-flex items-center gap-1">
+                <Check className="h-3.5 w-3.5" />
+                {t("favourites.bulkImportResultSummary", {
+                  added: String(summary.added),
+                  skipped: String(summary.skipped),
+                  notFound: String(summary.notFound),
+                })}
+              </span>
+            )}
+          </div>
+
+          {results && results.length > 0 && (
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <div className="max-h-72 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50">
+                      <TableHead className="w-10" />
+                      <TableHead>{t("favourites.bulkImportInput")}</TableHead>
+                      <TableHead>{t("favourites.bulkImportMatch2")}</TableHead>
+                      <TableHead className="text-right">{t("favourites.bulkImportScore")}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {results.map((r, idx) => {
+                      const already = r.enterprise_number && existingCbes.has(r.enterprise_number);
+                      const selectable = !!r.enterprise_number && !already;
+                      const checked = r.enterprise_number ? selected.has(r.enterprise_number) : false;
+                      return (
+                        <TableRow key={`${r.input_name}-${idx}`} className="hover:bg-slate-50/50">
+                          <TableCell className="w-10">
+                            {selectable && (
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggle(r.enterprise_number as string)}
+                                className="h-3.5 w-3.5 rounded border-slate-300"
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs text-slate-600 max-w-[14rem] truncate">
+                            {r.input_name}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {r.enterprise_number ? (
+                              <span>
+                                <Link
+                                  href={`/company/${r.enterprise_number}`}
+                                  className="font-medium text-indigo-600 hover:underline"
+                                >
+                                  {r.best_match_name || fmtCbe(r.enterprise_number)}
+                                </Link>
+                                <span className="ml-1.5 text-[10px] text-slate-400">
+                                  {fmtCbe(r.enterprise_number)}
+                                  {r.city ? ` · ${r.city}` : ""}
+                                </span>
+                                {already && (
+                                  <span className="ml-1.5 text-[10px] text-amber-600">
+                                    ({t("favourites.bulkImportAlreadyStarred")})
+                                  </span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 italic">
+                                {t("favourites.bulkImportNoMatch")}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right text-xs font-mono tabular-nums">
+                            {r.score > 0 ? (
+                              <span
+                                className={
+                                  r.score >= 80
+                                    ? "text-emerald-600 font-semibold"
+                                    : r.score >= 50
+                                    ? "text-amber-600"
+                                    : "text-slate-400"
+                                }
+                              >
+                                {r.score}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 bg-slate-50/40">
+                <span className="text-[11px] text-slate-500">
+                  {t("favourites.bulkImportSelectedCount", {
+                    selected: String(selected.size),
+                    total: String(selectableCount),
+                  })}
+                </span>
+                <Button size="sm" onClick={runConfirm} disabled={confirming || selected.size === 0}>
+                  {confirming ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  ) : (
+                    <Star className="h-4 w-4 mr-1.5 text-amber-300 fill-amber-300" />
+                  )}
+                  {t("favourites.bulkImportAddSelected")}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {results && results.length === 0 && !matching && (
+            <p className="text-xs text-slate-400 italic">{t("favourites.bulkImportNoResults")}</p>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /* ---------- main component ---------- */
 
 export default function FavouritesPage() {
@@ -1148,6 +1373,17 @@ export default function FavouritesPage() {
       </div>
 
       {activeTab === "companies" && (<>
+      {/* ── Bulk import by company name ──────────────────── */}
+      <BulkImportPanel
+        existingCbes={new Set(favourites.map((f) => f.enterprise_number))}
+        onImported={() => {
+          setLoading(true);
+          getFavourites()
+            .then(setFavourites)
+            .finally(() => setLoading(false));
+        }}
+      />
+
       {/* ── Projects section ──────────────────────────────── */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">

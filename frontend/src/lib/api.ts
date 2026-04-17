@@ -130,7 +130,9 @@ export interface ScreenerRow {
   fte_growth_3y_pct?: number | null;
   rev_growth_pct?: number | null;
   ebitda_growth_pct?: number | null;
-  assets_growth_pct?: number | null;
+  rev_history?: (number | null)[] | null;
+  ebitda_history?: (number | null)[] | null;
+  year_history?: (number | null)[] | null;
 }
 
 export interface ScreenerFilters {
@@ -625,6 +627,39 @@ export const addFavourite = (enterprise_number: string, notes?: string) =>
 
 export const removeFavourite = (cbe: string) =>
   apiFetch<{ status: string }>(`/api/favourites/${cbe}`, { method: "DELETE" });
+
+// ── Bulk Import ────────────────────────────────────────────────
+export interface ImportMatchRow {
+  input_name: string;
+  best_match_name: string | null;
+  enterprise_number: string | null;
+  city: string | null;
+  score: number;
+}
+
+export interface ImportMatchResponse {
+  results: ImportMatchRow[];
+  input_count: number;
+  matched_count: number;
+}
+
+export interface ImportConfirmResponse {
+  added: number;
+  skipped: number;
+  not_found: string[];
+}
+
+export const importMatchNames = (names: string[]) =>
+  apiFetch<ImportMatchResponse>("/api/import/match", {
+    method: "POST",
+    body: JSON.stringify({ names }),
+  });
+
+export const importConfirmCbes = (enterprise_numbers: string[]) =>
+  apiFetch<ImportConfirmResponse>("/api/import/confirm", {
+    method: "POST",
+    body: JSON.stringify({ enterprise_numbers }),
+  });
 
 // ── Favourite Projects ────────────────────────────────────────
 export interface ProjectMember {

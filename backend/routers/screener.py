@@ -59,13 +59,13 @@ async def screener(
     rev_growth_max: Optional[float] = Query(None, description="Max revenue growth % YoY"),
     ebitda_growth_min: Optional[float] = Query(None, description="Min EBITDA growth % YoY"),
     ebitda_growth_max: Optional[float] = Query(None, description="Max EBITDA growth % YoY"),
-    assets_growth_min: Optional[float] = Query(None, description="Min total assets growth % YoY"),
-    assets_growth_max: Optional[float] = Query(None, description="Max total assets growth % YoY"),
     fte_growth_3y_min: Optional[float] = Query(None, description="Min FTE 3y growth %"),
     fte_growth_3y_max: Optional[float] = Query(None, description="Max FTE 3y growth %"),
     fixed_assets_min: Optional[float] = Query(None, ge=0, description="Min fixed assets (rubric 20/28 \u2014 intangible + tangible + financial) in EUR"),
     fixed_assets_max: Optional[float] = Query(None, ge=0, description="Max fixed assets (rubric 20/28 \u2014 intangible + tangible + financial) in EUR"),
     distress: Optional[str] = Query(None, description="Distress filter: 'bankruptcy', 'wco', or 'any'"),
+    no_financials: bool = Query(False, description="Show only companies that have no NBB financials loaded yet (coverage-gap mode)"),
+    include_sparklines: bool = Query(False, description="Attach last-5-year revenue + EBITDA arrays per row for trend sparklines"),
     sort: str = Query("ebit_desc", description="Sort order"),
     limit: int = Query(100, ge=1, le=1000),
 ):
@@ -85,11 +85,13 @@ async def screener(
     conditions = []
     params = []
 
-    # When distress is set we may not have a `company_info` row for this
-    # enterprise (company_info is built from financial_latest), so fall
-    # back to the activity / address tables for nace + zipcode filtering.
-    nace_expr = "COALESCE(ci.nace_code, ac.nace_code)" if distress else "ci.nace_code"
-    zip_expr = "COALESCE(ci.zipcode, ad.zipcode)" if distress else "ci.zipcode"
+    # When distress OR no_financials is set we anchor on `enterprise`
+    # (not financial_latest), so fall back to the activity/address tables
+    # for nace + zipcode filtering. The COALESCE also keeps things working
+    # once the full KBO universe is in company_info (post-refresh).
+    coverage_mode = bool(distress) or no_financials
+    nace_expr = "COALESCE(ci.nace_code, ac.nace_code)" if coverage_mode else "ci.nace_code"
+    zip_expr = "COALESCE(ci.zipcode, ad.zipcode)" if coverage_mode else "ci.zipcode"
 
     if nace:
         nace_codes = parse_nace_list(nace)
@@ -145,7 +147,6 @@ async def screener(
     # Growth filters — compare with previous year
     needs_prev_year = any(v is not None for v in [
         rev_growth_min, rev_growth_max, ebitda_growth_min, ebitda_growth_max,
-        assets_growth_min, assets_growth_max,
     ])
 
     if rev_growth_min is not None:
@@ -160,12 +161,6 @@ async def screener(
     if ebitda_growth_max is not None:
         conditions.append("prev.ebitda IS NOT NULL AND ABS(prev.ebitda) > 0 AND ((fl.ebitda - prev.ebitda) / ABS(prev.ebitda) * 100) <= %s")
         params.append(ebitda_growth_max)
-    if assets_growth_min is not None:
-        conditions.append("prev.total_assets > 0 AND ((fl.total_assets - prev.total_assets) / prev.total_assets * 100) >= %s")
-        params.append(assets_growth_min)
-    if assets_growth_max is not None:
-        conditions.append("prev.total_assets > 0 AND ((fl.total_assets - prev.total_assets) / prev.total_assets * 100) <= %s")
-        params.append(assets_growth_max)
 
     # FTE 3y growth — compares against prev3 (fiscal_year - 3). Companies
     # without 3-year history are excluded from the result by the WHERE
@@ -208,6 +203,12 @@ async def screener(
     elif distress == "healthy":
         conditions.append(f"e.juridical_situation IN ({OPERATIONAL_CODES})")
 
+    # Coverage-gap mode: restrict to KBO-registered companies with no
+    # NBB filing in `financial_latest` yet. Requires the enterprise-
+    # anchored FROM clause to be active (same shape distress mode uses).
+    if no_financials:
+        conditions.append("fl.enterprise_number IS NULL")
+
     where = (" AND " + " AND ".join(conditions)) if conditions else ""
 
     prev_join = """
@@ -236,10 +237,7 @@ async def screener(
                END AS "rev_growth_pct",
                CASE WHEN prev.ebitda IS NOT NULL AND ABS(prev.ebitda) > 0
                     THEN ROUND(((fl.ebitda - prev.ebitda) / ABS(prev.ebitda) * 100)::numeric, 1)
-               END AS "ebitda_growth_pct",
-               CASE WHEN prev.total_assets > 0
-                    THEN ROUND(((fl.total_assets - prev.total_assets) / prev.total_assets * 100)::numeric, 1)
-               END AS "assets_growth_pct"
+               END AS "ebitda_growth_pct"
         """
     fte_3y_col = ""
     if needs_fte_3y:
@@ -253,6 +251,35 @@ async def screener(
     # and lets the user see the value without setting a filter).
     fixed_assets_col = ', fl.fixed_assets AS "fixed_assets"'
 
+    # Sparkline history — last 5 fiscal years of revenue/EBITDA per row.
+    # LATERAL returns an ORDERED array so the frontend can draw a line
+    # directly. Skipped unless explicitly requested; adds a small but
+    # real per-row cost at large `limit`.
+    sparkline_col = ""
+    sparkline_join = ""
+    if include_sparklines:
+        sparkline_col = """,
+               sl.rev_history AS "rev_history",
+               sl.ebitda_history AS "ebitda_history",
+               sl.year_history AS "year_history"
+        """
+        anchor_cbe = "e.enterprise_number" if coverage_mode else "fl.enterprise_number"
+        sparkline_join = f"""
+            LEFT JOIN LATERAL (
+                SELECT
+                    ARRAY_AGG(revenue ORDER BY fiscal_year)      AS rev_history,
+                    ARRAY_AGG(ebitda  ORDER BY fiscal_year)      AS ebitda_history,
+                    ARRAY_AGG(fiscal_year ORDER BY fiscal_year)  AS year_history
+                FROM (
+                    SELECT fiscal_year, revenue, ebitda
+                    FROM financial_by_year
+                    WHERE enterprise_number = {anchor_cbe}
+                    ORDER BY fiscal_year DESC
+                    LIMIT 5
+                ) recent
+            ) sl ON TRUE
+        """
+
     # When the user filters by distress (bankruptcy / WCO / any-distress),
     # anchor the query on `enterprise` instead of `financial_latest`. Most
     # bankrupt or WCO companies haven't filed accounts, AND `company_info`
@@ -261,7 +288,7 @@ async def screener(
     # company_info and fall back to the raw KBO `denomination` / `address`
     # tables for name + city + zipcode when no `company_info` row exists.
     # The CBE itself comes off the `enterprise` table so it's never NULL.
-    if distress:
+    if coverage_mode:
         # Subquery picks the canonical (NL preferred, fall back to FR) name
         # per enterprise without inflating cardinality.
         anchor_from = """
@@ -328,10 +355,12 @@ async def screener(
                {growth_cols}
                {fte_3y_col}
                {fixed_assets_col}
+               {sparkline_col}
         {anchor_from}
         {prev_join}
         {prev3_join}
         {fixed_assets_join}
+        {sparkline_join}
         WHERE 1=1 {where}
         ORDER BY {sort_sql}
         LIMIT %s
@@ -346,12 +375,17 @@ async def screener(
         import datetime
         for row in rows:
             for key in ("revenue", "ebit", "ebitda", "margin_pct", "net_profit", "fte",
-                        "rev_growth_pct", "ebitda_growth_pct", "assets_growth_pct",
+                        "rev_growth_pct", "ebitda_growth_pct",
                         "fte_growth_3y_pct", "fixed_assets"):
                 if row.get(key) is not None:
                     row[key] = float(row[key])
             if isinstance(row.get("start_date"), (datetime.date, datetime.datetime)):
                 row["start_date"] = str(row["start_date"])
+            # Sparkline arrays — cast Decimals to floats element-wise.
+            for arr_key in ("rev_history", "ebitda_history"):
+                arr = row.get(arr_key)
+                if isinstance(arr, list):
+                    row[arr_key] = [float(v) if v is not None else None for v in arr]
 
         return rows
     except Exception as e:
@@ -386,7 +420,6 @@ async def nl_screener(body: NLScreenerBody, user=Depends(get_current_user)):
         "- nd_ebitda_max: max Net Debt / EBITDA ratio\n"
         "- rev_growth_min / rev_growth_max: revenue growth % YoY\n"
         "- ebitda_growth_min / ebitda_growth_max: EBITDA growth % YoY\n"
-        "- assets_growth_min / assets_growth_max: total assets growth % YoY\n"
         "- fte_growth_3y_min / fte_growth_3y_max: 3-year FTE headcount growth %\n"
         "- fixed_assets_min / fixed_assets_max: fixed assets (rubric 20/28 \u2014 intangible + tangible + financial) in EUR\n"
         "- distress: 'healthy' | 'bankruptcy' | 'wco' | 'any' — filter on juridical situation\n"

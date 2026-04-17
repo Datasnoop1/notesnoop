@@ -20,6 +20,8 @@ import {
   Shield,
   Scale,
   Landmark,
+  Clock,
+  Wallet,
 } from "lucide-react";
 import type {
   CompanyDetail,
@@ -158,6 +160,26 @@ export function SummaryTab({
   const ebitdaYoy = yoyChange(latest?.ebitda ?? null, prev?.ebitda ?? null);
   const fteYoy = yoyChange(latest?.fte_total ?? null, prev?.fte_total ?? null);
 
+  // DSO / DPO — working-capital cycle indicators.
+  // DSO = (trade receivables / revenue) * 365.
+  // DPO = (trade payables / cost of goods) * 365. Cost of goods isn't a
+  // standalone column, so derive it as revenue - gross_margin (rubric 70 -
+  // rubric 9900). Falls back to revenue (matching the credit-tab table) if
+  // gross_margin is missing — better to show *something* than a dash.
+  let dso: number | null = null;
+  let dpo: number | null = null;
+  if (latest && latest.revenue && latest.revenue > 0) {
+    if (latest.trade_receivables != null) {
+      dso = (latest.trade_receivables / latest.revenue) * 365;
+    }
+    if (latest.trade_payables != null) {
+      const cogs = latest.gross_margin != null
+        ? Math.max(latest.revenue - latest.gross_margin, 1)
+        : latest.revenue;
+      dpo = (latest.trade_payables / cogs) * 365;
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Key Financials — full-width KPI cards + Financial History (no gap) */}
@@ -172,7 +194,7 @@ export function SummaryTab({
             {/* Link removed — P&L has its own tab */}
           </div>
           {/* KPI cards row */}
-          <div className="px-5 pb-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+          <div className="px-5 pb-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-3">
             {/* Revenue */}
             <div className="rounded-lg bg-slate-50 px-3 py-2.5">
               <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
@@ -233,6 +255,26 @@ export function SummaryTab({
                 {interestCoverage != null && isFinite(interestCoverage) ? `${interestCoverage.toFixed(1)}x` : "\u2014"}
               </div>
               <div className="text-[10px] text-slate-400 mt-0.5">EBITDA / Int. Exp</div>
+            </div>
+            {/* DSO — high = cash-flow risk flag */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5" title="Days Sales Outstanding = Trade Receivables / Revenue × 365. Higher = customers pay slower = cash-flow risk.">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <Clock className="h-3 w-3" /> DSO
+              </div>
+              <div className={`text-sm font-semibold font-mono ${dso != null ? (dso <= 45 ? "text-emerald-600" : dso <= 90 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
+                {dso != null && isFinite(dso) ? `${Math.round(dso)}d` : "\u2014"}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Days to collect</div>
+            </div>
+            {/* DPO — paired with DSO describes the working-capital cycle */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5" title="Days Payable Outstanding = Trade Payables / Cost of Goods × 365. Higher = paying suppliers slower = better short-term cash position.">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <Wallet className="h-3 w-3" /> DPO
+              </div>
+              <div className={`text-sm font-semibold font-mono ${dpo != null ? (dpo >= 60 ? "text-emerald-600" : dpo >= 30 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
+                {dpo != null && isFinite(dpo) ? `${Math.round(dpo)}d` : "\u2014"}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Days to pay</div>
             </div>
           </div>
 

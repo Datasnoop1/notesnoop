@@ -151,7 +151,6 @@
     "maxNetDebtEbitda": "Max Net Debt/EBITDA",
     "revenueGrowth": "Revenue Growth %",
     "ebitdaGrowth": "EBITDA Growth %",
-    "totalAssetsGrowth": "Total Assets Growth %",
     "fixedAssets": "Fixed assets (rubric 20/28) \u20AC",
     "fixedAssetsShort": "Fixed assets \u20AC",
     "distress": "Status",
@@ -182,7 +181,9 @@
     "hoverNetProfit": "Net Profit",
     "hoverFte": "FTE",
     "min": "Min",
-    "max": "Max"
+    "max": "Max",
+    "noFinancialsOnly": "No financials loaded yet",
+    "trend": "Trend"
   },
 
   "company": {
@@ -486,7 +487,20 @@
     "notFound": "{count} not found",
     "noCustomersYet": "No customers yet.",
     "noSuppliersYet": "No suppliers yet.",
-    "uploadCsvHint": "Upload a CSV or Excel file with CBE numbers to populate this list."
+    "uploadCsvHint": "Upload a CSV or Excel file with CBE numbers to populate this list.",
+    "bulkImportTitle": "Bulk import by company name",
+    "bulkImportHint": "Paste a list of company names (one per line). We fuzzy-match each to a Belgian company. Review, then add the selected ones to your favourites.",
+    "bulkImportPlaceholder": "One company name per line:\nSolvay\nUmicore\nKBC Group",
+    "bulkImportMatch": "Match names",
+    "bulkImportMatch2": "Best match",
+    "bulkImportInput": "Input",
+    "bulkImportScore": "Score",
+    "bulkImportNoMatch": "no match",
+    "bulkImportAlreadyStarred": "already in favourites",
+    "bulkImportSelectedCount": "{selected} of {total} selected",
+    "bulkImportAddSelected": "Add selected to favourites",
+    "bulkImportNoResults": "No matches found. Try fuller names (e.g. \"Solvay\" instead of \"Sol\").",
+    "bulkImportResultSummary": "Added {added}, skipped {skipped}, not found {notFound}"
   },
 
   "compare": {
