@@ -80,13 +80,13 @@ export function renderDeltaHeaders(years: number[]): React.ReactNode[] {
   const headers: React.ReactNode[] = [];
   for (let i = 0; i < years.length; i++) {
     headers.push(
-      <th key={`y-${years[i]}`} className="px-2 md:px-3 py-2 text-right text-slate-400 font-medium min-w-[60px] md:min-w-[80px]">
+      <th key={`y-${years[i]}`} className="px-1.5 md:px-3 py-2 text-right text-slate-400 font-medium min-w-[56px] md:min-w-[80px]">
         FY{years[i]}
       </th>
     );
     if (i < years.length - 1) {
       headers.push(
-        <th key={`d-${years[i]}`} className="px-0.5 md:px-1 py-2 text-center text-slate-400 font-normal w-[40px] md:w-[70px] text-[10px] md:text-[9px]">
+        <th key={`d-${years[i]}`} className="px-0.5 md:px-1 py-2 text-center text-slate-400 font-normal w-[32px] md:w-[70px] text-[10px] md:text-[9px]">
           Δ
         </th>
       );
