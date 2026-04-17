@@ -275,12 +275,18 @@ def apply_inserts(cur, zf, filename, table_name):
 
 
 def refresh_company_info():
-    """Refresh the company_info table from enterprise + denomination + address + activity."""
+    """Refresh the company_info table from enterprise + denomination + address + activity.
+
+    Uses DISTINCT ON to guarantee a single row per enterprise_number — a few
+    companies have multiple NL registered denominations / addresses / MAIN
+    activities, and a raw multi-join would emit them as duplicate keys,
+    which Postgres rejects inside a single ON CONFLICT DO UPDATE statement.
+    """
     log.info("Refreshing company_info table...")
     t0 = time.time()
     execute("""
         INSERT INTO company_info (enterprise_number, name, city, zipcode, nace_code)
-        SELECT
+        SELECT DISTINCT ON (e.enterprise_number)
             e.enterprise_number,
             d.denomination AS name,
             a.municipality_nl AS city,
@@ -297,6 +303,8 @@ def refresh_company_info():
             WHERE activity_group = '001' AND nace_version = '2008' AND classification = 'MAIN'
         ) act ON act.entity_number = e.enterprise_number
         WHERE e.status = 'AC'
+        ORDER BY e.enterprise_number, d.denomination NULLS LAST,
+                 a.zipcode NULLS LAST, act.nace_code NULLS LAST
         ON CONFLICT (enterprise_number) DO UPDATE SET
             name = EXCLUDED.name,
             city = EXCLUDED.city,
