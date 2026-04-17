@@ -15,7 +15,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import fetch_all, fetch_one, execute
-from auth import get_current_user
+from auth import optional_user
 from ai_routing import (
     SIMILAR_COMPANIES_ROUTING,
     estimate_cost_usd,
@@ -287,7 +287,7 @@ async def get_similar_companies_ai(
     cbe: str,
     focus: Literal["activity", "size", "geography"] = Query("activity"),
     limit: int = Query(10, ge=1, le=20),
-    user=Depends(get_current_user),
+    user=Depends(optional_user),
 ):
     """Blend NACE, embedding, and size-band peers; re-rank with an LLM.
 
