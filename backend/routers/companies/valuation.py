@@ -77,36 +77,8 @@ _VLERICK_SECTOR = [
     ("transport_logistics", 5.5), ("construction", 4.8),
 ]
 
-# ── Damodaran Europe (NYU Stern) — Jan 2025 update, listed-company averages ──
-# NOTE: these are APPROXIMATIONS of the public dataset and should be refreshed
-# annually from https://pages.stern.nyu.edu/~adamodar/ (vebitda.xls). Values
-# reflect EV/EBITDA medians for European public companies by industry group.
-# No size breakdown — listed-company aggregates don't cut by deal size.
-_DAMODARAN_SECTOR = [
-    ("technology", 19.0), ("pharmaceutical", 16.5), ("healthcare", 13.5),
-    ("energy_utilities", 8.5), ("business_services", 12.0),
-    ("entertainment_media", 11.0), ("chemistry", 10.5), ("consumer_goods", 11.0),
-    ("industrial_products", 11.0), ("real_estate", 15.0), ("retail", 10.0),
-    ("transport_logistics", 8.5), ("construction", 8.5),
-]
-
-# ── Argos Index (Argos Wityu / Epsilon Research) — Euro mid-market Q4 2024 ──
-# Focus on €15M-€500M EV deals. Transaction-based (not listed-company), so
-# closer to private-deal reality than Damodaran. Quarterly refresh.
-# No granular sector breakdown in the free index — size-bucketed only.
-_ARGOS_SIZE = [
-    ("lt_5m",    8.0,   "<5M EUR (extrapolated — Argos covers mid-market)"),
-    ("5_20m",    8.5,   "5M-20M EUR (Argos small-mid bracket)"),
-    ("20_50m",   9.0,   "20M-50M EUR (Argos mid bracket)"),
-    ("50_100m", 10.0,   "50M-100M EUR (Argos upper-mid bracket)"),
-    ("gt_100m", 10.5,   ">100M EUR (Argos large bracket)"),
-    ("overall",  9.5,   "Euro mid-market overall"),
-]
-
 _ALL_SEEDS = [
-    ("vlerick",    _VLERICK_SIZE,    _VLERICK_SECTOR),
-    ("damodaran",  [],               _DAMODARAN_SECTOR),
-    ("argos",      _ARGOS_SIZE,      []),
+    ("vlerick", _VLERICK_SIZE, _VLERICK_SECTOR),
 ]
 
 _SOURCE_META = {
@@ -116,29 +88,9 @@ _SOURCE_META = {
         "url": "https://www.moore.be/sites/default/files/2025-05/2025%20MA%20Monitor.pdf",
         "kind": "transaction",
         "scope": "Belgian M&A transactions",
-        "note": "Belgian mid-market transaction medians — most relevant for Belgian SMEs. Multiples applied to each reported year so evolution reflects EBITDA growth.",
+        "note": "Belgian mid-market transaction medians. Multiples applied to each reported year so evolution reflects EBITDA growth.",
         "has_size": True,
         "has_sector": True,
-    },
-    "damodaran": {
-        "label": "Damodaran Europe (NYU Stern)",
-        "publisher": "Prof. Aswath Damodaran, NYU Stern School of Business",
-        "url": "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/dataarchived.html",
-        "kind": "listed",
-        "scope": "European public-company industry medians",
-        "note": "Based on LISTED company market caps — systematically higher than private Belgian SME transactions. Treat as an upper reference.",
-        "has_size": False,
-        "has_sector": True,
-    },
-    "argos": {
-        "label": "Argos Index (Euro mid-market)",
-        "publisher": "Argos Wityu & Epsilon Research",
-        "url": "https://argos.wityu.fund/argos-index/",
-        "kind": "transaction",
-        "scope": "Eurozone mid-market deals (€15M-€500M EV)",
-        "note": "Transaction-based Eurozone mid-market medians. Closer to private-deal reality than listed-company data, but broader geography than Belgium.",
-        "has_size": True,
-        "has_sector": False,
     },
 }
 

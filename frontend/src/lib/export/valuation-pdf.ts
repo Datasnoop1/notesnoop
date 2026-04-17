@@ -1,17 +1,10 @@
 /** Single-page A4 PDF of the Valuation tab (Vlerick M&A Monitor). */
 
 import jsPDF from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 import { PDF } from "./constants";
 import { fmtCbe } from "@/lib/format";
 import type { ValuationData } from "@/lib/api";
-
-declare module "jspdf" {
-  interface jsPDF {
-    autoTable: (options: Record<string, unknown>) => jsPDF;
-    lastAutoTable: { finalY: number };
-  }
-}
 
 function fmtVal(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return "—";
@@ -35,9 +28,9 @@ export async function generateValuationPdf(
   cbe: string,
   view: "size" | "sector",
 ) {
-  if (data.status !== "ok" || !data.profile) return;
-
-  await new Promise((r) => setTimeout(r, 0));
+  if (data.status !== "ok" || !data.profile) {
+    throw new Error("No valuation data available to export");
+  }
 
   const { profile, years, vlerick_reference, pro_memoria_note } = data;
   const multiple = view === "size" ? profile.size_multiple : profile.sector_multiple;
@@ -178,7 +171,7 @@ export async function generateValuationPdf(
     ],
   ];
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: y,
     margin: { left: margin, right: margin },
     head,
@@ -189,8 +182,9 @@ export async function generateValuationPdf(
     columnStyles: {
       0: { cellWidth: 60, fontStyle: "normal" },
     },
-    didParseCell: (hookData: Record<string, unknown>) => {
-      const d2 = hookData as { section: string; row: { index: number }; column: { index: number }; cell: { styles: Record<string, unknown> } };
+    didParseCell: (hookData) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const d2 = hookData as any;
       if (d2.section === "body") {
         const i = d2.row.index;
         if (d2.column.index > 0) d2.cell.styles.halign = "right";
@@ -203,7 +197,8 @@ export async function generateValuationPdf(
       }
     },
   });
-  y = doc.lastAutoTable.finalY + 4;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  y = ((doc as any).lastAutoTable?.finalY ?? y + 50) + 4;
 
   // Pro memoria
   if (pro_memoria_note && y < 245) {

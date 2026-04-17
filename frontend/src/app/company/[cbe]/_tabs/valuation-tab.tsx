@@ -74,19 +74,25 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   const fmt = (v: number | null | undefined) => fmtEurUnit(v, unit);
 
   const handleExportExcel = async () => {
-    if (!data) return;
+    console.log("[valuation] Excel export clicked, data:", !!data);
+    if (!data) {
+      alert("No valuation data loaded yet — wait for the table to render.");
+      return;
+    }
     setExporting(true);
     try {
       const { generateValuationExcel } = await import("@/lib/export/valuation");
       await generateValuationExcel(data, companyName || fmtCbe(cbe), cbe, view);
     } catch (err) {
-      console.error("Excel export failed:", err);
+      console.error("[valuation] Excel export failed:", err);
+      alert("Excel export failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setExporting(false);
     }
   };
 
   const handleExportPdf = async () => {
+    console.log("[valuation] PDF export clicked, data:", !!data);
     if (!data) {
       alert("No valuation data loaded yet — wait for the table to render.");
       return;
@@ -96,11 +102,8 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
       const mod = await import("@/lib/export/valuation-pdf");
       await mod.generateValuationPdf(data, companyName || fmtCbe(cbe), cbe, view);
     } catch (err) {
-      console.error("PDF export failed:", err);
-      alert(
-        "PDF export failed: " +
-          (err instanceof Error ? `${err.message}\n\n${err.stack ?? ""}` : String(err))
-      );
+      console.error("[valuation] PDF export failed:", err);
+      alert("PDF export failed: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setExporting(false);
     }
