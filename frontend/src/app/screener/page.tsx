@@ -132,6 +132,7 @@ type SortKey =
   | "ebit_desc"
   | "ebitda_desc"
   | "fte_desc"
+  | "real_estate_desc"
   | "name_asc";
 
 const LIMIT_OPTIONS = ["50", "100", "250", "500"];
