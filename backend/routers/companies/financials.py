@@ -1,5 +1,6 @@
 """Companies financials router — load financial data from NBB and read history."""
 
+import asyncio
 import logging
 import os
 from typing import Optional
@@ -14,6 +15,13 @@ from ._helpers import _serialize_row
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Cap concurrent NBB loads at 3. NBB doesn't publish rate limits but
+# advises 1-2s between calls; parallel /load calls from different IPs
+# would multiply NBB traffic and risk key revocation. Three in
+# flight keeps the service responsive under burst while staying
+# well inside the politeness envelope.
+_LOAD_SEMAPHORE = asyncio.Semaphore(3)
 
 
 # ---------------------------------------------------------------------------
@@ -35,10 +43,6 @@ async def load_company_data(cbe: str, fiscal_year: Optional[int] = Query(None, d
     4. Insert into financial_data table
     5. Refresh financial_latest and financial_by_year for this company
     """
-    import time
-    import uuid
-    import psycopg2.extras
-
     cbe = clean_cbe(cbe)
 
     nbb_key = os.getenv("NBB_AUTHENTIC_KEY", "")
@@ -46,6 +50,17 @@ async def load_company_data(cbe: str, fiscal_year: Optional[int] = Query(None, d
 
     if not nbb_key:
         raise HTTPException(status_code=503, detail="NBB API key not configured")
+
+    # Global concurrency cap — serialise against other in-flight
+    # /load calls so NBB sees at most 3 concurrent streams from us.
+    async with _LOAD_SEMAPHORE:
+        return await _do_load(cbe, fiscal_year, nbb_key, nbb_base)
+
+
+async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base: str):
+    import time
+    import uuid
+    import psycopg2.extras
 
     # --- Step 1: Fetch filing references ---
     headers_ref = {

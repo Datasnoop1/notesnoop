@@ -29,7 +29,7 @@ load_dotenv()
 UAT2_URL = "https://ws.uat2.cbso.nbb.be"
 PROD_URL = "https://ws.cbso.nbb.be"
 
-DEFAULT_DELAY = 0.3      # seconds between requests
+DEFAULT_DELAY = 1.5      # seconds between requests — NBB floor is 1-2s per their guidance.
 MAX_RETRIES = 3
 RETRY_BACKOFF = 2.0      # multiplier per retry
 
