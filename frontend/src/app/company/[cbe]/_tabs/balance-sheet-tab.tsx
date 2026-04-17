@@ -241,7 +241,7 @@ export function BalanceSheetTab({
             <BarChart data={bridgeData} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 80 }}>
               <XAxis type="number" hide tickFormatter={(v: number) => fmtEur(v)} />
               <YAxis type="category" dataKey="side" tick={{ fontSize: 11 }} width={80} />
-              <Tooltip formatter={(v: number) => fmtEur(v)} />
+              <Tooltip formatter={(v) => fmtEur(typeof v === "number" ? v : Number(v) || 0)} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               {/* Asset stack — only renders for the first row */}
               {Object.keys(ASSET_COLORS).map((k) => (
