@@ -176,7 +176,7 @@ function PeoplePageInner() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-[1200px] space-y-4">
       {/* Header */}
       <div>
         <h1 className="text-xl font-bold text-slate-900">

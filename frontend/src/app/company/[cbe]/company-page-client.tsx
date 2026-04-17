@@ -44,8 +44,8 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
-  Scale,
   Sparkles,
+  BarChart3,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
@@ -737,18 +737,22 @@ export function CompanyPageClient({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                const existing = JSON.parse(sessionStorage.getItem("compare_companies") || "[]");
-                if (!existing.includes(cbe)) {
-                  existing.push(cbe);
-                  sessionStorage.setItem("compare_companies", JSON.stringify(existing));
-                }
-                router.push("/compare");
-              }}
-              className="h-9 md:h-7 text-[11px] text-slate-500 border-slate-200 hover:border-slate-300 px-2.5 md:px-2"
+              onClick={() => handleTabChange("benchmark")}
+              title="Benchmark"
+              className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${activeTab === "benchmark" ? "bg-indigo-50 border-indigo-400" : ""}`}
             >
-              <Scale className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
-              {t("company.compare")}
+              <BarChart3 className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
+              <span className="hidden sm:inline">{t("company.tabs.benchmark")}</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleTabChange("similar")}
+              title="Find similar"
+              className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${activeTab === "similar" ? "bg-indigo-50 border-indigo-400" : ""}`}
+            >
+              <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
+              <span className="hidden sm:inline">{t("company.findSimilar")}</span>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -886,8 +890,8 @@ export function CompanyPageClient({
               { value: "cashflow", label: t("company.tabs.cashflow") as string },
               { value: "balancesheet", label: t("company.tabs.balanceSheet") as string },
               { value: "credit", label: t("company.tabs.credit") as string },
-              { value: "valuation", label: t("company.tabs.valuation") as string },
             ]},
+            { id: "valuation", label: t("company.tabs.valuation") as string, subs: [{ value: "valuation", label: "" }] },
             { id: "network", label: t("company.tabs.network") as string, subs: [{ value: "network", label: "" }] },
             { id: "people", label: "People & Ownership", subs: [
               { value: "administrators", label: t("company.tabs.administrators") as string },
@@ -911,7 +915,7 @@ export function CompanyPageClient({
                 ))}
               </TabsList>
 
-              <div className="border-b border-slate-100 flex items-end justify-between gap-3 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 no-print">
+              <div className="border-b border-slate-100 flex items-end gap-3 overflow-x-auto scrollbar-none -mx-4 px-4 md:mx-0 md:px-0 no-print">
                 <div className="flex md:flex-wrap">
                   {TAB_GROUPS.map((g) => {
                     const active = currentGroup?.id === g.id;
@@ -930,31 +934,6 @@ export function CompanyPageClient({
                       </button>
                     );
                   })}
-                </div>
-                <div className="flex items-center gap-1.5 pb-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => handleTabChange("benchmark")}
-                    className={`inline-flex items-center gap-1 h-9 md:h-7 text-[11px] px-2.5 md:px-2 rounded-md border transition ${
-                      activeTab === "benchmark"
-                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                        : "border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400"
-                    }`}
-                  >
-                    {t("company.tabs.benchmark")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTabChange("similar")}
-                    className={`inline-flex items-center gap-1 h-9 md:h-7 text-[11px] px-2.5 md:px-2 rounded-md border transition ${
-                      activeTab === "similar"
-                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
-                        : "border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400"
-                    }`}
-                  >
-                    <Sparkles className="h-3 w-3 mr-0.5" />
-                    {t("company.findSimilar")}
-                  </button>
                 </div>
               </div>
 

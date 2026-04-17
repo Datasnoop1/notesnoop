@@ -213,7 +213,7 @@ export default function OutperformersPage() {
   const endYear = overview?.end_year ?? 2025;
 
   return (
-    <div className="space-y-8 pb-16 max-w-7xl mx-auto px-4 sm:px-6 py-8">
+    <div className="mx-auto w-full max-w-[1200px] space-y-8 pb-16">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2">
