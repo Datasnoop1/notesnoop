@@ -6,6 +6,7 @@ import { useTranslation } from "@/components/language-provider";
 import { fmtEur } from "@/lib/format";
 import { renderDelta, renderDeltaHeaders } from "../helpers";
 import type { FinancialsData } from "../types";
+import { PdfOnlyBanner } from "./pdf-only-banner";
 
 /* ---------- Props ---------- */
 
@@ -29,6 +30,13 @@ export function CashFlowTab({
   const { t } = useTranslation();
 
   if (!financials || financials.summary.length < 2) {
+    if (financials?.pdf_only) {
+      return (
+        <div className="py-8">
+          <PdfOnlyBanner cbe={cbe} />
+        </div>
+      );
+    }
     return (
       <p className="py-8 text-center text-sm text-slate-500">
         {t("company.cf.noData")}

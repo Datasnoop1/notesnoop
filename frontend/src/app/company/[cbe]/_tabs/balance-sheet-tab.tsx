@@ -6,6 +6,7 @@ import ExportButtons from "@/components/export-buttons";
 import { fmtEur } from "@/lib/format";
 import { renderDelta, renderDeltaHeaders } from "../helpers";
 import type { FinancialsData } from "../types";
+import { PdfOnlyBanner } from "./pdf-only-banner";
 import {
   BarChart,
   Bar,
@@ -39,6 +40,13 @@ export function BalanceSheetTab({
   const { t } = useTranslation();
 
   if (!financials || financials.summary.length === 0) {
+    if (financials?.pdf_only) {
+      return (
+        <div className="py-8">
+          <PdfOnlyBanner cbe={cbe} />
+        </div>
+      );
+    }
     return (
       <p className="py-8 text-center text-sm text-slate-500">
         {t("company.bs.noData")}

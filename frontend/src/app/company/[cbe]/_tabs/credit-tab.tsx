@@ -14,6 +14,7 @@ import {
 import { fmtEur } from "@/lib/format";
 import type { FinancialsData, CompanyDetail } from "../types";
 import { FormulaTooltip, downloadCsv } from "../helpers";
+import { PdfOnlyBanner } from "./pdf-only-banner";
 
 /* ---------- Color threshold functions ---------- */
 
@@ -97,6 +98,13 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
   const { t } = useTranslation();
 
   if (!financials || financials.summary.length === 0) {
+    if (financials?.pdf_only) {
+      return (
+        <div className="py-8">
+          <PdfOnlyBanner cbe={cbe} />
+        </div>
+      );
+    }
     return (
       <p className="py-8 text-center text-sm text-slate-500">
         {t("company.creditTab.noData")}
