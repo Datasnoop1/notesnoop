@@ -43,7 +43,7 @@ docker run --rm \
     -e NBB_ROTATE_DEBUG_DIR=/data/scripts/_rotate_debug \
     -e NBB_ENV_FILES=/data/.env.production,/data/.env \
     "$PLAYWRIGHT_IMAGE" \
-    python /data/scripts/nbb_key_rotate.py $DRY_RUN_FLAG $ROTATE_FLAG
+    bash -c "pip install --quiet 'playwright==1.58.0' >/dev/null 2>&1 && python /data/scripts/nbb_key_rotate.py $DRY_RUN_FLAG $ROTATE_FLAG"
 ROT_EXIT=$?
 
 if [ $ROT_EXIT -ne 0 ]; then
