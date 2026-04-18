@@ -41,8 +41,9 @@ NEW_BLOCK=$(cat <<'EOF'
 30 3 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_regsol.py --batch 200 >> /opt/leadpeek/scripts/_watchdog_state/regsol.log 2>&1
 # Invoice ingest from invoice@datasnoop.be
 0 4 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/invoice_ingest.py >> /opt/leadpeek/scripts/_watchdog_state/invoices.log 2>&1
-# Staatsblad events classification (local, cheap)
-30 4 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_staatsblad_events.py --limit 20000 >> /opt/leadpeek/scripts/_watchdog_state/staatsblad_events.log 2>&1
+# Staatsblad LLM incremental (Stage 3 — extracts structured events from new filings)
+# Supersedes the old regex-classifier (open_data_staatsblad_events.py)
+30 4 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/staatsblad_incremental.py --lookback-days 2 >> /opt/leadpeek/scripts/_watchdog_state/staatsblad_events.log 2>&1
 # TED procurement (last 7 days)
 0 5 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_ted.py --days 7 >> /opt/leadpeek/scripts/_watchdog_state/ted.log 2>&1
 # Valuation AI commentary — pre-generate for favourited / recently-viewed

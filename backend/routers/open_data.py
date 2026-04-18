@@ -140,12 +140,19 @@ async def company_radar(cbe: str):
 
 @router.get("/companies/{cbe}/events")
 async def company_events(cbe: str, limit: int = Query(50, ge=1, le=500)):
-    """Structured governance events — from staatsblad_event."""
+    """Structured governance events — from staatsblad_event.
+
+    Kept as a thin compatibility alias for the richer /api/companies/{cbe}/events
+    endpoint in staatsblad_events.py. Projects a legacy column shape for
+    frontend callers still using (reference, subject_name, raw_title).
+    """
     if not cbe.isdigit() or len(cbe) != 10:
         raise HTTPException(400, "CBE must be 10 digits")
     try:
         rows = fetch_all(
-            """SELECT reference, pub_date, event_type, subject_name, raw_title
+            """SELECT pub_reference AS reference, pub_date, event_type,
+                      COALESCE(person_name, entity_name) AS subject_name,
+                      summary AS raw_title, sub_type
                FROM staatsblad_event
                WHERE enterprise_number = %s
                ORDER BY pub_date DESC NULLS LAST
