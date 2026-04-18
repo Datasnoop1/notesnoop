@@ -10,12 +10,23 @@
  * way to surface a cash-flow view is to derive one from net profit +
  * balance-sheet deltas.
  *
- * Primary display is the **indirect method** — start from net profit,
- * add back non-cash items, strip exceptional P&L items, bridge working
- * capital. The **direct method** (cash receipts / payments) is computed
- * silently as an internal audit; `cfoAuditPasses` flips false if the two
- * methods disagree by more than 1% of |CFO|. That catches decomposition
- * bugs.
+ * Primary display is the **indirect method starting from EBITDA** —
+ * the PE / deal-sourcing convention. Starting from EBITDA has a nice
+ * property: exceptional items (rubric 66 + 76) and D&A (630) never
+ * enter EBITDA, so the statement has fewer "add-back / strip" lines
+ * than a net-profit start.
+ *
+ *   CFO = EBITDA                          (9901 + 630)
+ *       + Financial income (75)
+ *       − Interest expense (65)
+ *       − Income tax (67/77)
+ *       + Write-downs (631/4)              (non-cash)
+ *       + Provisions (635/8)               (non-cash)
+ *       + ΔWorking capital
+ *
+ * The **direct method** (cash receipts / payments) is computed silently
+ * as an internal audit; `cfoAuditPasses` flips false if the two methods
+ * disagree by more than 1% of |CFO|. That catches decomposition bugs.
  *
  * Sign convention throughout: **positive = cash source, negative = cash use**.
  *
@@ -31,25 +42,41 @@ export type RubricData = Record<string, Record<string, number | null>>;
 export interface CashFlowYear {
   fiscalYear: number;
 
-  /* ====== INDIRECT METHOD — OPERATING (UI-visible) ====== */
+  /* ====== INDIRECT METHOD — OPERATING (UI-visible, EBITDA-start) ====== */
 
-  /** Rubric 9904 — post-tax, post-interest. Starting point. */
+  /** Rubric 9904 — net profit after tax. Kept for internal audits and
+   *  for filers that don't disclose 9901/630 separately. Not shown in
+   *  the primary bridge. */
   netProfit: number | null;
 
-  /** Rubric 630. Non-cash add-back. Kept as raw signed value so that a
-   *  reversal (rare) correctly reduces the CFO add-back rather than being
-   *  silently zeroed out. */
+  /** EBITDA = 9901 + 630. Starting milestone of the cashflow bridge. */
+  ebitda: number | null;
+
+  /** Rubric 75 — financial income (interest received, dividends from
+   *  subs). Positive = cash source. Same sign as raw rubric. */
+  financialIncome: number;
+  /** Rubric 65 — financial charges (interest paid), **stored as cash
+   *  impact**: negative = outflow. Display-ready (no sign flip at render
+   *  time). */
+  interestExpense: number;
+  /** Rubric 67/77 — income tax, stored as cash impact. Negative =
+   *  outflow (tax paid). Positive = tax credit (refund / deferred
+   *  tax release). */
+  incomeTax: number;
+
+  /** Rubric 630 — kept for reference (part of EBITDA on the add-back
+   *  side) and for the CapEx formula below. Not shown as a separate
+   *  CFO line when starting from EBITDA. */
   da: number;
-  /** Rubric 631/4. Non-cash write-downs on receivables/inventory. */
+  /** Rubric 631/4. Non-cash write-downs; added back. */
   writedowns: number;
-  /** Rubric 635/8. Movement in provisions. Non-cash. */
+  /** Rubric 635/8. Movement in provisions; non-cash, added back. */
   provisions: number;
 
-  /** Rubric 76. Booked in P&L below the operating line; subtracted from
-   *  CFO because cash sits in CFI (for asset disposals) or is non-cash
-   *  (for revaluations). */
+  /** Rubric 76. Kept for internal audit only — starting from EBITDA
+   *  means exceptional items never enter the bridge, so no display line. */
   exceptionalIncome: number;
-  /** Rubric 66. Added back to CFO (usually operating). */
+  /** Rubric 66. Same as above — internal audit only. */
   exceptionalCharges: number;
 
   /** Increase in inventories (rubric 3) → cash use → negative. */
@@ -157,15 +184,27 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
     const prev = idx > 0 ? sorted[idx - 1] : null;
 
     const netProfit = rub(rubrics, "9904", fy);
-    const insufficientData = netProfit == null;
-
-    // Non-cash items. D&A kept as raw signed value: a rare reversal
-    // (rubric 630 filed negative) decreases the add-back rather than
-    // being silently zeroed by Math.max / Math.abs.
+    const operatingProfit = rub(rubrics, "9901", fy);  // EBIT proxy
     const da = rub(rubrics, "630", fy) ?? 0;
+    // EBITDA per CLAUDE.md: 9901 + 630. Starting milestone for the
+    // indirect bridge; null if operating profit isn't filed (very rare
+    // — 9901 is the most reliably-reported rubric across filing types).
+    const ebitda = operatingProfit != null ? operatingProfit + da : null;
+
+    const financialIncome = rub(rubrics, "75", fy) ?? 0;
+    // Store as cash impact so the UI can render the raw value without
+    // an extra sign flip and so the CFO formula is all additive.
+    const interestExpense = -(rub(rubrics, "65", fy) ?? 0);
+    const incomeTax = -(rub(rubrics, "67/77", fy) ?? 0);
+
+    // Need at least operating profit or net profit to build anything.
+    const insufficientData = ebitda == null && netProfit == null;
+
     const writedowns = rub(rubrics, "631/4", fy) ?? 0;
     const provisions = rub(rubrics, "635/8", fy) ?? 0;
 
+    // Exceptional — kept for direct-method audit only; no display line
+    // when starting from EBITDA.
     const exceptionalIncome = rub(rubrics, "76", fy) ?? 0;
     const exceptionalCharges = rub(rubrics, "66", fy) ?? 0;
 
@@ -260,17 +299,42 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
     const dividendsFiled = rub(rubrics, "694", fy) ?? 0;
     const dividendsPaid = dividendsFiled > 0 ? -dividendsFiled : 0;
 
-    /* ========== INDIRECT METHOD CFO (primary display) ========== */
+    /* ========== INDIRECT METHOD CFO — EBITDA-start (primary) ========== */
 
-    const cashFromOps = prev == null || netProfit == null
-      ? null
-      : netProfit
+    // CFO = EBITDA + 75 − 65 − 67/77 + 631/4 + 635/8 + ΔWC
+    // Exceptional items (66, 76) drop out algebraically — they never
+    // entered EBITDA. D&A (630) is inside EBITDA on the revenue side
+    // already, so no separate add-back either.
+    //
+    // If EBITDA isn't computable (no 9901 filed), fall back to the
+    // net-profit-start formula so we still produce a number rather
+    // than a null on abbreviated/micro filings.
+    let cashFromOps: number | null;
+    if (prev == null) {
+      cashFromOps = null;
+    } else if (ebitda != null) {
+      // interestExpense and incomeTax are already signed as cash impact
+      // (negative for outflow), so the formula is all additive.
+      cashFromOps =
+        ebitda
+        + financialIncome
+        + interestExpense
+        + incomeTax
+        + writedowns
+        + provisions
+        + (wcChange ?? 0);
+    } else if (netProfit != null) {
+      cashFromOps =
+        netProfit
         + da
         + writedowns
         + provisions
         - exceptionalIncome
         + exceptionalCharges
         + (wcChange ?? 0);
+    } else {
+      cashFromOps = null;
+    }
 
     /* ========== CFI ========== */
 
@@ -324,6 +388,10 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
     return {
       fiscalYear: fy,
       netProfit,
+      ebitda,
+      financialIncome,
+      interestExpense,
+      incomeTax,
       da,
       writedowns,
       provisions,

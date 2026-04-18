@@ -61,19 +61,20 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
 
   const cf = useMemo(() => derived.find((r) => r.fiscalYear === fy) ?? null, [derived, fy]);
 
-  if (!years.length || fy == null || !cf || cf.netProfit == null) return null;
+  if (!years.length || fy == null || !cf || cf.ebitda == null) return null;
 
   const isFirstYear = years[0] === fy;
   if (isFirstYear) return null;
 
-  // Indirect-method bridge from net profit → CFO.
+  // Indirect-method bridge from EBITDA → CFO. interestExpense and
+  // incomeTax are already signed as cash impact (negative for outflow).
   type FloatSpec = { label: string; delta: number };
   const opsFloats: FloatSpec[] = [
-    { label: "+ D&A", delta: cf.da },
+    { label: "+ Financial income", delta: cf.financialIncome },
+    { label: cf.interestExpense <= 0 ? "− Interest paid" : "+ Interest refund", delta: cf.interestExpense },
+    { label: cf.incomeTax <= 0 ? "− Income tax" : "+ Tax credit", delta: cf.incomeTax },
     { label: "+ Write-downs", delta: cf.writedowns },
     { label: "+ Provisions", delta: cf.provisions },
-    { label: "− Exceptional income", delta: -cf.exceptionalIncome },
-    { label: "+ Exceptional charges", delta: cf.exceptionalCharges },
     { label: (cf.wcChange ?? 0) >= 0 ? "+ ΔWorking capital" : "− ΔWorking capital", delta: cf.wcChange ?? 0 },
   ].filter((f) => f.delta !== 0);
 
@@ -90,9 +91,9 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
   ].filter((f) => f.delta !== 0);
 
   // Domain — covers every milestone AND every running-balance extremum.
-  const points: number[] = [0, cf.netProfit];
+  const points: number[] = [0, cf.ebitda];
   {
-    let running = cf.netProfit;
+    let running = cf.ebitda;
     for (const f of opsFloats) {
       running += f.delta;
       points.push(running);
@@ -146,7 +147,7 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
     });
   };
 
-  let running = cf.netProfit;
+  let running = cf.ebitda;
   const float = (label: string, delta: number) => {
     if (delta === 0) return;
     const before = running;
@@ -164,8 +165,8 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
     });
   };
 
-  // Starting milestone: net profit, anchored at zero.
-  pushMilestone("Net profit", cf.netProfit,
+  // Starting milestone: EBITDA, anchored at zero.
+  pushMilestone("EBITDA", cf.ebitda,
                 COL.milestone, COL.milestone, COL.negNet,
                 COL.milestoneTxt, COL.negNetTxt);
 
@@ -281,10 +282,12 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
             )}
           </div>
           <p className="text-[10px] text-slate-400 italic mt-2">
-            Indirect method. Starts from net profit (after tax + interest),
-            adds back non-cash items, strips exceptional P&amp;L (66/76),
-            bridges working capital + CapEx + financing. Belgian GAAP does
-            not file a cash-flow statement, so every value is derived.
+            Indirect method from EBITDA. Adjusts for financial income /
+            interest / tax, adds back non-cash items (write-downs,
+            provisions), bridges working capital, then CapEx &amp; financing.
+            Exceptional items never enter EBITDA, so no strip line is
+            needed. Belgian GAAP does not file a cash-flow statement; all
+            values are derived from the balance sheet and P&amp;L.
           </p>
         </div>
       )}
