@@ -224,9 +224,10 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
               const isMilestone = r.kind === "milestone";
               return (
                 <div key={`${i}-${r.label}`} className="flex items-center gap-3 text-[12px]">
-                  <div className={`w-[120px] md:w-[150px] shrink-0 truncate ${
-                    isMilestone ? `text-right font-semibold ${r.textColor}` : `text-right ${r.textColor}`
-                  } ${r.indent ? "pr-3 md:pr-5" : ""}`}>
+                  {/* Milestones flush-left, sub-categories indented via pl. */}
+                  <div className={`w-[120px] md:w-[150px] shrink-0 truncate text-left ${
+                    isMilestone ? `font-semibold ${r.textColor}` : r.textColor
+                  } ${r.indent ? "pl-3 md:pl-5" : ""}`}>
                     {r.label}
                   </div>
                   <div className="flex-1 relative h-5 md:h-6 overflow-hidden">

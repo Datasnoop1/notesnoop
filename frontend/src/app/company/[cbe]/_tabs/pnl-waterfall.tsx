@@ -125,15 +125,22 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
     pctLabel: "100.0%",
   });
 
-  // Between Revenue and EBITDA: total opex = revenue - ebitda.
+  // Between Revenue and EBITDA: total gap = revenue − ebitda. The known
+  // rubric sum (Materials + Services + Personnel + Other OpEx) might be
+  // ABOVE or BELOW this gap. Reconcile both ways:
+  //   - known < gap → add an extra deduction ("Other OpEx" absorbs residual)
+  //   - known > gap → add an addition ("Other op income") that brings the
+  //     running balance BACK UP to exactly EBITDA
+  // Either way, the staircase tie-outs exactly at the next milestone.
   const totalOpex = Math.max(0, revenue - Math.max(0, ebitda));
   const knownOpex = materials + services + personnel + otherOp;
-  const opexResidual = Math.max(0, totalOpex - knownOpex);
+  const opexUnder = Math.max(0, totalOpex - knownOpex);    // extra deduction
+  const opexOver  = Math.max(0, knownOpex - totalOpex);    // addition
 
   let running = revenue;
   const pushDed = (label: string, v: number, isSub = true) => {
     if (v <= 0) return;
-    const endPct = toPct(running);
+    const endPct = toPct(Math.max(0, running));
     running -= v;
     const startPct = toPct(Math.max(0, running));
     rows.push({
@@ -143,10 +150,23 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
       indent: isSub,
     });
   };
+  const pushAdd = (label: string, v: number) => {
+    if (v <= 0) return;
+    const startPct = toPct(Math.max(0, running));
+    running += v;
+    const endPct = toPct(Math.max(0, running));
+    rows.push({
+      label, value: v, kind: "deduction",  // render like a bar
+      startPct, endPct,
+      color: COL.deduction, textColor: COL.deductionTxt,
+      indent: true,
+    });
+  };
   pushDed("Materials",  materials);
   pushDed("Services",   services);
   pushDed("Personnel",  personnel);
-  pushDed("Other OpEx", otherOp + opexResidual);
+  pushDed("Other OpEx", otherOp + opexUnder);
+  if (opexOver > 0) pushAdd("Other op income", opexOver);
 
   // EBITDA milestone — running now equals ebitda (±rounding)
   rows.push({
@@ -178,10 +198,13 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
     pctLabel: revenue > 0 ? `${(ebit / revenue * 100).toFixed(1)}%` : undefined,
   });
 
-  // Between EBIT and Net profit: total below-ebit = ebit - netProfit
+  // Between EBIT and Net profit: total = ebit − netProfit. Same
+  // bidirectional reconciliation as the opex path, so Fin charges + Tax +
+  // residual always land exactly at the Net profit milestone.
   const totalBelowEbit = Math.max(0, Math.max(0, ebit) - Math.max(0, netProfit));
   const knownBelowEbit = finCharges + tax;
-  const belowEbitResidual = Math.max(0, totalBelowEbit - knownBelowEbit);
+  const belowUnder = Math.max(0, totalBelowEbit - knownBelowEbit);
+  const belowOver  = Math.max(0, knownBelowEbit - totalBelowEbit);
 
   let ebitRunning = Math.max(0, ebit);
   const pushBelowEbit = (label: string, v: number) => {
@@ -197,9 +220,22 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
       indent: true,
     });
   };
+  const pushBelowAdd = (label: string, v: number) => {
+    if (v <= 0) return;
+    const startPct = toPct(Math.max(0, ebitRunning));
+    ebitRunning += v;
+    const endPct = toPct(Math.max(0, ebitRunning));
+    rows.push({
+      label, value: v, kind: "deduction",
+      startPct, endPct,
+      color: COL.deduction, textColor: COL.deductionTxt,
+      indent: true,
+    });
+  };
   pushBelowEbit("Fin. charges", finCharges);
   pushBelowEbit("Tax",          tax);
-  if (belowEbitResidual > 0) pushBelowEbit("Other", belowEbitResidual);
+  if (belowUnder > 0) pushBelowEbit("Other", belowUnder);
+  if (belowOver > 0)  pushBelowAdd("Other financial income", belowOver);
 
   // Net profit — bottom line
   rows.push({
@@ -246,9 +282,12 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
               const isMilestone = r.kind === "milestone";
               return (
                 <div key={`${i}-${r.label}`} className="flex items-center gap-3 text-[12px]">
-                  <div className={`w-[110px] md:w-[140px] shrink-0 truncate ${
-                    isMilestone ? `text-right font-semibold ${r.textColor}` : `text-right ${r.textColor}`
-                  } ${r.indent ? "pr-3 md:pr-5" : ""}`}>
+                  {/* Milestones flush-left, sub-categories indented via pl —
+                      matches the P&L table convention (main items outdented,
+                      line items indented). */}
+                  <div className={`w-[110px] md:w-[140px] shrink-0 truncate text-left ${
+                    isMilestone ? `font-semibold ${r.textColor}` : r.textColor
+                  } ${r.indent ? "pl-3 md:pl-5" : ""}`}>
                     {r.label}
                   </div>
                   <div className="flex-1 relative h-5 md:h-6 overflow-hidden">
