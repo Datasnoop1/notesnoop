@@ -131,6 +131,14 @@ export function BalanceSheetTab({
     group?: string;
   };
 
+  // Rows that act as the clickable summary of a collapsible group when
+  // that group is collapsed. Each maps subtotal-row → group id.
+  const GROUP_SUMMARY: Partial<Record<keyof (typeof bsRows)[0], string>> = {
+    totalNonCurrentAssets: "bs_fa",
+    totalCurrentAssets: "bs_ca",
+    totalCurrentLiab: "bs_cl",
+  };
+
   const lines: BSLine[] = [
     // ASSETS
     { label: t("company.bs.intangibleAssets"), key: "intangibleAssets", indent: true, section: t("company.bs.sectionNonCurrentAssets"), group: "bs_fa" },
@@ -205,21 +213,10 @@ export function BalanceSheetTab({
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
           {t("company.bs.title")}
         </h3>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => toggleSection("bs_fa")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.bs_fa ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
-            {collapsedSections.bs_fa ? `\u25b8 ${t("company.bs.faGrouped")}` : `\u25be ${t("company.bs.faExpanded")}`}
-          </button>
-          <button onClick={() => toggleSection("bs_ca")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.bs_ca ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
-            {collapsedSections.bs_ca ? `\u25b8 ${t("company.bs.caGrouped")}` : `\u25be ${t("company.bs.caExpanded")}`}
-          </button>
-          <button onClick={() => toggleSection("bs_cl")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.bs_cl ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
-            {collapsedSections.bs_cl ? `\u25b8 ${t("company.bs.clGrouped")}` : `\u25be ${t("company.bs.clExpanded")}`}
-          </button>
-          <ExportButtons
-            onExportCSV={exportBsCsv}
-            onPrint={() => window.print()}
-          />
-        </div>
+        <ExportButtons
+          onExportCSV={exportBsCsv}
+          onPrint={() => window.print()}
+        />
       </div>
       <div className="rounded-lg border overflow-x-auto bg-white">
         <table className="w-full min-w-[560px] md:min-w-[900px]">
@@ -232,6 +229,10 @@ export function BalanceSheetTab({
           <tbody>
             {lines.map((line) => {
               if (line.group && collapsedSections[line.group]) return null;
+
+              const summaryOf = GROUP_SUMMARY[line.key];
+              const isCollapsedSummary = summaryOf && collapsedSections[summaryOf];
+              const isExpandableSummary = !!summaryOf;
 
               const showSection = line.section && line.section !== lastSection;
               if (line.section) lastSection = line.section;
@@ -246,7 +247,19 @@ export function BalanceSheetTab({
                   )}
                   <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
                     <td className={`sticky left-0 z-[5] bg-white px-2 md:px-4 py-1 text-[11px] md:text-xs whitespace-normal break-words w-[120px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)] ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-4 md:pl-8" : ""} ${line.subIndent ? "pl-6 md:pl-12 text-slate-400 italic" : ""}`}>
-                      {line.label}
+                      {isExpandableSummary ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleSection(summaryOf!)}
+                          className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors text-left"
+                          aria-expanded={!isCollapsedSummary}
+                        >
+                          <span className="text-[10px]">{isCollapsedSummary ? "\u25b8" : "\u25be"}</span>
+                          <span>{line.label}</span>
+                        </button>
+                      ) : (
+                        line.label
+                      )}
                     </td>
                     {chronologicalBs.map((r, colIdx) => {
                       const prevRow = colIdx > 0 ? chronologicalBs[colIdx - 1] : null;

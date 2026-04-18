@@ -105,9 +105,23 @@ export function CashFlowTab({
     dropIfAllEmpty?: boolean;
   };
 
+  // Rows that act as the clickable summary of a collapsible group when
+  // that group is collapsed. `wcChange` is the WC subtotal — when cf_wc
+  // is collapsed it replaces the five Δ-rows. `cashFromFinancing` is the
+  // CFF subtotal — when cf_fin is collapsed it replaces the four
+  // financing-movement rows.
+  const GROUP_SUMMARY: Partial<Record<LineKey, string>> = {
+    wcChange: "cf_wc",
+    cashFromFinancing: "cf_fin",
+  };
+
   const lines: CFLine[] = [
+    // Opening cash balance — anchors the statement at the top so the
+    // reader can trace Opening + CFO + CFI + CFF + Unreconciled = Closing.
+    { label: t("company.cf.cashStart"), key: "cashStart", bold: true },
+
     { label: t("company.cf.ebitda"), key: "ebitda", section: t("company.cf.sectionOperating") },
-    // After EBITDA: working capital first, then taxes, then everything else.
+    // After EBITDA: working capital first, then taxes, then other stuff.
     { label: t("company.cf.deltaInventories"), key: "deltaInventories", indent: true, group: "cf_wc", dropIfAllEmpty: true },
     { label: t("company.cf.deltaTradeRec"), key: "deltaTradeReceivables", indent: true, group: "cf_wc" },
     { label: t("company.cf.deltaTradePay"), key: "deltaTradePayables", indent: true, group: "cf_wc" },
@@ -132,15 +146,15 @@ export function CashFlowTab({
     { label: t("company.cf.cashFromFinancing"), key: "cashFromFinancing", bold: true, topBorder: true },
 
     { label: t("company.cf.impliedCashChange"), key: "impliedCashChange", bold: true, doubleBorder: true, section: t("company.cf.sectionReconciliation") },
-    { label: t("company.cf.observedCashChange"), key: "observedCashChange", bold: true },
     {
       label: t("company.cf.unreconciledGap"),
       key: "unreconciledGap",
       indent: true,
       render: (r) => fmtGapCell(r.unreconciledGap, r.observedCashChange),
     },
-    { label: t("company.cf.cashStart"), key: "cashStart", indent: true },
-    { label: t("company.cf.cashEnd"), key: "cashEnd", indent: true },
+    // Closing cash balance — ties to the balance sheet:
+    // cashStart + impliedCashChange + unreconciledGap = cashEnd.
+    { label: t("company.cf.cashEnd"), key: "cashEnd", bold: true, topBorder: true },
   ];
 
   const visibleLines = lines.filter((line) => {
@@ -191,15 +205,7 @@ export function CashFlowTab({
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-cyan-500 pl-2">
           {t("company.cf.title")}
         </h3>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => toggleSection("cf_wc")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.cf_wc ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
-            {collapsedSections.cf_wc ? `\u25b8 ${t("company.cf.wcGrouped")}` : `\u25be ${t("company.cf.wcExpanded")}`}
-          </button>
-          <button onClick={() => toggleSection("cf_fin")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.cf_fin ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
-            {collapsedSections.cf_fin ? `\u25b8 ${t("company.cf.finGrouped")}` : `\u25be ${t("company.cf.finExpanded")}`}
-          </button>
-          <ExportButtons onExportCSV={exportCfCsv} onPrint={() => window.print()} />
-        </div>
+        <ExportButtons onExportCSV={exportCfCsv} onPrint={() => window.print()} />
       </div>
       <div className="rounded-lg border overflow-x-auto bg-white">
         <table className="w-full min-w-[560px] md:min-w-[900px]">
@@ -212,6 +218,11 @@ export function CashFlowTab({
           <tbody>
             {visibleLines.map((line) => {
               if (line.group && collapsedSections[line.group]) return null;
+
+              // Is this row the summary of a (possibly-collapsed) group?
+              const summaryOf = GROUP_SUMMARY[line.key as LineKey];
+              const isCollapsedSummary = summaryOf && collapsedSections[summaryOf];
+              const isExpandableSummary = !!summaryOf;
 
               const showSection = line.section && line.section !== lastSection;
               if (line.section) lastSection = line.section;
@@ -226,7 +237,19 @@ export function CashFlowTab({
                   )}
                   <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
                     <td className={`sticky left-0 z-[5] bg-white px-2 md:px-4 py-1 text-[11px] md:text-xs whitespace-normal break-words w-[120px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)] ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-4 md:pl-8" : ""}`}>
-                      {line.label}
+                      {isExpandableSummary ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleSection(summaryOf!)}
+                          className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors text-left"
+                          aria-expanded={!isCollapsedSummary}
+                        >
+                          <span className="text-[10px]">{isCollapsedSummary ? "\u25b8" : "\u25be"}</span>
+                          <span>{line.label}</span>
+                        </button>
+                      ) : (
+                        line.label
+                      )}
                     </td>
                     {cfRows.map((r, colIdx) => {
                       const prevRow = colIdx > 0 ? cfRows[colIdx - 1] : null;
