@@ -98,6 +98,16 @@ def _gather(cbe: str) -> dict:
              AND award_date > CURRENT_DATE - INTERVAL '3 years'""",
         (cbe,),
     )
+    # Valuation AI commentary (cached). Null if not yet generated.
+    try:
+        vc = fetch_one(
+            """SELECT commentary, sector_used, generated_at
+               FROM valuation_commentary_cache
+               WHERE enterprise_number = %s""",
+            (cbe,),
+        )
+    except Exception:
+        vc = None
     return {
         "info": info,
         "latest": latest,
@@ -105,6 +115,7 @@ def _gather(cbe: str) -> dict:
         "admins": admins,
         "ai_summary": (ai or {}).get("summary"),
         "procurement": procurement,
+        "valuation_commentary": vc,
     }
 
 
@@ -249,10 +260,28 @@ def _build_pdf(data: dict, cbe: str) -> bytes:
     ai_summary = data.get("ai_summary")
     if ai_summary:
         flow.append(Paragraph("About (AI-generated)", h2_style))
-        # strip any HTML; keep paragraphs
         import re as _re
         clean = _re.sub(r"<[^>]+>", " ", ai_summary)
         flow.append(Paragraph(clean, body_style))
+
+    # Valuation AI commentary (cached)
+    vc = data.get("valuation_commentary")
+    if vc and vc.get("commentary"):
+        flow.append(Paragraph("Valuation commentary (AI)", h2_style))
+        import re as _re
+        cleantxt = _re.sub(r"<[^>]+>", " ", vc["commentary"])
+        flow.append(Paragraph(cleantxt, body_style))
+        gen = vc.get("generated_at")
+        try:
+            gen_str = gen.strftime("%Y-%m-%d") if hasattr(gen, "strftime") else str(gen)[:10]
+        except Exception:
+            gen_str = ""
+        if gen_str:
+            flow.append(Paragraph(
+                f"<i>Commentary generated {gen_str}</i>",
+                ParagraphStyle("VC", parent=styles["Normal"], fontSize=7,
+                               textColor=colors.HexColor("#94a3b8")),
+            ))
 
     # Footer
     flow.append(Spacer(1, 0.8 * cm))

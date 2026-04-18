@@ -269,6 +269,21 @@ def ensure_trgm_setup():
             ON activity_log(created_at DESC);
         """)
 
+        # 6b. Valuation AI commentary cache — generated text for each CBE so
+        #     the PDF primer + repeat on-screen lookups don't each pay an LLM
+        #     call. Refresh via scripts/generate_valuation_commentary.py.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS valuation_commentary_cache (
+                enterprise_number TEXT PRIMARY KEY,
+                commentary        TEXT NOT NULL,
+                sector_used       TEXT,
+                source_used       TEXT,
+                lang              VARCHAR(2) DEFAULT 'en',
+                generated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_valuation_commentary_gen ON valuation_commentary_cache(generated_at DESC);")
+
         # 7-OpenData. TED procurement + Regsol insolvency + Staatsblad events —
         # open-data enrichment tables, populated by scripts/open_data_*.py.
         cur.execute("""

@@ -950,4 +950,25 @@ async def valuation_ai_commentary(
     if not text:
         raise HTTPException(status_code=503, detail="AI service unavailable")
 
-    return {"commentary": text.strip()}
+    commentary = text.strip()
+    # Cache for PDF primer + subsequent views. Best-effort: don't fail the
+    # response if the cache write errors (e.g. on a fresh env without the
+    # table yet).
+    try:
+        from db import execute as _exec
+        _exec(
+            """INSERT INTO valuation_commentary_cache
+                   (enterprise_number, commentary, sector_used, source_used, lang, generated_at)
+               VALUES (%s, %s, %s, %s, %s, NOW())
+               ON CONFLICT (enterprise_number) DO UPDATE SET
+                   commentary   = EXCLUDED.commentary,
+                   sector_used  = EXCLUDED.sector_used,
+                   source_used  = EXCLUDED.source_used,
+                   lang         = EXCLUDED.lang,
+                   generated_at = NOW()""",
+            (cbe, commentary, sector, source, (lang or "en")[:2]),
+        )
+    except Exception:
+        logger.exception("valuation commentary cache write failed (non-fatal)")
+
+    return {"commentary": commentary}
