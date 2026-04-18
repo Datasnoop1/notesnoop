@@ -60,6 +60,9 @@ def _get_jwks() -> dict:
     return {}
 
 
+_ALLOWED_ALGS = {"RS256", "ES256"}
+
+
 def _decode_token(token: str) -> dict:
     """Verify and decode a Supabase JWT."""
     # Try 1: JWKS (ES256/RS256)
@@ -70,6 +73,11 @@ def _decode_token(token: str) -> dict:
             unverified_header = jwt.get_unverified_header(token)
             kid = unverified_header.get("kid")
             alg = unverified_header.get("alg", "ES256")
+
+            # Reject tokens that claim an algorithm we don't accept — prevents
+            # algorithm-confusion attacks (e.g. alg:none, alg:HS256 with public key).
+            if alg not in _ALLOWED_ALGS:
+                raise JWTError(f"Algorithm '{alg}' not in allowlist")
 
             # Find the matching key
             key_data = None
