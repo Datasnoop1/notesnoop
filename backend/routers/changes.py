@@ -92,22 +92,25 @@ async def changes_since(cbe: str, user=Depends(optional_user)):
         since = rec["prev_viewed_at"]
         changes: list[dict] = []
 
-        # New NBB filings since last visit (use loaded_at, not deposit_date —
-        # the user cares about when WE got it, not when it was filed).
+        # New NBB filings since last visit. nbb_load_log.loaded_at is TEXT
+        # (legacy schema — ISO-format strings, so lexicographic sort matches
+        # chronological sort). Cast to timestamp for the comparison.
         filings = fetch_all(
             """SELECT deposit_key, rubric_count, loaded_at
                FROM nbb_load_log
                WHERE enterprise_number = %s
-                 AND loaded_at > %s
+                 AND loaded_at::timestamp > %s
                  AND deposit_key NOT IN ('NO_FILINGS', 'PDF_ONLY')
                ORDER BY loaded_at DESC
                LIMIT 5""",
             (cbe, since),
         )
         for f in filings:
+            at_val = f.get("loaded_at")
+            at_str = at_val.isoformat() if hasattr(at_val, "isoformat") else (str(at_val) if at_val else None)
             changes.append({
                 "type": "filing",
-                "at": f["loaded_at"].isoformat() if f.get("loaded_at") else None,
+                "at": at_str,
                 "label": f"New NBB filing loaded ({f.get('rubric_count') or 0} rubrics)",
                 "meta": {"deposit_key": f.get("deposit_key")},
             })
