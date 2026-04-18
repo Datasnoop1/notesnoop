@@ -170,9 +170,17 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
                 period = rubric.get("Period", rubric.get("period", "N"))
 
                 if code and value is not None:
+                    try:
+                        float_val = float(str(value).replace(",", ".").strip())
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            "Skipping rubric %s in filing %s: non-numeric value %r",
+                            code, ref_number, value,
+                        )
+                        continue
                     rows.append((
                         cbe, ref_number, fiscal_year, deposit_date,
-                        filing_model, code, period, float(value),
+                        filing_model, code, period, float_val,
                     ))
 
             if rows:

@@ -91,7 +91,7 @@ async def search_companies(q: str = Query(..., min_length=1)):
                 WHERE ci.name ILIKE %s
                 ORDER BY ci.name
                 LIMIT 20
-            """, (f"%{query}%",))
+            """, (f"%{safe_q}%",))
 
             # If not enough results, also search denomination table
             if len(rows) < 20:
@@ -113,7 +113,7 @@ async def search_companies(q: str = Query(..., min_length=1)):
                       AND d.language IN ('2','1')
                     ORDER BY d.denomination
                     LIMIT %s
-                """, (f"%{query}%", remaining + 10))
+                """, (f"%{safe_q}%", remaining + 10))
                 for r in extra:
                     if r["enterprise_number"] not in existing_cbes:
                         rows.append(r)
