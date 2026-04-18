@@ -205,42 +205,58 @@ def _open_profile(page, portal_url: str, debug_dir: Path) -> None:
 
 
 def _find_subscription_blocks(page) -> list[dict]:
-    """Locate active subscription rows on the profile page. The portal
-    renders them as <tr> rows in the Subscriptions table. Each active row
-    has TWO 'Show / Regenerate' link pairs (Primary then Secondary).
-    We only want the Primary, so within each row we select the first
-    Show + first Regenerate anchor.
+    """Locate active subscription rows on the developer-portal profile page.
 
-    Returns: [{name, row, primary_show, primary_regen, raw_text}, ...]"""
+    The portal is a Knockout.js SPA rendered with role-based markup:
+      <div role='row' class='table-row'>  # one per subscription
+        ...
+        <code data-bind='text: primaryKey'>XXX...</code>
+        <a aria-label='Show primary key'>Show</a>
+        <a aria-label='Regenerate primary key'>Regenerate</a>
+        ...
+        <code data-bind='text: secondaryKey'>XXX...</code>
+        ...
+
+    Active subscriptions have BOTH 'Show primary key' and 'Regenerate
+    primary key' anchors. Submitted/Cancelled rows don't, which lets us
+    skip them naturally.
+
+    Returns one dict per active subscription with handles to the Show +
+    Regenerate primary links and a name extracted from the row text.
+    """
+    # Wait for at least one Regenerate primary anchor — Knockout takes a
+    # moment to populate the table after the page-level DOMContentLoaded.
+    try:
+        page.wait_for_selector("a[aria-label='Regenerate primary key']", timeout=15000)
+    except Exception:
+        log.error("Regenerate primary key links never rendered on profile page")
+        return []
+
+    regen_links = page.locator("a[aria-label='Regenerate primary key']")
+    n = regen_links.count()
+    log.info("Found %d 'Regenerate primary key' link(s) on profile", n)
+
     blocks: list[dict] = []
-    # The profile page has one or more <tr> per subscription. Active rows
-    # contain a Primary key cell with both Show and Regenerate links.
-    # Filter on:
-    #   - row text contains "CLIENT-" (skips empty 'test' rows)
-    #   - row text contains "Active" (state)
-    #   - row text contains "Primary key" (so we know it has the link pair)
-    rows = page.locator("tr").filter(
-        has_text=re.compile(r"CLIENT-.*Active.*Primary key", re.DOTALL)
-    )
-    n = rows.count()
-    log.info("Found %d active subscription row(s)", n)
     for i in range(n):
-        row = rows.nth(i)
+        regen = regen_links.nth(i)
+        # Walk up to the containing subscription row (role=row, class table-row)
         try:
+            row = regen.locator("xpath=ancestor::div[contains(@class,'table-row')][1]").first
             text = row.inner_text(timeout=5000)
         except Exception:
+            log.warning("Could not resolve row for regen link #%d", i)
             continue
-        # Pull the CLIENT-…-<suffix> name from the row text
         m = re.search(r"CLIENT-\d+-SUB-\d+-(\S+)", text)
         name = m.group(0) if m else f"row_{i}"
-        # Within this row, the FIRST Show link is for Primary, the SECOND for Secondary.
-        primary_show = row.locator("a:has-text('Show'), button:has-text('Show')").first
-        primary_regen = row.locator("a:has-text('Regenerate'), button:has-text('Regenerate')").first
+        # Show primary key link inside this row
+        show_link = row.locator("a[aria-label='Show primary key']").first
+        primary_code = row.locator("code[data-bind*='primaryKey']").first
         blocks.append({
             "name": name,
             "row": row,
-            "primary_show": primary_show,
-            "primary_regen": primary_regen,
+            "primary_show": show_link,
+            "primary_regen": regen,
+            "primary_code": primary_code,
             "raw_text": text,
         })
     return blocks
@@ -262,22 +278,32 @@ def _classify_subscription(label: str) -> str | None:
 
 
 def _show_and_read_key(blk: dict, after_action: str, debug_dir: Path, page, idx: int) -> str | None:
-    """Click 'Show' on the Primary key, return the revealed value."""
+    """Click 'Show' on the Primary key, return the revealed value.
+
+    Reads from the <code data-bind='text: primaryKey'> element directly
+    rather than scraping the row text — guarantees we get the Primary
+    value (not Secondary), and the binding update is what the Show
+    button toggles."""
     try:
         blk["primary_show"].click(timeout=5000)
     except Exception:
         log.warning("Could not click Show (%s, row %d) \u2014 already visible?", after_action, idx)
-    page.wait_for_timeout(1200)
+    page.wait_for_timeout(1500)
     _save_screenshot(page, debug_dir, f"sub_{idx}_after_{after_action}_show")
 
-    # Read all 32-hex-char tokens visible inside the row.
-    # First match = Primary key (rows are: Primary line, then Secondary line).
-    text = blk["row"].inner_text(timeout=5000)
-    matches = KEY_REGEX.findall(text)
-    if not matches:
-        log.warning("No 32-hex key found in row after %s", after_action)
+    try:
+        value = blk["primary_code"].inner_text(timeout=5000).strip()
+    except Exception as e:
+        log.warning("Could not read primaryKey <code> for row %d: %s", idx, e)
         return None
-    return matches[0]
+
+    if KEY_REGEX.fullmatch(value):
+        return value
+    log.warning(
+        "primaryKey <code> for row %d did not match 32-hex regex (got '%s...')",
+        idx, value[:8] if value else "<empty>",
+    )
+    return None
 
 
 def _regenerate_primary(blk: dict, debug_dir: Path, page, idx: int) -> None:
