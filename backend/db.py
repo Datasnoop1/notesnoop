@@ -210,6 +210,70 @@ def ensure_trgm_setup():
             ON activity_log(created_at DESC);
         """)
 
+        # 7. company_view_history — per-user "last visit" log, for the
+        #    "what changed since last visit" banner on company profiles.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS company_view_history (
+                user_email         TEXT NOT NULL,
+                enterprise_number  VARCHAR(10) NOT NULL,
+                last_viewed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                prev_viewed_at     TIMESTAMPTZ,
+                PRIMARY KEY (user_email, enterprise_number)
+            );
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_company_view_history_user
+            ON company_view_history(user_email, last_viewed_at DESC);
+        """)
+
+        # 8. sector_percentiles — materialised view with percent_rank of
+        #    every company on rev/ebitda/margin/fte/fixed_assets within its
+        #    NACE-2 sector. Used by the screener rank pills and (future)
+        #    radar chart. Refresh happens at the end of the daily NBB
+        #    batch pipeline; initial build runs here on boot for a fresh
+        #    environment.
+        conn.commit()  # separate tx for the MV so partial failure doesn't roll back the indexes
+        cur.execute("SELECT to_regclass('public.sector_percentiles')")
+        if cur.fetchone()[0] is None:
+            logger.info("sector_percentiles MV missing — building (one-time, may take ~1 min on full DB)")
+            cur.execute("""
+                CREATE MATERIALIZED VIEW sector_percentiles AS
+                SELECT fl.enterprise_number,
+                       substr(ci.nace_code, 1, 2) AS nace2,
+                       percent_rank() OVER (
+                           PARTITION BY substr(ci.nace_code, 1, 2)
+                           ORDER BY fl.revenue NULLS FIRST
+                       )::real AS rev_rank,
+                       percent_rank() OVER (
+                           PARTITION BY substr(ci.nace_code, 1, 2)
+                           ORDER BY fl.ebitda NULLS FIRST
+                       )::real AS ebitda_rank,
+                       percent_rank() OVER (
+                           PARTITION BY substr(ci.nace_code, 1, 2)
+                           ORDER BY (CASE WHEN fl.revenue > 0
+                                          THEN fl.ebitda / fl.revenue END) NULLS FIRST
+                       )::real AS margin_rank,
+                       percent_rank() OVER (
+                           PARTITION BY substr(ci.nace_code, 1, 2)
+                           ORDER BY fl.fte_total NULLS FIRST
+                       )::real AS fte_rank,
+                       percent_rank() OVER (
+                           PARTITION BY substr(ci.nace_code, 1, 2)
+                           ORDER BY fl.fixed_assets NULLS FIRST
+                       )::real AS fixed_assets_rank,
+                       COUNT(*) OVER (PARTITION BY substr(ci.nace_code, 1, 2)) AS peer_count
+                FROM financial_latest fl
+                JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+                WHERE ci.nace_code IS NOT NULL AND length(ci.nace_code) >= 2;
+            """)
+            cur.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS sector_percentiles_pkey
+                ON sector_percentiles(enterprise_number);
+            """)
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sector_percentiles_nace2
+                ON sector_percentiles(nace2);
+            """)
         conn.commit()
         cur.close()
         _trgm_migrated = True
