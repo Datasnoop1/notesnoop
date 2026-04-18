@@ -366,9 +366,52 @@ export function PnlTab({
             </tr>
           </thead>
           <tbody>
-            {lines.map((line) => {
-              // Skip lines in collapsed groups
-              if (line.group && collapsedSections[line.group]) return null;
+            {(() => {
+              // Track whether we've already rendered the collapsed-opex
+              // summary row so we only show it once between Gross profit
+              // and EBIT, not before every hidden line.
+              let opexSummaryShown = false;
+              return lines.map((line) => {
+              // When the opex group is collapsed, replace its first line
+              // with a single summary row that has a click-to-expand toggle.
+              const opexCollapsed = line.group === "pnl_opex" && collapsedSections.pnl_opex;
+              if (opexCollapsed && opexSummaryShown) return null;
+              if (opexCollapsed && !opexSummaryShown) {
+                opexSummaryShown = true;
+                return (
+                  <tr key="pnl-opex-summary" className="border-t border-slate-200">
+                    <td className="sticky left-0 z-[5] bg-white px-2 md:px-4 py-1 text-[11px] md:text-xs shadow-[1px_0_0_rgba(226,232,240,1)] text-slate-600">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection("pnl_opex")}
+                        className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors"
+                      >
+                        <span className="text-[10px]">▸</span>
+                        <span className="font-medium">{t("company.pnl.sectionOpCosts") || "Operating costs"}</span>
+                        <span className="text-[10px] text-slate-400">({t("company.pnl.opexExpanded") || "click to expand"})</span>
+                      </button>
+                    </td>
+                    {chronologicalPnl.map((r, colIdx) => {
+                      const prevRow = colIdx > 0 ? chronologicalPnl[colIdx - 1] : null;
+                      const sum = (n: number | null | undefined) => typeof n === "number" ? n : 0;
+                      const opex = sum(r.personnel) + sum(r.da) + sum(r.otherOpCosts);
+                      const prevOpex = prevRow ? sum(prevRow.personnel) + sum(prevRow.da) + sum(prevRow.otherOpCosts) : null;
+                      return (
+                        <React.Fragment key={`opex-sum-${r.fiscal_year}`}>
+                          {colIdx > 0 && (
+                            <td className="px-0.5 md:px-1 py-1 text-center align-top w-[32px] md:w-[70px]">
+                              {renderDelta(opex, prevOpex)}
+                            </td>
+                          )}
+                          <td className="px-1.5 md:px-3 py-1 text-right text-[11px] md:text-xs font-mono text-slate-600">
+                            {fmtAcct(opex, true, false)}
+                          </td>
+                        </React.Fragment>
+                      );
+                    })}
+                  </tr>
+                );
+              }
 
               const showSection = line.section && line.section !== lastSection;
               if (line.section) lastSection = line.section;
@@ -409,7 +452,8 @@ export function PnlTab({
                   </tr>
                 </React.Fragment>
               );
-            })}
+            });
+            })()}
           </tbody>
         </table>
       </div>

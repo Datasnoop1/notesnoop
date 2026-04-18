@@ -88,18 +88,32 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
   );
   const toPct = (v: number) => (v / scaleBase) * 100;
 
+  // Peaceful palette — same language as the P&L waterfall: stone neutrals
+  // for deductions, soft sky for additions, teal accents for milestones.
+  const COL = {
+    milestone:   "bg-teal-200",
+    milestoneTxt: "text-teal-800",
+    milestoneStrong: "bg-teal-300",
+    milestoneStrongTxt: "text-teal-900",
+    posNet:     "bg-teal-400",
+    posNetTxt:  "text-teal-900",
+    negNet:     "bg-rose-200",
+    negNetTxt:  "text-rose-700",
+    addition:   "bg-sky-200",
+    additionTxt: "text-sky-700",
+    deduction:  "bg-stone-200",
+    deductionTxt: "text-stone-600",
+  };
+
   const rows: Row[] = [];
 
-  // Starting point: Net profit milestone (anchored to 0)
-  {
-    const end = Math.max(0, Math.abs(netProfit));
-    rows.push({
-      label: "Net profit", value: Math.abs(netProfit), kind: "milestone",
-      startPct: 0, endPct: Math.min(100, toPct(end)),
-      color: netProfit >= 0 ? "bg-emerald-300" : "bg-rose-300",
-      textColor: netProfit >= 0 ? "text-emerald-700" : "text-rose-700",
-    });
-  }
+  // Starting point: Net profit milestone
+  rows.push({
+    label: "Net profit", value: Math.abs(netProfit), kind: "milestone",
+    startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(netProfit)))),
+    color: netProfit >= 0 ? COL.milestone : COL.negNet,
+    textColor: netProfit >= 0 ? COL.milestoneTxt : COL.negNetTxt,
+  });
 
   // Build cumulative from Net profit up to Operating CF, then down through
   // CapEx to FCF, then ± debt to Δ Cash. Each floating bar bridges two
@@ -120,51 +134,49 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
     });
   };
 
-  if (da > 0)               float("+ D&A",           +da,        "bg-emerald-200", "text-emerald-600");
+  if (da > 0) float("+ D&A", +da, COL.addition, COL.additionTxt);
   if (prevFy && wcChange !== 0) {
-    const isUse = wcChange > 0;                 // WC grew → cash use
+    const isUse = wcChange > 0;
     float(isUse ? "− ΔWorking cap" : "+ ΔWorking cap",
           -wcChange,
-          isUse ? "bg-rose-200" : "bg-emerald-200",
-          isUse ? "text-rose-600" : "text-emerald-600");
+          isUse ? COL.deduction : COL.addition,
+          isUse ? COL.deductionTxt : COL.additionTxt);
   }
 
   // Operating CF milestone
   rows.push({
     label: "Operating CF", value: Math.abs(operatingCf), kind: "milestone",
     startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(operatingCf)))),
-    color: operatingCf >= 0 ? "bg-emerald-300" : "bg-rose-300",
-    textColor: operatingCf >= 0 ? "text-emerald-700" : "text-rose-700",
+    color: operatingCf >= 0 ? COL.milestone : COL.negNet,
+    textColor: operatingCf >= 0 ? COL.milestoneTxt : COL.negNetTxt,
   });
 
-  // Reset running to operatingCf (for the CapEx bridge)
   running = operatingCf;
-  if (prevFy && capex > 0) float("− CapEx", -capex, "bg-amber-200", "text-amber-600");
+  if (prevFy && capex > 0) float("− CapEx", -capex, COL.deduction, COL.deductionTxt);
 
-  // FCF milestone
+  // FCF milestone — slightly deeper teal
   rows.push({
     label: "Free cash flow", value: Math.abs(fcf), kind: "milestone",
     startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(fcf)))),
-    color: fcf >= 0 ? "bg-emerald-400" : "bg-rose-400",
-    textColor: fcf >= 0 ? "text-emerald-800" : "text-rose-700",
+    color: fcf >= 0 ? COL.milestoneStrong : COL.negNet,
+    textColor: fcf >= 0 ? COL.milestoneStrongTxt : COL.negNetTxt,
   });
 
-  // Reset running to fcf (for the debt bridge)
   running = fcf;
   if (prevFy && debtMovement !== 0) {
     const isBorrow = debtMovement > 0;
     float(isBorrow ? "+ Net borrowings" : "− Net debt repay",
           debtMovement,
-          isBorrow ? "bg-indigo-200" : "bg-rose-200",
-          isBorrow ? "text-indigo-600" : "text-rose-600");
+          isBorrow ? COL.addition : COL.deduction,
+          isBorrow ? COL.additionTxt : COL.deductionTxt);
   }
 
-  // Δ Cash milestone
+  // Δ Cash — final bottom-line milestone. Stronger colour = outcome.
   rows.push({
     label: "Δ Cash", value: Math.abs(changeInCash), kind: "milestone",
     startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(changeInCash)))),
-    color: changeInCash >= 0 ? "bg-emerald-400" : "bg-rose-400",
-    textColor: changeInCash >= 0 ? "text-emerald-800" : "text-rose-700",
+    color: changeInCash >= 0 ? COL.posNet : COL.negNet,
+    textColor: changeInCash >= 0 ? COL.posNetTxt : COL.negNetTxt,
   });
 
   return (

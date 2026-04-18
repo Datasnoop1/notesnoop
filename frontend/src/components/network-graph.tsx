@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { getDeepNetwork } from "@/lib/api";
 import type { DeepNetworkResponse } from "@/lib/api";
 import { useTranslation } from "@/components/language-provider";
 import { Card, CardContent } from "@/components/ui/card";
-import { Maximize2, Minimize2, AlertTriangle } from "lucide-react";
+import { Maximize2, Minimize2, AlertTriangle, ArrowLeft, ExternalLink } from "lucide-react";
 
 interface NetworkNode {
   id: string;
@@ -47,7 +47,6 @@ const DEPTH_COLORS: Record<number, string> = {
 
 export default function NetworkGraph({ cbe, companyName }: Props) {
   const { t } = useTranslation();
-  const router = useRouter();
 
   const DEPTH_LABELS: Record<number, string> = {
     0: t("company.networkTab.target"),
@@ -62,6 +61,17 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
   const [loading, setLoading] = useState(true);
   const [depth, setDepth] = useState(2);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // The CBE the graph is currently centered on. Starts as the company
+  // whose profile the user is on; a node click re-centers the graph
+  // without navigating away from the tab. A small pill at the top lets
+  // the operator jump back to the original.
+  const [centerCbe, setCenterCbe] = useState<string>(cbe);
+  const [centerLabel, setCenterLabel] = useState<string>(companyName);
+  // Reset to the profile's CBE whenever the parent route changes.
+  useEffect(() => {
+    setCenterCbe(cbe);
+    setCenterLabel(companyName);
+  }, [cbe, companyName]);
   // Initialize with a viewport-aware default so the first render isn't 0-wide
   // on mobile; the layout effect below refines it to the actual container width.
   const [graphWidth, setGraphWidth] = useState(() =>
@@ -78,7 +88,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    getDeepNetwork(cbe, depth)
+    getDeepNetwork(centerCbe, depth)
       .then((resp: DeepNetworkResponse) => {
         const adapted: NetworkData = {
           nodes: resp.nodes.map((n) => ({
@@ -102,7 +112,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
       })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [cbe, depth]);
+  }, [centerCbe, depth]);
 
   // Close fullscreen on Escape
   useEffect(() => {
@@ -145,13 +155,17 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
     return () => observer.disconnect();
   }, [isFullscreen, loading, ForceGraph, data]);
 
+  // Clicking a node RE-CENTERS the spider web on that company instead of
+  // navigating away. Jumping to the full profile stays available via the
+  // "Open profile" chip next to the center badge.
   const handleNodeClick = useCallback(
-    (node: { id?: string }) => {
-      if (node.id && node.id !== cbe) {
-        router.push(`/company/${node.id}`);
+    (node: { id?: string; label?: string }) => {
+      if (node.id && node.id !== centerCbe) {
+        setCenterCbe(node.id);
+        setCenterLabel(node.label || node.id);
       }
     },
-    [cbe, router]
+    [centerCbe]
   );
 
   if (loading) {
@@ -252,6 +266,31 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
               )}
             </div>
           </div>
+
+          {/* Centre badge — shows which CBE the spider web is currently
+              focused on. After a node click this is different from the
+              profile's CBE, so we also offer a back-to-original pill and
+              a link to the clicked company's full profile. */}
+          {centerCbe !== cbe && (
+            <div className="flex items-center gap-2 px-3 py-2 mb-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs">
+              <span className="text-indigo-700">
+                Centered on <strong>{centerLabel}</strong> <span className="text-indigo-400 font-mono">({centerCbe})</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => { setCenterCbe(cbe); setCenterLabel(companyName); }}
+                className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100"
+              >
+                <ArrowLeft className="h-3 w-3" /> Back to {companyName}
+              </button>
+              <Link
+                href={`/company/${centerCbe}`}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100"
+              >
+                <ExternalLink className="h-3 w-3" /> Open profile
+              </Link>
+            </div>
+          )}
 
           {/* Truncation warning */}
           {data.truncated && (

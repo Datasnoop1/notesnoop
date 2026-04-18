@@ -76,18 +76,36 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   // Convert a raw EUR value to a % of revenue (0..100)
   const toPct = (v: number) => (v / revenue) * 100;
 
+  // Peaceful palette — stone neutrals for deductions, a single teal
+  // accent for milestones, muted sky for the revenue starting line.
+  // No saturated rose/amber anywhere.
+  const COL = {
+    revenue:    "bg-sky-200",
+    revenueTxt: "text-sky-800",
+    milestone:  "bg-teal-200",
+    milestoneTxt: "text-teal-800",
+    milestoneStrong: "bg-teal-300",
+    milestoneStrongTxt: "text-teal-900",
+    netPos:     "bg-teal-400",
+    netPosTxt:  "text-teal-900",
+    netNeg:     "bg-rose-200",
+    netNegTxt:  "text-rose-700",
+    deduction:  "bg-stone-200",
+    deductionTxt: "text-stone-600",
+  };
+
   const rows: Row[] = [];
-  // Milestone — anchored to 0
+  // Revenue — anchored to 0, soft sky colour (starting point).
   rows.push({
     label: "Revenue", value: revenue, kind: "milestone",
     startPct: 0, endPct: 100,
-    color: "bg-indigo-300", textColor: "text-indigo-700",
+    color: COL.revenue, textColor: COL.revenueTxt,
     pctLabel: "100.0%",
   });
 
-  // Deductions from revenue, running balance works downwards
+  // Deductions from revenue, running balance works downwards.
   let running = revenue;
-  const pushDed = (label: string, v: number, color: string) => {
+  const pushDed = (label: string, v: number) => {
     if (v <= 0) return;
     const endPct = toPct(running);
     running -= v;
@@ -95,26 +113,23 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
     rows.push({
       label, value: v, kind: "deduction",
       startPct, endPct,
-      color, textColor: "text-rose-600",
+      color: COL.deduction, textColor: COL.deductionTxt,
     });
   };
-  pushDed("− Materials", materials, "bg-rose-200");
-  pushDed("− Services",  services,  "bg-rose-200");
-  pushDed("− Personnel", personnel, "bg-rose-200");
-  pushDed("− Other OpEx", otherOp,  "bg-rose-200");
+  pushDed("− Materials",  materials);
+  pushDed("− Services",   services);
+  pushDed("− Personnel",  personnel);
+  pushDed("− Other OpEx", otherOp);
 
-  // EBITDA milestone (may not exactly equal `running` if rubrics don't add
-  // up — we trust the rubric 9901 + 630 formula over the sum of decomposed
-  // op-costs, which can include non-standard buckets).
-  const ebitdaPct = toPct(Math.max(0, ebitda));
+  // EBITDA milestone — soft teal accent
   rows.push({
     label: "EBITDA", value: Math.max(0, ebitda), kind: "milestone",
-    startPct: 0, endPct: Math.min(100, ebitdaPct),
-    color: "bg-emerald-300", textColor: "text-emerald-700",
+    startPct: 0, endPct: Math.min(100, toPct(Math.max(0, ebitda))),
+    color: COL.milestone, textColor: COL.milestoneTxt,
     pctLabel: revenue > 0 ? `${(ebitda / revenue * 100).toFixed(1)}%` : undefined,
   });
 
-  // − D&A: between EBITDA and EBIT
+  // − D&A: floats between EBIT and EBITDA
   if (da > 0) {
     const endPct = toPct(Math.max(0, ebitda));
     const startPct = toPct(Math.max(0, ebit));
@@ -122,21 +137,21 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
       label: "− D&A", value: da, kind: "deduction",
       startPct: Math.min(startPct, endPct),
       endPct: Math.max(startPct, endPct),
-      color: "bg-amber-200", textColor: "text-amber-600",
+      color: COL.deduction, textColor: COL.deductionTxt,
     });
   }
 
-  // EBIT milestone
+  // EBIT milestone — slightly stronger teal to mark journey progress
   rows.push({
     label: "EBIT", value: Math.max(0, ebit), kind: "milestone",
     startPct: 0, endPct: Math.min(100, Math.max(0, toPct(ebit))),
-    color: "bg-emerald-300", textColor: "text-emerald-700",
+    color: COL.milestoneStrong, textColor: COL.milestoneStrongTxt,
     pctLabel: revenue > 0 ? `${(ebit / revenue * 100).toFixed(1)}%` : undefined,
   });
 
-  // Financial charges + Tax bring EBIT down to Net profit
+  // Fin charges + Tax bring EBIT down to Net profit.
   let ebitRunning = ebit;
-  const pushBelowEbit = (label: string, v: number, color: string) => {
+  const pushBelowEbit = (label: string, v: number) => {
     if (v <= 0) return;
     const endPct = toPct(Math.max(0, ebitRunning));
     ebitRunning -= v;
@@ -145,18 +160,18 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
       label, value: v, kind: "deduction",
       startPct: Math.min(startPct, endPct),
       endPct: Math.max(startPct, endPct),
-      color, textColor: "text-rose-600",
+      color: COL.deduction, textColor: COL.deductionTxt,
     });
   };
-  pushBelowEbit("− Fin. charges", finCharges, "bg-rose-200");
-  pushBelowEbit("− Tax",          tax,        "bg-slate-200");
+  pushBelowEbit("− Fin. charges", finCharges);
+  pushBelowEbit("− Tax",          tax);
 
-  // Net profit milestone
+  // Net profit — bottom line. Green if positive, dusty rose if negative.
   rows.push({
     label: "Net profit", value: Math.max(0, netProfit), kind: "milestone",
     startPct: 0, endPct: Math.min(100, Math.max(0, toPct(netProfit))),
-    color: netProfit >= 0 ? "bg-emerald-400" : "bg-rose-300",
-    textColor: netProfit >= 0 ? "text-emerald-800" : "text-rose-700",
+    color: netProfit >= 0 ? COL.netPos : COL.netNeg,
+    textColor: netProfit >= 0 ? COL.netPosTxt : COL.netNegTxt,
     pctLabel: revenue > 0 ? `${(netProfit / revenue * 100).toFixed(1)}%` : undefined,
   });
 
