@@ -1023,6 +1023,71 @@ export const getPersonFailedCompanies = (name: string) =>
     `/api/graveyard/person/${encodeURIComponent(name)}/companies`
   );
 
+// ── Graveyard: In-Process (live bankruptcy / WCO cases) ───
+export type InProcessBucket = "bankruptcy" | "wco";
+
+export interface InProcessCase {
+  enterprise_number: string;
+  company_name: string;
+  juridical_situation: string | null;
+  situation_label: string | null;
+  bucket: InProcessBucket;
+  docket_number: string | null;
+  court: string | null;
+  opened_at: string | null;
+  curator_name: string | null;
+  revenue: number | null;
+  ebitda: number | null;
+  fte_total: number | null;
+  fiscal_year: number | null;
+}
+
+export interface InProcessResponse {
+  cases: InProcessCase[];
+  total: number;
+  bankruptcy_count: number;
+  wco_count: number;
+  curator_assigned_count: number;
+}
+
+export const getInProcessCases = (
+  caseType?: "bankruptcy" | "wco",
+  limit = 200,
+) => {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (caseType) qs.set("case_type", caseType);
+  return apiFetch<InProcessResponse>(`/api/graveyard/in-process?${qs}`);
+};
+
+// ── Graveyard: Director Aging (time before bankruptcy) ───
+export interface DirectorAgingRow {
+  name: string;
+  total: number;
+  at_bankruptcy: number;
+  within_6m: number;
+  within_1y: number;
+  within_2y: number;
+  within_3y: number;
+  older: number;
+}
+
+export interface DirectorAgingBucketMeta {
+  key: keyof Omit<DirectorAgingRow, "name" | "total">;
+  label: string;
+  order: number;
+}
+
+export interface DirectorAgingResponse {
+  directors: DirectorAgingRow[];
+  total: number;
+  buckets: DirectorAgingBucketMeta[];
+}
+
+export const getDirectorAging = (minTotal = 2, limit = 200) =>
+  apiFetch<DirectorAgingResponse>(
+    `/api/graveyard/director-aging?min_total=${minTotal}&limit=${limit}`
+  );
+
 // ── AI Insights (structured multi-step pipeline) ─────────
 export interface AiInsights {
   business_description: string;
