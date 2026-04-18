@@ -1210,7 +1210,7 @@ export default function AdminPanel() {
 
                 {/* Engagement KPIs */}
                 {tractionData.engagement && (
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <Card className="bg-white">
                       <CardContent className="pt-3 pb-3 text-center">
                         <div className="text-[10px] text-slate-400 mb-1">Avg Pages / Guest</div>
@@ -2165,7 +2165,7 @@ export default function AdminPanel() {
                   placeholder="Filter users..."
                   value={userSearch}
                   onChange={(e) => setUserSearch(e.target.value)}
-                  className="pl-8"
+                  className="pl-8 h-10 md:h-8"
                 />
               </div>
             </div>
@@ -2176,9 +2176,9 @@ export default function AdminPanel() {
                   <TableRow>
                     <TableHead>Email</TableHead>
                     <TableHead>Role</TableHead>
-                    <TableHead>Joined</TableHead>
-                    <TableHead>Last Active</TableHead>
-                    <TableHead className="text-right">Requests (7d)</TableHead>
+                    <TableHead className="hidden md:table-cell">Joined</TableHead>
+                    <TableHead className="hidden lg:table-cell">Last Active</TableHead>
+                    <TableHead className="hidden md:table-cell text-right">Requests (7d)</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -2186,11 +2186,12 @@ export default function AdminPanel() {
                   {loading
                     ? Array.from({ length: 3 }).map((_, i) => (
                         <TableRow key={i}>
-                          {Array.from({ length: 6 }).map((_, j) => (
-                            <TableCell key={j}>
-                              <Skeleton className="h-4 w-24" />
-                            </TableCell>
-                          ))}
+                          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell className="hidden md:table-cell"><Skeleton className="h-4 w-24" /></TableCell>
+                          <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                         </TableRow>
                       ))
                     : filteredUsers.length === 0
@@ -2239,21 +2240,23 @@ export default function AdminPanel() {
                                   {u.role}
                                 </Badge>
                               </TableCell>
-                              <TableCell className="text-sm text-slate-500">
+                              <TableCell className="hidden md:table-cell text-sm text-slate-500">
                                 {u.created_at
                                   ? toBelgianDate(u.created_at)
                                   : "--"}
                               </TableCell>
-                              <TableCell className="text-sm text-slate-500">
+                              <TableCell className="hidden lg:table-cell text-sm text-slate-500">
                                 {act
                                   ? toBelgianTime(act.last_active)
                                   : "--"}
                               </TableCell>
-                              <TableCell className="text-right font-mono text-sm">
+                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                                 {act ? fmt(act.total_requests) : "--"}
                               </TableCell>
                               <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-1.5">
+                                {/* Row actions — wrap on mobile so 3-4 small
+                                    buttons don't push the table off-screen. */}
+                                <div className="flex flex-wrap items-center justify-end gap-1.5">
                                   {!isMe && u.role !== "blocked" && (
                                     <Button
                                       variant="outline"
@@ -2659,7 +2662,7 @@ export default function AdminPanel() {
                         {addingOptionTo === poll.id && (
                           <div className="flex gap-2 mt-2">
                             <Input
-                              className="h-7 text-xs flex-1"
+                              className="h-10 md:h-7 text-base md:text-xs flex-1"
                               placeholder="New option text..."
                               value={newOptionText}
                               onChange={(e) => setNewOptionText(e.target.value)}
@@ -2920,7 +2923,7 @@ export default function AdminPanel() {
                                   parseInt(e.target.value, 10) || 0
                                 )
                               }
-                              className="h-8 text-sm bg-white"
+                              className="h-10 md:h-8 text-base md:text-sm bg-white"
                             />
                           </div>
                         ))}
@@ -3092,7 +3095,7 @@ export default function AdminPanel() {
                   {arrData.weekly.length > 0 && (
                     <div className="mt-4 border-t pt-3">
                       <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Weekly breakdown</div>
-                      <div className="grid grid-cols-4 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         {arrData.weekly.map((w) => (
                           <div key={w.week_start} className="text-center bg-white rounded border border-slate-200 p-2">
                             <div className="text-[9px] text-slate-400">{w.week_start.slice(5)} – {w.week_end.slice(5)}</div>
@@ -3295,7 +3298,7 @@ export default function AdminPanel() {
                     {costItems.map((item, idx) => (
                       <div key={idx} className="flex flex-wrap sm:flex-nowrap items-center gap-2">
                         <Input
-                          className="h-10 sm:h-7 text-base sm:text-xs flex-1 min-w-[160px]"
+                          className="h-10 md:h-7 text-base md:text-xs flex-1 min-w-[160px]"
                           value={item.name}
                           onChange={(e) => {
                             const next = [...costItems];
@@ -3306,7 +3309,7 @@ export default function AdminPanel() {
                         <Input
                           type="number"
                           step="0.01"
-                          className="h-10 sm:h-7 text-base sm:text-xs font-mono w-24"
+                          className="h-10 md:h-7 text-base md:text-xs font-mono w-24"
                           value={item.amount}
                           onChange={(e) => {
                             const next = [...costItems];
@@ -3315,7 +3318,7 @@ export default function AdminPanel() {
                           }}
                         />
                         <select
-                          className="h-10 sm:h-7 text-sm sm:text-[10px] border rounded px-2 sm:px-1 bg-white text-slate-600"
+                          className="h-10 md:h-7 text-base md:text-xs border rounded px-2 md:px-1 bg-white text-slate-600"
                           value={item.frequency}
                           onChange={(e) => {
                             const next = [...costItems];
@@ -3338,9 +3341,9 @@ export default function AdminPanel() {
                     ))}
                   </div>
                   {/* Add new item */}
-                  <div className="flex items-center gap-2 border-t border-slate-100 pt-2">
+                  <div className="flex items-center gap-2 border-t border-slate-100 pt-2 flex-wrap md:flex-nowrap">
                     <Input
-                      className="h-7 text-xs flex-1"
+                      className="h-10 md:h-7 text-base md:text-xs flex-1 min-w-[160px]"
                       placeholder="Cost name..."
                       value={newCostName}
                       onChange={(e) => setNewCostName(e.target.value)}
@@ -3348,13 +3351,13 @@ export default function AdminPanel() {
                     <Input
                       type="number"
                       step="0.01"
-                      className="h-7 text-xs font-mono w-24"
+                      className="h-10 md:h-7 text-base md:text-xs font-mono w-24"
                       placeholder="0.00"
                       value={newCostAmount}
                       onChange={(e) => setNewCostAmount(e.target.value)}
                     />
                     <select
-                      className="h-7 text-[10px] border rounded px-1 bg-white text-slate-600"
+                      className="h-10 md:h-7 text-base md:text-xs border rounded px-2 md:px-1 bg-white text-slate-600"
                       value={newCostFreq}
                       onChange={(e) => setNewCostFreq(e.target.value as CostItem["frequency"])}
                     >

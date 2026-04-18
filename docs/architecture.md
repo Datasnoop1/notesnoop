@@ -171,22 +171,11 @@ uses `get_current_user` where it should use `_require_admin`).
   **host-only** — we tried apex-domain scoping and it broke session
   persistence. See `feedback_ssr_env.md` and this session's rollback
   commit on 2026-04-17.
-- **Layout wrapper** in `frontend/src/app/layout.tsx` sets
-  `max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8`. Every page that needs
-  a narrower container sets its own `mx-auto w-full max-w-[1200px]`
-  inside. Exception: screener (split-pane full-viewport).
-- **Mobile breakpoints**: Tailwind defaults. `sm:` = 640px,
-  `md:` = 768px. Mobile-first: write `h-10 md:h-7` not the inverse.
-  Apple HIG floor for tap targets is 44px; we accept 32–40px for
-  secondary controls, 44px for primary.
-- **iOS zoom-on-focus**: triggered when input text is < 16px. All
-  form inputs should use `text-base` (16px) on mobile. Many admin
-  inputs still fail this (tech-debt item 19).
-- **Financials tables** use a **sticky first column** pattern: the
-  row-label `<td>` / `<th>` gets `sticky left-0 z-[5/10] bg-[color]
-  shadow-[1px_0_0_rgba(226,232,240,1)]` + `w-[110px] md:w-auto
-  md:min-w-[240px]` + `whitespace-normal break-words`. Applied
-  consistently across P&L / CF / BS / Credit / Valuation.
+- **UI conventions** — breakpoints, iOS zoom rules, tap targets,
+  typography scale, sticky-first-column pattern, brand tokens, shared
+  primitives, dark-mode policy — all live in
+  [`docs/ui-conventions.md`](ui-conventions.md). Read that before
+  styling anything new; update it when a convention changes.
 
 ---
 

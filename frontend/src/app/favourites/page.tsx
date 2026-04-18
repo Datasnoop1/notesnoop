@@ -210,7 +210,7 @@ function ProjectCard({
                             placeholder={t("favourites.searchCompanyPlaceholder")}
                             value={addSearch}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddSearch(e.target.value)}
-                            className="h-8 text-sm"
+                            className="h-10 md:h-8 text-base md:text-sm"
                             autoFocus
                           />
                         </div>
@@ -1322,8 +1322,9 @@ export default function FavouritesPage() {
         </div>
       </div>
 
-      {/* Tab switcher */}
-      <div className="flex items-center gap-1 border-b border-slate-100 pb-0 overflow-x-auto -mx-1 px-1 scrollbar-none">
+      {/* Tab switcher. Scrollbar hidden from md+ only; mobile keeps the
+          native scrollbar as a visual cue that the tab row scrolls. */}
+      <div className="flex items-center gap-1 border-b border-slate-100 pb-0 overflow-x-auto -mx-1 px-1 md:scrollbar-none">
         <button
           onClick={() => setActiveTab("companies")}
           className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap shrink-0 ${

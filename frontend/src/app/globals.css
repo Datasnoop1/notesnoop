@@ -7,6 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
@@ -51,6 +54,13 @@
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
+  /* Brand accent — soft indigo. Matches the hardcoded bg-indigo-600/500/100
+     usages already in nav + buttons across the app. Available via
+     `bg-brand`, `text-brand`, `bg-brand-soft` for new code. Existing pages
+     keep their hardcoded indigo classes — do not mass-migrate. */
+  --brand: oklch(0.49 0.16 270);
+  --brand-foreground: oklch(0.985 0 0);
+  --brand-soft: oklch(0.96 0.02 270);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
@@ -130,13 +140,29 @@
   }
 }
 
-/* Hide scrollbar for horizontal tab navigation on mobile */
-.scrollbar-none {
+/* ── Canonical typography scale ─────────────────────────────────────
+   Use these in place of ad-hoc text-[Npx] sizes. Mobile-first, scales
+   up at md:. Defined in `docs/ui-conventions.md`. */
+@layer components {
+  .heading-1 { @apply text-2xl md:text-3xl font-semibold tracking-tight text-slate-900; }
+  .heading-2 { @apply text-xl md:text-2xl font-semibold tracking-tight text-slate-900; }
+  .heading-3 { @apply text-lg md:text-xl font-medium text-slate-900; }
+  .heading-4 { @apply text-base md:text-lg font-medium text-slate-800; }
+  .section-label { @apply text-xs font-bold uppercase tracking-wider text-slate-500; }
+  .body-lg { @apply text-base md:text-lg text-slate-700; }
+  .body { @apply text-sm md:text-base text-slate-700; }
+  .body-sm { @apply text-xs md:text-sm text-slate-600; }
+}
+
+/* Hide scrollbar. Register as a Tailwind v4 utility so variants like
+   `md:scrollbar-none` work. Mobile keeps the native scrollbar as a scroll
+   cue (architecture gotcha #8); desktop can opt in via `md:scrollbar-none`. */
+@utility scrollbar-none {
   -ms-overflow-style: none;
   scrollbar-width: none;
-}
-.scrollbar-none::-webkit-scrollbar {
-  display: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Copy protection: prevent selection on financial data tables */

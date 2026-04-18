@@ -265,7 +265,7 @@ function SortHeader({
         {isActive ? (
           <ChevronDown className="w-3 h-3" />
         ) : (
-          <ChevronUp className="w-3 h-3 opacity-0 group-hover:opacity-30" />
+          <ChevronUp className="w-3 h-3 opacity-30 md:opacity-0 md:group-hover:opacity-30" />
         )}
       </span>
     </th>
@@ -803,7 +803,9 @@ export default function ScreenerPage() {
                           {p.name}
                         </button>
                         <button
-                          className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity ml-1"
+                          aria-label={`Remove preset ${p.name}`}
+                          title="Remove preset"
+                          className="text-slate-300 hover:text-rose-500 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity ml-1"
                           onClick={(e) => {
                             e.stopPropagation();
                             const next = presets.filter((_, j) => j !== i);
@@ -1341,8 +1343,10 @@ export default function ScreenerPage() {
           <AdUnit slot="3722838377" format="horizontal" className="max-h-[90px] overflow-hidden" />
         </div>
 
-        {/* Results table */}
-        <div className="flex-1 overflow-y-auto overflow-x-auto scrollbar-none relative">
+        {/* Results table. Scrollbar hidden from md+ only; mobile keeps the
+            native scrollbar so users know the columns scroll (architecture
+            gotcha #8). */}
+        <div className="flex-1 overflow-y-auto overflow-x-auto md:scrollbar-none relative">
           {/* Loading overlay — sticky so it stays visible at the top-right
               of the visible viewport even when the user has scrolled the
               table down. The previous `absolute top-2` scrolled away with

@@ -251,7 +251,7 @@ function ScorebordTab() {
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <Input
               placeholder="Search names..."
-              className="pl-8 h-8 text-sm"
+              className="pl-8 h-10 md:h-8 text-base md:text-sm"
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
             />
@@ -351,11 +351,11 @@ function ScorebordTab() {
                                       <TableHeader>
                                         <TableRow>
                                           <TableHead>Company</TableHead>
-                                          <TableHead>Role</TableHead>
+                                          <TableHead className="hidden md:table-cell">Role</TableHead>
                                           <TableHead>Status</TableHead>
-                                          <TableHead>Situation</TableHead>
+                                          <TableHead className="hidden md:table-cell">Situation</TableHead>
                                           <TableHead className="text-right">Revenue</TableHead>
-                                          <TableHead className="text-right">EBITDA</TableHead>
+                                          <TableHead className="hidden md:table-cell text-right">EBITDA</TableHead>
                                         </TableRow>
                                       </TableHeader>
                                       <TableBody>
@@ -370,7 +370,7 @@ function ScorebordTab() {
                                               </Link>
                                               <p className="text-[10px] text-slate-400 font-mono">{fmtCbe(c.enterprise_number)}</p>
                                             </TableCell>
-                                            <TableCell className="text-sm text-slate-600">
+                                            <TableCell className="hidden md:table-cell text-sm text-slate-600">
                                               {c.role_label || c.role || "\u2014"}
                                             </TableCell>
                                             <TableCell>
@@ -378,13 +378,13 @@ function ScorebordTab() {
                                                 {c.status_label || c.status || "\u2014"}
                                               </Badge>
                                             </TableCell>
-                                            <TableCell className="text-sm text-slate-600">
+                                            <TableCell className="hidden md:table-cell text-sm text-slate-600">
                                               {c.situation_label || "\u2014"}
                                             </TableCell>
                                             <TableCell className="text-right font-mono text-sm">
                                               {fmtEur(c.revenue)}
                                             </TableCell>
-                                            <TableCell className="text-right font-mono text-sm">
+                                            <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                                               {fmtEur(c.ebitda)}
                                             </TableCell>
                                           </TableRow>
@@ -405,10 +405,10 @@ function ScorebordTab() {
                                       <TableHeader>
                                         <TableRow>
                                           <TableHead>Company</TableHead>
-                                          <TableHead>Role</TableHead>
+                                          <TableHead className="hidden md:table-cell">Role</TableHead>
                                           <TableHead className="text-right">Revenue</TableHead>
-                                          <TableHead className="text-right">EBITDA</TableHead>
-                                          <TableHead className="text-right">FTE</TableHead>
+                                          <TableHead className="hidden md:table-cell text-right">EBITDA</TableHead>
+                                          <TableHead className="hidden md:table-cell text-right">FTE</TableHead>
                                         </TableRow>
                                       </TableHeader>
                                       <TableBody>
@@ -423,16 +423,16 @@ function ScorebordTab() {
                                               </Link>
                                               <p className="text-[10px] text-slate-400 font-mono">{fmtCbe(c.enterprise_number)}</p>
                                             </TableCell>
-                                            <TableCell className="text-sm text-slate-600">
+                                            <TableCell className="hidden md:table-cell text-sm text-slate-600">
                                               {c.role_label || c.role || "\u2014"}
                                             </TableCell>
                                             <TableCell className="text-right font-mono text-sm">
                                               {fmtEur(c.revenue)}
                                             </TableCell>
-                                            <TableCell className="text-right font-mono text-sm">
+                                            <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                                               {fmtEur(c.ebitda)}
                                             </TableCell>
-                                            <TableCell className="text-right font-mono text-sm">
+                                            <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                                               {fmtNumber(c.fte_total)}
                                             </TableCell>
                                           </TableRow>
@@ -524,7 +524,7 @@ function InProcessTab() {
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <Input
               placeholder="Search..."
-              className="pl-8 h-8 text-sm"
+              className="pl-8 h-10 md:h-8 text-base md:text-sm"
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
             />
@@ -557,12 +557,12 @@ function InProcessTab() {
               <TableRow className="bg-slate-50">
                 <TableHead>Company</TableHead>
                 <TableHead>Type</TableHead>
-                <TableHead>Situation</TableHead>
-                <TableHead>Opened</TableHead>
-                <TableHead>Court</TableHead>
-                <TableHead>Curator</TableHead>
+                <TableHead className="hidden md:table-cell">Situation</TableHead>
+                <TableHead className="hidden md:table-cell">Opened</TableHead>
+                <TableHead className="hidden lg:table-cell">Court</TableHead>
+                <TableHead className="hidden md:table-cell">Curator</TableHead>
                 <TableHead className="text-right">Revenue</TableHead>
-                <TableHead className="text-right">FTE</TableHead>
+                <TableHead className="hidden md:table-cell text-right">FTE</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -597,13 +597,13 @@ function InProcessTab() {
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell className="text-sm text-slate-600">
+                    <TableCell className="hidden md:table-cell text-sm text-slate-600">
                       {c.situation_label ?? "\u2014"}
                     </TableCell>
-                    <TableCell className="text-sm text-slate-600 font-mono">
+                    <TableCell className="hidden md:table-cell text-sm text-slate-600 font-mono">
                       {c.opened_at ?? "\u2014"}
                     </TableCell>
-                    <TableCell className="text-sm text-slate-600">
+                    <TableCell className="hidden lg:table-cell text-sm text-slate-600">
                       {c.court ? (
                         <span className="inline-flex items-center gap-1">
                           <Gavel className="h-3 w-3 text-slate-400" />
@@ -613,7 +613,7 @@ function InProcessTab() {
                         <span className="text-slate-400">{"\u2014"}</span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       {c.curator_name ? (
                         <span className="inline-flex items-center gap-1 text-sm text-slate-800">
                           <UserCheck className="h-3.5 w-3.5 text-emerald-600" />
@@ -629,7 +629,7 @@ function InProcessTab() {
                     <TableCell className="text-right font-mono text-sm">
                       {fmtEur(c.revenue)}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
+                    <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                       {fmtNumber(c.fte_total)}
                     </TableCell>
                   </TableRow>
@@ -733,7 +733,7 @@ function DirectorAgingTab() {
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             <Input
               placeholder="Search names..."
-              className="pl-8 h-8 text-sm"
+              className="pl-8 h-10 md:h-8 text-base md:text-sm"
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
             />

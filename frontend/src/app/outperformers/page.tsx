@@ -364,10 +364,10 @@ export default function OutperformersPage() {
               <TableHeader>
                 <TableRow className="bg-slate-50/80">
                   <TableHead className="text-[11px] uppercase tracking-wider">Company</TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wider">Sector</TableHead>
-                  <TableHead className="text-[11px] uppercase tracking-wider">City</TableHead>
+                  <TableHead className="hidden md:table-cell text-[11px] uppercase tracking-wider">Sector</TableHead>
+                  <TableHead className="hidden md:table-cell text-[11px] uppercase tracking-wider">City</TableHead>
                   <TableHead className="text-right text-[11px] uppercase tracking-wider">Revenue {endYear}</TableHead>
-                  <TableHead className="text-right text-[11px] uppercase tracking-wider">EBITDA {endYear}</TableHead>
+                  <TableHead className="hidden md:table-cell text-right text-[11px] uppercase tracking-wider">EBITDA {endYear}</TableHead>
                   {selected !== "other" && (
                     <TableHead className="text-right text-[11px] uppercase tracking-wider">
                       {primaryMetricHeader(selected)}
@@ -406,14 +406,14 @@ export default function OutperformersPage() {
                           </Link>
                           <div className="text-[11px] text-slate-400 font-mono">{fmtCbe(c.cbe)}</div>
                         </TableCell>
-                        <TableCell className="py-2 max-w-[140px] sm:max-w-[240px] truncate" title={c.sector ?? ""}>
+                        <TableCell className="hidden md:table-cell py-2 max-w-[140px] sm:max-w-[240px] truncate" title={c.sector ?? ""}>
                           {c.sector ?? <span className="text-slate-400 italic">—</span>}
                         </TableCell>
-                        <TableCell className="py-2 text-slate-600">{c.city ?? "—"}</TableCell>
+                        <TableCell className="hidden md:table-cell py-2 text-slate-600">{c.city ?? "—"}</TableCell>
                         <TableCell className="text-right font-mono text-[12px] py-2">
                           {fmtEur(c.rev_25)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-[12px] py-2">
+                        <TableCell className="hidden md:table-cell text-right font-mono text-[12px] py-2">
                           {fmtEur(c.ebitda_25)}
                         </TableCell>
                         {selected !== "other" && (

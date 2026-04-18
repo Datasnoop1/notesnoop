@@ -312,14 +312,14 @@ function PeoplePageInner() {
                                       Administrator Roles
                                     </h4>
                                     <div className="rounded-lg border bg-white overflow-x-auto">
-                                      <Table className="min-w-[640px]">
+                                      <Table className="md:min-w-[640px]">
                                         <TableHeader>
                                           <TableRow>
                                             <TableHead>Company</TableHead>
                                             <TableHead>Role</TableHead>
-                                            <TableHead className="text-right">Revenue</TableHead>
-                                            <TableHead className="text-right">EBITDA</TableHead>
-                                            <TableHead className="text-right">FTE</TableHead>
+                                            <TableHead className="hidden md:table-cell text-right">Revenue</TableHead>
+                                            <TableHead className="hidden md:table-cell text-right">EBITDA</TableHead>
+                                            <TableHead className="hidden md:table-cell text-right">FTE</TableHead>
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -336,13 +336,13 @@ function PeoplePageInner() {
                                               <TableCell className="text-slate-600 text-sm">
                                                 {role.role_label || role.role || "\u2014"}
                                               </TableCell>
-                                              <TableCell className="text-right font-mono text-sm">
+                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                                                 {fmtEur(role.revenue)}
                                               </TableCell>
-                                              <TableCell className="text-right font-mono text-sm">
+                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                                                 {fmtEur(role.ebitda)}
                                               </TableCell>
-                                              <TableCell className="text-right font-mono text-sm">
+                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                                                 {fmtNumber(role.fte_total)}
                                               </TableCell>
                                             </TableRow>
@@ -360,14 +360,14 @@ function PeoplePageInner() {
                                       Holdings
                                     </h4>
                                     <div className="rounded-lg border bg-white overflow-x-auto">
-                                      <Table className="min-w-[640px]">
+                                      <Table className="md:min-w-[640px]">
                                         <TableHeader>
                                           <TableRow>
                                             <TableHead>Company</TableHead>
                                             <TableHead className="text-right">Ownership %</TableHead>
-                                            <TableHead className="text-right">Revenue</TableHead>
-                                            <TableHead className="text-right">EBITDA</TableHead>
-                                            <TableHead className="text-right">FTE</TableHead>
+                                            <TableHead className="hidden md:table-cell text-right">Revenue</TableHead>
+                                            <TableHead className="hidden md:table-cell text-right">EBITDA</TableHead>
+                                            <TableHead className="hidden md:table-cell text-right">FTE</TableHead>
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -384,13 +384,13 @@ function PeoplePageInner() {
                                               <TableCell className="text-right font-mono text-sm">
                                                 {fmtPct(h.ownership_pct)}
                                               </TableCell>
-                                              <TableCell className="text-right font-mono text-sm">
+                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                                                 {fmtEur(h.revenue)}
                                               </TableCell>
-                                              <TableCell className="text-right font-mono text-sm">
+                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                                                 {fmtEur(h.ebitda)}
                                               </TableCell>
-                                              <TableCell className="text-right font-mono text-sm">
+                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
                                                 {fmtNumber(h.fte_total)}
                                               </TableCell>
                                             </TableRow>
