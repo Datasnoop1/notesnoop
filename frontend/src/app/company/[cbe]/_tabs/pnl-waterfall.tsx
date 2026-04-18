@@ -72,6 +72,10 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   const revenue = rub(rubrics, "70", fy);
   if (revenue <= 0) return null;
 
+  // Read milestones first — we need them to compute the domain below,
+  // since any can go negative (EBITDA / EBIT / net profit for distressed
+  // companies) and should render left of the zero line.
+
   const materials = Math.max(0, rub(rubrics, "60", fy));
   const services = Math.max(0, rub(rubrics, "61", fy));
   const personnel = Math.max(0, rub(rubrics, "62", fy));
@@ -83,8 +87,15 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   const tax = Math.max(0, rub(rubrics, "67/77", fy));
   const netProfit = rub(rubrics, "9904", fy);
 
-  // Convert a raw EUR value to a % of revenue (0..100)
-  const toPct = (v: number) => (v / revenue) * 100;
+  // Domain includes 0 (zero line), revenue (ceiling), and all milestone
+  // values so negative EBITDA / EBIT / net profit render left of zero
+  // without clipping.
+  const domainPoints = [0, revenue, ebitda, ebit, netProfit];
+  const domainMin = Math.min(...domainPoints);
+  const domainMax = Math.max(...domainPoints);
+  const domainRange = Math.max(1, domainMax - domainMin);
+  const toPos = (v: number) => ((v - domainMin) / domainRange) * 100;
+  const zeroPos = toPos(0);
 
   // Palette: shades of gray only. Milestones get progressively darker as
   // the journey from top line to bottom line progresses; deductions stay
@@ -118,49 +129,56 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   // split across Fin charges + Tax + residual (shown as "Other").
   const rows: Row[] = [];
 
-  rows.push({
-    label: "Revenue", value: revenue, kind: "milestone",
-    startPct: 0, endPct: 100,
-    color: COL.revenue, textColor: COL.revenueTxt,
-    pctLabel: "100.0%",
-  });
-
-  // Between Revenue and EBITDA: total gap = revenue − ebitda. The known
-  // rubric sum (Materials + Services + Personnel + Other OpEx) might be
-  // ABOVE or BELOW this gap. Reconcile both ways:
-  //   - known < gap → add an extra deduction ("Other OpEx" absorbs residual)
-  //   - known > gap → add an addition ("Other op income") that brings the
-  //     running balance BACK UP to exactly EBITDA
-  // Either way, the staircase tie-outs exactly at the next milestone.
-  const totalOpex = Math.max(0, revenue - Math.max(0, ebitda));
-  const knownOpex = materials + services + personnel + otherOp;
-  const opexUnder = Math.max(0, totalOpex - knownOpex);    // extra deduction
-  const opexOver  = Math.max(0, knownOpex - totalOpex);    // addition
-
-  let running = revenue;
-  const pushDed = (label: string, v: number, isSub = true) => {
-    if (v <= 0) return;
-    const endPct = toPct(Math.max(0, running));
-    running -= v;
-    const startPct = toPct(Math.max(0, running));
+  // Milestone bar anchored at zero: extends right for positive, left for
+  // negative. Takes care of negative EBIT / EBITDA / net profit cleanly.
+  const pushMilestone = (label: string, v: number, color: string, textColor: string, pctLabel?: string) => {
     rows.push({
-      label, value: v, kind: "deduction",
-      startPct, endPct,
-      color: COL.deduction, textColor: COL.deductionTxt,
-      indent: isSub,
+      label, value: Math.abs(v), kind: "milestone",
+      startPct: Math.min(zeroPos, toPos(v)),
+      endPct: Math.max(zeroPos, toPos(v)),
+      color, textColor,
+      pctLabel,
     });
   };
-  const pushAdd = (label: string, v: number) => {
-    if (v <= 0) return;
-    const startPct = toPct(Math.max(0, running));
-    running += v;
-    const endPct = toPct(Math.max(0, running));
+  // Floating bar between two running-balance positions. Bar always drawn
+  // left→right regardless of whether `running` increased or decreased.
+  const pushBar = (label: string, fromVal: number, toVal: number) => {
+    const lo = Math.min(fromVal, toVal);
+    const hi = Math.max(fromVal, toVal);
     rows.push({
-      label, value: v, kind: "deduction",  // render like a bar
-      startPct, endPct,
+      label, value: Math.abs(toVal - fromVal),
+      kind: "deduction",
+      startPct: toPos(lo),
+      endPct: toPos(hi),
       color: COL.deduction, textColor: COL.deductionTxt,
       indent: true,
     });
+  };
+
+  pushMilestone("Revenue", revenue, COL.revenue, COL.revenueTxt, "100.0%");
+
+  // Between Revenue and EBITDA: total gap = revenue − ebitda. The rubric
+  // sum can be BELOW the gap (add "Other OpEx" residual) or ABOVE it
+  // (add "Other op income" that lifts running back up to EBITDA). Either
+  // way, the staircase always ends exactly at the EBITDA milestone —
+  // even when EBITDA is negative (the staircase then crosses zero).
+  const totalOpex = revenue - ebitda;
+  const knownOpex = materials + services + personnel + otherOp;
+  const opexUnder = Math.max(0, totalOpex - knownOpex);
+  const opexOver  = Math.max(0, knownOpex - totalOpex);
+
+  let running = revenue;
+  const pushDed = (label: string, v: number) => {
+    if (v <= 0) return;
+    const before = running;
+    running -= v;
+    pushBar(label, before, running);
+  };
+  const pushAdd = (label: string, v: number) => {
+    if (v <= 0) return;
+    const before = running;
+    running += v;
+    pushBar(label, before, running);
   };
   pushDed("Materials",  materials);
   pushDed("Services",   services);
@@ -168,83 +186,43 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   pushDed("Other OpEx", otherOp + opexUnder);
   if (opexOver > 0) pushAdd("Other op income", opexOver);
 
-  // EBITDA milestone — running now equals ebitda (±rounding)
-  rows.push({
-    label: "EBITDA", value: Math.max(0, ebitda), kind: "milestone",
-    startPct: 0, endPct: Math.min(100, toPct(Math.max(0, ebitda))),
-    color: COL.milestone, textColor: COL.milestoneTxt,
-    pctLabel: revenue > 0 ? `${(ebitda / revenue * 100).toFixed(1)}%` : undefined,
-  });
+  pushMilestone("EBITDA", ebitda, COL.milestone, COL.milestoneTxt,
+                revenue > 0 ? `${(ebitda / revenue * 100).toFixed(1)}%` : undefined);
 
-  // Between EBITDA and EBIT: D&A fills the full gap (ebitda - ebit)
-  const daGap = Math.max(0, Math.max(0, ebitda) - Math.max(0, ebit));
-  if (daGap > 0) {
-    const endPct = toPct(Math.max(0, ebitda));
-    const startPct = toPct(Math.max(0, ebit));
-    rows.push({
-      label: "D&A", value: daGap, kind: "deduction",
-      startPct: Math.min(startPct, endPct),
-      endPct: Math.max(startPct, endPct),
-      color: COL.deduction, textColor: COL.deductionTxt,
-      indent: true,
-    });
-  }
+  // D&A bridges EBITDA → EBIT (positive D&A only; skip if zero/negative).
+  if (Math.abs(ebitda - ebit) > 0.01) pushBar("D&A", ebitda, ebit);
 
-  // EBIT milestone
-  rows.push({
-    label: "EBIT", value: Math.max(0, ebit), kind: "milestone",
-    startPct: 0, endPct: Math.min(100, Math.max(0, toPct(ebit))),
-    color: COL.milestoneStrong, textColor: COL.milestoneStrongTxt,
-    pctLabel: revenue > 0 ? `${(ebit / revenue * 100).toFixed(1)}%` : undefined,
-  });
+  pushMilestone("EBIT", ebit, COL.milestoneStrong, COL.milestoneStrongTxt,
+                revenue > 0 ? `${(ebit / revenue * 100).toFixed(1)}%` : undefined);
 
-  // Between EBIT and Net profit: total = ebit − netProfit. Same
-  // bidirectional reconciliation as the opex path, so Fin charges + Tax +
-  // residual always land exactly at the Net profit milestone.
-  const totalBelowEbit = Math.max(0, Math.max(0, ebit) - Math.max(0, netProfit));
+  // Between EBIT and Net profit: same bidirectional reconciliation.
+  const totalBelowEbit = ebit - netProfit;
   const knownBelowEbit = finCharges + tax;
   const belowUnder = Math.max(0, totalBelowEbit - knownBelowEbit);
   const belowOver  = Math.max(0, knownBelowEbit - totalBelowEbit);
 
-  let ebitRunning = Math.max(0, ebit);
+  let ebitRunning = ebit;
   const pushBelowEbit = (label: string, v: number) => {
     if (v <= 0) return;
-    const endPct = toPct(Math.max(0, ebitRunning));
+    const before = ebitRunning;
     ebitRunning -= v;
-    const startPct = toPct(Math.max(0, ebitRunning));
-    rows.push({
-      label, value: v, kind: "deduction",
-      startPct: Math.min(startPct, endPct),
-      endPct: Math.max(startPct, endPct),
-      color: COL.deduction, textColor: COL.deductionTxt,
-      indent: true,
-    });
+    pushBar(label, before, ebitRunning);
   };
   const pushBelowAdd = (label: string, v: number) => {
     if (v <= 0) return;
-    const startPct = toPct(Math.max(0, ebitRunning));
+    const before = ebitRunning;
     ebitRunning += v;
-    const endPct = toPct(Math.max(0, ebitRunning));
-    rows.push({
-      label, value: v, kind: "deduction",
-      startPct, endPct,
-      color: COL.deduction, textColor: COL.deductionTxt,
-      indent: true,
-    });
+    pushBar(label, before, ebitRunning);
   };
   pushBelowEbit("Fin. charges", finCharges);
   pushBelowEbit("Tax",          tax);
   if (belowUnder > 0) pushBelowEbit("Other", belowUnder);
   if (belowOver > 0)  pushBelowAdd("Other financial income", belowOver);
 
-  // Net profit — bottom line
-  rows.push({
-    label: "Net profit", value: Math.max(0, netProfit), kind: "milestone",
-    startPct: 0, endPct: Math.min(100, Math.max(0, toPct(netProfit))),
-    color: netProfit >= 0 ? COL.netPos : COL.netNeg,
-    textColor: netProfit >= 0 ? COL.netPosTxt : COL.netNegTxt,
-    pctLabel: revenue > 0 ? `${(netProfit / revenue * 100).toFixed(1)}%` : undefined,
-  });
+  pushMilestone("Net profit", netProfit,
+                netProfit >= 0 ? COL.netPos : COL.netNeg,
+                netProfit >= 0 ? COL.netPosTxt : COL.netNegTxt,
+                revenue > 0 ? `${(netProfit / revenue * 100).toFixed(1)}%` : undefined);
 
   return (
     <div className="rounded-lg border bg-white">
@@ -291,6 +269,12 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
                     {r.label}
                   </div>
                   <div className="flex-1 relative h-5 md:h-6 overflow-hidden">
+                    {/* Zero-reference line — shows whether bars sit left
+                        (negative) or right (positive) of the zero axis. */}
+                    <div
+                      className="absolute top-0 bottom-0 w-px bg-slate-300"
+                      style={{ left: `${zeroPos}%` }}
+                    />
                     <div
                       className={`absolute top-0 h-full rounded ${r.color}`}
                       style={{ left: `${r.startPct}%`, width: `${width}%` }}

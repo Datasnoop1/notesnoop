@@ -85,17 +85,27 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
   const fcf = operatingCf - capex;
   const changeInCash = fcf + debtMovement;
 
-  // Scale: biggest absolute flow gives 100%. This keeps even small
-  // deductions visible — unlike scaling to revenue where they'd vanish.
-  const scaleBase = Math.max(
-    1,
-    Math.abs(netProfit) + Math.max(0, da) + Math.max(0, -wcChange) + Math.max(0, wcChange),
-    Math.abs(operatingCf),
-    Math.abs(operatingCf) + capex,
-    Math.abs(fcf) + Math.abs(debtMovement),
-    Math.abs(changeInCash),
-  );
-  const toPct = (v: number) => (v / scaleBase) * 100;
+  // Domain — include every milestone AND every running-balance extreme so
+  // negative values (common in the WC bridge) render left of the zero line
+  // cleanly. Always includes 0 as a reference. Ceiling and floor pad 5%
+  // each so end-of-bar labels never clip.
+  const points = [
+    0,
+    netProfit,
+    netProfit + da,
+    netProfit + da - wcChange,
+    operatingCf,
+    operatingCf - capex,
+    fcf,
+    fcf + debtMovement,
+    changeInCash,
+  ];
+  const domainMin = Math.min(...points);
+  const domainMax = Math.max(...points);
+  const domainRange = Math.max(1, domainMax - domainMin);
+  // toPos(v) returns the % position of v inside the domain.
+  const toPos = (v: number) => ((v - domainMin) / domainRange) * 100;
+  const zeroPos = toPos(0);
 
   // Shades-of-gray palette to match PnlWaterfall. Milestones get
   // progressively darker; flows stay pale; only the negative-result text
@@ -117,17 +127,26 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
 
   const rows: Row[] = [];
 
-  // Starting point: Net profit milestone
-  rows.push({
-    label: "Net profit", value: Math.abs(netProfit), kind: "milestone",
-    startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(netProfit)))),
-    color: netProfit >= 0 ? COL.milestone : COL.negNet,
-    textColor: netProfit >= 0 ? COL.milestoneTxt : COL.negNetTxt,
-  });
+  // Milestone helper — bar extends from zero to the milestone value.
+  // Negative values render LEFT of the zero line.
+  const pushMilestone = (label: string, v: number, color: string, posColor: string, negColor: string, textPos: string, textNeg: string) => {
+    const startPct = Math.min(zeroPos, toPos(v));
+    const endPct = Math.max(zeroPos, toPos(v));
+    rows.push({
+      label, value: Math.abs(v), kind: "milestone",
+      startPct, endPct,
+      color: v >= 0 ? (color || posColor) : negColor,
+      textColor: v >= 0 ? textPos : textNeg,
+    });
+  };
 
-  // Build cumulative from Net profit up to Operating CF, then down through
-  // CapEx to FCF, then ± debt to Δ Cash. Each floating bar bridges two
-  // consecutive cumulative positions.
+  // Starting milestone — Net profit anchored at zero, extends left or right
+  pushMilestone("Net profit", netProfit,
+                COL.milestone, COL.milestone, COL.negNet,
+                COL.milestoneTxt, COL.negNetTxt);
+
+  // Float helper — bridges running balance by `delta`. Negative running
+  // values are fine now; the bar just sits left of the zero line.
   let running = netProfit;
   const float = (label: string, delta: number, color: string, textColor: string) => {
     if (delta === 0) return;
@@ -138,8 +157,8 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
     rows.push({
       label, value: Math.abs(delta),
       kind: delta > 0 ? "addition" : "deduction",
-      startPct: toPct(Math.max(0, lo)),
-      endPct: toPct(Math.max(0, hi)),
+      startPct: toPos(lo),
+      endPct: toPos(hi),
       color, textColor,
       indent: true,
     });
@@ -154,24 +173,16 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
           isUse ? COL.deductionTxt : COL.additionTxt);
   }
 
-  // Operating CF milestone
-  rows.push({
-    label: "Operating CF", value: Math.abs(operatingCf), kind: "milestone",
-    startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(operatingCf)))),
-    color: operatingCf >= 0 ? COL.milestone : COL.negNet,
-    textColor: operatingCf >= 0 ? COL.milestoneTxt : COL.negNetTxt,
-  });
+  pushMilestone("Operating CF", operatingCf,
+                COL.milestone, COL.milestone, COL.negNet,
+                COL.milestoneTxt, COL.negNetTxt);
 
   running = operatingCf;
   if (prevFy && capex > 0) float("− CapEx", -capex, COL.deduction, COL.deductionTxt);
 
-  // FCF milestone — slightly deeper teal
-  rows.push({
-    label: "Free cash flow", value: Math.abs(fcf), kind: "milestone",
-    startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(fcf)))),
-    color: fcf >= 0 ? COL.milestoneStrong : COL.negNet,
-    textColor: fcf >= 0 ? COL.milestoneStrongTxt : COL.negNetTxt,
-  });
+  pushMilestone("Free cash flow", fcf,
+                COL.milestoneStrong, COL.milestoneStrong, COL.negNet,
+                COL.milestoneStrongTxt, COL.negNetTxt);
 
   running = fcf;
   if (prevFy && debtMovement !== 0) {
@@ -182,13 +193,9 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
           isBorrow ? COL.additionTxt : COL.deductionTxt);
   }
 
-  // Δ Cash — final bottom-line milestone. Stronger colour = outcome.
-  rows.push({
-    label: "Δ Cash", value: Math.abs(changeInCash), kind: "milestone",
-    startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(changeInCash)))),
-    color: changeInCash >= 0 ? COL.posNet : COL.negNet,
-    textColor: changeInCash >= 0 ? COL.posNetTxt : COL.negNetTxt,
-  });
+  pushMilestone("Δ Cash", changeInCash,
+                COL.posNet, COL.posNet, COL.negNet,
+                COL.posNetTxt, COL.negNetTxt);
 
   return (
     <div className="rounded-lg border bg-white">
@@ -231,6 +238,12 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
                     {r.label}
                   </div>
                   <div className="flex-1 relative h-5 md:h-6 overflow-hidden">
+                    {/* Zero-reference line so the reader can see which
+                        side bars sit on (left = negative, right = positive). */}
+                    <div
+                      className="absolute top-0 bottom-0 w-px bg-slate-300"
+                      style={{ left: `${zeroPos}%` }}
+                    />
                     <div
                       className={`absolute top-0 h-full rounded ${r.color}`}
                       style={{ left: `${r.startPct}%`, width: `${width}%` }}
