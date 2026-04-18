@@ -131,29 +131,30 @@ export function BalanceSheetBridge({ bsRows, defaultCollapsed = false }: Props) 
 
   return (
     <div className="rounded-lg border bg-white mb-4">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="flex items-center gap-2 hover:bg-slate-50 -mx-1 px-1 py-0.5 rounded transition-colors"
+          aria-expanded={open}
+        >
           {open ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
             Balance-sheet bridge
           </h3>
           <span className="text-[10px] text-slate-400">— FY{row.fiscal_year}</span>
-        </div>
+        </button>
         {years.length > 1 && (
           <select
-            value={row.fiscal_year}
+            value={fy ?? row.fiscal_year}
             onChange={(e) => setFy(Number(e.target.value))}
-            onClick={(e) => e.stopPropagation()}
             className="text-[11px] border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-600 hover:border-slate-300"
+            aria-label="Fiscal year"
           >
             {years.map((y) => <option key={y} value={y}>FY{y}</option>)}
           </select>
         )}
-      </button>
+      </div>
       {open && (
         <div className="px-3 pb-3 pt-2 border-t border-slate-100 space-y-3">
           <div>

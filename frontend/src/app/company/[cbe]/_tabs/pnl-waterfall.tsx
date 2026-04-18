@@ -50,15 +50,18 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = true }: 
   const revenue = rub(rubrics, "70", fy);
   if (revenue <= 0) return null;
 
+  // Rubric codes match what backend emits (see companies/financials.py
+  // pnl_codes/bs_codes): Other OpEx is '640/8', Tax is '67/77', D&A is
+  // '630' plus '631/4' + '635/8' if granularity matters later.
   const materials = Math.max(0, rub(rubrics, "60", fy));
   const services = Math.max(0, rub(rubrics, "61", fy));
   const personnel = Math.max(0, rub(rubrics, "62", fy));
-  const otherOp = Math.max(0, rub(rubrics, "640", fy));
+  const otherOp = Math.max(0, rub(rubrics, "640/8", fy));
   const da = Math.max(0, rub(rubrics, "630", fy));
   const ebit = rub(rubrics, "9901", fy);
   const ebitda = ebit + da;
   const finCharges = Math.max(0, rub(rubrics, "65", fy));
-  const tax = Math.max(0, rub(rubrics, "67", fy));
+  const tax = Math.max(0, rub(rubrics, "67/77", fy));
   const netProfit = rub(rubrics, "9904", fy);
 
   // Softer, pastel-ish palette (text + bar variants)
@@ -94,31 +97,34 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = true }: 
 
   return (
     <div className="rounded-lg border bg-white">
-      {/* Header — click to toggle */}
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
+      {/* Header row — two siblings inside a flex, NOT nested interactive
+          elements (a <select> inside a <button> is invalid HTML and causes
+          unpredictable toggle behaviour). The left side is a semantic
+          <button> for the toggle; the year picker sits next to it. */}
+      <div className="flex items-center justify-between px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="flex items-center gap-2 hover:bg-slate-50 -mx-1 px-1 py-0.5 rounded transition-colors"
+          aria-expanded={open}
+        >
           {open ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
             P&amp;L waterfall
           </h3>
           <span className="text-[10px] text-slate-400">— FY{fy}</span>
-        </div>
-        {/* Year picker — clickable without toggling collapse */}
+        </button>
         {years.length > 1 && (
           <select
             value={fy}
             onChange={(e) => setFy(Number(e.target.value))}
-            onClick={(e) => e.stopPropagation()}
             className="text-[11px] border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-600 hover:border-slate-300"
+            aria-label="Fiscal year"
           >
             {years.map((y) => <option key={y} value={y}>FY{y}</option>)}
           </select>
         )}
-      </button>
+      </div>
       {open && (
         <div className="px-3 pb-3 pt-1 border-t border-slate-100">
           <div className="space-y-1">

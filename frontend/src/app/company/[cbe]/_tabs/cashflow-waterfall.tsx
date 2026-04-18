@@ -61,20 +61,23 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = tru
   // delta-dependent rows rather than showing bogus zeros.
   const prevFy = years.find((y) => y < fy) ?? null;
 
+  // Rubric codes match what backend emits (see companies/financials.py
+  // pnl_codes + bs_codes): 3 = inventories, 41 = receivables, 44 = trade
+  // payables, 20/28 = total fixed assets, 17 = LT debt, 43 = ST fin debt.
   const netProfit = rub(rubrics, "9904", fy);
   const da = Math.max(0, rub(rubrics, "630", fy));
 
   // Working capital change (positive when WC grows → cash use → subtracts)
-  const receivablesChange = rub(rubrics, "40", fy) - rub(rubrics, "40", prevFy);
-  const inventoriesChange = rub(rubrics, "30", fy) - rub(rubrics, "30", prevFy);
+  const receivablesChange = rub(rubrics, "41", fy) - rub(rubrics, "41", prevFy);
+  const inventoriesChange = rub(rubrics, "3", fy) - rub(rubrics, "3", prevFy);
   const payablesChange = rub(rubrics, "44", fy) - rub(rubrics, "44", prevFy);
   const wcChange = receivablesChange + inventoriesChange - payablesChange;
 
-  // Gross fixed-assets delta + D&A ≈ CapEx
-  const grossFaThis = rub(rubrics, "22", fy) + rub(rubrics, "23", fy) + rub(rubrics, "24", fy) +
-                      rub(rubrics, "25", fy) + rub(rubrics, "27", fy);
-  const grossFaPrev = rub(rubrics, "22", prevFy) + rub(rubrics, "23", prevFy) + rub(rubrics, "24", prevFy) +
-                      rub(rubrics, "25", prevFy) + rub(rubrics, "27", prevFy);
+  // Gross fixed-assets delta + D&A ≈ CapEx (indirect method).
+  // 20/28 = total fixed assets (intangible + tangible + financial), as
+  // used elsewhere in the BS tab.
+  const grossFaThis = rub(rubrics, "20/28", fy);
+  const grossFaPrev = rub(rubrics, "20/28", prevFy);
   const capex = prevFy ? Math.max(0, grossFaThis - grossFaPrev + da) : 0;
 
   // Net debt movement: Δ(LT + ST fin debt). Positive = new borrowings = cash in.
@@ -154,29 +157,30 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = tru
 
   return (
     <div className="rounded-lg border bg-white">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-slate-50 transition-colors"
-      >
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="flex items-center gap-2 hover:bg-slate-50 -mx-1 px-1 py-0.5 rounded transition-colors"
+          aria-expanded={open}
+        >
           {open ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
             Cash-flow waterfall
           </h3>
           <span className="text-[10px] text-slate-400">— FY{fy}</span>
-        </div>
+        </button>
         {years.length > 1 && (
           <select
             value={fy}
             onChange={(e) => setFy(Number(e.target.value))}
-            onClick={(e) => e.stopPropagation()}
             className="text-[11px] border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-600 hover:border-slate-300"
+            aria-label="Fiscal year"
           >
             {years.map((y) => <option key={y} value={y}>FY{y}</option>)}
           </select>
         )}
-      </button>
+      </div>
       {open && (
         <div className="px-3 pb-3 pt-1 border-t border-slate-100">
           <div className="space-y-1">
