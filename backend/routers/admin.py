@@ -1054,6 +1054,177 @@ async def admin_confirm_invoice(invoice_id: int, body: dict, user=Depends(_requi
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/invoices/classify-all")
+async def admin_classify_all_invoices(user=Depends(_require_admin)):
+    """Backfill vendor + category on every row where either is NULL.
+
+    Runs the invoice classifier (OpenRouter) against each row's
+    sender/subject/raw_body. Useful after deploying the classifier for
+    the first time or after a taxonomy change. Safe to re-run — already-
+    classified rows are skipped.
+    """
+    import asyncio
+    from invoice_classifier import classify_invoice
+
+    rows = fetch_all(
+        """SELECT id, sender, subject, raw_body
+           FROM platform_invoice
+           WHERE vendor IS NULL OR category IS NULL
+           ORDER BY id
+           LIMIT 500"""
+    )
+    classified = 0
+    errors = 0
+    for r in rows:
+        try:
+            result = await asyncio.to_thread(
+                classify_invoice,
+                r.get("sender"),
+                r.get("subject"),
+                r.get("raw_body"),
+            )
+            execute(
+                "UPDATE platform_invoice SET vendor = %s, category = %s WHERE id = %s",
+                (result.get("vendor"), result.get("category"), r["id"]),
+            )
+            classified += 1
+        except Exception:
+            logger.exception("Classify failed for invoice %s", r.get("id"))
+            errors += 1
+    return {"classified": classified, "errors": errors, "rows_scanned": len(rows)}
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/pnl-summary — 3-period P&L (monthly / 6m / yearly)
+# ---------------------------------------------------------------------------
+
+@router.get("/pnl-summary")
+async def admin_pnl_summary(user=Depends(_require_admin)):
+    """Monthly / 6-monthly / yearly P&L — revenue, OpenRouter spend,
+    invoice costs by category, net.
+
+    Time windows are calendar-anchored:
+      - monthly  = current calendar month to date
+      - 6-month  = start of the calendar month 5 months ago → today
+      - yearly   = start of the current calendar year → today
+
+    Invoices are allocated by ``invoice_date`` (fallback: ``received_at``).
+    Revenue comes from the Stripe ``payment`` table filtered by
+    ``paid_at``. OpenRouter spend comes from ``llm_call_log`` summed by
+    ``ts``; USD → EUR conversion uses a fixed 0.92 (same rough factor
+    the existing `/costs` endpoint uses — roll into a proper FX rate
+    later if we need precision).
+    """
+    from datetime import date
+
+    today = date.today()
+    month_start = today.replace(day=1)
+    year_start = today.replace(month=1, day=1)
+    # 6-month window: start of the calendar month 5 months back.
+    yr = today.year
+    m = today.month - 5
+    if m <= 0:
+        yr -= 1
+        m += 12
+    six_month_start = date(yr, m, 1)
+
+    periods = [
+        ("monthly", month_start, today),
+        ("sixMonth", six_month_start, today),
+        ("yearly", year_start, today),
+    ]
+
+    USD_TO_EUR = 0.92
+
+    # Pre-fetch Stripe sessions in the widest window (yearly). Stripe is
+    # a live API call — paginated auto_paging_iter handles any volume —
+    # and it's stable enough to reuse across the per-period buckets.
+    stripe_sessions: list = []
+    if stripe.api_key:
+        try:
+            year_ts = int(datetime.combine(year_start, datetime.min.time(), tzinfo=timezone.utc).timestamp())
+            sessions = stripe.checkout.Session.list(
+                created={"gte": year_ts},
+                limit=100,
+            )
+            for s in sessions.auto_paging_iter():
+                stripe_sessions.append({
+                    "paid": (s.payment_status or s.status) == "paid",
+                    "amount": s.amount_total or 0,
+                    "created": datetime.fromtimestamp(s.created, tz=timezone.utc).date(),
+                })
+        except Exception:
+            logger.exception("pnl-summary: Stripe session fetch failed")
+
+    def _period_numbers(start: date, end: date) -> dict:
+        # Revenue — sum of paid Stripe sessions whose creation date
+        # falls within [start, end]. For long-running subscriptions the
+        # Stripe session created date is the sign-up time; refunds and
+        # dunning aren't reflected here. Adequate for a P&L summary;
+        # a reconciled-books view would need Stripe Reporting.
+        revenue_cents = sum(
+            s["amount"] for s in stripe_sessions
+            if s["paid"] and start <= s["created"] <= end
+        )
+        revenue_eur = revenue_cents / 100.0
+
+        # OpenRouter — llm_call_log cost_usd in the window.
+        llm_row = fetch_one(
+            """SELECT COALESCE(SUM(cost_usd), 0) AS total_usd
+               FROM llm_call_log
+               WHERE ts::date BETWEEN %s AND %s""",
+            (start, end),
+        ) or {}
+        openrouter_eur = float(llm_row.get("total_usd", 0) or 0) * USD_TO_EUR
+
+        # Invoices grouped by category, allocated by invoice_date (fallback
+        # received_at::date if invoice_date is NULL).
+        inv_rows = fetch_all(
+            """SELECT COALESCE(NULLIF(category, ''), 'Other') AS category,
+                      COALESCE(SUM(amount_cents), 0) AS cents
+               FROM platform_invoice
+               WHERE amount_cents IS NOT NULL
+                 AND COALESCE(invoice_date, received_at::date) BETWEEN %s AND %s
+               GROUP BY 1
+               ORDER BY 2 DESC""",
+            (start, end),
+        )
+        invoices_by_category = [
+            {"category": r["category"], "eur": float(r.get("cents", 0) or 0) / 100.0}
+            for r in inv_rows
+        ]
+
+        invoices_total_eur = sum(row["eur"] for row in invoices_by_category)
+        net_eur = revenue_eur - openrouter_eur - invoices_total_eur
+
+        return {
+            "window_start": start.isoformat(),
+            "window_end": end.isoformat(),
+            "revenue_eur": round(revenue_eur, 2),
+            "openrouter_eur": round(openrouter_eur, 2),
+            "invoices_by_category": invoices_by_category,
+            "invoices_total_eur": round(invoices_total_eur, 2),
+            "net_eur": round(net_eur, 2),
+        }
+
+    out = {}
+    for name, s, e in periods:
+        try:
+            out[name] = _period_numbers(s, e)
+        except Exception:
+            logger.exception("pnl-summary period %s failed", name)
+            out[name] = {
+                "window_start": s.isoformat(),
+                "window_end": e.isoformat(),
+                "revenue_eur": 0,
+                "openrouter_eur": 0,
+                "invoices_by_category": [],
+                "invoices_total_eur": 0,
+                "net_eur": 0,
+            }
+    return out
+
+
 # ---------------------------------------------------------------------------
 # GET /api/admin/costs — OpenRouter + fixed costs for mini P&L
 # ---------------------------------------------------------------------------

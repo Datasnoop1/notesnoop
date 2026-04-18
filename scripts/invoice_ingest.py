@@ -34,6 +34,7 @@ from typing import Optional
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from db import execute, fetch_one  # type: ignore
+from invoice_classifier import classify_invoice  # type: ignore
 
 logging.basicConfig(
     level=logging.INFO,
@@ -215,16 +216,27 @@ def store(message_id: str, sender: str, subject: str, invoice_date: Optional[str
           amount_cents: Optional[int], raw_body: str) -> None:
     """Store a single invoice row. For multi-PDF emails the caller passes
     a synthesised Message-ID suffix (e.g. '<orig>#pdf-2') so each PDF
-    gets its own row without fighting the UNIQUE constraint."""
+    gets its own row without fighting the UNIQUE constraint.
+
+    Also classifies the invoice via OpenRouter (vendor + category) if the
+    API key is configured. Classification failure is non-fatal: the row
+    gets NULL vendor/category and the admin backfill endpoint can retry.
+    """
+    classification = classify_invoice(sender, subject, raw_body)
+    vendor = classification.get("vendor")
+    category = classification.get("category")
     execute(
         """
         INSERT INTO platform_invoice
-            (message_id, sender, subject, invoice_date, amount_cents, raw_body)
-        VALUES (%s, %s, %s, %s, %s, %s)
+            (message_id, sender, subject, invoice_date, amount_cents,
+             raw_body, vendor, category)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (message_id) DO NOTHING
         """,
         (_clean(message_id), _clean(sender), _clean(subject),
-         invoice_date, amount_cents, _clean(raw_body)[:50000]),
+         invoice_date, amount_cents, _clean(raw_body)[:50000],
+         _clean(vendor) if vendor else None,
+         category),
     )
 
 

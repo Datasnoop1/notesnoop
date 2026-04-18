@@ -196,6 +196,22 @@ interface InvoicesData {
   monthly: { ym: string; cents_total: number; eur_total: number; invoices: number }[];
 }
 
+interface PnlPeriod {
+  window_start: string;
+  window_end: string;
+  revenue_eur: number;
+  openrouter_eur: number;
+  invoices_by_category: { category: string; eur: number }[];
+  invoices_total_eur: number;
+  net_eur: number;
+}
+
+interface PnlSummary {
+  monthly: PnlPeriod;
+  sixMonth: PnlPeriod;
+  yearly: PnlPeriod;
+}
+
 interface Insights {
   total_users: number;
   active_users_7d: number;
@@ -619,14 +635,13 @@ export default function AdminPanel() {
   const [tractionData, setTractionData] = useState<TractionData | null>(null);
   const [costsData, setCostsData] = useState<CostsData | null>(null);
   const [llmCosts, setLlmCosts] = useState<LlmCostBreakdown | null>(null);
-  const [costItems, setCostItems] = useState<CostItem[]>([]);
-  const [costSaving, setCostSaving] = useState(false);
-  const [newCostName, setNewCostName] = useState("");
-  const [newCostAmount, setNewCostAmount] = useState("");
-  const [newCostFreq, setNewCostFreq] = useState<"monthly" | "yearly" | "one-time">("monthly");
+  // cost_items manual editor removed — invoices drive the P&L now.
+  // costsData is still fetched for the OpenRouter + AI-usage cards.
   const [paymentsData, setPaymentsData] = useState<PaymentsData | null>(null);
   const [arrData, setArrData] = useState<ARRData | null>(null);
   const [invoicesData, setInvoicesData] = useState<InvoicesData | null>(null);
+  const [pnlData, setPnlData] = useState<PnlSummary | null>(null);
+  const [classifying, setClassifying] = useState(false);
   const [tiers, setTiers] = useState<TierConfig[]>([]);
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
   const [tierSaving, setTierSaving] = useState<string | null>(null);
@@ -640,7 +655,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac, costs, llmCosts, arr, invs] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac, costs, llmCosts, arr, invs, pnl] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -661,9 +676,11 @@ export default function AdminPanel() {
         adminFetch<LlmCostBreakdown>("/api/admin/llm-cost-breakdown").catch(() => null),
         adminFetch<ARRData>("/api/admin/arr").catch(() => null),
         adminFetch<InvoicesData>("/api/admin/invoices").catch(() => null),
+        adminFetch<PnlSummary>("/api/admin/pnl-summary").catch(() => null),
       ]);
       setArrData(arr);
       setInvoicesData(invs);
+      setPnlData(pnl);
       setStats(s);
       setUsers(u);
       setFeedback(f);
@@ -679,7 +696,6 @@ export default function AdminPanel() {
       setAdoptionData(adopt);
       setTractionData(trac);
       setCostsData(costs);
-      if (costs?.cost_items) setCostItems(costs.cost_items);
       setLlmCosts(llmCosts);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -3212,70 +3228,133 @@ export default function AdminPanel() {
               </Card>
             )}
 
-            {/* ── Monthly P&L Summary ── */}
-            {(() => {
-              const revEur = paymentsData ? paymentsData.total_revenue / 100 : 0;
-              const orUsd = costsData?.openrouter_usage_usd ?? 0;
-              const orEur = orUsd * 0.92;
-              // Invoices: rolling 3-month average from what the inbox
-              // ingester has parsed. Falls back to latest month if we have
-              // less than 3 months of history. These replace the old
-              // manually-entered "cost_items" in the P&L — the user treats
-              // every ingested invoice as a real cost.
-              const invMonths = invoicesData?.monthly ?? [];
-              const invoicesMonthlyAvgEur = invMonths.length >= 3
-                ? invMonths.slice(0, 3).reduce((s, m) => s + (m.eur_total ?? 0), 0) / 3
-                : invMonths.length > 0
-                  ? (invMonths[0].eur_total ?? 0)
-                  : 0;
-              const invoicesMonthCount = Math.min(invMonths.length, 3);
-              // Manually-entered items remain supported for one-off costs
-              // not covered by invoices. Cleared in prod to zero out the
-              // old hosting/domains stubs once the invoice feed took over.
-              const itemsMonthly = costItems.map((c) => ({
-                name: c.name,
-                monthly: c.frequency === "yearly" ? c.amount / 12 : c.frequency === "one-time" ? 0 : c.amount,
-              }));
-              const totalCostsM = orEur + invoicesMonthlyAvgEur + itemsMonthly.reduce((s, c) => s + c.monthly, 0);
-              const netM = revEur - totalCostsM;
+            {/* ── P&L Summary — Monthly / 6m / Yearly ── */}
+            {pnlData && (() => {
               const eur = (v: number) => v.toLocaleString("en", { style: "currency", currency: "EUR", minimumFractionDigits: 2 });
+              const COLS: Array<{ key: keyof PnlSummary; label: string }> = [
+                { key: "monthly", label: "This month" },
+                { key: "sixMonth", label: "Last 6 months" },
+                { key: "yearly", label: "This year" },
+              ];
+              // Union of categories seen across all three periods so rows
+              // stay aligned even when a category has zero in one bucket.
+              const allCats = Array.from(new Set(
+                COLS.flatMap((c) =>
+                  pnlData[c.key].invoices_by_category.map((r) => r.category)
+                )
+              ));
+              const catAmount = (col: keyof PnlSummary, cat: string) => {
+                const found = pnlData[col].invoices_by_category.find((r) => r.category === cat);
+                return found ? found.eur : 0;
+              };
+              const totalCosts = (col: keyof PnlSummary) =>
+                pnlData[col].openrouter_eur + pnlData[col].invoices_total_eur;
               return (
                 <Card className="bg-white border-l-4 border-l-indigo-500">
                   <CardContent className="p-4">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Monthly P&L</h3>
-                    <Table>
-                      <TableBody>
-                        <TableRow className="bg-emerald-50/50">
-                          <TableCell className="text-xs font-semibold text-emerald-700 py-1.5">Revenue (Stripe)</TableCell>
-                          <TableCell className="text-xs font-mono text-right font-semibold text-emerald-700 py-1.5">{eur(revEur)}</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell className="text-xs text-slate-600 py-1">OpenRouter (AI)</TableCell>
-                          <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(orEur)}</TableCell>
-                        </TableRow>
-                        {invoicesMonthlyAvgEur > 0 && (
+                    <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
+                      <div>
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">P&L — Monthly / 6m / Yearly</h3>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Revenue from Stripe, costs from OpenRouter (live) + LLM-classified inbox invoices.
+                          Calendar-anchored windows.
+                        </p>
+                      </div>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={classifying}
+                        className="text-[10px] border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                        onClick={async () => {
+                          setClassifying(true);
+                          try {
+                            await adminFetch("/api/admin/invoices/classify-all", { method: "POST" });
+                            loadData();
+                          } catch { /* ignore */ }
+                          finally { setClassifying(false); }
+                        }}
+                      >
+                        {classifying ? "Reclassifying…" : "Re-classify invoices"}
+                      </Button>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-[10px] uppercase tracking-wider text-slate-400">Line</TableHead>
+                            {COLS.map((c) => (
+                              <TableHead key={c.key} className="text-[10px] uppercase tracking-wider text-slate-400 text-right">
+                                {c.label}
+                                <div className="text-[9px] font-normal normal-case text-slate-400">
+                                  {pnlData[c.key].window_start.slice(5)} → {pnlData[c.key].window_end.slice(5)}
+                                </div>
+                              </TableHead>
+                            ))}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {/* Revenue */}
+                          <TableRow className="bg-emerald-50/50">
+                            <TableCell className="text-xs font-semibold text-emerald-700 py-1.5">Revenue (Stripe)</TableCell>
+                            {COLS.map((c) => (
+                              <TableCell key={c.key} className="text-xs font-mono text-right font-semibold text-emerald-700 py-1.5">
+                                {eur(pnlData[c.key].revenue_eur)}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                          {/* OpenRouter — live from llm_call_log */}
                           <TableRow>
                             <TableCell className="text-xs text-slate-600 py-1">
-                              Platform invoices
-                              <span className="ml-1 text-[10px] text-slate-400">
-                                ({invoicesMonthCount}-mo avg from inbox)
-                              </span>
+                              OpenRouter (AI)
+                              <span className="ml-1 text-[10px] text-slate-400">live</span>
                             </TableCell>
-                            <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(invoicesMonthlyAvgEur)}</TableCell>
+                            {COLS.map((c) => (
+                              <TableCell key={c.key} className="text-xs font-mono text-right text-rose-500 py-1">
+                                {pnlData[c.key].openrouter_eur > 0 ? `-${eur(pnlData[c.key].openrouter_eur)}` : "—"}
+                              </TableCell>
+                            ))}
                           </TableRow>
-                        )}
-                        {itemsMonthly.filter((c) => c.monthly > 0).map((c) => (
-                          <TableRow key={c.name}>
-                            <TableCell className="text-xs text-slate-600 py-1">{c.name}</TableCell>
-                            <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(c.monthly)}</TableCell>
+                          {/* Per-category invoice rows */}
+                          {allCats.map((cat) => (
+                            <TableRow key={cat}>
+                              <TableCell className="text-xs text-slate-600 py-1 pl-4">{cat}</TableCell>
+                              {COLS.map((c) => {
+                                const v = catAmount(c.key, cat);
+                                return (
+                                  <TableCell key={c.key} className="text-xs font-mono text-right text-rose-500 py-1">
+                                    {v > 0 ? `-${eur(v)}` : "—"}
+                                  </TableCell>
+                                );
+                              })}
+                            </TableRow>
+                          ))}
+                          {/* Total costs */}
+                          <TableRow className="border-t-2 border-slate-200">
+                            <TableCell className="text-xs font-semibold text-slate-700 py-1">Total costs</TableCell>
+                            {COLS.map((c) => (
+                              <TableCell key={c.key} className="text-xs font-mono text-right font-semibold text-rose-600 py-1">
+                                -{eur(totalCosts(c.key))}
+                              </TableCell>
+                            ))}
                           </TableRow>
-                        ))}
-                        <TableRow className={netM >= 0 ? "bg-emerald-50/50" : "bg-rose-50/50"}>
-                          <TableCell className="text-xs font-bold py-1.5">Net Result</TableCell>
-                          <TableCell className={`text-sm font-mono text-right font-bold py-1.5 ${netM >= 0 ? "text-emerald-700" : "text-rose-600"}`}>{eur(netM)}</TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
+                          {/* Net result */}
+                          <TableRow>
+                            <TableCell className="text-xs font-bold py-1.5">Net Result</TableCell>
+                            {COLS.map((c) => {
+                              const net = pnlData[c.key].net_eur;
+                              return (
+                                <TableCell
+                                  key={c.key}
+                                  className={`text-sm font-mono text-right font-bold py-1.5 ${net >= 0 ? "text-emerald-700 bg-emerald-50/50" : "text-rose-600 bg-rose-50/50"}`}
+                                >
+                                  {eur(net)}
+                                </TableCell>
+                              );
+                            })}
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
                   </CardContent>
                 </Card>
               );
@@ -3348,117 +3427,11 @@ export default function AdminPanel() {
               </Card>
             )}
 
-            {/* ── Manage Cost Items ── */}
-            {costsData && (
-              <Card className="bg-white">
-                <CardContent className="p-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Cost Items</h3>
-                  {/* Existing items */}
-                  <div className="space-y-2 mb-3">
-                    {costItems.map((item, idx) => (
-                      <div key={idx} className="flex flex-wrap sm:flex-nowrap items-center gap-2">
-                        <Input
-                          className="h-10 md:h-7 text-base md:text-xs flex-1 min-w-[160px]"
-                          value={item.name}
-                          onChange={(e) => {
-                            const next = [...costItems];
-                            next[idx] = { ...next[idx], name: e.target.value };
-                            setCostItems(next);
-                          }}
-                        />
-                        <Input
-                          type="number"
-                          step="0.01"
-                          className="h-10 md:h-7 text-base md:text-xs font-mono w-24"
-                          value={item.amount}
-                          onChange={(e) => {
-                            const next = [...costItems];
-                            next[idx] = { ...next[idx], amount: parseFloat(e.target.value) || 0 };
-                            setCostItems(next);
-                          }}
-                        />
-                        <select
-                          className="h-10 md:h-7 text-base md:text-xs border rounded px-2 md:px-1 bg-white text-slate-600"
-                          value={item.frequency}
-                          onChange={(e) => {
-                            const next = [...costItems];
-                            next[idx] = { ...next[idx], frequency: e.target.value as CostItem["frequency"] };
-                            setCostItems(next);
-                          }}
-                        >
-                          <option value="monthly">Monthly</option>
-                          <option value="yearly">Yearly</option>
-                          <option value="one-time">One-time</option>
-                        </select>
-                        <button
-                          onClick={() => setCostItems(costItems.filter((_, i) => i !== idx))}
-                          className="h-10 w-10 sm:h-auto sm:w-auto flex items-center justify-center text-slate-300 hover:text-rose-500 transition-colors"
-                          title="Remove item"
-                        >
-                          <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  {/* Add new item */}
-                  <div className="flex items-center gap-2 border-t border-slate-100 pt-2 flex-wrap md:flex-nowrap">
-                    <Input
-                      className="h-10 md:h-7 text-base md:text-xs flex-1 min-w-[160px]"
-                      placeholder="Cost name..."
-                      value={newCostName}
-                      onChange={(e) => setNewCostName(e.target.value)}
-                    />
-                    <Input
-                      type="number"
-                      step="0.01"
-                      className="h-10 md:h-7 text-base md:text-xs font-mono w-24"
-                      placeholder="0.00"
-                      value={newCostAmount}
-                      onChange={(e) => setNewCostAmount(e.target.value)}
-                    />
-                    <select
-                      className="h-10 md:h-7 text-base md:text-xs border rounded px-2 md:px-1 bg-white text-slate-600"
-                      value={newCostFreq}
-                      onChange={(e) => setNewCostFreq(e.target.value as CostItem["frequency"])}
-                    >
-                      <option value="monthly">Monthly</option>
-                      <option value="yearly">Yearly</option>
-                      <option value="one-time">One-time</option>
-                    </select>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-[11px] px-2"
-                      disabled={!newCostName.trim() || !newCostAmount}
-                      onClick={() => {
-                        setCostItems([...costItems, { name: newCostName.trim(), amount: parseFloat(newCostAmount) || 0, frequency: newCostFreq }]);
-                        setNewCostName("");
-                        setNewCostAmount("");
-                      }}
-                    >
-                      + Add
-                    </Button>
-                  </div>
-                  {/* Save */}
-                  <Button
-                    size="sm"
-                    className="mt-3 h-7 text-[11px]"
-                    disabled={costSaving}
-                    onClick={async () => {
-                      setCostSaving(true);
-                      try {
-                        await adminFetch("/api/admin/costs", { method: "POST", body: JSON.stringify({ items: costItems }) });
-                        loadData();
-                      } catch { /* ignore */ }
-                      finally { setCostSaving(false); }
-                    }}
-                  >
-                    {costSaving ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Save className="w-3 h-3 mr-1" />}
-                    Save costs
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
+            {/* Manage Cost Items editor removed — all costs now flow through
+                the invoice@datasnoop.be inbox and get LLM-classified into
+                the P&L categories above. For one-off costs not invoiced,
+                re-enable the editor or forward a manual receipt to the
+                inbox. */}
 
             {/* ── Stripe Payments ── */}
             <SectionHeading icon={CreditCard}>Stripe Payments</SectionHeading>
