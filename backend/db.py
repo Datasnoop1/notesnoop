@@ -210,6 +210,88 @@ def ensure_trgm_setup():
             ON activity_log(created_at DESC);
         """)
 
+        # 7-OpenData. TED procurement + Regsol insolvency + Staatsblad events —
+        # open-data enrichment tables, populated by scripts/open_data_*.py.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS procurement_award (
+                id              SERIAL PRIMARY KEY,
+                ted_notice_id   TEXT UNIQUE,
+                enterprise_number TEXT,
+                supplier_name   TEXT,
+                supplier_vat    TEXT,
+                buyer_name      TEXT,
+                award_date      DATE,
+                contract_value  NUMERIC(14,2),
+                currency        VARCHAR(3) DEFAULT 'EUR',
+                cpv_code        TEXT,
+                title           TEXT,
+                country         VARCHAR(2) DEFAULT 'BE'
+            );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_procurement_award_ent ON procurement_award(enterprise_number);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_procurement_award_date ON procurement_award(award_date DESC);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_procurement_award_vat ON procurement_award(supplier_vat);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS insolvency_case (
+                id                SERIAL PRIMARY KEY,
+                enterprise_number TEXT NOT NULL,
+                docket_number     TEXT UNIQUE,
+                case_type         TEXT,
+                court             TEXT,
+                opened_at         DATE,
+                closed_at         DATE,
+                status            TEXT,
+                curator_name      TEXT,
+                last_scraped_at   TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_insolvency_case_ent ON insolvency_case(enterprise_number);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_insolvency_case_opened ON insolvency_case(opened_at DESC);")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS staatsblad_event (
+                id                SERIAL PRIMARY KEY,
+                enterprise_number TEXT NOT NULL,
+                reference         TEXT,
+                pub_date          DATE,
+                event_type        TEXT,
+                subject_name      TEXT,
+                raw_title         TEXT,
+                extracted_at      TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_staatsblad_event_ent ON staatsblad_event(enterprise_number, pub_date DESC);")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_staatsblad_event_type ON staatsblad_event(event_type);")
+
+        # 7a. platform_invoice — inbound invoice records from
+        #     invoice@datasnoop.be (ingested by scripts/invoice_ingest.py).
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS platform_invoice (
+                id              SERIAL PRIMARY KEY,
+                message_id      TEXT UNIQUE,
+                sender          TEXT,
+                subject         TEXT,
+                received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                invoice_date    DATE,
+                amount_cents    BIGINT,
+                currency        VARCHAR(3) DEFAULT 'EUR',
+                vendor          TEXT,
+                category        TEXT,
+                raw_body        TEXT,
+                attachment_path TEXT,
+                confirmed       BOOLEAN DEFAULT FALSE
+            );
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_platform_invoice_received
+            ON platform_invoice(received_at DESC);
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_platform_invoice_date
+            ON platform_invoice(invoice_date DESC);
+        """)
+
         # 7. company_view_history — per-user "last visit" log, for the
         #    "what changed since last visit" banner on company profiles.
         cur.execute("""

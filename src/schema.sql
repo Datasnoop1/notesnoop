@@ -580,3 +580,102 @@ CREATE INDEX IF NOT EXISTS idx_activity_log_endpoint_date
     ON activity_log(endpoint, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_log_date
     ON activity_log(created_at DESC);
+
+-- ============================================================
+-- Platform invoices (from invoice@datasnoop.be inbox)
+-- ============================================================
+-- `scripts/invoice_ingest.py` reads the invoice@ IMAP mailbox nightly,
+-- extracts amounts, and stores one row per email/invoice. Amounts are
+-- best-effort from regex on body / PDF text; operator can override via
+-- admin UI (not yet implemented). `message_id` de-dupes re-ingestion.
+CREATE TABLE IF NOT EXISTS platform_invoice (
+    id              SERIAL PRIMARY KEY,
+    message_id      TEXT UNIQUE,            -- RFC822 Message-ID header
+    sender          TEXT,
+    subject         TEXT,
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    invoice_date    DATE,
+    amount_cents    BIGINT,                 -- NULL if parser couldn't extract
+    currency        VARCHAR(3) DEFAULT 'EUR',
+    vendor          TEXT,                   -- extracted best-effort
+    category        TEXT,                   -- operator-assigned (hosting, llm, etc.)
+    raw_body        TEXT,                   -- first N KB of body for audit
+    attachment_path TEXT,                   -- relative path if we saved a PDF
+    confirmed       BOOLEAN DEFAULT FALSE   -- operator reviewed + confirmed
+);
+CREATE INDEX IF NOT EXISTS idx_platform_invoice_received
+    ON platform_invoice(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_platform_invoice_date
+    ON platform_invoice(invoice_date DESC);
+
+-- ============================================================
+-- Open data: TED procurement (public-sector contracts won)
+-- ============================================================
+-- EU Tenders Electronic Daily — award notices with supplier VAT/name.
+-- We only store Belgian awards. Joined to enterprise via VAT.
+-- Source: data.europa.eu/data/datasets/ted-csv  (CSV monthly exports)
+-- Ingested by scripts/open_data_ted.py
+CREATE TABLE IF NOT EXISTS procurement_award (
+    id              SERIAL PRIMARY KEY,
+    ted_notice_id   TEXT UNIQUE,               -- TED ND-* identifier
+    enterprise_number TEXT,                    -- 10-digit CBE (joined from VAT)
+    supplier_name   TEXT,
+    supplier_vat    TEXT,
+    buyer_name      TEXT,                      -- public authority
+    award_date      DATE,
+    contract_value  NUMERIC(14,2),             -- in EUR (converted if needed)
+    currency        VARCHAR(3) DEFAULT 'EUR',
+    cpv_code        TEXT,                      -- main CPV classification
+    title           TEXT,
+    country         VARCHAR(2) DEFAULT 'BE'
+);
+CREATE INDEX IF NOT EXISTS idx_procurement_award_ent
+    ON procurement_award(enterprise_number);
+CREATE INDEX IF NOT EXISTS idx_procurement_award_date
+    ON procurement_award(award_date DESC);
+CREATE INDEX IF NOT EXISTS idx_procurement_award_vat
+    ON procurement_award(supplier_vat);
+
+-- ============================================================
+-- Open data: Regsol insolvency register
+-- ============================================================
+-- Belgian central solvency register (bankruptcies + judicial reorg since
+-- 1 May 2018). Scraped from regsol.be nightly.
+CREATE TABLE IF NOT EXISTS insolvency_case (
+    id                SERIAL PRIMARY KEY,
+    enterprise_number TEXT NOT NULL,
+    docket_number     TEXT UNIQUE,        -- Regsol case ID
+    case_type         TEXT,               -- 'bankruptcy' / 'reorganisation' / 'closure'
+    court             TEXT,
+    opened_at         DATE,
+    closed_at         DATE,
+    status            TEXT,               -- 'open' / 'closed' / 'ended'
+    curator_name      TEXT,
+    last_scraped_at   TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_insolvency_case_ent
+    ON insolvency_case(enterprise_number);
+CREATE INDEX IF NOT EXISTS idx_insolvency_case_opened
+    ON insolvency_case(opened_at DESC);
+
+-- ============================================================
+-- Open data: Structured Staatsblad events
+-- ============================================================
+-- Extends staatsblad_publication with extracted entity-event rows so
+-- "new CEO appointed", "capital increase" etc. can be listed per
+-- company in a clean timeline (feeds the summary-tab events strip + the
+-- /since "what changed" banner).
+CREATE TABLE IF NOT EXISTS staatsblad_event (
+    id                SERIAL PRIMARY KEY,
+    enterprise_number TEXT NOT NULL,
+    reference         TEXT,
+    pub_date          DATE,
+    event_type        TEXT,    -- 'director_appointed' | 'director_resigned' | 'capital_increase' | 'name_change' | 'legal_form_change' | 'liquidation' | 'merger' | 'other'
+    subject_name      TEXT,    -- person or new name
+    raw_title         TEXT,    -- original pub_type
+    extracted_at      TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_staatsblad_event_ent
+    ON staatsblad_event(enterprise_number, pub_date DESC);
+CREATE INDEX IF NOT EXISTS idx_staatsblad_event_type
+    ON staatsblad_event(event_type);

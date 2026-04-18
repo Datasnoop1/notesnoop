@@ -1,0 +1,400 @@
+"""NBB nightly backload — fills the coverage gap during quiet hours.
+
+Iterates companies that don't have a given fiscal year in financial_latest,
+calls NBB's per-company /authentic/legalEntity/{cbe}/references + filing
+endpoints, and loads anything new into financial_data.
+
+Reverse-chronological by fiscal year — first finishes FY2026, then FY2025,
+FY2024, FY2023, FY2022. Within a year, orders by size (largest KBO-
+registered companies first) so we maximise impact per API call.
+
+Designed to run via cron at 02:00 nightly for a bounded number of calls:
+    0 2 * * * cd /opt/leadpeek && docker exec leadpeek-backend-1 \
+        timeout 4h python /app/../scripts/nbb_nightly_backload.py \
+        --max-calls 5000 \
+        >> scripts/_watchdog_state/nightly.log 2>&1
+
+Key-revocation safety: if NBB returns 401 mid-run, we stop the whole run
+and exit so the 15-min watchdog picks it up, rotates, and the next night
+picks up cleanly. We never try to rotate in-script — that's the watchdog's
+responsibility (single writer rule).
+
+Quota safety: `--max-calls` caps total requests per run. Default 5000 is
+conservative enough to stay well under any reasonable NBB subscription
+quota; rotating Primary keys doesn't reset quota (it's per-subscription),
+so "just rotate when exhausted" doesn't help. Nightly budget spreads the
+month's quota over ~30 runs.
+
+Progress is persisted to nbb_load_log (every successful load) + a
+lightweight checkpoint in `meta` for resume-after-crash.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sys
+import time
+import uuid
+from datetime import datetime
+from typing import Optional
+
+import psycopg2
+import psycopg2.extras
+import requests
+
+# Make backend/db importable (same pattern as nbb_batch_pipeline.py)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+from db import get_connection, put_connection, fetch_one, fetch_all, execute  # type: ignore
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+log = logging.getLogger("nbb_backload")
+
+NBB_BASE_URL = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
+NBB_KEY = os.getenv("NBB_AUTHENTIC_KEY", "")
+USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence)"
+# Rate limit — matches the live /api/companies/{cbe}/load policy.
+REQUEST_DELAY = 1.5
+
+
+def _headers() -> dict:
+    return {
+        "Accept": "application/json",
+        "NBB-CBSO-Subscription-Key": NBB_KEY,
+        "X-Request-Id": str(uuid.uuid4()),
+        "User-Agent": USER_AGENT,
+    }
+
+
+def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
+    """Companies that don't yet have fiscal_year loaded in financial_latest
+    AND haven't been marked NO_FILINGS / PDF_ONLY for any prior attempt.
+
+    Ordered by total_assets DESC so the biggest targets land first — they
+    carry the most deal-sourcing value per API call. Falls back on CBE
+    alphabetical when total_assets is unknown.
+    """
+    rows = fetch_all(
+        """
+        SELECT e.enterprise_number
+        FROM enterprise e
+        WHERE e.status = 'AC'
+          AND e.type_of_enterprise = '1'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM financial_by_year fby
+              WHERE fby.enterprise_number = e.enterprise_number
+                AND fby.fiscal_year = %s
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM nbb_load_log ll
+              WHERE ll.enterprise_number = e.enterprise_number
+                AND ll.deposit_key IN ('NO_FILINGS', 'PDF_ONLY')
+          )
+        ORDER BY (
+            SELECT fl.total_assets
+            FROM financial_latest fl
+            WHERE fl.enterprise_number = e.enterprise_number
+        ) DESC NULLS LAST, e.enterprise_number
+        LIMIT %s
+        """,
+        (fiscal_year, limit),
+    )
+    return [r["enterprise_number"] for r in rows]
+
+
+def fetch_references(cbe: str, fiscal_year: int, session: requests.Session) -> tuple[int, list[dict]]:
+    """Return (status_code, refs). refs is empty on 4xx/5xx."""
+    try:
+        resp = session.get(
+            f"{NBB_BASE_URL}/authentic/legalEntity/{cbe}/references",
+            headers=_headers(),
+            params={"fiscalYear": str(fiscal_year)},
+            timeout=20,
+        )
+    except Exception as e:
+        log.warning("refs %s fy=%d network error: %s", cbe, fiscal_year, e)
+        return 0, []
+    if resp.status_code != 200:
+        return resp.status_code, []
+    try:
+        payload = resp.json()
+    except Exception:
+        return resp.status_code, []
+    if isinstance(payload, list):
+        return 200, payload
+    if isinstance(payload, dict):
+        return 200, [payload]
+    return 200, []
+
+
+def fetch_filing(cbe: str, reference_number: str, session: requests.Session) -> Optional[dict]:
+    try:
+        resp = session.get(
+            f"{NBB_BASE_URL}/authentic/legalEntity/{cbe}/account/{reference_number}/accountingData",
+            headers={**_headers(), "Accept": "application/x.jsonxbrl"},
+            timeout=30,
+        )
+    except Exception as e:
+        log.warning("filing %s ref=%s network: %s", cbe, reference_number, e)
+        return None
+    if resp.status_code != 200:
+        return None
+    try:
+        return resp.json()
+    except Exception:
+        return None
+
+
+def store_filing(conn, cbe: str, filing_json: dict, ref_meta: dict) -> int:
+    """Insert rubrics + load_log row. Returns number of rubric rows stored."""
+    deposit_key = ref_meta.get("ReferenceNumber") or ref_meta.get("referenceNumber")
+    if not deposit_key:
+        return 0
+    exercise = ref_meta.get("ExerciseDates", {})
+    end_date = exercise.get("endDate", "")
+    fiscal_year = int(end_date[:4]) if end_date and len(end_date) >= 4 else None
+    deposit_date = ref_meta.get("DepositDate", "")
+    filing_model = ref_meta.get("ModelType", "")
+
+    rubrics = filing_json.get("Rubrics", filing_json.get("rubrics", []))
+    rows = []
+    for r in rubrics:
+        code = r.get("Code", r.get("code", ""))
+        value = r.get("Value", r.get("value"))
+        period = r.get("Period", r.get("period", "N"))
+        if code and value is not None:
+            try:
+                rows.append((
+                    cbe, deposit_key, fiscal_year, deposit_date,
+                    filing_model, code, period, float(value),
+                ))
+            except (TypeError, ValueError):
+                continue
+
+    cur = conn.cursor()
+    try:
+        if rows:
+            psycopg2.extras.execute_batch(
+                cur,
+                """INSERT INTO financial_data
+                   (enterprise_number, deposit_key, fiscal_year, deposit_date,
+                    filing_model, rubric_code, period, value)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT DO NOTHING""",
+                rows,
+            )
+        cur.execute(
+            "INSERT INTO nbb_load_log (enterprise_number, deposit_key, rubric_count) "
+            "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+            (cbe, deposit_key, len(rows)),
+        )
+        conn.commit()
+        return len(rows)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def mark_no_filings(conn, cbe: str, sentinel: str) -> None:
+    """Record NO_FILINGS or PDF_ONLY so we don't keep retrying this CBE."""
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO nbb_load_log (enterprise_number, deposit_key, rubric_count) "
+            "VALUES (%s, %s, 0) ON CONFLICT DO NOTHING",
+            (cbe, sentinel),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+    finally:
+        cur.close()
+
+
+def is_pdf_only(refs: list[dict]) -> bool:
+    """NBB model codes m120 / m211 / m212 indicate abbreviated / micro
+    schemes that file only as PDF (no JSON-XBRL available)."""
+    if not refs:
+        return False
+    # Newest ref first — most recent model is the relevant one.
+    refs_sorted = sorted(
+        refs,
+        key=lambda r: (r.get("ExerciseDates", {}).get("endDate", ""),
+                       r.get("DepositDate", "")),
+        reverse=True,
+    )
+    for r in refs_sorted:
+        model = str(r.get("ModelType", "")).lower()
+        end_date = r.get("ExerciseDates", {}).get("endDate", "")
+        if end_date >= "2022-04-01" and model in {"m120", "m211", "m212"}:
+            return True
+    return False
+
+
+def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> None:
+    if not NBB_KEY:
+        log.error("NBB_AUTHENTIC_KEY not set — aborting")
+        sys.exit(2)
+
+    start_ts = time.time()
+    session = requests.Session()
+    calls = 0
+    loaded = 0
+    rubrics_total = 0
+    no_filings = 0
+    pdf_only = 0
+    errors = 0
+
+    conn = get_connection()
+    try:
+        # Reverse chronological: 2026 → 2025 → 2024 → 2023 → 2022
+        for fy in range(start_year, end_year - 1, -1):
+            if calls >= max_calls:
+                log.info("max-calls (%d) hit — stopping", max_calls)
+                break
+
+            year_budget = min(per_year_cap, max_calls - calls)
+            log.info("=== FY%d — budget %d calls ===", fy, year_budget)
+            cbes = candidates_for_year(fy, year_budget)
+            log.info("FY%d: %d candidate CBEs", fy, len(cbes))
+
+            for cbe in cbes:
+                if calls >= max_calls:
+                    break
+                calls += 1
+
+                status, refs = fetch_references(cbe, fy, session)
+                # 401 → key revoked; stop the run so watchdog rotates.
+                if status == 401:
+                    log.error("401 from NBB for %s fy=%d — stopping for watchdog", cbe, fy)
+                    return
+                if status == 429:
+                    log.error("429 rate-limit from NBB — stopping run")
+                    return
+                if status >= 500:
+                    errors += 1
+                    time.sleep(REQUEST_DELAY)
+                    continue
+                if not refs:
+                    # 404/empty → no filing for this year
+                    # Only write NO_FILINGS sentinel when there's nothing for ANY year
+                    # (don't write it per-year; too noisy). Conservative: skip only THIS
+                    # year and let the next year's candidate query try again.
+                    time.sleep(REQUEST_DELAY)
+                    continue
+
+                # Detect PDF-only filer via model codes
+                if is_pdf_only(refs):
+                    mark_no_filings(conn, cbe, "PDF_ONLY")
+                    pdf_only += 1
+                    time.sleep(REQUEST_DELAY)
+                    continue
+
+                # Pick the most recent ref for this fiscal year
+                refs_sorted = sorted(
+                    refs,
+                    key=lambda r: r.get("DepositDate", ""),
+                    reverse=True,
+                )
+                ref_meta = refs_sorted[0]
+                reference_number = ref_meta.get("ReferenceNumber") or ref_meta.get("referenceNumber")
+                if not reference_number:
+                    time.sleep(REQUEST_DELAY)
+                    continue
+
+                # Skip if already loaded
+                already = fetch_one(
+                    "SELECT 1 FROM nbb_load_log WHERE enterprise_number=%s AND deposit_key=%s",
+                    (cbe, reference_number),
+                )
+                if already:
+                    time.sleep(REQUEST_DELAY)
+                    continue
+
+                time.sleep(REQUEST_DELAY)
+                calls += 1
+                if calls > max_calls:
+                    break
+
+                filing = fetch_filing(cbe, reference_number, session)
+                if not filing:
+                    errors += 1
+                    time.sleep(REQUEST_DELAY)
+                    continue
+
+                try:
+                    n = store_filing(conn, cbe, filing, ref_meta)
+                except Exception as e:
+                    log.warning("store_filing failed for %s: %s", cbe, e)
+                    errors += 1
+                    time.sleep(REQUEST_DELAY)
+                    continue
+
+                loaded += 1
+                rubrics_total += n
+                if loaded % 50 == 0:
+                    log.info("progress FY%d: %d loaded, %d rubrics, %d calls",
+                             fy, loaded, rubrics_total, calls)
+
+                time.sleep(REQUEST_DELAY)
+
+        # Refresh financial_latest + financial_by_year. These views are
+        # used by the screener / profile / radar endpoints — stale data
+        # will miss newly-loaded filings in UI queries.
+        log.info("refreshing materialized tables...")
+        cur = conn.cursor()
+        try:
+            # financial_latest + financial_by_year are "tables" (not MVs)
+            # in this schema, rebuilt by nbb_batch_pipeline.rebuild_materialized_tables.
+            # Safest: call the same function.
+            from nbb_batch_pipeline import rebuild_materialized_tables  # type: ignore
+            rebuild_materialized_tables()
+        except Exception as e:
+            log.warning("refresh failed (non-fatal): %s", e)
+        finally:
+            cur.close()
+
+    finally:
+        put_connection(conn)
+
+    elapsed = time.time() - start_ts
+    log.info("=" * 60)
+    log.info("Backload done in %.0fs: %d calls, %d loaded, %d rubrics, %d pdf-only, %d errors",
+             elapsed, calls, loaded, rubrics_total, pdf_only, errors)
+    log.info("=" * 60)
+
+    # Write a summary to meta for the admin page
+    try:
+        execute(
+            "INSERT INTO meta (variable, value) VALUES (%s, %s) "
+            "ON CONFLICT (variable) DO UPDATE SET value = EXCLUDED.value",
+            ("nbb_nightly_backload_last",
+             f"{datetime.utcnow().isoformat()}: {loaded} loaded, {rubrics_total} rubrics, {pdf_only} pdf-only, {errors} errors, {calls} calls"),
+        )
+    except Exception:
+        pass
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description="NBB nightly backload — reverse-chronological gap fill")
+    ap.add_argument("--max-calls", type=int, default=5000,
+                    help="Hard cap on NBB API calls for this run (default 5000)")
+    ap.add_argument("--start-year", type=int, default=2026,
+                    help="Newest fiscal year to backfill (default 2026)")
+    ap.add_argument("--end-year", type=int, default=2022,
+                    help="Oldest fiscal year to backfill (default 2022)")
+    ap.add_argument("--per-year-cap", type=int, default=3000,
+                    help="Max candidates per fiscal year before rolling to the next (default 3000)")
+    args = ap.parse_args()
+
+    run(args.max_calls, args.start_year, args.end_year, args.per_year_cap)

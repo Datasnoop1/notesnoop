@@ -991,6 +991,70 @@ async def admin_arr(user=Depends(_require_admin)):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/admin/invoices — inbox-ingested invoices for the P&L cost side
+# ---------------------------------------------------------------------------
+
+@router.get("/invoices")
+async def admin_invoices(user=Depends(_require_admin)):
+    """Return the last 50 invoices ingested from invoice@datasnoop.be plus
+    rolling monthly totals so the admin page can render a cost column next
+    to the ARR card.
+    """
+    try:
+        rows = fetch_all(
+            """SELECT id, sender, subject, received_at, invoice_date,
+                      amount_cents, currency, vendor, category, confirmed
+               FROM platform_invoice
+               ORDER BY COALESCE(invoice_date, received_at::date) DESC
+               LIMIT 50"""
+        )
+        for r in rows:
+            for key in ("received_at", "invoice_date"):
+                if r.get(key):
+                    r[key] = r[key].isoformat() if hasattr(r[key], "isoformat") else str(r[key])
+
+        # Monthly totals for the last 6 calendar months
+        monthly = fetch_all(
+            """SELECT to_char(date_trunc('month', COALESCE(invoice_date, received_at::date)), 'YYYY-MM') AS ym,
+                      SUM(amount_cents) AS cents_total,
+                      COUNT(*) AS invoices
+               FROM platform_invoice
+               WHERE amount_cents IS NOT NULL
+                 AND COALESCE(invoice_date, received_at::date) >= (CURRENT_DATE - INTERVAL '6 months')
+               GROUP BY 1
+               ORDER BY 1 DESC"""
+        )
+        for m in monthly:
+            m["eur_total"] = round((m.get("cents_total") or 0) / 100.0, 2)
+
+        return {"invoices": rows, "monthly": monthly}
+    except Exception as e:
+        logger.exception("Admin invoices failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/invoices/{invoice_id}/confirm")
+async def admin_confirm_invoice(invoice_id: int, body: dict, user=Depends(_require_admin)):
+    """Operator override: set confirmed=true, optionally override
+    amount_cents / category / vendor."""
+    fields = []
+    params: list = []
+    for key in ("amount_cents", "category", "vendor"):
+        if key in body and body[key] is not None:
+            fields.append(f"{key} = %s")
+            params.append(body[key])
+    fields.append("confirmed = TRUE")
+    params.append(invoice_id)
+    sql = f"UPDATE platform_invoice SET {', '.join(fields)} WHERE id = %s"
+    try:
+        execute(sql, tuple(params))
+        return {"status": "confirmed"}
+    except Exception as e:
+        logger.exception("Confirm invoice failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
 # GET /api/admin/costs — OpenRouter + fixed costs for mini P&L
 # ---------------------------------------------------------------------------
 

@@ -178,6 +178,24 @@ interface ARRData {
   note?: string;
 }
 
+interface InvoiceRow {
+  id: number;
+  sender: string | null;
+  subject: string | null;
+  received_at: string | null;
+  invoice_date: string | null;
+  amount_cents: number | null;
+  currency: string | null;
+  vendor: string | null;
+  category: string | null;
+  confirmed: boolean;
+}
+
+interface InvoicesData {
+  invoices: InvoiceRow[];
+  monthly: { ym: string; cents_total: number; eur_total: number; invoices: number }[];
+}
+
 interface Insights {
   total_users: number;
   active_users_7d: number;
@@ -608,6 +626,7 @@ export default function AdminPanel() {
   const [newCostFreq, setNewCostFreq] = useState<"monthly" | "yearly" | "one-time">("monthly");
   const [paymentsData, setPaymentsData] = useState<PaymentsData | null>(null);
   const [arrData, setArrData] = useState<ARRData | null>(null);
+  const [invoicesData, setInvoicesData] = useState<InvoicesData | null>(null);
   const [tiers, setTiers] = useState<TierConfig[]>([]);
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
   const [tierSaving, setTierSaving] = useState<string | null>(null);
@@ -621,7 +640,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac, costs, llmCosts, arr] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac, costs, llmCosts, arr, invs] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -641,8 +660,10 @@ export default function AdminPanel() {
         adminFetch<CostsData>("/api/admin/costs").catch(() => null),
         adminFetch<LlmCostBreakdown>("/api/admin/llm-cost-breakdown").catch(() => null),
         adminFetch<ARRData>("/api/admin/arr").catch(() => null),
+        adminFetch<InvoicesData>("/api/admin/invoices").catch(() => null),
       ]);
       setArrData(arr);
+      setInvoicesData(invs);
       setStats(s);
       setUsers(u);
       setFeedback(f);
@@ -3082,6 +3103,74 @@ export default function AdminPanel() {
                       </div>
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ── Invoices from invoice@datasnoop.be ── */}
+            {invoicesData && (
+              <Card className="bg-white border-l-4 border-l-rose-400">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Platform invoices (ingested)</h3>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Ingested nightly from invoice@datasnoop.be. Amounts are best-effort; click "confirm" to lock.</p>
+                    </div>
+                    {invoicesData.monthly.length > 0 && (
+                      <div className="text-right">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">Last month</div>
+                        <div className="text-lg font-bold text-rose-600 font-mono">
+                          €{(invoicesData.monthly[0]?.eur_total ?? 0).toLocaleString("en", { maximumFractionDigits: 0 })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {invoicesData.monthly.length > 0 && (
+                    <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-3">
+                      {invoicesData.monthly.slice().reverse().map((m) => (
+                        <div key={m.ym} className="text-center border border-slate-200 rounded p-1.5">
+                          <div className="text-[9px] text-slate-400">{m.ym}</div>
+                          <div className="text-xs font-mono font-bold text-slate-700">€{m.eur_total.toLocaleString("en", { maximumFractionDigits: 0 })}</div>
+                          <div className="text-[9px] text-slate-400">{m.invoices} inv</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="max-h-64 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-slate-50">
+                        <tr className="text-left text-[10px] uppercase tracking-wider text-slate-500">
+                          <th className="py-1.5 px-2">Date</th>
+                          <th className="py-1.5 px-2">From</th>
+                          <th className="py-1.5 px-2">Subject</th>
+                          <th className="py-1.5 px-2 text-right">Amount</th>
+                          <th className="py-1.5 px-2">OK?</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {invoicesData.invoices.length === 0 && (
+                          <tr><td colSpan={5} className="py-4 text-center text-slate-400">No invoices ingested yet.</td></tr>
+                        )}
+                        {invoicesData.invoices.map((inv) => (
+                          <tr key={inv.id} className="border-b border-slate-100 hover:bg-slate-50">
+                            <td className="py-1 px-2 font-mono text-[11px] text-slate-600 whitespace-nowrap">{inv.invoice_date ?? (inv.received_at ? inv.received_at.slice(0, 10) : "—")}</td>
+                            <td className="py-1 px-2 truncate max-w-[180px]" title={inv.sender ?? undefined}>{inv.sender ?? "—"}</td>
+                            <td className="py-1 px-2 truncate max-w-[240px]" title={inv.subject ?? undefined}>{inv.subject ?? "—"}</td>
+                            <td className="py-1 px-2 text-right font-mono">
+                              {inv.amount_cents != null
+                                ? `€${(inv.amount_cents / 100).toLocaleString("en", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                : <span className="text-amber-500">? parse</span>}
+                            </td>
+                            <td className="py-1 px-2">
+                              {inv.confirmed
+                                ? <span className="text-[10px] text-emerald-600 font-semibold">✓</span>
+                                : <span className="text-[10px] text-slate-400">todo</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </CardContent>
               </Card>
             )}

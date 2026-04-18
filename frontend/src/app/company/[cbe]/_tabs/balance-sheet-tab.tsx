@@ -14,7 +14,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  Cell,
   Legend,
 } from "recharts";
 
@@ -187,67 +186,68 @@ export function BalanceSheetTab({
   }
 
   // Latest year breakdown for the asset/financing bridge chart.
-  // Both bars are forced to sum to totalAssets via a residual bucket on each
-  // side, so the balance-sheet identity (Assets = Equity + Liabilities)
-  // always holds visually. Negative equity is shown as a note below the
-  // chart rather than a stacked bucket, so the bars don't fall out of sync.
+  // Single stackId, distinct keys per side — each row only has values for
+  // its own side, the other side's keys are zero, so recharts stacks them
+  // cleanly. Residual on each side absorbs any data-quality gap, so both
+  // bars always sum to totalAssets (balance-sheet identity).
   const latest = bsRows[0];
   const bridgeData = (() => {
     if (!latest || !latest.totalAssets) return null;
     const target = latest.totalAssets;
 
-    // Assets — all non-negative; residual lands in "Other".
+    // Assets
     const fa = Math.max(latest.totalNonCurrentAssets ?? 0, 0);
     const inv = Math.max(latest.inventories ?? 0, 0);
     const rec = Math.max(latest.tradeReceivables ?? 0, 0);
     const cash = Math.max((latest.cash ?? 0) + (latest.currentInvestments ?? 0), 0);
-    const knownCa = fa + inv + rec + cash;
-    const otherCa = Math.max(target - knownCa, 0);
+    const otherA = Math.max(target - fa - inv - rec - cash, 0);
 
-    // Equity + Liabilities — negative equity clamped to zero in the stack;
-    // residual absorbs the rest so the bar still hits `target`.
+    // Equity + Liabilities. Negative equity clamped to 0 in the bar; shown
+    // separately as a note below the chart.
     const eq = Math.max(latest.equity ?? 0, 0);
     const ltd = Math.max(latest.ltDebt ?? 0, 0);
     const std = Math.max(latest.stFinDebt ?? 0, 0);
     const tp = Math.max(latest.tradePayables ?? 0, 0);
-    const knownLiab = eq + ltd + std + tp;
-    const otherCl = Math.max(target - knownLiab, 0);
+    const otherL = Math.max(target - eq - ltd - std - tp, 0);
 
     return [
       {
         side: "Assets",
-        "Fixed assets": fa,
-        Inventories: inv,
-        Receivables: rec,
-        Cash: cash,
-        Other: otherCa,
+        fixedAssets: fa,
+        inventories: inv,
+        receivables: rec,
+        cash: cash,
+        otherAssets: otherA,
+        // Liability keys absent on this row
+        equity: 0, ltDebt: 0, stDebt: 0, tradePay: 0, otherLiab: 0,
       },
       {
         side: "Equity + Liabilities",
-        Equity: eq,
-        "LT debt": ltd,
-        "ST fin. debt": std,
-        "Trade payables": tp,
-        Other: otherCl,
+        fixedAssets: 0, inventories: 0, receivables: 0, cash: 0, otherAssets: 0,
+        equity: eq,
+        ltDebt: ltd,
+        stDebt: std,
+        tradePay: tp,
+        otherLiab: otherL,
       },
     ];
   })();
   const negEquity = latest?.equity != null && latest.equity < 0 ? latest.equity : null;
 
-  const ASSET_COLORS: Record<string, string> = {
-    "Fixed assets": "#6366f1",
-    Inventories: "#a78bfa",
-    Receivables: "#22d3ee",
-    Cash: "#10b981",
-    Other: "#94a3b8",
-  };
-  const FIN_COLORS: Record<string, string> = {
-    Equity: "#10b981",
-    "LT debt": "#f97316",
-    "ST fin. debt": "#ef4444",
-    "Trade payables": "#fbbf24",
-    Other: "#94a3b8",
-  };
+  type BridgeKey = "fixedAssets" | "inventories" | "receivables" | "cash" | "otherAssets"
+    | "equity" | "ltDebt" | "stDebt" | "tradePay" | "otherLiab";
+  const BRIDGE_BARS: Array<{ key: BridgeKey; label: string; color: string }> = [
+    { key: "fixedAssets",  label: "Fixed assets",   color: "#6366f1" },
+    { key: "inventories",  label: "Inventories",    color: "#a78bfa" },
+    { key: "receivables",  label: "Receivables",    color: "#22d3ee" },
+    { key: "cash",         label: "Cash",           color: "#10b981" },
+    { key: "otherAssets",  label: "Other assets",   color: "#94a3b8" },
+    { key: "equity",       label: "Equity",         color: "#059669" },
+    { key: "ltDebt",       label: "LT debt",        color: "#f97316" },
+    { key: "stDebt",       label: "ST fin. debt",   color: "#ef4444" },
+    { key: "tradePay",     label: "Trade payables", color: "#fbbf24" },
+    { key: "otherLiab",    label: "Other liab.",    color: "#78716c" },
+  ];
 
   return (
     <div>
@@ -255,29 +255,16 @@ export function BalanceSheetTab({
       {bridgeData && latest?.totalAssets && (
         <div className="mb-4 rounded-lg border bg-white p-3">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-emerald-500 pl-2 mb-2">
-            Balance-sheet bridge \u2014 FY{latest.fiscal_year}
+            {`Balance-sheet bridge — FY${latest.fiscal_year}`}
           </h3>
-          <ResponsiveContainer width="100%" height={140}>
-            <BarChart data={bridgeData} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 80 }}>
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={bridgeData} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 100 }}>
               <XAxis type="number" hide tickFormatter={(v: number) => fmtEur(v)} />
-              <YAxis type="category" dataKey="side" tick={{ fontSize: 11 }} width={80} />
+              <YAxis type="category" dataKey="side" tick={{ fontSize: 11 }} width={100} />
               <Tooltip formatter={(v) => fmtEur(typeof v === "number" ? v : Number(v) || 0)} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              {/* Asset stack — only renders for the first row */}
-              {Object.keys(ASSET_COLORS).map((k) => (
-                <Bar key={`a-${k}`} dataKey={k} stackId="assets" fill={ASSET_COLORS[k]}>
-                  {bridgeData.map((_, i) => (
-                    <Cell key={i} fillOpacity={i === 0 ? 0.9 : 0} />
-                  ))}
-                </Bar>
-              ))}
-              {/* Financing stack — only renders for the second row */}
-              {Object.keys(FIN_COLORS).map((k) => (
-                <Bar key={`f-${k}`} dataKey={k} stackId="fin" fill={FIN_COLORS[k]}>
-                  {bridgeData.map((_, i) => (
-                    <Cell key={i} fillOpacity={i === 1 ? 0.9 : 0} />
-                  ))}
-                </Bar>
+              {BRIDGE_BARS.map((b) => (
+                <Bar key={b.key} dataKey={b.key} name={b.label} stackId="bal" fill={b.color} />
               ))}
             </BarChart>
           </ResponsiveContainer>

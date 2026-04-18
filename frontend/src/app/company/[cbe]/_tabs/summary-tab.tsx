@@ -30,6 +30,9 @@ import type {
   StructureData,
 } from "../types";
 import { renderDelta, cleanCbe } from "../helpers";
+import { CompanyRadarCard } from "./radar-card";
+import { CompanyProcurementCard } from "./procurement-card";
+import { CompanyInsolvencyBadge } from "./insolvency-badge";
 
 /* ---------- props ---------- */
 
@@ -183,6 +186,15 @@ export function SummaryTab({
 
   return (
     <div className="space-y-6">
+      {/* Insolvency banner — bright red if this company has an active case */}
+      <CompanyInsolvencyBadge cbe={cbe} />
+
+      {/* Radar + procurement — side-by-side on desktop, stacked on mobile */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <CompanyRadarCard cbe={cbe} />
+        <CompanyProcurementCard cbe={cbe} />
+      </div>
+
       {/* Key Financials — full-width KPI cards + Financial History (no gap) */}
       {latest && (
         <div className="rounded-xl border border-slate-100 bg-white overflow-hidden">
