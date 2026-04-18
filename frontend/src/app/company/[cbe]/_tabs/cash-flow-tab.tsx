@@ -20,8 +20,8 @@ interface CashFlowTabProps {
 }
 
 /** Practitioner tolerance for the gap between implied and observed ΔCash.
- *  Under 2% = muted; 2-5% = amber (something small unmodelled); over 5% =
- *  red (M&A, FX, minority interest, revaluation, or bug). */
+ *  <2% muted; 2-5% amber; >5% red (M&A, FX, minority interest, revaluation,
+ *  or bug). */
 const GAP_AMBER_THRESHOLD = 0.02;
 const GAP_RED_THRESHOLD = 0.05;
 
@@ -56,8 +56,6 @@ export function CashFlowTab({
     .sort((a, b) => a - b);
 
   const cfAllAsc = deriveCashFlow(rubricData, yearsAsc);
-  // First year has no deltas → drop it. cfRows ascending; cfRowsDesc used
-  // for the CSV export (latest year first).
   const cfRows = cfAllAsc.slice(1);
   const cfRowsDesc = [...cfRows].reverse();
 
@@ -103,15 +101,23 @@ export function CashFlowTab({
     group?: string;
     render?: (row: CashFlowYear) => React.ReactNode;
     /** Drop row when every value is null/0. Keeps uncluttered layouts for
-     *  filers that don't disclose e.g. financial fixed-asset movements. */
+     *  filers that don't disclose e.g. provisions or financial FA moves. */
     dropIfAllEmpty?: boolean;
   };
 
   const lines: CFLine[] = [
-    { label: t("company.cf.cashFromCustomers"), key: "cashFromCustomers", section: t("company.cf.sectionOperating") },
-    { label: t("company.cf.cashPaidOperating"), key: "cashPaidOperating" },
-    { label: t("company.cf.cashForInterestNet"), key: "cashForInterestNet" },
-    { label: t("company.cf.cashForTaxes"), key: "cashForTaxes" },
+    { label: t("company.cf.netProfit"), key: "netProfit", section: t("company.cf.sectionOperating") },
+    { label: t("company.cf.da"), key: "da", indent: true },
+    { label: t("company.cf.writedowns"), key: "writedowns", indent: true, dropIfAllEmpty: true },
+    { label: t("company.cf.provisions"), key: "provisions", indent: true, dropIfAllEmpty: true },
+    { label: t("company.cf.exceptionalIncome"), key: "exceptionalIncome", indent: true, dropIfAllEmpty: true },
+    { label: t("company.cf.exceptionalCharges"), key: "exceptionalCharges", indent: true, dropIfAllEmpty: true },
+    { label: t("company.cf.deltaInventories"), key: "deltaInventories", indent: true, group: "cf_wc", dropIfAllEmpty: true },
+    { label: t("company.cf.deltaTradeRec"), key: "deltaTradeReceivables", indent: true, group: "cf_wc" },
+    { label: t("company.cf.deltaTradePay"), key: "deltaTradePayables", indent: true, group: "cf_wc" },
+    { label: t("company.cf.deltaTaxSocial"), key: "deltaTaxSocialPayables", indent: true, group: "cf_wc", dropIfAllEmpty: true },
+    { label: t("company.cf.deltaOtherPay"), key: "deltaOtherPayables", indent: true, group: "cf_wc", dropIfAllEmpty: true },
+    { label: t("company.cf.wcChange"), key: "wcChange", bold: true, topBorder: true },
     { label: t("company.cf.cashFromOps"), key: "cashFromOps", bold: true, topBorder: true },
 
     { label: t("company.cf.capex"), key: "capex", indent: true, section: t("company.cf.sectionInvesting") },
@@ -166,7 +172,6 @@ export function CashFlowTab({
 
   return (
     <div className="space-y-4">
-      {/* Cash-flow waterfall — reads from the same derivation helper. */}
       {financials?.rubric_data && yearsAsc.length > 1 && (
         <CashFlowWaterfall
           rubrics={rubricData}
@@ -186,6 +191,9 @@ export function CashFlowTab({
           {t("company.cf.title")}
         </h3>
         <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => toggleSection("cf_wc")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.cf_wc ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+            {collapsedSections.cf_wc ? `\u25b8 ${t("company.cf.wcGrouped")}` : `\u25be ${t("company.cf.wcExpanded")}`}
+          </button>
           <button onClick={() => toggleSection("cf_fin")} className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.cf_fin ? "bg-cyan-50 border-cyan-200 text-cyan-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}>
             {collapsedSections.cf_fin ? `\u25b8 ${t("company.cf.finGrouped")}` : `\u25be ${t("company.cf.finExpanded")}`}
           </button>

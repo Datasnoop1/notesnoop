@@ -6,20 +6,20 @@ import { fmtEur } from "@/lib/format";
 import { deriveCashFlow, type RubricData, type CashFlowYear } from "@/lib/cashflow";
 
 /**
- * Direct-method cash-flow waterfall. Visual companion to the table below.
+ * Indirect-method cash-flow waterfall. Visual companion to the table below.
  * Both views read from the same derivation helper (`@/lib/cashflow`) so
  * the numbers always agree.
  *
- *   Cash from customers
- *     − Cash paid operating
- *     − Cash paid interest
- *     − Cash paid taxes            = Cash from Operations
- *                       − CapEx
- *                       ± Δ Financial FA = Cash from Investing
+ *   Net profit
+ *     + D&A, write-downs, provisions
+ *     − Exceptional income  + Exceptional charges
+ *     ± ΔWorking capital              = Cash from Operations
+ *                     − CapEx
+ *                     ± Δ Financial FA = Cash from Investing
  *             ± Δ Debt  + New capital  − Dividends = Δ Cash (implied)
  *
  *   (Observed ΔCash from BS shown separately; gap row surfaces anything
- *   the model misses.)
+ *   the model misses — M&A consolidation, FX, minority interest.)
  */
 
 interface Props {
@@ -61,21 +61,20 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
 
   const cf = useMemo(() => derived.find((r) => r.fiscalYear === fy) ?? null, [derived, fy]);
 
-  if (!years.length || fy == null || !cf || cf.cashFromOps == null) return null;
+  if (!years.length || fy == null || !cf || cf.netProfit == null) return null;
 
-  // Skip the first year — no prior period → no deltas to plot.
   const isFirstYear = years[0] === fy;
   if (isFirstYear) return null;
 
-  // Ordered list of floats that bridge between milestones. Zero-valued
-  // floats are dropped so the chart stays tidy for filers that don't
-  // disclose (say) new capital.
+  // Indirect-method bridge from net profit → CFO.
   type FloatSpec = { label: string; delta: number };
   const opsFloats: FloatSpec[] = [
-    { label: "+ Customers", delta: cf.cashFromCustomers ?? 0 },
-    { label: "− Operating payments", delta: cf.cashPaidOperating ?? 0 },
-    { label: "− Interest (net)", delta: cf.cashForInterestNet ?? 0 },
-    { label: "− Taxes", delta: cf.cashForTaxes ?? 0 },
+    { label: "+ D&A", delta: cf.da },
+    { label: "+ Write-downs", delta: cf.writedowns },
+    { label: "+ Provisions", delta: cf.provisions },
+    { label: "− Exceptional income", delta: -cf.exceptionalIncome },
+    { label: "+ Exceptional charges", delta: cf.exceptionalCharges },
+    { label: (cf.wcChange ?? 0) >= 0 ? "+ ΔWorking capital" : "− ΔWorking capital", delta: cf.wcChange ?? 0 },
   ].filter((f) => f.delta !== 0);
 
   const invFloats: FloatSpec[] = [
@@ -90,12 +89,10 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
     { label: "− Dividends", delta: cf.dividendsPaid },
   ].filter((f) => f.delta !== 0);
 
-  // Domain for the horizontal scale — must cover every milestone AND every
-  // running-balance extremum so negative running balances render left of
-  // the zero line cleanly.
-  const points: number[] = [0, cf.cashFromOps ?? 0];
+  // Domain — covers every milestone AND every running-balance extremum.
+  const points: number[] = [0, cf.netProfit];
   {
-    let running = 0;
+    let running = cf.netProfit;
     for (const f of opsFloats) {
       running += f.delta;
       points.push(running);
@@ -149,7 +146,7 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
     });
   };
 
-  let running = 0;
+  let running = cf.netProfit;
   const float = (label: string, delta: number) => {
     if (delta === 0) return;
     const before = running;
@@ -167,8 +164,11 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
     });
   };
 
-  // Operating bridge — start at 0, accumulate receipts and payments, land
-  // on CFO milestone.
+  // Starting milestone: net profit, anchored at zero.
+  pushMilestone("Net profit", cf.netProfit,
+                COL.milestone, COL.milestone, COL.negNet,
+                COL.milestoneTxt, COL.negNetTxt);
+
   for (const f of opsFloats) float(f.label, f.delta);
 
   pushMilestone("Cash from Ops", cf.cashFromOps ?? 0,
@@ -189,9 +189,6 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
                 COL.posNet, COL.posNet, COL.negNet,
                 COL.posNetTxt, COL.negNetTxt);
 
-  // Observed Δ cash from the balance sheet — gives the user a visual check
-  // against the derived number. Drawn in a muted palette so it reads as a
-  // reference line rather than another flow.
   if (cf.observedCashChange != null) {
     pushMilestone("Δ Cash (observed BS)", cf.observedCashChange,
                   COL.observed, COL.observed, COL.negNet,
@@ -284,9 +281,10 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
             )}
           </div>
           <p className="text-[10px] text-slate-400 italic mt-2">
-            Direct method. Cash receipts + payments bottom-up. Indirect
-            method is computed internally as a cross-check. Belgian GAAP
-            does not file a cash-flow statement, so every value is derived.
+            Indirect method. Starts from net profit (after tax + interest),
+            adds back non-cash items, strips exceptional P&amp;L (66/76),
+            bridges working capital + CapEx + financing. Belgian GAAP does
+            not file a cash-flow statement, so every value is derived.
           </p>
         </div>
       )}

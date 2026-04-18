@@ -10,11 +10,12 @@
  * way to surface a cash-flow view is to derive one from net profit +
  * balance-sheet deltas.
  *
- * Primary display is the **direct method** — cash receipts from customers,
- * cash paid to operating activities, cash paid for interest, cash paid for
- * taxes. The **indirect method** is computed silently in parallel as an
- * internal audit; `cfoAuditPasses` flips false if the two methods
- * disagree by more than 1% of |CFO|. That catches decomposition bugs.
+ * Primary display is the **indirect method** — start from net profit,
+ * add back non-cash items, strip exceptional P&L items, bridge working
+ * capital. The **direct method** (cash receipts / payments) is computed
+ * silently as an internal audit; `cfoAuditPasses` flips false if the two
+ * methods disagree by more than 1% of |CFO|. That catches decomposition
+ * bugs.
  *
  * Sign convention throughout: **positive = cash source, negative = cash use**.
  *
@@ -30,42 +31,52 @@ export type RubricData = Record<string, Record<string, number | null>>;
 export interface CashFlowYear {
   fiscalYear: number;
 
-  /* ====== DIRECT METHOD — OPERATING (UI-visible) ====== */
+  /* ====== INDIRECT METHOD — OPERATING (UI-visible) ====== */
 
-  /** Rubric 70/76A (full operating-income aggregate — includes 70 revenue,
-   *  71 inventory variation, 72 own-construction, 74 other op. income,
-   *  76A exceptional op. income) minus Δ(40/41). Falls back to 70 + 74
-   *  for filers without the aggregate rubric. */
-  cashFromCustomers: number | null;
+  /** Rubric 9904 — post-tax, post-interest. Starting point. */
+  netProfit: number | null;
 
-  /** Negative. −(Operating cash costs) − Δ(3) + Δ(44) + Δ(47/48).
-   *  Operating cash costs = (60/66A) − 630 − 631/4 − 635/8 (strip non-cash).
-   *  Includes payments to suppliers AND employees combined — rubric 62 is
-   *  a subset of 60/66A; we don't split it out because VKT filings often
-   *  collapse them. */
-  cashPaidOperating: number | null;
+  /** Rubric 630. Non-cash add-back. Kept as raw signed value so that a
+   *  reversal (rare) correctly reduces the CFO add-back rather than being
+   *  silently zeroed out. */
+  da: number;
+  /** Rubric 631/4. Non-cash write-downs on receivables/inventory. */
+  writedowns: number;
+  /** Rubric 635/8. Movement in provisions. Non-cash. */
+  provisions: number;
 
-  /** Negative. −(65 − 75). Interest paid net of financial income. */
-  cashForInterestNet: number | null;
+  /** Rubric 76. Booked in P&L below the operating line; subtracted from
+   *  CFO because cash sits in CFI (for asset disposals) or is non-cash
+   *  (for revaluations). */
+  exceptionalIncome: number;
+  /** Rubric 66. Added back to CFO (usually operating). */
+  exceptionalCharges: number;
 
-  /** Negative (usually). −(67/77) + Δ(45). Tax expense net of change in
-   *  tax + social payables (simplification: treats all of Δ(45) as
-   *  tax-related). Rubric 67/77 can be filed negative (tax credit) — we
-   *  honour the sign. */
-  cashForTaxes: number | null;
+  /** Increase in inventories (rubric 3) → cash use → negative. */
+  deltaInventories: number | null;
+  /** Increase in trade receivables (rubric 40/41) → cash use → negative. */
+  deltaTradeReceivables: number | null;
+  /** Increase in trade payables (rubric 44) → cash source → positive. */
+  deltaTradePayables: number | null;
+  /** Increase in tax + social payables (rubric 45) → source → positive. */
+  deltaTaxSocialPayables: number | null;
+  /** Increase in other short-term payables (47/48) → source → positive. */
+  deltaOtherPayables: number | null;
+  /** Sum of the WC lines, signed as cash impact. */
+  wcChange: number | null;
 
-  /** Sum of the four lines above. Direct-method operating cash flow. */
+  /** Indirect-method operating cash flow. Primary CFO number. */
   cashFromOps: number | null;
 
   /* ====== INVESTING ====== */
 
-  /** Operating CapEx = −(Δ(21) + Δ(22/27) + D&A). Excludes Δ(28) =
-   *  financial fixed assets (those movements are M&A / participations). */
+  /** Operating CapEx = −[Δ(21) + Δ(22/27) + 630]. Excludes Δ(28) =
+   *  financial fixed assets (those movements are M&A / participations,
+   *  shown separately). Negative = investment outflow. */
   capex: number | null;
 
-  /** Δ(28) flipped sign. Negative = cash spent acquiring subsidiaries,
-   *  positive = proceeds from divesting them. Shown as a separate line
-   *  so the reader can see CapEx vs M&A distinctly — both land in CFI. */
+  /** Δ(28) flipped sign. Shown as a separate CFI line so the reader can
+   *  see CapEx vs M&A distinctly. */
   changeInFinancialAssets: number | null;
 
   cashFromInvesting: number | null;
@@ -77,46 +88,41 @@ export interface CashFlowYear {
   /** Rubric 43. */
   deltaStDebt: number | null;
 
-  /** Cash-raised equity = Δ(10) + Δ(11). Retained earnings and reserves
-   *  (13, 14) are excluded because they reclassify net profit (already
-   *  in CFO); including them would double-count. */
+  /** Cash-raised equity = Δ(10) + Δ(11). Excludes retained earnings and
+   *  reserves (13, 14) because they reclassify net profit, which is
+   *  already captured in CFO. Falls back to Δ(10/15) − NP + Dividends
+   *  when 10/11 aren't filed individually. */
   newCapital: number | null;
 
-  /** Always negative (outflow) when reported; 0 when rubric 694 not filed.
-   *  Approximation: we use the current year's rubric 694 as cash dividends
-   *  paid. Strictly, 694 is the *appropriation proposal* for the
-   *  just-closed year (paid the following year); the lag usually doesn't
-   *  matter much for screening and the reconciliation row catches larger
-   *  distortions. */
+  /** Always negative when reported; 0 when rubric 694 not filed. */
   dividendsPaid: number;
 
   cashFromFinancing: number | null;
 
   /* ====== RECONCILIATION ====== */
 
-  /** CFO (direct) + CFI + CFF. */
+  /** CFO + CFI + CFF. */
   impliedCashChange: number | null;
-  /** Δ(54/58 + 50/53) from the balance sheet. Null when no cash rubrics
-   *  are filed at all (some MIC filings). */
+  /** Δ(54/58 + 50/53) observed on the balance sheet. */
   observedCashChange: number | null;
-  /** observed − implied. Small = derivation is tight. Large = filing
-   *  anomaly or item not modelled. */
+  /** observed − implied. Small = good. Large = filing anomaly or item
+   *  not modelled. */
   unreconciledGap: number | null;
 
-  /* ====== AUDIT (silent cross-check against indirect method) ====== */
+  /* ====== AUDIT (silent cross-check via direct method) ====== */
 
-  /** Indirect-method CFO: 9904 + 630 + 631/4 + 635/8 − 76 + 66 + ΔWC.
-   *  Internal — not displayed. Kept for tests and debug. */
-  cfoIndirect: number | null;
-  /** True when |CFO_direct − CFO_indirect| / max(|CFO_direct|, 1) < 0.01.
-   *  A false here flags a decomposition mismatch — investigate. */
+  /** Direct-method CFO — cash receipts from customers + cash paid
+   *  operating + cash paid interest + cash paid tax. Computed internally
+   *  to catch decomposition bugs; not displayed. */
+  cfoDirect: number | null;
+  /** True when |CFO_indirect − CFO_direct| / max(|CFO|, 1) < 0.01. */
   cfoAuditPasses: boolean;
 
   /* ====== CASH BALANCE LEVELS ====== */
   cashStart: number | null;
   cashEnd: number | null;
 
-  /** True when even net profit / revenue is unavailable. */
+  /** True when net profit is unavailable. */
   insufficientData: boolean;
 }
 
@@ -126,24 +132,13 @@ const rub = (r: RubricData, code: string, fy: number | null): number | null => {
   return typeof v === "number" ? v : null;
 };
 
-/** Pick first non-null — for rubrics that drift across taxonomy versions
- *  (e.g. 20/28 → 21/28). Caller passes candidates in preference order. */
-const rubAny = (r: RubricData, codes: string[], fy: number | null): number | null => {
-  for (const code of codes) {
-    const v = rub(r, code, fy);
-    if (v != null) return v;
-  }
-  return null;
-};
-
 const delta = (cur: number | null, prev: number | null): number | null => {
   if (cur == null && prev == null) return null;
   return (cur ?? 0) - (prev ?? 0);
 };
 
-/** Sum, treating nulls as unusable — returns null if EVERY input is null,
- *  treats null as 0 otherwise. This prevents the helper from silently
- *  reporting a number that's a mix of real values and null-as-zero. */
+/** Sum treating nulls as unusable. If every input is null returns null;
+ *  otherwise treats null as 0. Prevents silent mixing of real and null. */
 const sumOrNull = (...xs: (number | null)[]): number | null => {
   if (xs.every((x) => x == null)) return null;
   return xs.reduce<number>((a, x) => a + (x ?? 0), 0);
@@ -154,7 +149,7 @@ const sumOrNull = (...xs: (number | null)[]): number | null => {
  *
  * @param rubrics  Rubric pivot from `/api/companies/{cbe}/financials`
  * @param years    Fiscal years (order doesn't matter; sorted internally).
- *                 First year returns with null CFO/CFI/CFF deltas.
+ *                 First year returns with null deltas (no prior to diff).
  */
 export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYear[] {
   const sorted = [...new Set(years)].sort((a, b) => a - b);
@@ -162,39 +157,25 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
     const prev = idx > 0 ? sorted[idx - 1] : null;
 
     const netProfit = rub(rubrics, "9904", fy);
-    const revenue = rubAny(rubrics, ["70", "70/76A"], fy);
-    // Total operating income = 70 + 71 (ΔWIP) + 72 (own construction
-    // capitalized) + 74 (other op. income) + 76A (exceptional op. income).
-    // Using 70/76A directly covers all of them — rubric 72 in particular
-    // can be material (€75M on Colruyt FY25) and gets dropped if we just
-    // sum 70 + 74. Falling back to 70 + 74 for filers (abbreviated / micro)
-    // that don't publish the 70/76A aggregate.
-    const totalOperatingIncome = rub(rubrics, "70/76A", fy)
-      ?? ((rub(rubrics, "70", fy) ?? 0) + (rub(rubrics, "74", fy) ?? 0) || null);
-    const insufficientData = netProfit == null && revenue == null;
+    const insufficientData = netProfit == null;
 
-    // Non-cash items. D&A is traditionally positive (cost magnitude); we
-    // accept whatever sign is filed — a rare negative reversal decreases
-    // the add-back rather than being silently zeroed out.
+    // Non-cash items. D&A kept as raw signed value: a rare reversal
+    // (rubric 630 filed negative) decreases the add-back rather than
+    // being silently zeroed by Math.max / Math.abs.
     const da = rub(rubrics, "630", fy) ?? 0;
     const writedowns = rub(rubrics, "631/4", fy) ?? 0;
     const provisions = rub(rubrics, "635/8", fy) ?? 0;
 
-    // Exceptional — for the indirect audit path.
     const exceptionalIncome = rub(rubrics, "76", fy) ?? 0;
     const exceptionalCharges = rub(rubrics, "66", fy) ?? 0;
 
-    const totalOperatingCharges = rub(rubrics, "60/66A", fy);
-    const operatingCashCosts = totalOperatingCharges != null
-      ? totalOperatingCharges - da - writedowns - provisions
-      : null;
-
     // Working-capital components — all signed as cash impact.
-    let dInventory: number | null = null;
-    let dReceivables: number | null = null;
-    let dTradePayables: number | null = null;
-    let dTaxSocialPayables: number | null = null;
-    let dOtherPayables: number | null = null;
+    let deltaInventories: number | null = null;
+    let deltaTradeReceivables: number | null = null;
+    let deltaTradePayables: number | null = null;
+    let deltaTaxSocialPayables: number | null = null;
+    let deltaOtherPayables: number | null = null;
+    let wcChange: number | null = null;
 
     let capex: number | null = null;
     let changeInFinancialAssets: number | null = null;
@@ -206,37 +187,47 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
     let observedCashChange: number | null = null;
     let cashStart: number | null = null;
 
+    // Used by the direct-method audit.
+    let operatingCashCosts: number | null = null;
+    let totalOperatingIncome: number | null = null;
+
     if (prev != null) {
-      dInventory = delta(rub(rubrics, "3", fy), rub(rubrics, "3", prev));
-      dReceivables = delta(rub(rubrics, "40/41", fy), rub(rubrics, "40/41", prev));
-      dTradePayables = delta(rub(rubrics, "44", fy), rub(rubrics, "44", prev));
-      dTaxSocialPayables = delta(rub(rubrics, "45", fy), rub(rubrics, "45", prev));
-      dOtherPayables = delta(rub(rubrics, "47/48", fy), rub(rubrics, "47/48", prev));
+      const dInvRaw = delta(rub(rubrics, "3", fy), rub(rubrics, "3", prev));
+      const dArRaw  = delta(rub(rubrics, "40/41", fy), rub(rubrics, "40/41", prev));
+      const dApRaw  = delta(rub(rubrics, "44", fy), rub(rubrics, "44", prev));
+      const dTaxSocRaw = delta(rub(rubrics, "45", fy), rub(rubrics, "45", prev));
+      const dOtherRaw = delta(rub(rubrics, "47/48", fy), rub(rubrics, "47/48", prev));
+
+      deltaInventories = dInvRaw == null ? null : -dInvRaw;
+      deltaTradeReceivables = dArRaw == null ? null : -dArRaw;
+      deltaTradePayables = dApRaw;       // increase = source, raw sign
+      deltaTaxSocialPayables = dTaxSocRaw;
+      deltaOtherPayables = dOtherRaw;
+
+      wcChange = sumOrNull(
+        deltaInventories,
+        deltaTradeReceivables,
+        deltaTradePayables,
+        deltaTaxSocialPayables,
+        deltaOtherPayables,
+      );
 
       // Operating CapEx (excludes financial fixed assets). Identity:
-      //   ΔNetFA = GrossAdditions − Disposals − D&A
-      //   GrossAdditions ≈ ΔNetFA + D&A (ignoring disposals we can't split)
-      // Use the raw signed `da` so a D&A reversal (rubric 630 filed
-      // negative) correctly reduces the reconstructed CapEx rather than
-      // inflating it via Math.abs. Sign on CapEx: positive number =
-      // investment (outflow → flipped via the leading −), negative = net
-      // disposal (inflow).
+      //   GrossAdditions ≈ ΔNetFA + D&A.
+      // Raw signed `da` handles reversals correctly.
       const dTang = delta(rub(rubrics, "22/27", fy), rub(rubrics, "22/27", prev));
       const dIntang = delta(rub(rubrics, "21", fy), rub(rubrics, "21", prev));
-      const operFaDelta = (dTang ?? 0) + (dIntang ?? 0);
       if (dTang != null || dIntang != null) {
+        const operFaDelta = (dTang ?? 0) + (dIntang ?? 0);
         capex = -(operFaDelta + da);
       }
 
-      // Investments in subsidiaries / financial FA — a separate CFI line.
       const dFinFa = delta(rub(rubrics, "28", fy), rub(rubrics, "28", prev));
       if (dFinFa != null) changeInFinancialAssets = -dFinFa;
 
       deltaLtDebt = delta(rub(rubrics, "170/4", fy), rub(rubrics, "170/4", prev));
       deltaStDebt = delta(rub(rubrics, "43", fy), rub(rubrics, "43", prev));
 
-      // Cash-raised equity = Δ(10) + Δ(11). Fall back to
-      // Δ(10/15) − NP + Dividends if 10/11 aren't filed individually.
       const dCapital = delta(rub(rubrics, "10", fy), rub(rubrics, "10", prev));
       const dSharePremium = delta(rub(rubrics, "11", fy), rub(rubrics, "11", prev));
       if (dCapital != null || dSharePremium != null) {
@@ -254,6 +245,14 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
       cashStart = cashPrevFy;
       observedCashChange =
         cashThisFy != null && cashPrevFy != null ? cashThisFy - cashPrevFy : null;
+
+      const totalOperatingCharges = rub(rubrics, "60/66A", fy);
+      if (totalOperatingCharges != null) {
+        operatingCashCosts = totalOperatingCharges - da - writedowns - provisions;
+      }
+      totalOperatingIncome =
+        rub(rubrics, "70/76A", fy)
+        ?? ((rub(rubrics, "70", fy) ?? 0) + (rub(rubrics, "74", fy) ?? 0) || null);
     }
 
     const cashEnd = sumOrNull(rub(rubrics, "54/58", fy), rub(rubrics, "50/53", fy));
@@ -261,52 +260,17 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
     const dividendsFiled = rub(rubrics, "694", fy) ?? 0;
     const dividendsPaid = dividendsFiled > 0 ? -dividendsFiled : 0;
 
-    /* ========== DIRECT METHOD CFO (primary display) ========== */
+    /* ========== INDIRECT METHOD CFO (primary display) ========== */
 
-    // Cash from customers — operating income net of receivables build-up.
-    // Uses the full operating income aggregate (70/76A, see above) so rubric
-    // 72 (own construction capitalized) and rubric 71 (inventory variation)
-    // are captured. Without these the direct method underestimates CFO and
-    // the audit check against the indirect method fails.
-    let cashFromCustomers: number | null = null;
-    if (prev != null && totalOperatingIncome != null) {
-      cashFromCustomers = totalOperatingIncome - (dReceivables ?? 0);
-    }
-
-    // Cash paid operating — supplier + employee + other ops.
-    let cashPaidOperating: number | null = null;
-    if (prev != null && operatingCashCosts != null) {
-      cashPaidOperating = -(
-        operatingCashCosts
-        + (dInventory ?? 0)
-        - (dTradePayables ?? 0)
-        - (dOtherPayables ?? 0)
-      );
-    }
-
-    // Cash for interest (net of financial income). Interest paid − financial
-    // income received. Note: rubric 75 can include dividends received from
-    // subs, which would technically be CFI — but the NBB taxonomy doesn't
-    // split them, so we include the whole 75 here.
-    let cashForInterestNet: number | null = null;
-    if (prev != null) {
-      const interestExpense = rub(rubrics, "65", fy) ?? 0;
-      const financialIncome = rub(rubrics, "75", fy) ?? 0;
-      cashForInterestNet = -(interestExpense - financialIncome);
-    }
-
-    // Cash for taxes. Tax expense − Δ(tax + social payables). Approximation:
-    // treat all of Δ(45) as tax-related.
-    let cashForTaxes: number | null = null;
-    if (prev != null) {
-      const taxExpense = rub(rubrics, "67/77", fy) ?? 0;
-      cashForTaxes = -(taxExpense - (dTaxSocialPayables ?? 0));
-    }
-
-    // Direct CFO.
-    const cashFromOps = prev == null
+    const cashFromOps = prev == null || netProfit == null
       ? null
-      : sumOrNull(cashFromCustomers, cashPaidOperating, cashForInterestNet, cashForTaxes);
+      : netProfit
+        + da
+        + writedowns
+        + provisions
+        - exceptionalIncome
+        + exceptionalCharges
+        + (wcChange ?? 0);
 
     /* ========== CFI ========== */
 
@@ -318,36 +282,33 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
 
     const cashFromFinancing = prev == null
       ? null
-      : sumOrNull(deltaLtDebt, deltaStDebt, newCapital) == null && dividendsPaid === 0
+      : (deltaLtDebt == null && deltaStDebt == null && newCapital == null && dividendsPaid === 0)
         ? null
         : (deltaLtDebt ?? 0) + (deltaStDebt ?? 0) + (newCapital ?? 0) + dividendsPaid;
 
-    /* ========== INDIRECT METHOD AUDIT ========== */
+    /* ========== DIRECT METHOD AUDIT (silent) ========== */
 
-    let cfoIndirect: number | null = null;
-    if (prev != null && netProfit != null) {
-      // ΔWC as cash impact: inventory/AR increase = use; payables increase = source.
-      const wcCashImpact =
-        -(dInventory ?? 0)
-        - (dReceivables ?? 0)
-        + (dTradePayables ?? 0)
-        + (dTaxSocialPayables ?? 0)
-        + (dOtherPayables ?? 0);
-      cfoIndirect =
-        netProfit
-        + da
-        + writedowns
-        + provisions
-        - exceptionalIncome
-        + exceptionalCharges
-        + wcCashImpact;
+    let cfoDirect: number | null = null;
+    if (prev != null && totalOperatingIncome != null) {
+      const cashFromCustomers = totalOperatingIncome - (-(deltaTradeReceivables ?? 0));
+      const cashPaidOperating = operatingCashCosts != null
+        ? -(operatingCashCosts
+            + -(deltaInventories ?? 0)   // undo the sign flip to get raw ΔInventory
+            - (deltaTradePayables ?? 0)
+            - (deltaOtherPayables ?? 0))
+        : null;
+      const cashForInterestNet = -((rub(rubrics, "65", fy) ?? 0) - (rub(rubrics, "75", fy) ?? 0));
+      const cashForTaxes = -((rub(rubrics, "67/77", fy) ?? 0) - (deltaTaxSocialPayables ?? 0));
+      cfoDirect = cashPaidOperating != null
+        ? cashFromCustomers + cashPaidOperating + cashForInterestNet + cashForTaxes
+        : null;
     }
 
     const cfoAuditPasses =
-      cashFromOps == null || cfoIndirect == null
-        ? true  // can't audit without both — don't flag
-        : Math.abs(cashFromOps - cfoIndirect) /
-          Math.max(Math.abs(cashFromOps), Math.abs(cfoIndirect), 1) < 0.01;
+      cashFromOps == null || cfoDirect == null
+        ? true
+        : Math.abs(cashFromOps - cfoDirect) /
+          Math.max(Math.abs(cashFromOps), Math.abs(cfoDirect), 1) < 0.01;
 
     /* ========== RECONCILIATION ========== */
 
@@ -362,10 +323,18 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
 
     return {
       fiscalYear: fy,
-      cashFromCustomers,
-      cashPaidOperating,
-      cashForInterestNet,
-      cashForTaxes,
+      netProfit,
+      da,
+      writedowns,
+      provisions,
+      exceptionalIncome,
+      exceptionalCharges,
+      deltaInventories,
+      deltaTradeReceivables,
+      deltaTradePayables,
+      deltaTaxSocialPayables,
+      deltaOtherPayables,
+      wcChange,
       cashFromOps,
       capex,
       changeInFinancialAssets,
@@ -378,7 +347,7 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
       impliedCashChange,
       observedCashChange,
       unreconciledGap,
-      cfoIndirect,
+      cfoDirect,
       cfoAuditPasses,
       cashStart,
       cashEnd,

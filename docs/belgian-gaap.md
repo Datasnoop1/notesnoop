@@ -118,22 +118,27 @@ balance-sheet deltas and P&L line items. Single source of truth:
 [`frontend/src/lib/cashflow.ts`](../frontend/src/lib/cashflow.ts).
 Both the cash-flow tab and the waterfall read from the same helper.
 
-### Direct method (user-facing)
+### Indirect method (user-facing)
 
-The cashflow is presented in **direct-method** form — cash receipts,
-cash payments — because that's closer to how a PE analyst mentally
-thinks about cash generation. The equivalent indirect-method derivation
-runs silently in parallel as an audit cross-check.
+The cashflow is presented in **indirect-method** form — start from net
+profit, add back non-cash items, strip exceptional P&L, bridge working
+capital. The equivalent direct-method derivation runs silently in
+parallel as an audit cross-check.
 
 ```
 Operating
-  Cash from customers         = 70/76A − Δ(40/41)
-  Cash paid operating         = −(60/66A − 630 − 631/4 − 635/8)  (strip non-cash)
-                                 − Δ(3)                          (inventory build)
-                                 + Δ(44) + Δ(47/48)              (trade & other AP)
-  Cash paid interest (net)    = −(65 − 75)
-  Cash paid income tax        = −(67/77) + Δ(45)                 (approx: all Δ45 = tax)
-  = Cash from Operations  (= "CFO")
+  Net profit (9904)                        (post-tax, post-interest)
+    + 630                                  (D&A — non-cash)
+    + 631/4                                (write-downs — non-cash)
+    + 635/8                                (provisions — non-cash)
+    − 76                                   (exceptional income — strip)
+    + 66                                   (exceptional charges — add back)
+    − Δ(3)                                 (inventory build = cash use)
+    − Δ(40/41)                             (AR build = cash use)
+    + Δ(44)                                (trade payables build = source)
+    + Δ(45)                                (tax & social payables = source)
+    + Δ(47/48)                             (other short-term payables = source)
+  = Cash from Operations
 
 Investing
   CapEx                       = −[Δ(21) + Δ(22/27) + 630]         (tangible + intangible)
@@ -155,13 +160,13 @@ Reconciliation
   Unexplained gap
 ```
 
-**70/76A not 70 + 74.** Rubric 70/76A is the full operating income
-aggregate and includes rubric 71 (inventory variation), rubric 72 (own
-construction capitalised), and 76A (exceptional operating income). On
-Colruyt FY25, 72 alone was €75M — using just 70 + 74 misses it and the
-direct vs indirect audit fails by the same amount. Always prefer
-70/76A; fall back to 70 + 74 only for filers that don't publish the
-aggregate.
+**Rationale for stripping 66 / 76.** Exceptional items flow into 9904
+(net profit). On holding companies (or any year with material asset
+sales / divestments), this line can dwarf operating earnings — Colruyt
+FY2025 had rubric 76 = €2.1B against operating profit of €748k. If not
+stripped, CFO is misleadingly inflated. The cash side of an exceptional
+gain belongs in CFI (for asset sales) or is non-cash (for revaluations)
+— either way, not in CFO.
 
 **CapEx uses 21 + 22/27, not 21/28.** Rubric 28 is financial fixed
 assets — participations in subsidiaries. For a holding, Δ(28) is
@@ -183,21 +188,27 @@ of the closing year's result, technically paid the following year. For
 a screening cash-flow this 1-year lag is an acceptable simplification;
 a large discrepancy would surface in the reconciliation gap.
 
-### Indirect method (internal audit)
+### Direct method (internal audit)
 
-Computed silently to verify the direct-method decomposition:
+Computed silently to verify the indirect-method decomposition:
 
 ```
-CFO_indirect = 9904                      (net profit)
-             + 630 + 631/4 + 635/8       (non-cash add-backs)
-             − 76 + 66                   (strip exceptional)
-             + ΔWC (cash impact)
+Cash from customers     = 70/76A − Δ(40/41)
+Cash paid operating     = −(60/66A − 630 − 631/4 − 635/8) − Δ(3)
+                            + Δ(44) + Δ(47/48)
+Cash paid interest (net) = −(65 − 75)
+Cash paid taxes         = −(67/77) + Δ(45)
+CFO_direct              = sum of the four lines above
 ```
 
-Where `ΔWC cash impact = −Δ(3) − Δ(40/41) + Δ(44) + Δ(45) + Δ(47/48)`.
+**70/76A not 70 + 74** — rubric 70/76A is the full operating income
+aggregate and includes rubric 71 (inventory variation), rubric 72 (own
+construction capitalised), and 76A (exceptional operating income). On
+Colruyt FY25, 72 alone was €75M; using just 70 + 74 fails the audit by
+that amount.
 
-The helper flips `cfoAuditPasses` to false if the two methods differ by
-more than 1% of CFO. In practice both methods are algebraically
+The helper flips `cfoAuditPasses` to false if the two methods differ
+by more than 1% of CFO. In practice both methods are algebraically
 equivalent and agree within rounding (0.24% gap on Colruyt FY25). A
 failed audit points to missing rubrics or a taxonomy version drift.
 
