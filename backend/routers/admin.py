@@ -1083,15 +1083,22 @@ async def admin_costs(user=Depends(_require_admin)):
             logger.warning("OpenRouter usage fetch failed: %s", e)
 
     # ── Custom cost items (editable via POST /api/admin/costs) ──
-    cost_items = []
+    # Distinguish "row missing / unparseable" (→ seed with defaults) from
+    # "row exists with an explicit empty list" (→ leave empty). Operator
+    # can clear the cost_items list and have it stay cleared; previously
+    # the fallback below re-seeded defaults on every fetch.
+    cost_items: list | None = None
     row = fetch_one("SELECT value FROM meta WHERE variable = 'cost_items'")
-    if row and row.get("value"):
+    if row and row.get("value") is not None:
         try:
             cost_items = json.loads(row["value"])
+            if not isinstance(cost_items, list):
+                cost_items = None
         except Exception:
-            pass
-    if not cost_items:
-        # Default items if none configured yet
+            cost_items = None
+    if cost_items is None:
+        # Defaults shown only the first time — after the operator saves
+        # anything (even an empty list), stop re-seeding.
         cost_items = [
             {"name": "Hosting (Hetzner)", "amount": 18.34, "frequency": "monthly"},
             {"name": "Domains", "amount": 25.00, "frequency": "yearly"},

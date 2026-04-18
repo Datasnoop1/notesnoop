@@ -855,6 +855,30 @@ export default function AdminPanel() {
     }
   }
 
+  async function confirmInvoice(id: number) {
+    setActionLoading(`invoice-${id}`);
+    try {
+      await adminFetch(`/api/admin/invoices/${id}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setInvoicesData((prev) =>
+        prev
+          ? {
+              ...prev,
+              invoices: prev.invoices.map((inv) =>
+                inv.id === id ? { ...inv, confirmed: true } : inv
+              ),
+            }
+          : prev
+      );
+    } catch {
+      /* ignore */
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   async function activatePoll(id: number) {
     setActionLoading(`poll-activate-${id}`);
     try {
@@ -3165,9 +3189,19 @@ export default function AdminPanel() {
                                 : <span className="text-amber-500">? parse</span>}
                             </td>
                             <td className="py-1 px-2">
-                              {inv.confirmed
-                                ? <span className="text-[10px] text-emerald-600 font-semibold">✓</span>
-                                : <span className="text-[10px] text-slate-400">todo</span>}
+                              {inv.confirmed ? (
+                                <span className="text-[10px] text-emerald-600 font-semibold">✓</span>
+                              ) : (
+                                <Button
+                                  size="xs"
+                                  variant="outline"
+                                  className="h-6 text-[10px] px-2 border-amber-300 text-amber-700 hover:bg-amber-50"
+                                  disabled={actionLoading === `invoice-${inv.id}`}
+                                  onClick={() => confirmInvoice(inv.id)}
+                                >
+                                  {actionLoading === `invoice-${inv.id}` ? "…" : "Confirm"}
+                                </Button>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -3178,22 +3212,37 @@ export default function AdminPanel() {
               </Card>
             )}
 
-            {/* ── Mini P&L Summary (legacy, kept for reference) ── */}
+            {/* ── Monthly P&L Summary ── */}
             {(() => {
               const revEur = paymentsData ? paymentsData.total_revenue / 100 : 0;
               const orUsd = costsData?.openrouter_usage_usd ?? 0;
               const orEur = orUsd * 0.92;
+              // Invoices: rolling 3-month average from what the inbox
+              // ingester has parsed. Falls back to latest month if we have
+              // less than 3 months of history. These replace the old
+              // manually-entered "cost_items" in the P&L — the user treats
+              // every ingested invoice as a real cost.
+              const invMonths = invoicesData?.monthly ?? [];
+              const invoicesMonthlyAvgEur = invMonths.length >= 3
+                ? invMonths.slice(0, 3).reduce((s, m) => s + (m.eur_total ?? 0), 0) / 3
+                : invMonths.length > 0
+                  ? (invMonths[0].eur_total ?? 0)
+                  : 0;
+              const invoicesMonthCount = Math.min(invMonths.length, 3);
+              // Manually-entered items remain supported for one-off costs
+              // not covered by invoices. Cleared in prod to zero out the
+              // old hosting/domains stubs once the invoice feed took over.
               const itemsMonthly = costItems.map((c) => ({
                 name: c.name,
                 monthly: c.frequency === "yearly" ? c.amount / 12 : c.frequency === "one-time" ? 0 : c.amount,
               }));
-              const totalCostsM = orEur + itemsMonthly.reduce((s, c) => s + c.monthly, 0);
+              const totalCostsM = orEur + invoicesMonthlyAvgEur + itemsMonthly.reduce((s, c) => s + c.monthly, 0);
               const netM = revEur - totalCostsM;
               const eur = (v: number) => v.toLocaleString("en", { style: "currency", currency: "EUR", minimumFractionDigits: 2 });
               return (
                 <Card className="bg-white border-l-4 border-l-indigo-500">
                   <CardContent className="p-4">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Monthly P&L (estimate)</h3>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Monthly P&L</h3>
                     <Table>
                       <TableBody>
                         <TableRow className="bg-emerald-50/50">
@@ -3204,6 +3253,17 @@ export default function AdminPanel() {
                           <TableCell className="text-xs text-slate-600 py-1">OpenRouter (AI)</TableCell>
                           <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(orEur)}</TableCell>
                         </TableRow>
+                        {invoicesMonthlyAvgEur > 0 && (
+                          <TableRow>
+                            <TableCell className="text-xs text-slate-600 py-1">
+                              Platform invoices
+                              <span className="ml-1 text-[10px] text-slate-400">
+                                ({invoicesMonthCount}-mo avg from inbox)
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-xs font-mono text-right text-rose-500 py-1">-{eur(invoicesMonthlyAvgEur)}</TableCell>
+                          </TableRow>
+                        )}
                         {itemsMonthly.filter((c) => c.monthly > 0).map((c) => (
                           <TableRow key={c.name}>
                             <TableCell className="text-xs text-slate-600 py-1">{c.name}</TableCell>
