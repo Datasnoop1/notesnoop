@@ -121,13 +121,15 @@ export function CashFlowTab({
     { label: t("company.cf.cashStart"), key: "cashStart", bold: true },
 
     { label: t("company.cf.ebitda"), key: "ebitda", section: t("company.cf.sectionOperating") },
-    // After EBITDA: working capital first, then taxes, then other stuff.
+    // Working capital section: title row FIRST (click to expand/collapse),
+    // then the individual Δ rows folded beneath it.
+    { label: t("company.cf.wcChange"), key: "wcChange", bold: true, topBorder: true },
     { label: t("company.cf.deltaInventories"), key: "deltaInventories", indent: true, group: "cf_wc", dropIfAllEmpty: true },
     { label: t("company.cf.deltaTradeRec"), key: "deltaTradeReceivables", indent: true, group: "cf_wc" },
     { label: t("company.cf.deltaTradePay"), key: "deltaTradePayables", indent: true, group: "cf_wc" },
     { label: t("company.cf.deltaTaxSocial"), key: "deltaTaxSocialPayables", indent: true, group: "cf_wc", dropIfAllEmpty: true },
     { label: t("company.cf.deltaOtherPay"), key: "deltaOtherPayables", indent: true, group: "cf_wc", dropIfAllEmpty: true },
-    { label: t("company.cf.wcChange"), key: "wcChange", bold: true, topBorder: true },
+    // After WC: taxes, then other stuff.
     { label: t("company.cf.incomeTax"), key: "incomeTax", indent: true, dropIfAllEmpty: true },
     { label: t("company.cf.financialIncome"), key: "financialIncome", indent: true, dropIfAllEmpty: true },
     { label: t("company.cf.interestExpense"), key: "interestExpense", indent: true, dropIfAllEmpty: true },
@@ -139,11 +141,12 @@ export function CashFlowTab({
     { label: t("company.cf.changeInFinancialAssets"), key: "changeInFinancialAssets", indent: true, dropIfAllEmpty: true },
     { label: t("company.cf.cashFromInvesting"), key: "cashFromInvesting", bold: true, topBorder: true },
 
-    { label: t("company.cf.deltaLtDebt"), key: "deltaLtDebt", indent: true, section: t("company.cf.sectionFinancing"), group: "cf_fin" },
+    // Financing section: title first, folded movements beneath it.
+    { label: t("company.cf.cashFromFinancing"), key: "cashFromFinancing", bold: true, topBorder: true, section: t("company.cf.sectionFinancing") },
+    { label: t("company.cf.deltaLtDebt"), key: "deltaLtDebt", indent: true, group: "cf_fin" },
     { label: t("company.cf.deltaStDebt"), key: "deltaStDebt", indent: true, group: "cf_fin" },
     { label: t("company.cf.newCapital"), key: "newCapital", indent: true, group: "cf_fin", dropIfAllEmpty: true },
     { label: t("company.cf.dividendsPaid"), key: "dividendsPaid", indent: true, group: "cf_fin", dropIfAllEmpty: true },
-    { label: t("company.cf.cashFromFinancing"), key: "cashFromFinancing", bold: true, topBorder: true },
 
     { label: t("company.cf.impliedCashChange"), key: "impliedCashChange", bold: true, doubleBorder: true, section: t("company.cf.sectionReconciliation") },
     {
@@ -244,7 +247,7 @@ export function CashFlowTab({
                           className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors text-left"
                           aria-expanded={!isCollapsedSummary}
                         >
-                          <span className="text-[10px]">{isCollapsedSummary ? "\u25b8" : "\u25be"}</span>
+                          <span className="text-xs leading-none">{isCollapsedSummary ? "\u25b8" : "\u25be"}</span>
                           <span>{line.label}</span>
                         </button>
                       ) : (

@@ -93,25 +93,38 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
   ].filter((f) => f.delta !== 0);
 
   // Domain — covers every milestone AND every running-balance extremum.
-  const points: number[] = [0, cf.ebitda];
+  // Layout, top to bottom:
+  //   Opening cash → (+EBITDA bridge) → CFO milestone →
+  //   (±CFI floats) → Free cash flow → (±CFF floats) → Closing cash.
+  // We carry the running balance through opening cash, not through zero,
+  // so the bars anchor to a real economic level instead of a derivation
+  // artefact.
+  const openingCash = cf.cashStart ?? 0;
+  const closingCash = cf.cashEnd ?? (openingCash + (cf.impliedCashChange ?? 0) + (cf.unreconciledGap ?? 0));
+  const points: number[] = [0, openingCash];
   {
-    let running = cf.ebitda;
+    let running = openingCash + cf.ebitda;
+    points.push(running);
     for (const f of opsFloats) {
       running += f.delta;
       points.push(running);
     }
   }
-  points.push(cf.cashFromOps ?? 0);
-  points.push((cf.cashFromOps ?? 0) + (cf.cashFromInvesting ?? 0));
-  points.push(cf.impliedCashChange ?? 0);
+  const cfoCumulative = openingCash + (cf.cashFromOps ?? 0);
+  const fcfCumulative = cfoCumulative + (cf.cashFromInvesting ?? 0);
+  points.push(cfoCumulative);
+  points.push(fcfCumulative);
   {
-    let running = (cf.cashFromOps ?? 0) + (cf.cashFromInvesting ?? 0);
+    let running = fcfCumulative;
     for (const f of finFloats) {
       running += f.delta;
       points.push(running);
     }
   }
-  if (cf.observedCashChange != null) points.push(cf.observedCashChange);
+  points.push(closingCash);
+  if (cf.observedCashChange != null) {
+    points.push(openingCash + cf.observedCashChange);
+  }
 
   const domainMin = Math.min(...points);
   const domainMax = Math.max(...points);
@@ -149,7 +162,7 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
     });
   };
 
-  let running = cf.ebitda;
+  let running = openingCash;
   const float = (label: string, delta: number) => {
     if (delta === 0) return;
     const before = running;
@@ -167,36 +180,45 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
     });
   };
 
-  // Starting milestone: EBITDA, anchored at zero.
-  pushMilestone("EBITDA", cf.ebitda,
+  // Opening cash balance — anchored at zero. Everything below is a
+  // bridge from this level to the closing balance.
+  pushMilestone("Opening cash", openingCash,
                 COL.milestone, COL.milestone, COL.negNet,
                 COL.milestoneTxt, COL.negNetTxt);
 
+  // EBITDA enters as the first operating float so the running balance
+  // climbs above opening cash before the WC/tax/interest/etc adjustments
+  // bring it back to the CFO level.
+  float("+ EBITDA", cf.ebitda);
   for (const f of opsFloats) float(f.label, f.delta);
 
-  pushMilestone("Cash from Ops", cf.cashFromOps ?? 0,
+  pushMilestone("Cash from Ops", cfoCumulative,
                 COL.milestone, COL.milestone, COL.negNet,
                 COL.milestoneTxt, COL.negNetTxt);
 
-  running = cf.cashFromOps ?? 0;
+  running = cfoCumulative;
   for (const f of invFloats) float(f.label, f.delta);
 
-  pushMilestone("Free cash flow", (cf.cashFromOps ?? 0) + (cf.cashFromInvesting ?? 0),
+  pushMilestone("After investing", fcfCumulative,
                 COL.milestoneStrong, COL.milestoneStrong, COL.negNet,
                 COL.milestoneStrongTxt, COL.negNetTxt);
 
-  running = (cf.cashFromOps ?? 0) + (cf.cashFromInvesting ?? 0);
+  running = fcfCumulative;
   for (const f of finFloats) float(f.label, f.delta);
 
-  pushMilestone("Δ Cash (implied)", cf.impliedCashChange ?? 0,
+  // Surface the unreconciled gap as its own float so the bridge ties
+  // exactly to the balance-sheet closing cash. If the gap is zero (or
+  // unknown) the float is skipped — closing = cashStart + implied.
+  if (cf.unreconciledGap != null && cf.unreconciledGap !== 0) {
+    float(cf.unreconciledGap > 0
+      ? "+ Unreconciled"
+      : "− Unreconciled",
+      cf.unreconciledGap);
+  }
+
+  pushMilestone("Closing cash", closingCash,
                 COL.posNet, COL.posNet, COL.negNet,
                 COL.posNetTxt, COL.negNetTxt);
-
-  if (cf.observedCashChange != null) {
-    pushMilestone("Δ Cash (observed BS)", cf.observedCashChange,
-                  COL.observed, COL.observed, COL.negNet,
-                  COL.observedTxt, COL.negNetTxt);
-  }
 
   const gap = cf.unreconciledGap;
   const gapRatio = cf.observedCashChange != null && gap != null

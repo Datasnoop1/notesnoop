@@ -140,27 +140,28 @@ export function BalanceSheetTab({
   };
 
   const lines: BSLine[] = [
-    // ASSETS
-    { label: t("company.bs.intangibleAssets"), key: "intangibleAssets", indent: true, section: t("company.bs.sectionNonCurrentAssets"), group: "bs_fa" },
+    // ASSETS — each group title sits ABOVE its folded items (file-explorer
+    // style). The subtotal-at-top doubles as the click-to-expand target.
+    { label: t("company.bs.totalNonCurrentAssets"), key: "totalNonCurrentAssets", bold: true, section: t("company.bs.sectionNonCurrentAssets") },
+    { label: t("company.bs.intangibleAssets"), key: "intangibleAssets", indent: true, group: "bs_fa" },
     { label: t("company.bs.tangibleAssets"), key: "tangibleAssets", indent: true, group: "bs_fa" },
     { label: t("company.bs.financialAssets"), key: "financialAssets", indent: true, group: "bs_fa" },
-    { label: t("company.bs.totalNonCurrentAssets"), key: "totalNonCurrentAssets", bold: true, topBorder: true, section: t("company.bs.sectionNonCurrentAssets") },
-    { label: t("company.bs.inventories"), key: "inventories", indent: true, section: t("company.bs.sectionCurrentAssets"), group: "bs_ca" },
+    { label: t("company.bs.totalCurrentAssets"), key: "totalCurrentAssets", bold: true, topBorder: true, section: t("company.bs.sectionCurrentAssets") },
+    { label: t("company.bs.inventories"), key: "inventories", indent: true, group: "bs_ca" },
     { label: t("company.bs.tradeReceivables"), key: "tradeReceivables", indent: true, group: "bs_ca" },
     { label: t("company.bs.cashEquivalents"), key: "cash", indent: true, group: "bs_ca" },
     { label: t("company.bs.stInvestments"), key: "currentInvestments", indent: true, group: "bs_ca" },
     { label: t("company.bs.otherCurrentAssets"), key: "otherCurrentAssets", indent: true, group: "bs_ca" },
-    { label: t("company.bs.totalCurrentAssets"), key: "totalCurrentAssets", bold: true, topBorder: true },
     { label: t("company.bs.totalAssets"), key: "totalAssets", bold: true, doubleBorder: true },
     // EQUITY & LIABILITIES
     { label: t("company.bs.totalEquity"), key: "equity", bold: true, section: t("company.bs.sectionEquity") },
-    { label: t("company.bs.ltDebt"), key: "ltDebt", indent: true, section: t("company.bs.sectionNonCurrentLiab") },
+    { label: t("company.bs.totalNonCurrentLiab"), key: "totalNonCurrentLiab", bold: true, topBorder: true, section: t("company.bs.sectionNonCurrentLiab") },
+    { label: t("company.bs.ltDebt"), key: "ltDebt", indent: true },
     { label: t("company.bs.ltFinDebt"), key: "ltFinDebt", subIndent: true },
-    { label: t("company.bs.totalNonCurrentLiab"), key: "totalNonCurrentLiab", bold: true, topBorder: true },
-    { label: t("company.bs.tradePayables"), key: "tradePayables", indent: true, section: t("company.bs.sectionCurrentLiab"), group: "bs_cl" },
+    { label: t("company.bs.totalCurrentLiab"), key: "totalCurrentLiab", bold: true, topBorder: true, section: t("company.bs.sectionCurrentLiab") },
+    { label: t("company.bs.tradePayables"), key: "tradePayables", indent: true, group: "bs_cl" },
     { label: t("company.bs.stFinDebt"), key: "stFinDebt", indent: true, group: "bs_cl" },
     { label: t("company.bs.otherCurrentLiab"), key: "otherCurrentLiab", indent: true, group: "bs_cl" },
-    { label: t("company.bs.totalCurrentLiab"), key: "totalCurrentLiab", bold: true, topBorder: true },
     { label: t("company.bs.totalEqLiab"), key: "totalLE", bold: true, doubleBorder: true },
   ];
 
@@ -254,7 +255,7 @@ export function BalanceSheetTab({
                           className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors text-left"
                           aria-expanded={!isCollapsedSummary}
                         >
-                          <span className="text-[10px]">{isCollapsedSummary ? "\u25b8" : "\u25be"}</span>
+                          <span className="text-xs leading-none">{isCollapsedSummary ? "\u25b8" : "\u25be"}</span>
                           <span>{line.label}</span>
                         </button>
                       ) : (
