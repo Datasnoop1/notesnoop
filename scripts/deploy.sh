@@ -72,6 +72,16 @@ cd /opt/leadpeek
 # Keeps one snapshot per deploy; prune with `rm .env.production.bak-*` if needed.
 cp .env.production ".env.production.bak-$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true
 docker compose down 2>/dev/null || true
+# Free dangling images + build cache BEFORE the new build so we don't run
+# the host out of disk. The shared Postgres on this host crashes on
+# ENOSPC, taking down both prod and staging — learned the hard way.
+DISK_USE=$(df / --output=pcent 2>/dev/null | tail -1 | tr -d ' %')
+if [ "${DISK_USE:-0}" -gt 75 ]; then
+  echo "Disk ${DISK_USE}% — pruning Docker artifacts..."
+  docker image prune -af 2>/dev/null || true
+  docker builder prune -af 2>/dev/null || true
+  df -h / | tail -1
+fi
 docker compose up -d --build
 echo ""
 echo "Waiting for services to start..."

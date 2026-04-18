@@ -60,6 +60,17 @@ cd /opt/leadpeek
 # Stop existing staging containers (if any)
 docker compose -f docker-compose.staging.yml -p leadpeek-staging down 2>/dev/null || true
 
+# Free dangling images + build cache BEFORE the new build so we don't run
+# the host out of disk. The shared Postgres on this host crashes on
+# ENOSPC, taking down both prod and staging — learned the hard way.
+DISK_USE=$(df / --output=pcent 2>/dev/null | tail -1 | tr -d ' %')
+if [ "${DISK_USE:-0}" -gt 75 ]; then
+  echo "Disk ${DISK_USE}% — pruning Docker artifacts..."
+  docker image prune -af 2>/dev/null || true
+  docker builder prune -af 2>/dev/null || true
+  df -h / | tail -1
+fi
+
 # Build and start staging
 docker compose -f docker-compose.staging.yml -p leadpeek-staging up -d --build
 
