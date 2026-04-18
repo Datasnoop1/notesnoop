@@ -27,7 +27,7 @@ if [ "${1:-}" = "--dry-run" ]; then
     ROTATE_FLAG=""
 fi
 
-PLAYWRIGHT_IMAGE="mcr.microsoft.com/playwright/python:v1.49.0-jammy"
+PLAYWRIGHT_IMAGE="mcr.microsoft.com/playwright/python:v1.58.0-jammy"
 mkdir -p "$LEADPEEK_DIR/scripts/_rotate_debug"
 
 echo "==> Pulling playwright container (one-time, cached afterwards)..."
@@ -43,7 +43,7 @@ docker run --rm \
     -e NBB_ROTATE_DEBUG_DIR=/data/scripts/_rotate_debug \
     -e NBB_ENV_FILES=/data/.env.production,/data/.env \
     "$PLAYWRIGHT_IMAGE" \
-    bash -c "pip install --quiet playwright >/dev/null && python /data/scripts/nbb_key_rotate.py $DRY_RUN_FLAG $ROTATE_FLAG"
+    python /data/scripts/nbb_key_rotate.py $DRY_RUN_FLAG $ROTATE_FLAG
 ROT_EXIT=$?
 
 if [ $ROT_EXIT -ne 0 ]; then
