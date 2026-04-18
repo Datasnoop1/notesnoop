@@ -345,12 +345,8 @@ export function PnlTab({
           {t("company.pnl.title")}
         </h3>
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => toggleSection("pnl_opex")}
-            className={`text-[11px] px-2.5 py-1.5 md:py-0.5 rounded border transition-colors ${collapsedSections.pnl_opex ? "bg-indigo-50 border-indigo-200 text-indigo-600" : "bg-white border-slate-200 text-slate-500 hover:border-slate-300"}`}
-          >
-            {collapsedSections.pnl_opex ? `\u25b8 ${t("company.pnl.opexGrouped")}` : `\u25be ${t("company.pnl.opexExpanded")}`}
-          </button>
+          {/* Opex expand/collapse chip removed — the inline summary row
+              inside the table owns that toggle now. */}
           <ExportButtons
             onExportCSV={exportPnlCsv}
             onPrint={() => window.print()}

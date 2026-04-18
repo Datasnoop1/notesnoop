@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { fmtEur } from "@/lib/format";
 
@@ -51,6 +51,14 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
   const [open, setOpen] = useState(!defaultCollapsed);
   const [fy, setFy] = useState<number | null>(years[0] ?? null);
 
+  // Re-sync fy when fiscalYears changes asynchronously. Keeps the chart
+  // from silently disappearing if years loads after mount.
+  React.useEffect(() => {
+    if (years.length && (fy == null || !years.includes(fy))) {
+      setFy(years[0]);
+    }
+  }, [years, fy]);
+
   if (!years.length || fy == null) return null;
 
   const prevFy = years.find((y) => y < fy) ?? null;
@@ -88,21 +96,22 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
   );
   const toPct = (v: number) => (v / scaleBase) * 100;
 
-  // Peaceful palette — same language as the P&L waterfall: stone neutrals
-  // for deductions, soft sky for additions, teal accents for milestones.
+  // Shades-of-gray palette to match PnlWaterfall. Milestones get
+  // progressively darker; flows stay pale; only the negative-result text
+  // gets a red accent to draw the eye without adding colour to the bars.
   const COL = {
-    milestone:   "bg-teal-200",
-    milestoneTxt: "text-teal-800",
-    milestoneStrong: "bg-teal-300",
-    milestoneStrongTxt: "text-teal-900",
-    posNet:     "bg-teal-400",
-    posNetTxt:  "text-teal-900",
-    negNet:     "bg-rose-200",
+    milestone:   "bg-slate-300",
+    milestoneTxt: "text-slate-700",
+    milestoneStrong: "bg-slate-400",
+    milestoneStrongTxt: "text-slate-800",
+    posNet:     "bg-slate-500",
+    posNetTxt:  "text-slate-900",
+    negNet:     "bg-slate-300",
     negNetTxt:  "text-rose-700",
-    addition:   "bg-sky-200",
-    additionTxt: "text-sky-700",
-    deduction:  "bg-stone-200",
-    deductionTxt: "text-stone-600",
+    addition:   "bg-slate-100",
+    additionTxt: "text-slate-500",
+    deduction:  "bg-slate-100",
+    deductionTxt: "text-slate-500",
   };
 
   const rows: Row[] = [];

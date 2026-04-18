@@ -57,6 +57,15 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   const [open, setOpen] = useState(!defaultCollapsed);
   const [fy, setFy] = useState<number | null>(years[0] ?? null);
 
+  // Re-sync fy when the parent's year list changes (e.g. financials load
+  // in async after mount, or user switches company). Without this the
+  // component would silently return null if initial fiscalYears was empty.
+  React.useEffect(() => {
+    if (years.length && (fy == null || !years.includes(fy))) {
+      setFy(years[0]);
+    }
+  }, [years, fy]);
+
   if (!years.length || fy == null) return null;
 
   const revenue = rub(rubrics, "70", fy);
@@ -76,22 +85,23 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   // Convert a raw EUR value to a % of revenue (0..100)
   const toPct = (v: number) => (v / revenue) * 100;
 
-  // Peaceful palette — stone neutrals for deductions, a single teal
-  // accent for milestones, muted sky for the revenue starting line.
-  // No saturated rose/amber anywhere.
+  // Palette: shades of gray only. Milestones get progressively darker as
+  // the journey from top line to bottom line progresses; deductions stay
+  // lightest. Negative bottom-line gets a muted gray too, with red
+  // reserved for text when net is negative (so the chart stays quiet).
   const COL = {
-    revenue:    "bg-sky-200",
-    revenueTxt: "text-sky-800",
-    milestone:  "bg-teal-200",
-    milestoneTxt: "text-teal-800",
-    milestoneStrong: "bg-teal-300",
-    milestoneStrongTxt: "text-teal-900",
-    netPos:     "bg-teal-400",
-    netPosTxt:  "text-teal-900",
-    netNeg:     "bg-rose-200",
+    revenue:    "bg-slate-300",
+    revenueTxt: "text-slate-700",
+    milestone:  "bg-slate-300",
+    milestoneTxt: "text-slate-700",
+    milestoneStrong: "bg-slate-400",
+    milestoneStrongTxt: "text-slate-800",
+    netPos:     "bg-slate-500",
+    netPosTxt:  "text-slate-900",
+    netNeg:     "bg-slate-300",
     netNegTxt:  "text-rose-700",
-    deduction:  "bg-stone-200",
-    deductionTxt: "text-stone-600",
+    deduction:  "bg-slate-100",
+    deductionTxt: "text-slate-500",
   };
 
   const rows: Row[] = [];
