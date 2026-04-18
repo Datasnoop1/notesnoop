@@ -121,18 +121,25 @@ def classify_invoice(
         data = resp.json()
         content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
         parsed = json.loads(content)
+        # LLM sometimes returns [{"vendor":...,"category":...}] instead of
+        # the requested object. Unwrap single-element lists; anything else
+        # falls back to the default.
+        if isinstance(parsed, list):
+            parsed = parsed[0] if parsed else {}
+        if not isinstance(parsed, dict):
+            return {"vendor": None, "category": "Other"}
+
+        vendor = parsed.get("vendor")
+        if isinstance(vendor, str):
+            vendor = vendor.strip()[:80] or None
+        else:
+            vendor = None
+
+        category = parsed.get("category")
+        if category not in CATEGORIES:
+            category = "Other"
+
+        return {"vendor": vendor, "category": category}
     except Exception as e:  # JSON decode / network / schema
         log.warning("classify_invoice: %s", e)
         return {"vendor": None, "category": "Other"}
-
-    vendor = parsed.get("vendor")
-    if isinstance(vendor, str):
-        vendor = vendor.strip()[:80] or None
-    else:
-        vendor = None
-
-    category = parsed.get("category")
-    if category not in CATEGORIES:
-        category = "Other"
-
-    return {"vendor": vendor, "category": category}
