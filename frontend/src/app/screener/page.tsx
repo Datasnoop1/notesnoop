@@ -1645,7 +1645,7 @@ function RecentlyViewedPanel() {
                 onClick={() => {
                   removeRecentlyViewed(it.cbe);
                 }}
-                className="text-slate-300 opacity-0 group-hover:opacity-100 hover:text-slate-600"
+                className="text-slate-300 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:text-slate-600 p-1 -m-1"
                 title={t("screener.recentlyViewedRemove")}
               >
                 ×
