@@ -80,10 +80,11 @@ def candidates(limit: int) -> list[str]:
 
 async def _generate_one(cbe: str) -> bool:
     """Returns True on success. Swallow LLM errors so one bad company
-    doesn't kill the run."""
-    from routers.companies.valuation import valuation_ai_commentary  # type: ignore
+    doesn't kill the run. Calls the PLAIN-Python worker (not the FastAPI
+    route handler) so Query() defaults don't leak into the call."""
+    from routers.companies.valuation import _generate_and_cache_valuation_commentary  # type: ignore
     try:
-        res = await valuation_ai_commentary(cbe=cbe)
+        res = await _generate_and_cache_valuation_commentary(cbe=cbe)
         return bool(res.get("commentary") if isinstance(res, dict) else False)
     except Exception as e:
         log.warning("commentary generation failed for %s: %s", cbe, e)

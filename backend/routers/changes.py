@@ -18,22 +18,10 @@ from fastapi import APIRouter, HTTPException, Depends
 
 from db import fetch_all, fetch_one, execute
 from auth import optional_user
+from serializers import serialize_row as _serialize  # noqa: F401 (kept for future use)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/changes", tags=["changes"])
-
-
-def _serialize(row: dict) -> dict:
-    import datetime, decimal
-    out = {}
-    for k, v in row.items():
-        if isinstance(v, decimal.Decimal):
-            out[k] = float(v)
-        elif isinstance(v, (datetime.date, datetime.datetime)):
-            out[k] = v.isoformat()
-        else:
-            out[k] = v
-    return out
 
 
 @router.post("/{cbe}/view")

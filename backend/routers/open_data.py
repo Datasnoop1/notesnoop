@@ -9,22 +9,10 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from db import fetch_all, fetch_one
+from serializers import serialize_row as _serialize
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/open-data", tags=["open-data"])
-
-
-def _serialize(row: dict) -> dict:
-    import datetime, decimal
-    out: dict = {}
-    for k, v in row.items():
-        if isinstance(v, decimal.Decimal):
-            out[k] = float(v)
-        elif isinstance(v, (datetime.date, datetime.datetime)):
-            out[k] = v.isoformat()
-        else:
-            out[k] = v
-    return out
 
 
 @router.get("/companies/{cbe}/procurement")

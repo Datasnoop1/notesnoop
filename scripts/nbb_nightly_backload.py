@@ -136,9 +136,12 @@ def fetch_references(cbe: str, fiscal_year: int, session: requests.Session) -> t
 
 
 def fetch_filing(cbe: str, reference_number: str, session: requests.Session) -> Optional[dict]:
+    # NB: the correct NBB path is /authentic/deposit/{ref}/accountingData
+    # (NOT /authentic/legalEntity/{cbe}/account/{ref}/...), matching the
+    # live handler in backend/routers/companies/financials.py + nbb_client.py.
     try:
         resp = session.get(
-            f"{NBB_BASE_URL}/authentic/legalEntity/{cbe}/account/{reference_number}/accountingData",
+            f"{NBB_BASE_URL}/authentic/deposit/{reference_number}/accountingData",
             headers={**_headers(), "Accept": "application/x.jsonxbrl"},
             timeout=30,
         )

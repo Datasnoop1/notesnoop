@@ -28,7 +28,7 @@ function rub(r: Record<string, Record<string, number | null>>, code: string, fy:
   return typeof v === "number" ? v : 0;
 }
 
-export function PnlSankey({ rubrics, fiscalYear }: Props) {
+export function PnlWaterfall({ rubrics, fiscalYear }: Props) {
   const revenue = rub(rubrics, "70", fiscalYear);
   if (revenue <= 0) return null;
 

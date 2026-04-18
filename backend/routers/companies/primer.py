@@ -164,13 +164,22 @@ def _build_pdf(data: dict, cbe: str) -> bytes:
     latest = data.get("latest") or {}
     flow = []
 
-    flow.append(Paragraph(info.get("name") or f"CBE {cbe}", title_style))
+    # ReportLab's Paragraph parses the input as mini-HTML, so raw '&' in
+    # company names ("AT&T Belgium") would crash the whole PDF build. Escape
+    # every operator-supplied / KBO-supplied string. The `&nbsp;` /
+    # `&middot;` entities added below are literal markup we control, so
+    # they stay unescaped.
+    import html as _html
+    name_safe = _html.escape(info.get("name") or f"CBE {cbe}")
+    city_safe = _html.escape(info.get("city") or "—")
+    zip_safe = _html.escape(info.get("zipcode") or "")
+    nace_code_safe = _html.escape(info.get("nace_code") or "—")
+    nace_desc_safe = _html.escape(info.get("nace_desc") or "")
+
+    flow.append(Paragraph(name_safe, title_style))
     flow.append(Paragraph(
-        f"CBE {cbe} &nbsp;·&nbsp; "
-        f"{info.get('city') or '—'} "
-        f"{info.get('zipcode') or ''} "
-        f"&nbsp;·&nbsp; NACE {info.get('nace_code') or '—'} "
-        f"{info.get('nace_desc') or ''}",
+        f"CBE {cbe} &nbsp;·&nbsp; {city_safe} {zip_safe} "
+        f"&nbsp;·&nbsp; NACE {nace_code_safe} {nace_desc_safe}",
         sub_style,
     ))
 

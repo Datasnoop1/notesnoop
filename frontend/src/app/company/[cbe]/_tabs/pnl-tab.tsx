@@ -29,7 +29,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { getCompanyFinancials, loadCompanyNBB } from "@/lib/api";
-import { PnlSankey } from "./pnl-sankey";
+import { PnlWaterfall } from "./pnl-waterfall";
 
 /* ---------- Chart tooltip (local) ---------- */
 
@@ -308,7 +308,7 @@ export function PnlTab({
     <div className="space-y-4">
       {/* P&L Sankey — shown when we have both revenue + latest fiscal year */}
       {latestPnl?.revenue && latestPnl?.fiscal_year && financials?.rubric_data && (
-        <PnlSankey
+        <PnlWaterfall
           rubrics={financials.rubric_data as Record<string, Record<string, number | null>>}
           fiscalYear={latestPnl.fiscal_year}
         />

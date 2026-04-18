@@ -887,21 +887,17 @@ def _build_valuation_prompt(payload: dict, company_name: str | None = None) -> s
     return "\n".join(lines)
 
 
-@router.post("/{cbe}/valuation/ai-commentary")
-async def valuation_ai_commentary(
+async def _generate_and_cache_valuation_commentary(
     cbe: str,
-    sector: Optional[str] = Query(None),
-    source: Optional[str] = Query("vlerick"),
-    include: Optional[str] = Query(None),
-    lang: Optional[str] = Query(None),
-):
-    """Generate a short AI commentary on the current valuation result.
-
-    Reuses the same parameters as ``/valuation`` so the commentary lines up
-    with what the user is looking at on screen. Output is a 3-4 sentence
-    plain-language note; deliberately not a number, since the screen already
-    shows the numbers.
-    """
+    sector: Optional[str] = None,
+    source: Optional[str] = "vlerick",
+    include: Optional[str] = None,
+    lang: Optional[str] = None,
+) -> dict:
+    """Plain-Python worker — callable from the route AND from scheduled
+    scripts. FastAPI's Query(None) defaults can't be used when calling the
+    route handler directly from a script (Query objects aren't None), so
+    the business logic lives here and the route is a thin wrapper."""
     cbe = clean_cbe(cbe)
 
     try:
@@ -915,10 +911,7 @@ async def valuation_ai_commentary(
     if isinstance(valuation, dict) and valuation.get("status") != "ok":
         return {"commentary": None, "reason": "no_data"}
 
-    # Pull a friendly company name to anchor the commentary (the
-    # underlying valuation function returns one in the `group.primary_name`
-    # slot; otherwise fall back to a CBE lookup so the LLM has the right
-    # subject in its first sentence).
+    # Pull a friendly company name to anchor the commentary.
     company_name = (valuation.get("group") or {}).get("primary_name") or ""
     if not company_name:
         try:
@@ -940,8 +933,6 @@ async def valuation_ai_commentary(
     )
 
     try:
-        # 600 tokens covers the new 4-5 sentence + sector-reasoning structure
-        # in NL/FR (which run ~25% longer than English).
         text = await ai_complete(prompt, system=system, max_tokens=600, lang=lang)
     except Exception:
         logger.exception("AI valuation commentary failed for %s", cbe)
@@ -951,9 +942,7 @@ async def valuation_ai_commentary(
         raise HTTPException(status_code=503, detail="AI service unavailable")
 
     commentary = text.strip()
-    # Cache for PDF primer + subsequent views. Best-effort: don't fail the
-    # response if the cache write errors (e.g. on a fresh env without the
-    # table yet).
+    # Cache for PDF primer + subsequent views. Best-effort.
     try:
         from db import execute as _exec
         _exec(
@@ -972,3 +961,19 @@ async def valuation_ai_commentary(
         logger.exception("valuation commentary cache write failed (non-fatal)")
 
     return {"commentary": commentary}
+
+
+@router.post("/{cbe}/valuation/ai-commentary")
+async def valuation_ai_commentary(
+    cbe: str,
+    sector: Optional[str] = Query(None),
+    source: Optional[str] = Query("vlerick"),
+    include: Optional[str] = Query(None),
+    lang: Optional[str] = Query(None),
+):
+    """Thin wrapper around _generate_and_cache_valuation_commentary so the
+    FastAPI Query defaults only apply in the HTTP path. Scripts call the
+    worker directly."""
+    return await _generate_and_cache_valuation_commentary(
+        cbe=cbe, sector=sector, source=source, include=include, lang=lang,
+    )

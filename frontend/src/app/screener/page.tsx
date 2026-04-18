@@ -14,7 +14,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { getScreener, getNaceSuggestions } from "@/lib/api";
-import type { NaceSuggestion } from "@/lib/api";
+import type { NaceSuggestion, ScreenerRow } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
 import {
   Download,
@@ -36,33 +36,10 @@ import { useTranslation } from "@/components/language-provider";
 import AdUnit from "@/components/ad-unit";
 
 /* ------------------------------------------------------------------ */
-/*  Types                                                              */
+/*  Types — ScreenerRow + NaceSuggestion imported from @/lib/api (the   */
+/*  canonical definitions shared with the screener fetcher). Keep      */
+/*  Filters + SortKey etc. local to this page.                          */
 /* ------------------------------------------------------------------ */
-
-interface ScreenerRow {
-  cbe: string;
-  name: string;
-  nace: string;
-  city: string;
-  fiscal_year: number | null;
-  revenue: number | null;
-  ebit: number | null;
-  ebitda: number | null;
-  margin_pct: number | null;
-  net_profit: number | null;
-  fte: number | null;
-  jf_label: string | null;
-  juridical_situation: string | null;
-  start_date: string | null;
-  fixed_assets: number | null;
-  rev_history?: (number | null)[] | null;
-  ebitda_history?: (number | null)[] | null;
-  year_history?: (number | null)[] | null;
-  rev_rank_pct?: number | null;
-  ebitda_rank_pct?: number | null;
-  margin_rank_pct?: number | null;
-  peer_count?: number | null;
-}
 
 interface Filters {
   nace: string;
