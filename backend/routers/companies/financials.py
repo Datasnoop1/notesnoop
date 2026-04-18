@@ -5,7 +5,8 @@ import logging
 import os
 from typing import Optional
 
-import requests as http_requests
+import httpx
+import requests as http_requests  # kept for legacy sync paths below /load
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import fetch_all, fetch_one, get_connection, put_connection
@@ -58,11 +59,13 @@ async def load_company_data(cbe: str, fiscal_year: Optional[int] = Query(None, d
 
 
 async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base: str):
-    import time
     import uuid
     import psycopg2.extras
 
-    # --- Step 1: Fetch filing references ---
+    # --- Step 1: Fetch filing references (non-blocking) ---
+    # Previously used `requests.get` inside an async function — any slow NBB
+    # call would block the whole uvicorn worker (single-process). httpx's
+    # AsyncClient yields control while waiting on the network.
     headers_ref = {
         "Accept": "application/json",
         "NBB-CBSO-Subscription-Key": nbb_key,
@@ -73,14 +76,15 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
     if fiscal_year:
         ref_params["fiscalYear"] = str(fiscal_year)
 
-    try:
-        resp = http_requests.get(
-            f"{nbb_base}/authentic/legalEntity/{cbe}/references",
-            headers=headers_ref, params=ref_params or None, timeout=15,
-        )
-    except Exception as e:
-        logger.error("NBB references request failed for %s: %s", cbe, e)
-        raise HTTPException(status_code=502, detail=f"NBB API connection error: {e}")
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            resp = await client.get(
+                f"{nbb_base}/authentic/legalEntity/{cbe}/references",
+                headers=headers_ref, params=ref_params or None,
+            )
+        except Exception as e:
+            logger.error("NBB references request failed for %s: %s", cbe, e)
+            raise HTTPException(status_code=502, detail=f"NBB API connection error: {e}")
 
     if resp.status_code != 200:
         raise HTTPException(
@@ -151,10 +155,12 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
                 logger.info("Skipping already-loaded filing %s for %s", ref_number, cbe)
                 continue
 
-            # Respect NBB rate limits
-            time.sleep(1)
+            # Respect NBB rate limits (non-blocking — asyncio sleep yields
+            # control, so other requests on this worker aren't frozen).
+            await asyncio.sleep(1)
 
-            # Fetch JSON-XBRL data
+            # Fetch JSON-XBRL data — httpx async so the whole worker
+            # doesn't freeze for up to 30s if NBB is slow.
             headers_json = {
                 "Accept": "application/x.jsonxbrl",
                 "NBB-CBSO-Subscription-Key": nbb_key,
@@ -162,10 +168,11 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
                 "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
             }
             try:
-                filing_resp = http_requests.get(
-                    f"{nbb_base}/authentic/deposit/{ref_number}/accountingData",
-                    headers=headers_json, timeout=30,
-                )
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    filing_resp = await client.get(
+                        f"{nbb_base}/authentic/deposit/{ref_number}/accountingData",
+                        headers=headers_json,
+                    )
             except Exception as e:
                 logger.error("NBB filing request failed for ref %s: %s", ref_number, e)
                 errors.append(f"ref {ref_number}: connection error")

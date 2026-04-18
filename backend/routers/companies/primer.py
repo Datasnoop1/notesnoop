@@ -256,20 +256,22 @@ def _build_pdf(data: dict, cbe: str) -> bytes:
             body_style,
         ))
 
-    # AI summary
+    # AI summary. ReportLab Paragraph parses XML entities in its input,
+    # so raw ampersands (e.g. "R&D") would crash the whole PDF build.
+    # Strip HTML tags then html.escape() to neutralise &, <, >.
+    import re as _re
+    import html as _html
     ai_summary = data.get("ai_summary")
     if ai_summary:
         flow.append(Paragraph("About (AI-generated)", h2_style))
-        import re as _re
-        clean = _re.sub(r"<[^>]+>", " ", ai_summary)
+        clean = _html.escape(_re.sub(r"<[^>]+>", " ", ai_summary))
         flow.append(Paragraph(clean, body_style))
 
     # Valuation AI commentary (cached)
     vc = data.get("valuation_commentary")
     if vc and vc.get("commentary"):
         flow.append(Paragraph("Valuation commentary (AI)", h2_style))
-        import re as _re
-        cleantxt = _re.sub(r"<[^>]+>", " ", vc["commentary"])
+        cleantxt = _html.escape(_re.sub(r"<[^>]+>", " ", vc["commentary"]))
         flow.append(Paragraph(cleantxt, body_style))
         gen = vc.get("generated_at")
         try:

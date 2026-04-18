@@ -1,12 +1,12 @@
 """Staatsblad router — load publications on demand."""
 
+import asyncio
 import os
 import re
-import time
 import logging
 import uuid
 
-import requests as http_requests
+import httpx
 from fastapi import APIRouter, HTTPException, Depends
 
 from db import fetch_all, execute
@@ -19,8 +19,9 @@ BASE_URL = "https://www.ejustice.just.fgov.be"
 LIST_URL = BASE_URL + "/cgi_tsv/list.pl"
 
 
-def _fetch_publications(cbe: str):
-    """Scrape Staatsblad publications for a CBE number."""
+async def _fetch_publications(cbe: str):
+    """Scrape Staatsblad publications for a CBE number. Async so a slow
+    ejustice response doesn't block other requests on this uvicorn worker."""
     params = {"language": "nl", "btw": cbe}
     # Identify ourselves to the Belgian government endpoint so they can
     # contact us before IP-banning. Faking a generic browser UA was the
@@ -29,33 +30,34 @@ def _fetch_publications(cbe: str):
     publications = []
     page = 1
 
-    while page <= 5:  # Max 5 pages
-        params["page"] = page
-        try:
-            resp = http_requests.get(LIST_URL, params=params, headers=headers, timeout=30)
-            resp.raise_for_status()
-        except Exception as e:
-            logger.warning("Staatsblad HTTP error for %s: %s", cbe, e)
-            break
+    async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+        while page <= 5:  # Max 5 pages
+            params["page"] = page
+            try:
+                resp = await client.get(LIST_URL, params=params)
+                resp.raise_for_status()
+            except Exception as e:
+                logger.warning("Staatsblad HTTP error for %s: %s", cbe, e)
+                break
 
-        html = resp.text
-        items = html.split('<div class="list-item">')
-        if len(items) <= 1:
-            break
+            html = resp.text
+            items = html.split('<div class="list-item">')
+            if len(items) <= 1:
+                break
 
-        found = 0
-        for item in items[1:]:
-            pub = _parse_item(item, cbe)
-            if pub:
-                publications.append(pub)
-                found += 1
+            found = 0
+            for item in items[1:]:
+                pub = _parse_item(item, cbe)
+                if pub:
+                    publications.append(pub)
+                    found += 1
 
-        next_page = f"page={page + 1}"
-        if next_page in html and found > 0:
-            page += 1
-            time.sleep(0.5)
-        else:
-            break
+            next_page = f"page={page + 1}"
+            if next_page in html and found > 0:
+                page += 1
+                await asyncio.sleep(0.5)
+            else:
+                break
 
     return publications
 
@@ -124,7 +126,7 @@ async def load_publications(cbe: str, user=Depends(optional_user)):
                 "cached": True,
             }
 
-        pubs = _fetch_publications(cbe)
+        pubs = await _fetch_publications(cbe)
 
         stored = 0
         for pub in pubs:
