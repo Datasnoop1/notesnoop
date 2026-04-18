@@ -504,3 +504,63 @@ CREATE TABLE IF NOT EXISTS llm_call_log (
 );
 CREATE INDEX IF NOT EXISTS idx_llm_call_log_ts ON llm_call_log(ts);
 CREATE INDEX IF NOT EXISTS idx_llm_call_log_endpoint ON llm_call_log(endpoint);
+
+-- ============================================================
+-- Sector percentile rankings (for screener pills + radar chart)
+-- ============================================================
+-- Precomputed per-enterprise percentile within its NACE-2 sector.
+-- Values are 0.0 (worst) to 1.0 (best). NULL metric rows get the
+-- lowest rank (NULLS FIRST) — they're placed at the bottom rank so
+-- companies with disclosed revenue outrank companies that didn't
+-- disclose. Refresh via REFRESH MATERIALIZED VIEW CONCURRENTLY after
+-- NBB batch loads (nbb_batch_pipeline.py triggers this).
+CREATE MATERIALIZED VIEW IF NOT EXISTS sector_percentiles AS
+SELECT fl.enterprise_number,
+       substr(ci.nace_code, 1, 2) AS nace2,
+       percent_rank() OVER (
+           PARTITION BY substr(ci.nace_code, 1, 2)
+           ORDER BY fl.revenue NULLS FIRST
+       )::real AS rev_rank,
+       percent_rank() OVER (
+           PARTITION BY substr(ci.nace_code, 1, 2)
+           ORDER BY fl.ebitda NULLS FIRST
+       )::real AS ebitda_rank,
+       percent_rank() OVER (
+           PARTITION BY substr(ci.nace_code, 1, 2)
+           ORDER BY (CASE WHEN fl.revenue > 0
+                          THEN fl.ebitda / fl.revenue END) NULLS FIRST
+       )::real AS margin_rank,
+       percent_rank() OVER (
+           PARTITION BY substr(ci.nace_code, 1, 2)
+           ORDER BY fl.fte_total NULLS FIRST
+       )::real AS fte_rank,
+       percent_rank() OVER (
+           PARTITION BY substr(ci.nace_code, 1, 2)
+           ORDER BY fl.fixed_assets NULLS FIRST
+       )::real AS fixed_assets_rank,
+       COUNT(*) OVER (PARTITION BY substr(ci.nace_code, 1, 2)) AS peer_count
+FROM financial_latest fl
+JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+WHERE ci.nace_code IS NOT NULL AND length(ci.nace_code) >= 2;
+
+CREATE UNIQUE INDEX IF NOT EXISTS sector_percentiles_pkey
+    ON sector_percentiles(enterprise_number);
+CREATE INDEX IF NOT EXISTS idx_sector_percentiles_nace2
+    ON sector_percentiles(nace2);
+
+-- ============================================================
+-- Company view history (for "what changed since last visit")
+-- ============================================================
+-- One row per (user, company). Each view shifts last → prev and
+-- updates last. The prev timestamp is what "Since last visit" uses
+-- as the diff baseline on the next visit. Anonymous users are
+-- keyed by the hashed IP (same scheme as activity_log).
+CREATE TABLE IF NOT EXISTS company_view_history (
+    user_email         TEXT NOT NULL,
+    enterprise_number  VARCHAR(10) NOT NULL,
+    last_viewed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    prev_viewed_at     TIMESTAMPTZ,
+    PRIMARY KEY (user_email, enterprise_number)
+);
+CREATE INDEX IF NOT EXISTS idx_company_view_history_user
+    ON company_view_history(user_email, last_viewed_at DESC);

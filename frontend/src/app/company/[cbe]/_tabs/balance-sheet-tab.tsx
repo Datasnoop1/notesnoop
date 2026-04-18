@@ -280,9 +280,9 @@ export function BalanceSheetTab({
           </p>
           {negEquity != null && (
             <p className="text-[10px] text-rose-600 mt-1">
-              ⚠ Negative equity ({fmtEur(negEquity)}): liabilities exceed assets
-              by this amount. Equity bucket above shows 0 so the bars still
-              balance visually.
+              ⚠ Negative equity ({fmtEur(Math.abs(negEquity))}): liabilities
+              exceed assets by this amount. Equity bucket above is forced to 0
+              so the bars still match visually.
             </p>
           )}
         </div>

@@ -66,6 +66,7 @@ async def screener(
     distress: Optional[str] = Query(None, description="Distress filter: 'bankruptcy', 'wco', or 'any'"),
     no_financials: bool = Query(False, description="Show only companies that have no NBB financials loaded yet (coverage-gap mode)"),
     include_sparklines: bool = Query(False, description="Attach last-5-year revenue + EBITDA arrays per row for trend sparklines"),
+    include_percentiles: bool = Query(False, description="Attach sector-level percentile rankings (revenue / EBITDA / margin) from the sector_percentiles materialized view"),
     sort: str = Query("ebit_desc", description="Sort order"),
     limit: int = Query(100, ge=1, le=1000),
 ):
@@ -255,6 +256,23 @@ async def screener(
     # LATERAL returns an ORDERED array so the frontend can draw a line
     # directly. Skipped unless explicitly requested; adds a small but
     # real per-row cost at large `limit`.
+    # Sector percentiles — from the sector_percentiles materialized view.
+    # peer_count filters out noise: percentiles across <10 companies are
+    # too jittery to surface meaningfully.
+    percentile_col = ""
+    percentile_join = ""
+    if include_percentiles:
+        percentile_col = """,
+               CASE WHEN sp.peer_count >= 10 THEN sp.rev_rank END AS "rev_rank_pct",
+               CASE WHEN sp.peer_count >= 10 THEN sp.ebitda_rank END AS "ebitda_rank_pct",
+               CASE WHEN sp.peer_count >= 10 THEN sp.margin_rank END AS "margin_rank_pct",
+               sp.peer_count AS "peer_count"
+        """
+        anchor_cbe = "e.enterprise_number" if coverage_mode else "fl.enterprise_number"
+        percentile_join = f"""
+            LEFT JOIN sector_percentiles sp ON sp.enterprise_number = {anchor_cbe}
+        """
+
     sparkline_col = ""
     sparkline_join = ""
     if include_sparklines:
@@ -356,11 +374,13 @@ async def screener(
                {fte_3y_col}
                {fixed_assets_col}
                {sparkline_col}
+               {percentile_col}
         {anchor_from}
         {prev_join}
         {prev3_join}
         {fixed_assets_join}
         {sparkline_join}
+        {percentile_join}
         WHERE 1=1 {where}
         ORDER BY {sort_sql}
         LIMIT %s
@@ -376,7 +396,8 @@ async def screener(
         for row in rows:
             for key in ("revenue", "ebit", "ebitda", "margin_pct", "net_profit", "fte",
                         "rev_growth_pct", "ebitda_growth_pct",
-                        "fte_growth_3y_pct", "fixed_assets"):
+                        "fte_growth_3y_pct", "fixed_assets",
+                        "rev_rank_pct", "ebitda_rank_pct", "margin_rank_pct"):
                 if row.get(key) is not None:
                     row[key] = float(row[key])
             if isinstance(row.get("start_date"), (datetime.date, datetime.datetime)):

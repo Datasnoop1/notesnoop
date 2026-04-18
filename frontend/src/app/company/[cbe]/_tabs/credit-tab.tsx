@@ -214,7 +214,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
           {t("company.creditTab.leverage")}
         </h3>
         <div className="rounded-lg border bg-white">
-          <Table containerClassName="overflow-visible">
+          <Table containerClassName="md:overflow-visible">
             <TableHeader>
               <TableRow className="bg-slate-50">
                 <TableHead className="text-[11px] md:text-xs w-[120px] md:w-auto md:min-w-[200px] sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.creditTab.metric")}</TableHead>
@@ -271,7 +271,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
           {t("company.creditTab.liquidity")}
         </h3>
         <div className="rounded-lg border bg-white">
-          <Table containerClassName="overflow-visible">
+          <Table containerClassName="md:overflow-visible">
             <TableHeader>
               <TableRow className="bg-slate-50">
                 <TableHead className="text-[11px] md:text-xs w-[120px] md:w-auto md:min-w-[200px] sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.creditTab.metric")}</TableHead>
@@ -312,7 +312,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
           {t("company.creditTab.profitability")}
         </h3>
         <div className="rounded-lg border bg-white">
-          <Table containerClassName="overflow-visible">
+          <Table containerClassName="md:overflow-visible">
             <TableHeader>
               <TableRow className="bg-slate-50">
                 <TableHead className="text-[11px] md:text-xs w-[120px] md:w-auto md:min-w-[200px] sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.creditTab.metric")}</TableHead>
@@ -345,7 +345,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
           {t("company.creditTab.workingCapital")}
         </h3>
         <div className="rounded-lg border bg-white">
-          <Table containerClassName="overflow-visible">
+          <Table containerClassName="md:overflow-visible">
             <TableHeader>
               <TableRow className="bg-slate-50">
                 <TableHead className="text-[11px] md:text-xs w-[120px] md:w-auto md:min-w-[200px] sticky left-0 z-10 bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">{t("company.creditTab.metric")}</TableHead>

@@ -364,6 +364,21 @@ def rebuild_materialized_tables():
         fl_count = cur.fetchone()[0]
         log.info("Materialized tables rebuilt in %.1fs — financial_latest: %d rows", time.time() - t0, fl_count)
 
+        # Refresh the sector_percentiles MV so screener pills + radar scores
+        # reflect the new data. CONCURRENTLY keeps it readable during refresh.
+        # Silently skip if the MV doesn't exist yet (pre-migration envs).
+        try:
+            conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+            cur2 = conn.cursor()
+            cur2.execute("SELECT to_regclass('public.sector_percentiles')")
+            if cur2.fetchone()[0] is not None:
+                sp_t0 = time.time()
+                cur2.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY sector_percentiles")
+                log.info("sector_percentiles refreshed in %.1fs", time.time() - sp_t0)
+            cur2.close()
+        except Exception as e:
+            log.warning("sector_percentiles refresh failed (non-fatal): %s", e)
+
     finally:
         cur.close()
         put_connection(conn)
