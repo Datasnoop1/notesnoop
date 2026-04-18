@@ -81,11 +81,16 @@ def _gather(cbe: str) -> dict:
            LIMIT 10""",
         (cbe,),
     )
-    ai = fetch_one(
-        """SELECT summary FROM ai_company_enrichment
-           WHERE enterprise_number = %s""",
-        (cbe,),
-    )
+    # AI enrichment — stored in `company_enrichment` (ai_insights column).
+    # Graceful if the table doesn't exist on this env.
+    try:
+        ai = fetch_one(
+            """SELECT ai_insights AS summary FROM company_enrichment
+               WHERE enterprise_number = %s""",
+            (cbe,),
+        )
+    except Exception:
+        ai = None
     procurement = fetch_one(
         """SELECT SUM(contract_value) AS total, COUNT(*) AS n
            FROM procurement_award
