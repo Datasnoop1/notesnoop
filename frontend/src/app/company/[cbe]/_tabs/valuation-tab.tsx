@@ -89,10 +89,16 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
   const [groupSuggestions, setGroupSuggestions] = useState<{ cbe: string; name: string }[]>([]);
   const groupSuggestionsLoaded = useRef(false);
 
-  /* AI commentary state. */
-  const [aiCommentary, setAiCommentary] = useState<string | null>(null);
+  /* AI commentary state — split into two structured sections so the
+   *  reader can separate *why this sector* (sector_rationale) from
+   *  *what the numbers say* (valuation_remarks). Backend accepts
+   *  legacy single-string payloads; when that happens the whole reply
+   *  shows up under valuation_remarks. */
+  const [aiSectorRationale, setAiSectorRationale] = useState<string | null>(null);
+  const [aiValuationRemarks, setAiValuationRemarks] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const aiHasContent = !!(aiSectorRationale || aiValuationRemarks);
 
   const fmt = (v: number | null | undefined) => fmtEurUnit(v, unit);
 
@@ -140,7 +146,8 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
         );
         setData(result);
         // Group changes invalidate any prior commentary.
-        setAiCommentary(null);
+        setAiSectorRationale(null);
+        setAiValuationRemarks(null);
         setAiError(null);
         // If the selected source doesn't support the current view, auto-switch.
         if (result?.source) {
@@ -272,8 +279,15 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
         sourceKey,
         includeMembers.length > 0 ? includeMembers.map((m) => m.cbe) : undefined,
       );
-      setAiCommentary(res.commentary || null);
-      if (!res.commentary) {
+      const sr = res.sector_rationale || null;
+      const vr = res.valuation_remarks || null;
+      // Backward compat: if the backend still returns only the legacy
+      // combined `commentary` field (e.g. an older cached row), show it
+      // as valuation_remarks so the user still sees something.
+      const legacyCombined = res.commentary || null;
+      setAiSectorRationale(sr);
+      setAiValuationRemarks(vr ?? (sr == null ? legacyCombined : null));
+      if (!sr && !vr && !legacyCombined) {
         setAiError(res.reason === "no_data" ? "No financial data to comment on." : "AI returned no commentary.");
       }
     } catch (err) {
@@ -289,7 +303,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
      Only refires if the commentary is already on screen so we don't
      surprise users with a fresh LLM call they didn't ask for. */
   useEffect(() => {
-    if (aiCommentary) {
+    if (aiHasContent) {
       fetchAiCommentary();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -537,17 +551,42 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
         </div>
       </div>
 
-      {/* AI commentary card */}
-      {(aiCommentary || aiError) && (
-        <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-3 no-print">
-          <div className="flex items-center gap-1.5 mb-1">
+      {/* AI commentary card — two structured sections:
+          1. Sector rationale (why this Vlerick sector is the right
+             comparable for this company)
+          2. Valuation remarks (company-specific observations on EBITDA
+             trend, net-debt, spreads, caveats) */}
+      {(aiHasContent || aiError) && (
+        <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-3 no-print space-y-3">
+          <div className="flex items-center gap-1.5">
             <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
             <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-700">
               AI commentary
             </span>
           </div>
-          {aiCommentary ? (
-            <p className="text-[12px] leading-relaxed text-slate-700 whitespace-pre-wrap">{aiCommentary}</p>
+          {aiHasContent ? (
+            <>
+              {aiSectorRationale && (
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 mb-1">
+                    Sector rationale
+                  </div>
+                  <p className="text-[12px] leading-relaxed text-slate-700 whitespace-pre-wrap">
+                    {aiSectorRationale}
+                  </p>
+                </div>
+              )}
+              {aiValuationRemarks && (
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 mb-1">
+                    Valuation remarks
+                  </div>
+                  <p className="text-[12px] leading-relaxed text-slate-700 whitespace-pre-wrap">
+                    {aiValuationRemarks}
+                  </p>
+                </div>
+              )}
+            </>
           ) : (
             <p className="text-[12px] text-amber-700">{aiError}</p>
           )}

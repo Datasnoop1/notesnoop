@@ -412,7 +412,12 @@ export const getValuationAiCommentary = (
   if (source) params.set("source", source);
   if (includeCbes && includeCbes.length > 0) params.set("include", includeCbes.join(","));
   const qs = params.toString();
-  return apiFetch<{ commentary: string | null; reason?: string }>(
+  return apiFetch<{
+    sector_rationale?: string | null;
+    valuation_remarks?: string | null;
+    commentary?: string | null;
+    reason?: string;
+  }>(
     withLang(`/api/companies/${cbe}/valuation/ai-commentary${qs ? `?${qs}` : ""}`),
     { method: "POST" }
   );

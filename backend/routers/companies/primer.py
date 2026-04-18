@@ -276,12 +276,40 @@ def _build_pdf(data: dict, cbe: str) -> bytes:
         clean = _html.escape(_re.sub(r"<[^>]+>", " ", ai_summary))
         flow.append(Paragraph(clean, body_style))
 
-    # Valuation AI commentary (cached)
+    # Valuation AI commentary (cached). May be a legacy plain-string or
+    # a JSON object with `sector_rationale` + `valuation_remarks`. Render
+    # both sections when present; fall back to a single block when only
+    # the legacy string is cached.
     vc = data.get("valuation_commentary")
     if vc and vc.get("commentary"):
+        raw_cached = vc["commentary"]
+        sector_rat = None
+        val_rem = None
+        try:
+            import json as _json
+            parsed_vc = _json.loads(raw_cached)
+            if isinstance(parsed_vc, dict):
+                sector_rat = parsed_vc.get("sector_rationale")
+                val_rem = parsed_vc.get("valuation_remarks")
+        except Exception:
+            pass
         flow.append(Paragraph("Valuation commentary (AI)", h2_style))
-        cleantxt = _html.escape(_re.sub(r"<[^>]+>", " ", vc["commentary"]))
-        flow.append(Paragraph(cleantxt, body_style))
+        if sector_rat:
+            flow.append(Paragraph("<b>Sector rationale</b>", body_style))
+            flow.append(Paragraph(
+                _html.escape(_re.sub(r"<[^>]+>", " ", sector_rat)),
+                body_style,
+            ))
+        if val_rem:
+            flow.append(Paragraph("<b>Valuation remarks</b>", body_style))
+            flow.append(Paragraph(
+                _html.escape(_re.sub(r"<[^>]+>", " ", val_rem)),
+                body_style,
+            ))
+        if not (sector_rat or val_rem):
+            # Legacy plain-string cache.
+            cleantxt = _html.escape(_re.sub(r"<[^>]+>", " ", raw_cached))
+            flow.append(Paragraph(cleantxt, body_style))
         gen = vc.get("generated_at")
         try:
             gen_str = gen.strftime("%Y-%m-%d") if hasattr(gen, "strftime") else str(gen)[:10]

@@ -922,18 +922,24 @@ async def _generate_and_cache_valuation_commentary(
 
     prompt = _build_valuation_prompt(valuation, company_name=company_name)
     system = (
-        "You are a private-equity analyst writing a short commentary on a "
-        "Belgian company's EV/EBITDA-based valuation. Write 4\u20135 sentences, "
-        "structured: (1) one sentence on WHY the chosen Vlerick sector is the "
-        "right comparable for this company \u2014 reference the AI sector "
-        "reasoning if provided, otherwise the NACE / activity. (2) one or two "
-        "sentences on EBITDA trend, sector vs size-bracket spread, and net-debt "
-        "position. (3) any group-consolidation or loss-making caveat. Do not "
-        "invent figures \u2014 only refer to numbers in the input."
+        "You are a private-equity analyst commenting on a Belgian company's "
+        "EV/EBITDA-based valuation. Reply with STRICT JSON only (no prose, no "
+        "code fences) with EXACTLY these two keys:\n"
+        '  "sector_rationale": 2\u20133 sentences on WHY the chosen Vlerick '
+        "sector is the right comparable for this company \u2014 reference the "
+        "AI sector reasoning if provided, otherwise the NACE code / activity, "
+        "business model, and typical growth / margin profile of the sector. "
+        "This is about the SECTOR, not about the company's own numbers.\n"
+        '  "valuation_remarks": 2\u20133 sentences of company-specific '
+        "observations \u2014 EBITDA trend, sector-vs-size-bracket spread, "
+        "net-debt position, one-off items, group-consolidation caveats, "
+        "loss-making years. Refer to actual figures from the input.\n"
+        "Both fields are plain strings. Never invent numbers \u2014 only use "
+        "values present in the input. Do not wrap the response in an array."
     )
 
     try:
-        text = await ai_complete(prompt, system=system, max_tokens=600, lang=lang)
+        text = await ai_complete(prompt, system=system, max_tokens=700, lang=lang)
     except Exception:
         logger.exception("AI valuation commentary failed for %s", cbe)
         raise HTTPException(status_code=503, detail="AI service unavailable")
@@ -941,8 +947,47 @@ async def _generate_and_cache_valuation_commentary(
     if not text:
         raise HTTPException(status_code=503, detail="AI service unavailable")
 
-    commentary = text.strip()
-    # Cache for PDF primer + subsequent views. Best-effort.
+    # Parse the JSON response. Fall back to treating the whole reply as
+    # valuation_remarks if the LLM didn't produce valid JSON — keeps the
+    # feature working through any prompt-instability teething issues.
+    sector_rationale: Optional[str] = None
+    valuation_remarks: Optional[str] = None
+    raw = text.strip()
+    # Strip accidental markdown code-fence wrappers.
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        # Remove language tag like "json" on the first line.
+        if "\n" in raw:
+            first, rest = raw.split("\n", 1)
+            if first.strip().lower() in ("json", "js", ""):
+                raw = rest
+        raw = raw.strip().strip("`").strip()
+    try:
+        import json as _json
+        parsed = _json.loads(raw)
+        if isinstance(parsed, list) and parsed:
+            parsed = parsed[0]
+        if isinstance(parsed, dict):
+            sr = parsed.get("sector_rationale")
+            vr = parsed.get("valuation_remarks")
+            if isinstance(sr, str):
+                sector_rationale = sr.strip() or None
+            if isinstance(vr, str):
+                valuation_remarks = vr.strip() or None
+    except Exception:
+        pass
+
+    if sector_rationale is None and valuation_remarks is None:
+        # Legacy-style single-paragraph response \u2014 surface the whole
+        # reply under valuation_remarks so the user still sees something.
+        valuation_remarks = raw
+
+    # Cache as JSON so PDF primer + subsequent views can pull both sections.
+    import json as _json2
+    cache_payload = _json2.dumps({
+        "sector_rationale": sector_rationale,
+        "valuation_remarks": valuation_remarks,
+    })
     try:
         from db import execute as _exec
         _exec(
@@ -955,12 +1000,20 @@ async def _generate_and_cache_valuation_commentary(
                    source_used  = EXCLUDED.source_used,
                    lang         = EXCLUDED.lang,
                    generated_at = NOW()""",
-            (cbe, commentary, sector, source, (lang or "en")[:2]),
+            (cbe, cache_payload, sector, source, (lang or "en")[:2]),
         )
     except Exception:
         logger.exception("valuation commentary cache write failed (non-fatal)")
 
-    return {"commentary": commentary}
+    # Return both structured fields AND the legacy `commentary` field
+    # (concatenation of the two) so older clients still work through the
+    # transition.
+    legacy = "\n\n".join(p for p in (sector_rationale, valuation_remarks) if p)
+    return {
+        "sector_rationale": sector_rationale,
+        "valuation_remarks": valuation_remarks,
+        "commentary": legacy or None,
+    }
 
 
 @router.post("/{cbe}/valuation/ai-commentary")
