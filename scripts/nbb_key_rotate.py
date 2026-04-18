@@ -195,33 +195,54 @@ def _open_profile(page, portal_url: str, debug_dir: Path) -> None:
     profile_url = portal_url.rstrip("/") + "/profile"
     log.info("Opening %s", profile_url)
     page.goto(profile_url, wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(2000)
+    page.wait_for_timeout(2500)
     _save_screenshot(page, debug_dir, "04_profile")
+    # Drop the rendered HTML next to the screenshot so failures are debuggable
+    try:
+        (debug_dir / "04_profile.html").write_text(page.content(), encoding="utf-8")
+    except Exception:
+        log.debug("html dump failed", exc_info=True)
 
 
 def _find_subscription_blocks(page) -> list[dict]:
-    """Heuristic locator for each subscription card. Returns dicts with
-    name + a Locator handle anchored on the card so we can scope clicks.
-    APIM dev-portal renders subscriptions as repeated card markup; we
-    look for any container whose text mentions 'Primary key' and a
-    'Regenerate' button, since that's what we'll act on."""
+    """Locate active subscription rows on the profile page. The portal
+    renders them as <tr> rows in the Subscriptions table. Each active row
+    has TWO 'Show / Regenerate' link pairs (Primary then Secondary).
+    We only want the Primary, so within each row we select the first
+    Show + first Regenerate anchor.
+
+    Returns: [{name, row, primary_show, primary_regen, raw_text}, ...]"""
     blocks: list[dict] = []
-    # Each subscription block has its own Primary key + buttons. The
-    # safest anchor is the visible heading that contains the
-    # subscription name. We look for the parent that contains both
-    # the heading and a Regenerate button.
-    candidate_cards = page.locator("div:has(button:has-text('Regenerate')):has-text('Primary key')")
-    n = candidate_cards.count()
-    log.info("Found %d candidate subscription card(s)", n)
+    # The profile page has one or more <tr> per subscription. Active rows
+    # contain a Primary key cell with both Show and Regenerate links.
+    # Filter on:
+    #   - row text contains "CLIENT-" (skips empty 'test' rows)
+    #   - row text contains "Active" (state)
+    #   - row text contains "Primary key" (so we know it has the link pair)
+    rows = page.locator("tr").filter(
+        has_text=re.compile(r"CLIENT-.*Active.*Primary key", re.DOTALL)
+    )
+    n = rows.count()
+    log.info("Found %d active subscription row(s)", n)
     for i in range(n):
-        card = candidate_cards.nth(i)
-        # Extract a readable name — the first heading-ish element
+        row = rows.nth(i)
         try:
-            text = card.inner_text(timeout=5000)
+            text = row.inner_text(timeout=5000)
         except Exception:
             continue
-        name = text.splitlines()[0].strip()[:120] if text else f"card_{i}"
-        blocks.append({"name": name, "card": card, "raw_text": text})
+        # Pull the CLIENT-…-<suffix> name from the row text
+        m = re.search(r"CLIENT-\d+-SUB-\d+-(\S+)", text)
+        name = m.group(0) if m else f"row_{i}"
+        # Within this row, the FIRST Show link is for Primary, the SECOND for Secondary.
+        primary_show = row.locator("a:has-text('Show'), button:has-text('Show')").first
+        primary_regen = row.locator("a:has-text('Regenerate'), button:has-text('Regenerate')").first
+        blocks.append({
+            "name": name,
+            "row": row,
+            "primary_show": primary_show,
+            "primary_regen": primary_regen,
+            "raw_text": text,
+        })
     return blocks
 
 
@@ -240,47 +261,41 @@ def _classify_subscription(label: str) -> str | None:
     return None
 
 
-def _show_and_read_key(card, after_action: str, debug_dir: Path, page, idx: int) -> str | None:
-    """Click 'Show' inside the given card, return the revealed Primary key."""
-    show_button = card.locator(
-        "button:has-text('Show'), button:has-text('Toon'), button[aria-label*='Show' i]"
-    ).first
+def _show_and_read_key(blk: dict, after_action: str, debug_dir: Path, page, idx: int) -> str | None:
+    """Click 'Show' on the Primary key, return the revealed value."""
     try:
-        show_button.click(timeout=5000)
+        blk["primary_show"].click(timeout=5000)
     except Exception:
-        log.warning("Could not click Show button (%s, card %d) \u2014 maybe key is already visible", after_action, idx)
-    page.wait_for_timeout(1000)
+        log.warning("Could not click Show (%s, row %d) \u2014 already visible?", after_action, idx)
+    page.wait_for_timeout(1200)
     _save_screenshot(page, debug_dir, f"sub_{idx}_after_{after_action}_show")
 
-    # Read all 32-hex-char tokens visible inside the card; the first one
-    # following "Primary key" is the value we want.
-    text = card.inner_text(timeout=5000)
+    # Read all 32-hex-char tokens visible inside the row.
+    # First match = Primary key (rows are: Primary line, then Secondary line).
+    text = blk["row"].inner_text(timeout=5000)
     matches = KEY_REGEX.findall(text)
     if not matches:
-        log.warning("No 32-hex key found in card after %s", after_action)
+        log.warning("No 32-hex key found in row after %s", after_action)
         return None
-    # Heuristic: the Primary key block precedes the Secondary key block,
-    # so the first regex match is the one we want.
     return matches[0]
 
 
-def _regenerate_primary(card, debug_dir: Path, page, idx: int) -> None:
-    regen_button = card.locator(
-        "button:has-text('Regenerate'), button:has-text('Regenereren'), button:has-text('Genereren')"
-    ).first
-    regen_button.click(timeout=5000)
-    log.info("Clicked Regenerate (card %d)", idx)
-    # APIM throws up a confirmation modal — accept it.
+def _regenerate_primary(blk: dict, debug_dir: Path, page, idx: int) -> None:
+    blk["primary_regen"].click(timeout=5000)
+    log.info("Clicked Regenerate (row %d)", idx)
     page.wait_for_timeout(800)
+    # Portal throws up a confirmation dialog — accept it. Some portals use
+    # native browser confirm(), which Playwright auto-dismisses unless
+    # we register a handler. Register one defensively before clicking.
     confirm = page.locator(
         "button:has-text('Confirm'), button:has-text('Yes'), button:has-text('OK'), "
         "button:has-text('Bevestigen'), button:has-text('Ja')"
     ).first
     try:
         confirm.click(timeout=4000)
-        log.info("Confirmed regenerate dialog (card %d)", idx)
+        log.info("Confirmed regenerate dialog (row %d)", idx)
     except Exception:
-        log.info("No confirmation dialog appeared (card %d) \u2014 continuing", idx)
+        log.info("No HTML confirm dialog (row %d) \u2014 may have been a native popup auto-accepted", idx)
     page.wait_for_timeout(2000)
     _save_screenshot(page, debug_dir, f"sub_{idx}_after_regen")
 
@@ -318,29 +333,33 @@ def rotate_keys(dry_run: bool) -> dict[str, str]:
                 _save_screenshot(page, debug_dir, "99_no_blocks")
                 raise RuntimeError("Profile page DOM didn't match expected structure")
 
+            # Auto-accept any native browser confirm() dialogs (the portal
+            # uses one for Regenerate). Must be registered BEFORE clicks.
+            page.on("dialog", lambda d: d.accept())
+
             for i, blk in enumerate(blocks):
                 kind = _classify_subscription(blk["name"])
                 if not kind:
-                    log.info("Card %d: unrecognised label '%s' \u2014 skipping", i, blk["name"][:80])
+                    log.info("Row %d: unrecognised name '%s' \u2014 skipping", i, blk["name"][:80])
                     continue
                 env_var = SUBSCRIPTION_ENV_MAP[kind]
-                log.info("Card %d \u2192 %s (%s)", i, kind, env_var)
+                log.info("Row %d \u2192 %s (%s)", i, kind, env_var)
 
                 if dry_run:
-                    current = _show_and_read_key(blk["card"], "dryrun", debug_dir, page, i)
+                    current = _show_and_read_key(blk, "dryrun", debug_dir, page, i)
                     log.info("  current value: %s", _mask(current or ""))
                     if current:
                         new_keys[env_var] = current
                     continue
 
-                _regenerate_primary(blk["card"], debug_dir, page, i)
-                new = _show_and_read_key(blk["card"], "regenerate", debug_dir, page, i)
+                _regenerate_primary(blk, debug_dir, page, i)
+                new = _show_and_read_key(blk, "regenerate", debug_dir, page, i)
                 if not new:
                     log.error("Could not read new key for %s after regenerate", kind)
                     raise RuntimeError(f"Failed to read regenerated key for {kind}")
                 log.info("  new value: %s", _mask(new))
                 new_keys[env_var] = new
-                # Light pause between cards to be polite to the portal
+                # Light pause between rows to be polite to the portal
                 page.wait_for_timeout(1500)
         finally:
             try:
