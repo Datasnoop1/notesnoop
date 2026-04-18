@@ -47,6 +47,9 @@ NEW_BLOCK=$(cat <<'EOF'
 # Supersedes the old regex-classifier (open_data_staatsblad_events.py) and
 # the daily regular-API variant (staatsblad_incremental.py).
 0 4 */2 * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/staatsblad_batch_every_2d.py >> /opt/leadpeek/scripts/_watchdog_state/staatsblad_events.log 2>&1
+# Staatsblad event embeddings — generate pgvector embeddings for newly-extracted events.
+# Runs daily (cheap: $0.02/1M tokens, ~$2 total for the whole corpus).
+45 5 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/staatsblad_embed.py --batch 200 >> /opt/leadpeek/scripts/_watchdog_state/staatsblad_events.log 2>&1
 # TED procurement (last 7 days)
 0 5 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_ted.py --days 7 >> /opt/leadpeek/scripts/_watchdog_state/ted.log 2>&1
 # Valuation AI commentary — pre-generate for favourited / recently-viewed

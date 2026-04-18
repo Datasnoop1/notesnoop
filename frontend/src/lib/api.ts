@@ -316,6 +316,60 @@ export const searchCompanies = (q: string) =>
 export const semanticSearch = (q: string) =>
   apiFetch<SearchResult[]>(`/api/companies/semantic-search?q=${encodeURIComponent(q)}`);
 
+// ── Stage 3e: Staatsblad structured-event search ──
+export interface StaatsbladEvent {
+  id: number;
+  enterprise_number: string;
+  pub_reference: string | null;
+  pub_date: string;
+  event_type: string;
+  sub_type: string | null;
+  event_date: string | null;
+  person_name: string | null;
+  person_role: string | null;
+  entity_name: string | null;
+  amount_eur: number | null;
+  amount_shares: number | null;
+  summary: string;
+  extracted_at: string | null;
+  extraction_model?: string | null;
+  company_name?: string | null;
+  vec_score?: number | null;
+  trgm_score?: number | null;
+}
+
+export interface EventsSearchResponse {
+  query: string;
+  results: StaatsbladEvent[];
+  count: number;
+}
+
+export const searchEvents = (
+  q: string,
+  opts?: { event_type?: string; since_date?: string; enterprise_number?: string; limit?: number }
+) => {
+  const params = new URLSearchParams({ q });
+  if (opts?.event_type) params.set("event_type", opts.event_type);
+  if (opts?.since_date) params.set("since_date", opts.since_date);
+  if (opts?.enterprise_number) params.set("enterprise_number", opts.enterprise_number);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  return apiFetch<EventsSearchResponse>(`/api/events/search?${params.toString()}`);
+};
+
+export const getCompanyEvents = (
+  cbe: string,
+  opts?: { event_type?: string; since_date?: string; limit?: number }
+) => {
+  const params = new URLSearchParams();
+  if (opts?.event_type) params.set("event_type", opts.event_type);
+  if (opts?.since_date) params.set("since_date", opts.since_date);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return apiFetch<{ events: StaatsbladEvent[] }>(
+    `/api/companies/${cbe}/events${qs ? `?${qs}` : ""}`
+  );
+};
+
 export const getCompanyDetail = (cbe: string) =>
   apiFetch<CompanyDetail>(`/api/companies/${cbe}`);
 
