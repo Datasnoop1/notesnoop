@@ -56,53 +56,112 @@ def get_conn():
         put_connection(conn)
 
 
-def fetch_all(sql: str, params: tuple | list = None) -> list[dict]:
-    """Execute a query and return all rows as a list of dicts."""
-    conn = get_connection()
+_STALE_CONN_ERRS = (
+    psycopg2.InterfaceError,
+    psycopg2.OperationalError,
+)
+
+
+def _is_stale_conn_error(exc: Exception) -> bool:
+    """Match the specific "pooled connection died on the server side"
+    failures that retrying on a fresh connection should recover from.
+    Don't retry on query-syntax errors or data errors."""
+    if not isinstance(exc, _STALE_CONN_ERRS):
+        return False
+    msg = str(exc).lower()
+    return (
+        "connection already closed" in msg
+        or "ssl syscall error" in msg
+        or "server closed the connection" in msg
+        or "connection is bad" in msg
+        or "no connection" in msg
+    )
+
+
+def _discard_connection(conn):
+    """Close + discard a broken connection instead of returning it to the pool."""
     try:
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(sql, params)
-        rows = cur.fetchall()
-        cur.close()
-        conn.commit()
-        return [dict(r) for r in rows]
+        conn.close()
     except Exception:
-        conn.rollback()
-        raise
-    finally:
-        put_connection(conn)
+        pass
+
+
+def fetch_all(sql: str, params: tuple | list = None) -> list[dict]:
+    """Execute a query and return all rows as a list of dicts.
+    One retry on a fresh connection if the pool handed us a stale one."""
+    for attempt in (1, 2):
+        conn = get_connection()
+        try:
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+            cur.close()
+            conn.commit()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            if attempt == 1 and _is_stale_conn_error(e):
+                _discard_connection(conn)
+                continue
+            raise
+        finally:
+            # On retry we already discarded; otherwise return to pool.
+            if conn.closed == 0:
+                put_connection(conn)
 
 
 def fetch_one(sql: str, params: tuple | list = None) -> dict | None:
-    """Execute a query and return the first row as a dict, or None."""
-    conn = get_connection()
-    try:
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(sql, params)
-        row = cur.fetchone()
-        cur.close()
-        conn.commit()
-        return dict(row) if row else None
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        put_connection(conn)
+    """Execute a query and return the first row as a dict, or None.
+    One retry on a fresh connection if the pool handed us a stale one."""
+    for attempt in (1, 2):
+        conn = get_connection()
+        try:
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute(sql, params)
+            row = cur.fetchone()
+            cur.close()
+            conn.commit()
+            return dict(row) if row else None
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            if attempt == 1 and _is_stale_conn_error(e):
+                _discard_connection(conn)
+                continue
+            raise
+        finally:
+            if conn.closed == 0:
+                put_connection(conn)
 
 
 def execute(sql: str, params: tuple | list = None):
-    """Execute a write query (INSERT/UPDATE/DELETE) and commit."""
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute(sql, params)
-        conn.commit()
-        cur.close()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        put_connection(conn)
+    """Execute a write query (INSERT/UPDATE/DELETE) and commit.
+    One retry on a fresh connection if the pool handed us a stale one."""
+    for attempt in (1, 2):
+        conn = get_connection()
+        try:
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            conn.commit()
+            cur.close()
+            return
+        except Exception as e:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            if attempt == 1 and _is_stale_conn_error(e):
+                _discard_connection(conn)
+                continue
+            raise
+        finally:
+            if conn.closed == 0:
+                put_connection(conn)
 
 
 @contextmanager
