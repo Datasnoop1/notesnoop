@@ -189,11 +189,10 @@ export function SummaryTab({
       {/* Insolvency banner — bright red if this company has an active case */}
       <CompanyInsolvencyBadge cbe={cbe} />
 
-      {/* Radar + procurement — side-by-side on desktop, stacked on mobile */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <CompanyRadarCard cbe={cbe} />
-        <CompanyProcurementCard cbe={cbe} />
-      </div>
+      {/* Procurement card stays near the top (relevant to commercial view).
+          Radar moved to the bottom of the page so the main financials land
+          above the fold. */}
+      <CompanyProcurementCard cbe={cbe} />
 
       {/* Key Financials — full-width KPI cards + Financial History (no gap) */}
       {latest && (
@@ -689,6 +688,10 @@ function CompanyTimeline({ cbe }: { cbe: string }) {
           )}
         </div>
       )}
+
+      {/* Sector radar — placed at the bottom so the main financials +
+          ownership + events own the above-the-fold real estate. */}
+      <CompanyRadarCard cbe={cbe} />
     </div>
   );
 }

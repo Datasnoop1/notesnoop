@@ -1422,7 +1422,7 @@ export default function ScreenerPage() {
                   className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right whitespace-nowrap"
                   title={t("screener.trendHelp")}
                 >
-                  {t("screener.trend")}
+                  {t("screener.ebitdaTrend")}
                 </th>
                 <th className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right">
                   {t("screener.fy")}
@@ -1536,16 +1536,17 @@ export default function ScreenerPage() {
                     {fmtEur(row.fixed_assets)}
                   </td>
 
-                  {/* Trend sparkline — revenue by default, falls back to
-                      EBITDA for small/micro filers that don't disclose
-                      rubric 70 (revenue). */}
+                  {/* EBITDA trend sparkline — EBITDA is what matters for PE
+                      screening + it's disclosed by every filer (revenue is
+                      optional for micros). Fallback to revenue only if
+                      EBITDA is missing (very rare). */}
                   {(() => {
-                    const revClean = (row.rev_history ?? []).filter(
+                    const ebitdaClean = (row.ebitda_history ?? []).filter(
                       (v): v is number => typeof v === "number",
                     );
-                    const useEbitda = revClean.length < 2;
-                    const series = useEbitda ? row.ebitda_history : row.rev_history;
-                    const label = useEbitda ? "EBITDA" : t("screener.revenue");
+                    const useRevenue = ebitdaClean.length < 2;
+                    const series = useRevenue ? row.rev_history : row.ebitda_history;
+                    const label = useRevenue ? t("screener.revenue") : "EBITDA";
                     const title = series && series.some((v) => v != null)
                       ? `${label}\n` +
                         (series as (number | null)[])
@@ -1561,9 +1562,9 @@ export default function ScreenerPage() {
                         title={title}
                       >
                         <Sparkline values={series} />
-                        {useEbitda && series && series.some((v) => v != null) && (
-                          <span className="ml-1 text-[9px] uppercase text-slate-400 align-middle">
-                            E
+                        {useRevenue && series && series.some((v) => v != null) && (
+                          <span className="ml-1 text-[9px] uppercase text-slate-400 align-middle" title="Revenue fallback">
+                            R
                           </span>
                         )}
                       </td>

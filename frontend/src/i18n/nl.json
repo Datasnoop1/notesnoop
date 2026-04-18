@@ -184,7 +184,8 @@
     "max": "Max",
     "noFinancialsOnly": "Alleen zonder jaarrekening",
     "trend": "Trend",
-    "trendHelp": "Omzettrend over 5 jaar. Als omzet niet wordt bekendgemaakt (kleine / micro filers), valt terug op EBITDA — gemarkeerd met 'E'.",
+    "ebitdaTrend": "EBITDA-trend",
+    "trendHelp": "EBITDA-trend over 5 jaar. Valt alleen terug op omzet ('R'-markering) als EBITDA ontbreekt (zeldzaam).",
     "recentlyViewed": "Recent bekeken",
     "recentlyViewedClear": "alles wissen",
     "recentlyViewedRemove": "Uit geschiedenis verwijderen"
