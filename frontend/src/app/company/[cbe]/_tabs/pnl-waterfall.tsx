@@ -251,7 +251,7 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
                   } ${r.indent ? "pr-3 md:pr-5" : ""}`}>
                     {r.label}
                   </div>
-                  <div className="flex-1 relative h-5 md:h-6 bg-slate-50 rounded overflow-hidden">
+                  <div className="flex-1 relative h-5 md:h-6 overflow-hidden">
                     <div
                       className={`absolute top-0 h-full rounded ${r.color}`}
                       style={{ left: `${r.startPct}%`, width: `${width}%` }}
