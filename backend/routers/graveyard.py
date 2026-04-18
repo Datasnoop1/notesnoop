@@ -307,6 +307,7 @@ async def in_process(
                 LEFT JOIN insolvency_case ic
                     ON ic.enterprise_number = b.enterprise_number
                    AND ic.case_type IN ('bankruptcy', 'reorganisation')
+                   AND (ic.status = 'open' OR ic.status IS NULL)
             ),
             deduped AS (
                 SELECT * FROM with_case WHERE rn = 1
@@ -320,7 +321,6 @@ async def in_process(
                         ELSE kbo_bucket
                     END AS bucket
                 FROM deduped
-                WHERE regsol_status IS NULL OR regsol_status = 'open'
             )
             SELECT
                 c.enterprise_number,
@@ -424,14 +424,17 @@ async def director_aging(
                     UPPER(TRIM(a.name)) AS norm_name,
                     a.enterprise_number,
                     bc.bankruptcy_date,
+                    -- to_date rolls invalid-but-shaped strings over instead of
+                    -- erroring (e.g. '2024-02-31' → '2024-03-02'), so the whole
+                    -- query never crashes on a single malformed KBO field.
                     CASE
                         WHEN a.mandate_start ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-                        THEN SUBSTRING(a.mandate_start, 1, 10)::date
+                        THEN to_date(SUBSTRING(a.mandate_start, 1, 10), 'YYYY-MM-DD')
                         ELSE NULL
                     END AS mandate_start_d,
                     CASE
                         WHEN a.mandate_end ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-                        THEN SUBSTRING(a.mandate_end, 1, 10)::date
+                        THEN to_date(SUBSTRING(a.mandate_end, 1, 10), 'YYYY-MM-DD')
                         ELSE NULL
                     END AS mandate_end_d
                 FROM administrator a
@@ -446,9 +449,14 @@ async def director_aging(
                     norm_name,
                     enterprise_number,
                     CASE
+                        -- No dates at all: can't attribute an aging bucket.
+                        WHEN mandate_start_d IS NULL AND mandate_end_d IS NULL
+                            THEN NULL
+                        -- Joined after bankruptcy (e.g. liquidator): exclude.
                         WHEN mandate_start_d IS NOT NULL
                              AND mandate_start_d > bankruptcy_date
                             THEN NULL
+                        -- Still in office at bankruptcy.
                         WHEN mandate_end_d IS NULL
                              OR mandate_end_d >= bankruptcy_date
                             THEN 0
