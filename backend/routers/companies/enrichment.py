@@ -26,6 +26,64 @@ class SummarizePublicationsBody(BaseModel):
     refresh: bool = False
 
 
+def _importance_for_event_type(event_type: str, sub_type: str | None) -> str:
+    """Map an 8-category event_type onto the UI's routine/notable/significant
+    axis, used for the publication-tab summary cards."""
+    sub = (sub_type or "").lower()
+    if event_type == "liquidation_event" and sub in (
+        "liquidation_open", "bankruptcy", "judicial_reorganisation"
+    ):
+        return "significant"
+    if event_type in ("ma_event",):
+        return "significant"
+    if event_type in ("capital_event", "share_transfer", "ownership_change"):
+        return "notable"
+    if event_type in ("admin_event", "corporate_change"):
+        return "notable"
+    return "routine"
+
+
+def _synthesise_structured_summary(events: list[dict]) -> dict:
+    """Build a structured `events[]` array for the publication-summary
+    card UI directly from staatsblad_event rows, no LLM call required.
+
+    Shape matches the existing publication_summary cache format so the
+    frontend keeps working unchanged.  When the caller wants prose, a
+    separate lightweight Haiku call can be layered on top.
+    """
+    ui_events = []
+    for ev in events:
+        t = (ev.get("event_type") or "other_notable").strip()
+        sub = (ev.get("sub_type") or "").strip()
+        pub_date = ev.get("pub_date")
+        date_str = str(pub_date) if pub_date else None
+        if ev.get("event_date"):
+            date_str = str(ev["event_date"])
+        what_pieces = [ev.get("summary") or ""]
+        if ev.get("person_name") and ev.get("person_role"):
+            what_pieces.append(f"({ev['person_name']}, {ev['person_role']})")
+        what = " ".join(p for p in what_pieces if p).strip() or "Filing recorded"
+        ui_events.append({
+            "date": date_str,
+            "type_raw": f"{t}/{sub}" if sub else t,
+            "what": what,
+            "context": ev.get("summary") or "",
+            "importance": _importance_for_event_type(t, sub),
+        })
+    significant = any(e["importance"] == "significant" for e in ui_events)
+    notable_count = sum(1 for e in ui_events if e["importance"] == "notable")
+    pattern_note = None
+    if significant:
+        pattern_note = "Includes at least one significant event (M&A / dissolution / bankruptcy)."
+    elif notable_count >= 3:
+        pattern_note = f"{notable_count} notable events in the recent window — board / capital activity."
+    return {
+        "events": ui_events,
+        "pattern_note": pattern_note,
+        "risk_flag": significant,
+    }
+
+
 @router.post("/{cbe}/summarize-publications")
 async def summarize_publications(
     cbe: str,
@@ -33,12 +91,22 @@ async def summarize_publications(
     lang: str | None = None,
     user=Depends(get_current_user),
 ):
-    """Generate structured AI analysis of last 5 Staatsblad publications.
+    """Generate structured AI analysis of recent Staatsblad events.
 
-    ``lang`` (``nl``/``fr``/``en``) controls the language of the ``what`` /
-    ``context`` / ``pattern_note`` strings. Cached summaries are returned in
-    whatever language they were originally generated in — pass ``refresh=true``
-    to force a re-run.
+    Phase 3d rewire: instead of running the LLM over
+    publication-type labels, we synthesise the structured summary
+    DIRECTLY from `staatsblad_event` rows (already extracted by the
+    backfill + daily incremental). This is cheaper, faster, and
+    accurate — we're reading actual filing content, not guessing from
+    labels.
+
+    When fewer than 3 structured events exist for this CBE, we fall
+    back to the legacy label-based LLM summarisation so profiles with
+    no Stage-3 coverage yet still get a useful card.
+
+    ``lang`` (``nl``/``fr``/``en``) still controls the output
+    language of the fallback LLM path; the structured path emits
+    English `what`/`context` strings extracted from the filing itself.
     """
     cbe = clean_cbe(cbe)
     refresh = body.refresh if body else False
@@ -49,7 +117,6 @@ async def summarize_publications(
     except Exception:
         pass
 
-    # Check cache — return parsed JSON if valid (skip on refresh)
     if not refresh:
         cached = fetch_one(
             "SELECT publication_summary FROM company_enrichment WHERE enterprise_number = %s AND publication_summary IS NOT NULL",
@@ -59,14 +126,39 @@ async def summarize_publications(
             raw = cached["publication_summary"]
             try:
                 parsed = json.loads(raw)
-                # Only return cache if it's the new structured format
                 if isinstance(parsed, dict) and "events" in parsed:
                     return {"summary": parsed, "cached": True}
             except Exception:
                 pass
-            # Old format or invalid — fall through to regenerate
 
-    # Fetch last 5 publications
+    # Structured path: pull the last 10 events for this CBE.  10 is a
+    # bit larger than the 5-publication window because one filing can
+    # produce multiple events (e.g. capital_event + admin_event).
+    structured_events = fetch_all(
+        """SELECT id, pub_reference, pub_date, event_type, sub_type,
+                  event_date, person_name, person_role, entity_name,
+                  amount_eur, amount_shares, summary
+           FROM staatsblad_event
+           WHERE enterprise_number = %s
+           ORDER BY pub_date DESC, id DESC
+           LIMIT 10""",
+        (cbe,),
+    )
+
+    if len(structured_events) >= 3:
+        parsed = _synthesise_structured_summary(structured_events)
+        cache_str = json.dumps(parsed, ensure_ascii=False)
+        try:
+            execute(
+                "INSERT INTO company_enrichment (enterprise_number, publication_summary) VALUES (%s, %s) "
+                "ON CONFLICT (enterprise_number) DO UPDATE SET publication_summary = EXCLUDED.publication_summary",
+                (cbe, cache_str),
+            )
+        except Exception as e:
+            logger.error("Failed to cache publication summary for %s: %s", cbe, e)
+        return {"summary": parsed, "cached": False, "source": "staatsblad_event"}
+
+    # Fallback: legacy label-based LLM summary for CBEs with no Stage-3 coverage.
     pubs = fetch_all(
         "SELECT pub_date, pub_type, reference FROM staatsblad_publication WHERE enterprise_number = %s ORDER BY pub_date DESC LIMIT 5",
         (cbe,),
@@ -108,12 +200,10 @@ async def summarize_publications(
         logger.error("Publication summary failed for %s: %s", cbe, e)
         return {"summary": None, "error": "Summary generation failed"}
 
-    # Parse JSON with fallback
     parsed = None
     try:
         parsed = json.loads(raw)
     except Exception:
-        # Strip markdown code fences and retry
         cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip())
         cleaned = re.sub(r"\s*```$", "", cleaned)
         try:
@@ -121,7 +211,6 @@ async def summarize_publications(
         except Exception:
             parsed = {"raw_text": raw, "parse_error": True}
 
-    # Cache the JSON string
     cache_str = json.dumps(parsed, ensure_ascii=False)
     try:
         execute(
@@ -132,7 +221,7 @@ async def summarize_publications(
     except Exception as e:
         logger.error("Failed to cache publication summary for %s: %s", cbe, e)
 
-    return {"summary": parsed, "cached": False}
+    return {"summary": parsed, "cached": False, "source": "fallback_label"}
 
 
 # ---------------------------------------------------------------------------
