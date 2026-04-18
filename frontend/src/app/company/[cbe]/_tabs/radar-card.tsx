@@ -64,7 +64,12 @@ export function CompanyRadarCard({ cbe }: { cbe: string }) {
           <PolarGrid stroke="#e2e8f0" />
           <PolarAngleAxis dataKey="axis" tick={{ fontSize: 10, fill: "#64748b" }} />
           <PolarRadiusAxis tick={false} domain={[0, 100]} stroke="#cbd5e1" />
-          <Tooltip formatter={(v: number) => `${v?.toFixed(0)}/100`} />
+          <Tooltip
+            formatter={(value) => {
+              const v = typeof value === "number" ? value : Number(value) || 0;
+              return `${v.toFixed(0)}/100`;
+            }}
+          />
           <Radar
             name="Score"
             dataKey="value"

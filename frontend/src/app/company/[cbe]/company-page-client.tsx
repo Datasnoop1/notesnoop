@@ -978,6 +978,16 @@ export function CompanyPageClient({
                       }`}
                     />
                   </Button>
+                  <a
+                    href={`/api/companies/${cbe}/primer.pdf`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Download 1-click company primer (PDF)"
+                    className="inline-flex items-center justify-center h-9 md:h-7 text-[11px] px-2.5 md:px-2 border border-slate-200 rounded-md text-slate-500 hover:text-indigo-600 hover:border-indigo-300 transition-colors"
+                  >
+                    <FileDown className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
+                    Primer PDF
+                  </a>
                   <Button
                     variant="outline"
                     size="sm"
