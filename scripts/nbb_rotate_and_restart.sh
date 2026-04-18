@@ -69,13 +69,19 @@ if [ -f "$LEADPEEK_DIR/docker-compose.staging.yml" ]; then
     }
 fi
 
-echo "==> Waiting 10s for backend to settle, then probing health check..."
-sleep 10
+echo "==> Probing health check (NBB edge cache can lag ~30-60s after a key regen)..."
+# Try the health check up to 6 times, ~10s apart. Empirically the new key
+# becomes valid within 30-60 seconds; we wait up to ~60 to avoid false-positive
+# failures right after a successful rotation.
+ATTEMPTS=6
+for i in $(seq 1 $ATTEMPTS); do
+    sleep 10
+    if docker exec leadpeek-backend-1 python /app/scripts/alert_digest.py --health-check 2>&1 | tail -3; then
+        echo "==> Probe $i/$ATTEMPTS: green. Rotation successful."
+        exit 0
+    fi
+    echo "==> Probe $i/$ATTEMPTS: not yet ready, waiting..."
+done
 
-if docker exec leadpeek-backend-1 python /app/scripts/alert_digest.py --health-check; then
-    echo "==> All probes green. Rotation successful."
-    exit 0
-else
-    echo "!! Health check still failing after rotation. Investigate immediately."
-    exit 3
-fi
+echo "!! Health check still failing after $ATTEMPTS attempts (~$(($ATTEMPTS*10))s). Investigate."
+exit 3
