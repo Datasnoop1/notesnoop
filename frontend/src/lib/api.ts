@@ -130,7 +130,9 @@ export interface ScreenerRow {
   fte_growth_3y_pct?: number | null;
   rev_growth_pct?: number | null;
   ebitda_growth_pct?: number | null;
-  assets_growth_pct?: number | null;
+  rev_history?: (number | null)[] | null;
+  ebitda_history?: (number | null)[] | null;
+  year_history?: (number | null)[] | null;
 }
 
 export interface ScreenerFilters {
@@ -502,6 +504,19 @@ export interface ProvinceStats {
 export const getStatsMarginDistribution = (province?: string) =>
   apiFetch<MarginBucket[]>(`/api/stats/margin-distribution${province ? `?province=${province}` : ""}`);
 
+export interface SectorScatterPoint {
+  cbe: string;
+  name: string | null;
+  city: string | null;
+  revenue: number;
+  ebitda: number;
+  fte: number | null;
+  margin_pct: number | null;
+}
+
+export const getStatsSectorScatter = (nace: string, limit = 300) =>
+  apiFetch<SectorScatterPoint[]>(`/api/stats/sector-scatter?nace=${encodeURIComponent(nace)}&limit=${limit}`);
+
 export const getStatsSizeDistribution = (province?: string) =>
   apiFetch<SizeBucket[]>(`/api/stats/size-distribution${province ? `?province=${province}` : ""}`);
 
@@ -626,6 +641,57 @@ export const addFavourite = (enterprise_number: string, notes?: string) =>
 export const removeFavourite = (cbe: string) =>
   apiFetch<{ status: string }>(`/api/favourites/${cbe}`, { method: "DELETE" });
 
+// ── Bulk Import ────────────────────────────────────────────────
+export interface ImportMatchRow {
+  input_name: string;
+  best_match_name: string | null;
+  enterprise_number: string | null;
+  city: string | null;
+  score: number;
+}
+
+export interface ImportMatchResponse {
+  results: ImportMatchRow[];
+  input_count: number;
+  matched_count: number;
+}
+
+export interface ImportConfirmResponse {
+  added: number;
+  skipped: number;
+  not_found: string[];
+}
+
+// ── Timeline ──────────────────────────────────────────────
+export type TimelineEventKind =
+  | "founding"
+  | "filing"
+  | "publication"
+  | "mandate_start"
+  | "mandate_end";
+
+export interface TimelineEvent {
+  date: string;
+  kind: TimelineEventKind;
+  label: string;
+  ref: string | null;
+}
+
+export const getCompanyTimeline = (cbe: string) =>
+  apiFetch<{ events: TimelineEvent[] }>(`/api/companies/${cbe}/timeline`);
+
+export const importMatchNames = (names: string[]) =>
+  apiFetch<ImportMatchResponse>("/api/import/match", {
+    method: "POST",
+    body: JSON.stringify({ names }),
+  });
+
+export const importConfirmCbes = (enterprise_numbers: string[]) =>
+  apiFetch<ImportConfirmResponse>("/api/import/confirm", {
+    method: "POST",
+    body: JSON.stringify({ enterprise_numbers }),
+  });
+
 // ── Favourite Projects ────────────────────────────────────────
 export interface ProjectMember {
   enterprise_number: string;
@@ -676,6 +742,9 @@ export interface NbbLoadResult {
   filings_loaded: number;
   rubrics_loaded: number;
   status?: string;
+  /** True when NBB has only PDF-only filings for this CBE (every recent
+   *  deposit returned the "no published json xbrl" 404). */
+  pdf_only?: boolean;
 }
 
 export const loadCompanyNBB = (cbe: string) =>

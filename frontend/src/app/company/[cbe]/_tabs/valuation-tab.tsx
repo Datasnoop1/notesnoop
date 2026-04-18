@@ -241,6 +241,26 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
     [load, sectorOverride, sourceKey]
   );
 
+  /* Bulk-add all group-link suggestions that aren't already in the
+     consolidated set. Caps at 9 (backend limit) and triggers a single
+     valuation reload instead of 6 sequential calls. */
+  const addAllGroupSuggestions = useCallback(() => {
+    setIncludeMembers((prev) => {
+      const existing = new Set(prev.map((m) => m.cbe));
+      existing.add(cbe); // don't add the primary to itself
+      const toAdd = groupSuggestions.filter((s) => !existing.has(s.cbe));
+      if (toAdd.length === 0) return prev;
+      const room = Math.max(0, 9 - prev.length);
+      const next = [...prev, ...toAdd.slice(0, room)];
+      if (next.length === prev.length) return prev;
+      load(sectorOverride, sourceKey, next);
+      return next;
+    });
+    setGroupSearchQuery("");
+    setGroupSearchResults([]);
+    setGroupSearchOpen(false);
+  }, [cbe, groupSuggestions, load, sectorOverride, sourceKey]);
+
   /* ---------- AI commentary ---------- */
   const fetchAiCommentary = useCallback(async () => {
     setAiLoading(true);
@@ -806,15 +826,30 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             />
             {/* Pre-suggestions from KBO group links — only when the user
                 hasn't started typing, so it's a light hint, not a default. */}
-            {!groupSearchQuery.trim() && groupSuggestions.length > 0 && (
-              <div className="mt-1 rounded-md border border-slate-200 bg-white">
-                <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 bg-slate-50/60 border-b border-slate-100">
-                  Suggested (from group links)
-                </div>
-                <ul className="max-h-48 overflow-y-auto">
-                  {groupSuggestions
-                    .filter((s) => !includeMembers.some((m) => m.cbe === s.cbe))
-                    .map((s) => (
+            {!groupSearchQuery.trim() && groupSuggestions.length > 0 && (() => {
+              const unpicked = groupSuggestions.filter(
+                (s) => !includeMembers.some((m) => m.cbe === s.cbe) && s.cbe !== cbe
+              );
+              const room = Math.max(0, 9 - includeMembers.length);
+              const bulkCount = Math.min(unpicked.length, room);
+              return (
+                <div className="mt-1 rounded-md border border-slate-200 bg-white">
+                  <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-50/60 border-b border-slate-100">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Suggested (from group links)
+                    </span>
+                    {bulkCount > 1 && (
+                      <button
+                        onClick={addAllGroupSuggestions}
+                        className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 hover:text-indigo-800"
+                        title="Consolidate the whole known group into the valuation"
+                      >
+                        + Add all {bulkCount}
+                      </button>
+                    )}
+                  </div>
+                  <ul className="max-h-48 overflow-y-auto">
+                    {unpicked.map((s) => (
                       <li key={s.cbe}>
                         <button
                           onClick={() => addGroupMember(s)}
@@ -825,9 +860,10 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                         </button>
                       </li>
                     ))}
-                </ul>
-              </div>
-            )}
+                  </ul>
+                </div>
+              );
+            })()}
             {groupSearchLoading && (
               <div className="mt-1 text-[11px] text-slate-400">Searching...</div>
             )}

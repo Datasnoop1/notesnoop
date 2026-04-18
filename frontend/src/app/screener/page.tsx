@@ -55,6 +55,9 @@ interface ScreenerRow {
   juridical_situation: string | null;
   start_date: string | null;
   fixed_assets: number | null;
+  rev_history?: (number | null)[] | null;
+  ebitda_history?: (number | null)[] | null;
+  year_history?: (number | null)[] | null;
 }
 
 interface Filters {
@@ -73,13 +76,12 @@ interface Filters {
   rev_growth_max: string;
   ebitda_growth_min: string;
   ebitda_growth_max: string;
-  assets_growth_min: string;
-  assets_growth_max: string;
   fte_growth_3y_min: string;
   fte_growth_3y_max: string;
   fixed_assets_min: string;
   fixed_assets_max: string;
   distress: "" | "bankruptcy" | "wco" | "any" | "healthy";
+  no_financials: boolean;
   sort: string;
   limit: string;
 }
@@ -100,13 +102,12 @@ const DEFAULT_FILTERS: Filters = {
   rev_growth_max: "",
   ebitda_growth_min: "",
   ebitda_growth_max: "",
-  assets_growth_min: "",
-  assets_growth_max: "",
   fte_growth_3y_min: "",
   fte_growth_3y_max: "",
   fixed_assets_min: "",
   fixed_assets_max: "",
   distress: "",
+  no_financials: false,
   sort: "revenue_desc",
   limit: "100",
 };
@@ -287,6 +288,61 @@ function SortHeader({
         )}
       </span>
     </th>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Sparkline (inline SVG, revenue trend)                              */
+/* ------------------------------------------------------------------ */
+
+function Sparkline({
+  values,
+  width = 60,
+  height = 18,
+  color = "#6366f1",
+}: {
+  values: (number | null | undefined)[] | null | undefined;
+  width?: number;
+  height?: number;
+  color?: string;
+}) {
+  const clean = (values ?? []).filter((v): v is number => typeof v === "number");
+  if (clean.length < 2) return <span className="text-slate-300 text-[10px]">—</span>;
+  const min = Math.min(...clean);
+  const max = Math.max(...clean);
+  const range = max - min || 1;
+  const stepX = clean.length > 1 ? width / (clean.length - 1) : width;
+  const points = clean.map((v, i) => {
+    const x = i * stepX;
+    const y = height - ((v - min) / range) * height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const last = clean[clean.length - 1];
+  const first = clean[0];
+  const trendColor = last > first ? "#10b981" : last < first ? "#f43f5e" : color;
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className="inline-block align-middle"
+      aria-hidden="true"
+    >
+      <polyline
+        fill="none"
+        stroke={trendColor}
+        strokeWidth="1.25"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points.join(" ")}
+      />
+      <circle
+        cx={(clean.length - 1) * stepX}
+        cy={height - ((last - min) / range) * height}
+        r="1.75"
+        fill={trendColor}
+      />
+    </svg>
   );
 }
 
@@ -490,8 +546,6 @@ export default function ScreenerPage() {
         if (f.rev_growth_max) params.rev_growth_max = f.rev_growth_max;
         if (f.ebitda_growth_min) params.ebitda_growth_min = f.ebitda_growth_min;
         if (f.ebitda_growth_max) params.ebitda_growth_max = f.ebitda_growth_max;
-        if (f.assets_growth_min) params.assets_growth_min = f.assets_growth_min;
-        if (f.assets_growth_max) params.assets_growth_max = f.assets_growth_max;
         if (f.fte_growth_3y_min) params.fte_growth_3y_min = f.fte_growth_3y_min;
         if (f.fte_growth_3y_max) params.fte_growth_3y_max = f.fte_growth_3y_max;
         if (f.fixed_assets_min)
@@ -499,6 +553,8 @@ export default function ScreenerPage() {
         if (f.fixed_assets_max)
           params.fixed_assets_max = String(Number(f.fixed_assets_max) * multiplier);
         if (f.distress) params.distress = f.distress;
+        if (f.no_financials) params.no_financials = "true";
+        params.include_sparklines = "true";
         params.sort = f.sort;
         params.limit = f.limit;
 
@@ -642,7 +698,6 @@ export default function ScreenerPage() {
     if (filters.nd_ebitda_max) c++;
     if (filters.rev_growth_min || filters.rev_growth_max) c++;
     if (filters.ebitda_growth_min || filters.ebitda_growth_max) c++;
-    if (filters.assets_growth_min || filters.assets_growth_max) c++;
     if (filters.fte_growth_3y_min || filters.fte_growth_3y_max) c++;
     if (filters.fixed_assets_min || filters.fixed_assets_max) c++;
     if (filters.distress) c++;
@@ -1073,29 +1128,6 @@ export default function ScreenerPage() {
             </div>
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              <TrendingUp className="w-3 h-3 inline mr-1" />
-              {t("screener.totalAssetsGrowth")}
-            </Label>
-            <div className="grid grid-cols-2 gap-1">
-              <Input
-                className="h-10 md:h-7 text-base md:text-xs font-mono"
-                type="number"
-                placeholder="Min"
-                value={filters.assets_growth_min}
-                onChange={(e) => updateFilter("assets_growth_min", e.target.value)}
-              />
-              <Input
-                className="h-10 md:h-7 text-base md:text-xs font-mono"
-                type="number"
-                placeholder="Max"
-                value={filters.assets_growth_max}
-                onChange={(e) => updateFilter("assets_growth_max", e.target.value)}
-              />
-            </div>
-          </div>
-
           {/* Fixed assets (rubric 20/28 — intangible + tangible + financial) */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
@@ -1144,6 +1176,29 @@ export default function ScreenerPage() {
                 <SelectItem value="any">{t("screener.distressAnyDistress")}</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Coverage-gap mode: show only enterprises not yet in NBB filings */}
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              id="no-financials-toggle"
+              checked={filters.no_financials}
+              onChange={(e) => {
+                setFilters((prev) => {
+                  const next = { ...prev, no_financials: e.target.checked };
+                  scheduleFetch(next);
+                  return next;
+                });
+              }}
+              className="h-3.5 w-3.5 rounded border-slate-300"
+            />
+            <label
+              htmlFor="no-financials-toggle"
+              className="text-[11px] md:text-[10px] text-slate-500 cursor-pointer select-none"
+            >
+              {t("screener.noFinancialsOnly")}
+            </label>
           </div>
 
           {/* FTE 3-year growth — replaces the old Mgmt Change filter.
@@ -1324,6 +1379,9 @@ export default function ScreenerPage() {
                   currentSort={filters.sort}
                   onSort={handleSort}
                 />
+                <th className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right whitespace-nowrap">
+                  {t("screener.trend")}
+                </th>
                 <th className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right">
                   {t("screener.fy")}
                 </th>
@@ -1425,6 +1483,23 @@ export default function ScreenerPage() {
                     {fmtEur(row.fixed_assets)}
                   </td>
 
+                  {/* Revenue trend sparkline */}
+                  <td
+                    className="py-1.5 px-2 text-right whitespace-nowrap"
+                    title={
+                      row.rev_history && row.rev_history.some((v) => v != null)
+                        ? (row.rev_history as (number | null)[])
+                            .map((v, i) => {
+                              const yr = row.year_history?.[i] ?? "";
+                              return `FY${yr}: ${v != null ? fmtEur(v) : "—"}`;
+                            })
+                            .join(" | ")
+                        : ""
+                    }
+                  >
+                    <Sparkline values={row.rev_history} />
+                  </td>
+
                   {/* FY */}
                   <td className="py-1.5 px-2 text-right text-[11px] text-slate-400 whitespace-nowrap">
                     {row.fiscal_year ?? "\u2014"}
@@ -1434,7 +1509,89 @@ export default function ScreenerPage() {
             </tbody>
           </table>
         </div>
+        {/* Recently viewed companies — frontend-only via localStorage */}
+        <RecentlyViewedPanel />
       </main>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Recently-viewed panel (collapsible)                                */
+/* ------------------------------------------------------------------ */
+
+import { getRecentlyViewed, removeRecentlyViewed, clearRecentlyViewed, type RecentlyViewedEntry } from "@/lib/recently-viewed";
+
+function RecentlyViewedPanel() {
+  const { t } = useTranslation();
+  const [items, setItems] = useState<RecentlyViewedEntry[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const refresh = () => setItems(getRecentlyViewed());
+    refresh();
+    const storageHandler = (e: StorageEvent) => {
+      if (e.key && !e.key.startsWith("datasnoop_recently_viewed")) return;
+      refresh();
+    };
+    window.addEventListener("storage", storageHandler);
+    window.addEventListener("datasnoop:recently-viewed-changed", refresh);
+    return () => {
+      window.removeEventListener("storage", storageHandler);
+      window.removeEventListener("datasnoop:recently-viewed-changed", refresh);
+    };
+  }, []);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="border-t border-slate-100 px-3 md:px-4 py-2 bg-slate-50/40">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-700"
+      >
+        <span>{t("screener.recentlyViewed")}</span>
+        <span className="text-slate-300">·</span>
+        <span className="text-slate-400 normal-case tracking-normal font-medium">
+          {items.length}
+        </span>
+        <span className="text-slate-400 ml-1">{open ? "\u25BE" : "\u25B8"}</span>
+      </button>
+      {open && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {items.map((it) => (
+            <div
+              key={it.cbe}
+              className="group inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[11px] hover:border-indigo-300"
+            >
+              <Link
+                href={`/company/${it.cbe}`}
+                className="text-slate-700 hover:text-indigo-600 max-w-[180px] truncate"
+                title={`${it.name}${it.city ? ` · ${it.city}` : ""}`}
+              >
+                {it.name}
+              </Link>
+              <button
+                onClick={() => {
+                  removeRecentlyViewed(it.cbe);
+                }}
+                className="text-slate-300 opacity-0 group-hover:opacity-100 hover:text-slate-600"
+                title={t("screener.recentlyViewedRemove")}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {items.length > 0 && (
+            <button
+              onClick={clearRecentlyViewed}
+              className="text-[10px] text-slate-400 hover:text-slate-600 ml-1"
+            >
+              {t("screener.recentlyViewedClear")}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

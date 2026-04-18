@@ -124,7 +124,7 @@ export function CompanyPageClient({
   const [isFavourite, setIsFavourite] = useState(false);
   const [activeTab, setActiveTab] = useState("summary");
   const [nbbLoading, setNbbLoading] = useState(false);
-  const [nbbResult, setNbbResult] = useState<"success" | "error" | "no-data" | null>(null);
+  const [nbbResult, setNbbResult] = useState<"success" | "error" | "no-data" | "pdf-only" | null>(null);
   const nbbAutoTriggered = React.useRef(false);
   const aiPreloadTriggered = React.useRef(false);
   const router = useRouter();
@@ -166,6 +166,17 @@ export function CompanyPageClient({
     const interval = setInterval(() => setLoadElapsed(Math.floor((Date.now() - loadStartTime) / 1000)), 1000);
     return () => clearInterval(interval);
   }, [loadStartTime]);
+
+  /* Track this profile in localStorage so the screener / dashboard can
+     surface a "Recently viewed" panel. Only fires after we've resolved
+     a real company name (skip 404s and the initial null state). */
+  useEffect(() => {
+    if (!detail || !detail.name) return;
+    const name = detail.name;
+    import("@/lib/recently-viewed").then((mod) => {
+      mod.recordCompanyView({ cbe, name, city: detail.city ?? null });
+    });
+  }, [cbe, detail?.name, detail?.city]);
 
   /* -- Check for existing AI enrichment on load.
      Re-runs when `locale` changes so cached AI gets re-fetched

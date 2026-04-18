@@ -151,7 +151,6 @@
     "maxNetDebtEbitda": "Max nettoschuld/EBITDA",
     "revenueGrowth": "Omzetgroei %",
     "ebitdaGrowth": "EBITDA-groei %",
-    "totalAssetsGrowth": "Groei totaal activa %",
     "fixedAssets": "Vaste activa (rubriek 20/28) \u20AC",
     "fixedAssetsShort": "Vaste activa \u20AC",
     "distress": "Status",
@@ -182,7 +181,12 @@
     "hoverNetProfit": "Nettoresultaat",
     "hoverFte": "VTE",
     "min": "Min",
-    "max": "Max"
+    "max": "Max",
+    "noFinancialsOnly": "Alleen zonder jaarrekening",
+    "trend": "Trend",
+    "recentlyViewed": "Recent bekeken",
+    "recentlyViewedClear": "alles wissen",
+    "recentlyViewedRemove": "Uit geschiedenis verwijderen"
   },
 
   "company": {
@@ -250,6 +254,9 @@
       "noData": "Geen financiele gegevens beschikbaar voor dit bedrijf.",
       "retryNbb": "Opnieuw van NBB",
       "loadNbb": "Laden van NBB",
+      "pdfOnlyTitle": "Neergelegd als PDF \u2014 geen gestructureerde data beschikbaar",
+      "pdfOnlyBody": "Dit bedrijf legt verkorte jaarrekeningen neer (model m120/m211/m212) die de NBB alleen als PDF publiceert. Omzet, EBITDA en balansrubrieken kunnen we niet via de NBB-API extraheren voor deze neerleggingen. De oorspronkelijke PDFs blijven raadpleegbaar op de NBB-consultatiesite.",
+      "pdfOnlyLink": "Bekijken op NBB consult.cbso.nbb.be",
       "dataLoaded": "Gegevens succesvol geladen.",
       "loadFailed": "Laden mislukt. Het bedrijf heeft mogelijk geen jaarrekeningen.",
       "title": "Resultatenrekening",
@@ -486,7 +493,20 @@
     "notFound": "{count} niet gevonden",
     "noCustomersYet": "Nog geen klanten.",
     "noSuppliersYet": "Nog geen leveranciers.",
-    "uploadCsvHint": "Upload een CSV- of Excel-bestand met KBO-nummers om deze lijst te vullen."
+    "uploadCsvHint": "Upload een CSV- of Excel-bestand met KBO-nummers om deze lijst te vullen.",
+    "bulkImportTitle": "Bulk-import op bedrijfsnaam",
+    "bulkImportHint": "Plak een lijst met bedrijfsnamen (een per regel). We zoeken voor elke naam de best passende Belgische onderneming. Controleer en voeg de geselecteerde bedrijven toe aan je favorieten.",
+    "bulkImportPlaceholder": "Een bedrijfsnaam per regel:\nSolvay\nUmicore\nKBC Group",
+    "bulkImportMatch": "Namen matchen",
+    "bulkImportMatch2": "Beste match",
+    "bulkImportInput": "Invoer",
+    "bulkImportScore": "Score",
+    "bulkImportNoMatch": "geen match",
+    "bulkImportAlreadyStarred": "al in favorieten",
+    "bulkImportSelectedCount": "{selected} van {total} geselecteerd",
+    "bulkImportAddSelected": "Geselecteerde toevoegen aan favorieten",
+    "bulkImportNoResults": "Geen matches gevonden. Probeer volledigere namen (bv. \"Solvay\" i.p.v. \"Sol\").",
+    "bulkImportResultSummary": "{added} toegevoegd, {skipped} overgeslagen, {notFound} niet gevonden"
   },
 
   "compare": {
@@ -568,7 +588,11 @@
     "rev": "Omzet",
     "margin": "Marge",
     "netProfit": "Nettoresultaat",
-    "pnlNote": "Geaggregeerd over {count} bedrijven. Ratio's berekend op portefeuilletotalen."
+    "pnlNote": "Geaggregeerd over {count} bedrijven. Ratio's berekend op portefeuilletotalen.",
+    "suggestedFromGroup": "Voorgesteld uit groep:",
+    "addAllN": "Alle {count} toevoegen",
+    "dismissSuggestions": "sluiten",
+    "suggestionTooltip": "{name} toevoegen (verbonden via deelneming)"
   },
 
   "account": {

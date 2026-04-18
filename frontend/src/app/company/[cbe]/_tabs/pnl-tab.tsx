@@ -59,9 +59,9 @@ function ChartTooltip({
 interface PnlTabProps {
   financials: FinancialsData | null;
   nbbLoading: boolean;
-  nbbResult: "success" | "error" | "no-data" | null;
+  nbbResult: "success" | "error" | "no-data" | "pdf-only" | null;
   setNbbLoading: (v: boolean) => void;
-  setNbbResult: (v: "success" | "error" | "no-data" | null) => void;
+  setNbbResult: (v: "success" | "error" | "no-data" | "pdf-only" | null) => void;
   setFinancials: (v: FinancialsData) => void;
   cbe: string;
   companyName: string | null;
@@ -88,6 +88,7 @@ export function PnlTab({
   const { t } = useTranslation();
 
   if (!financials || financials.summary.length === 0) {
+    const isPdfOnly = financials?.pdf_only === true || nbbResult === "pdf-only";
     return (
       <div className="py-8 text-center">
         {nbbLoading ? (
@@ -96,6 +97,23 @@ export function PnlTab({
             <p className="text-sm text-slate-500 animate-pulse">
               {t("company.pnl.loadingNbb")}
             </p>
+          </div>
+        ) : isPdfOnly ? (
+          <div className="mx-auto max-w-xl rounded-lg border border-amber-200 bg-amber-50 p-4 text-left">
+            <p className="text-sm font-semibold text-amber-800 mb-1">
+              {t("company.pnl.pdfOnlyTitle")}
+            </p>
+            <p className="text-xs text-amber-700 mb-2">
+              {t("company.pnl.pdfOnlyBody")}
+            </p>
+            <a
+              href={`https://consult.cbso.nbb.be/consult-enterprise/${cbe}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-medium text-amber-700 underline hover:text-amber-900"
+            >
+              {t("company.pnl.pdfOnlyLink")} {"\u2192"}
+            </a>
           </div>
         ) : (
           <>
@@ -115,6 +133,8 @@ export function PnlTab({
                   if (data.rubrics_loaded > 0) {
                     setNbbResult("success");
                     getCompanyFinancials(cbe).then(f => setFinancials(f as unknown as FinancialsData)).catch(() => setNbbResult("error"));
+                  } else if (data.pdf_only) {
+                    setNbbResult("pdf-only");
                   } else {
                     setNbbResult("no-data");
                   }

@@ -1,9 +1,10 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { fmtEur, fmtPct, fmtNumber } from "@/lib/format";
+import { getCompanyTimeline, type TimelineEvent } from "@/lib/api";
 import {
   ChevronRight,
   Users,
@@ -20,6 +21,8 @@ import {
   Shield,
   Scale,
   Landmark,
+  Clock,
+  Wallet,
 } from "lucide-react";
 import type {
   CompanyDetail,
@@ -158,6 +161,26 @@ export function SummaryTab({
   const ebitdaYoy = yoyChange(latest?.ebitda ?? null, prev?.ebitda ?? null);
   const fteYoy = yoyChange(latest?.fte_total ?? null, prev?.fte_total ?? null);
 
+  // DSO / DPO — working-capital cycle indicators.
+  // DSO = (trade receivables / revenue) * 365.
+  // DPO = (trade payables / cost of goods) * 365. Cost of goods isn't a
+  // standalone column, so derive it as revenue - gross_margin (rubric 70 -
+  // rubric 9900). Falls back to revenue (matching the credit-tab table) if
+  // gross_margin is missing — better to show *something* than a dash.
+  let dso: number | null = null;
+  let dpo: number | null = null;
+  if (latest && latest.revenue && latest.revenue > 0) {
+    if (latest.trade_receivables != null) {
+      dso = (latest.trade_receivables / latest.revenue) * 365;
+    }
+    if (latest.trade_payables != null) {
+      const cogs = latest.gross_margin != null
+        ? Math.max(latest.revenue - latest.gross_margin, 1)
+        : latest.revenue;
+      dpo = (latest.trade_payables / cogs) * 365;
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Key Financials — full-width KPI cards + Financial History (no gap) */}
@@ -172,7 +195,7 @@ export function SummaryTab({
             {/* Link removed — P&L has its own tab */}
           </div>
           {/* KPI cards row */}
-          <div className="px-5 pb-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+          <div className="px-5 pb-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-3">
             {/* Revenue */}
             <div className="rounded-lg bg-slate-50 px-3 py-2.5">
               <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
@@ -233,6 +256,26 @@ export function SummaryTab({
                 {interestCoverage != null && isFinite(interestCoverage) ? `${interestCoverage.toFixed(1)}x` : "\u2014"}
               </div>
               <div className="text-[10px] text-slate-400 mt-0.5">EBITDA / Int. Exp</div>
+            </div>
+            {/* DSO — high = cash-flow risk flag */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5" title="Days Sales Outstanding = Trade Receivables / Revenue × 365. Higher = customers pay slower = cash-flow risk.">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <Clock className="h-3 w-3" /> DSO
+              </div>
+              <div className={`text-sm font-semibold font-mono ${dso != null ? (dso <= 45 ? "text-emerald-600" : dso <= 90 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
+                {dso != null && isFinite(dso) ? `${Math.round(dso)}d` : "\u2014"}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Days to collect</div>
+            </div>
+            {/* DPO — paired with DSO describes the working-capital cycle */}
+            <div className="rounded-lg bg-slate-50 px-3 py-2.5" title="Days Payable Outstanding = Trade Payables / Cost of Goods × 365. Higher = paying suppliers slower = better short-term cash position.">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+                <Wallet className="h-3 w-3" /> DPO
+              </div>
+              <div className={`text-sm font-semibold font-mono ${dpo != null ? (dpo >= 60 ? "text-emerald-600" : dpo >= 30 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
+                {dpo != null && isFinite(dpo) ? `${Math.round(dpo)}d` : "\u2014"}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5">Days to pay</div>
             </div>
           </div>
 
@@ -549,8 +592,91 @@ export function SummaryTab({
         )}
       </div>
 
+      {/* Corporate events timeline */}
+      <CompanyTimeline cbe={cbe} />
+
       {/* Old AI enrichment and web enrichment sections removed —
            AI Insights now available via the Sparkles button in the header */}
+    </div>
+  );
+}
+
+/* ---------- Corporate events timeline ---------- */
+
+function CompanyTimeline({ cbe }: { cbe: string }) {
+  const [open, setOpen] = useState(false);
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open || events.length > 0 || loading) return;
+    setLoading(true);
+    getCompanyTimeline(cbe)
+      .then((res) => setEvents(res.events))
+      .catch(() => setEvents([]))
+      .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, cbe]);
+
+  const dotColor: Record<string, string> = {
+    founding: "bg-emerald-500",
+    filing: "bg-indigo-400",
+    publication: "bg-amber-400",
+    mandate_start: "bg-sky-400",
+    mandate_end: "bg-rose-400",
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-white">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-4 py-2.5"
+      >
+        <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+          <Calendar className="h-3 w-3" /> Corporate events timeline
+        </span>
+        <span className="text-slate-400 text-xs">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3">
+          {loading && <p className="text-xs text-slate-400 italic">Loading timeline...</p>}
+          {!loading && events.length === 0 && (
+            <p className="text-xs text-slate-400 italic">No events on file.</p>
+          )}
+          {!loading && events.length > 0 && (
+            <ol className="relative border-l border-slate-200 ml-2 mt-1 space-y-2.5 max-h-[420px] overflow-y-auto">
+              {events.map((e, idx) => (
+                <li key={`${e.date}-${idx}`} className="ml-3">
+                  <span
+                    className={`absolute -left-1.5 mt-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-white ${
+                      dotColor[e.kind] ?? "bg-slate-400"
+                    }`}
+                  />
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-[10px] font-mono text-slate-400 tabular-nums shrink-0">
+                      {e.date.slice(0, 10)}
+                    </span>
+                    <span className="text-[11px] text-slate-700">
+                      {e.ref ? (
+                        <a
+                          href={e.ref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="hover:text-indigo-600 hover:underline"
+                        >
+                          {e.label}
+                        </a>
+                      ) : (
+                        e.label
+                      )}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
     </div>
   );
 }

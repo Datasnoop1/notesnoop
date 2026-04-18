@@ -192,10 +192,19 @@ uses `get_current_user` where it should use `_require_admin`).
 
 ## Known gotchas (learn these to avoid re-discovering)
 
-1. **NBB keys rotate without notice.** If NBB calls start returning
-   401, check the subscription portal first — the key may have been
-   rotated server-side. The new keys are the Primary from each
-   subscription: AuthenticData + Extracts + AuthenticArchiveData.
+1. **NBB keys rotate without notice — and rapidly.** Two rotations
+   landed within ~24h on 2026-04-17 alone. If NBB calls start
+   returning 401/403, check the subscription portal first — the key
+   may have been rotated server-side. The current keys are the
+   Primary from each subscription: AuthenticData + Extracts +
+   AuthenticArchiveData. Env vars: `NBB_AUTHENTIC_KEY`,
+   `NBB_EXTRACT_KEY`, `NBB_ARCHIVE_KEY` (the third is set in env but
+   not yet read by code; reserved for the archive endpoints). Apply
+   via `sed -i 's|^NBB_…_KEY=.*|NBB_…_KEY=<new>|' .env .env.production`,
+   then `docker compose up -d --force-recreate backend frontend` for
+   prod and the same `-f docker-compose.staging.yml -p
+   leadpeek-staging` invocation for staging. A plain `restart` will
+   silently keep the old key — see gotcha #5.
 2. **NBB User-Agent matters.** NBB's Azure WAF rejects
    `Mozilla/5.0` and `python-urllib/*` headers with 403/500 from
    data-centre IPs. Use `Datasnoop/1.0 (Belgian Company Intelligence)`.

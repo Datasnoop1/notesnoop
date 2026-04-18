@@ -76,8 +76,8 @@ interface PublicationsTabProps {
   detail: CompanyDetail | null;
   nbbLoading: boolean;
   setNbbLoading: (v: boolean) => void;
-  nbbResult: "success" | "error" | "no-data" | null;
-  setNbbResult: (v: "success" | "error" | "no-data" | null) => void;
+  nbbResult: "success" | "error" | "no-data" | "pdf-only" | null;
+  setNbbResult: (v: "success" | "error" | "no-data" | "pdf-only" | null) => void;
   setStructure: (s: StructureData) => void;
 }
 

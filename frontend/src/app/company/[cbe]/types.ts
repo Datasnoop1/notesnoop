@@ -86,4 +86,9 @@ export interface StructureData {
 export interface FinancialsData {
   summary: FinancialRow[];
   rubric_data?: Record<string, Record<string, number | null>>;
+  /** True when NBB has only PDF-only filings for this CBE — every recent
+   *  deposit returned the "no published json xbrl" 404 from the API.
+   *  Drives the "Filed as PDF" banner on tabs that would otherwise be
+   *  empty for these companies. */
+  pdf_only?: boolean;
 }

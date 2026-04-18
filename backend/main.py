@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me
+from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup
 
@@ -73,6 +73,28 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
+# LLM endpoint-attribution context middleware
+# ---------------------------------------------------------------------------
+
+class EndpointContextMiddleware(BaseHTTPMiddleware):
+    """Stamp the current request path onto a contextvar read by ai_client.
+
+    Lets every OpenRouter call made during request handling be attributed
+    to the user-facing endpoint that triggered it (for the admin LLM
+    cost panel). Reset in a finally so the contextvar never leaks across
+    requests in the same worker.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        from ai_client import set_current_endpoint, reset_current_endpoint
+        token = set_current_endpoint(request.url.path)
+        try:
+            return await call_next(request)
+        finally:
+            reset_current_endpoint(token)
+
+
+# ---------------------------------------------------------------------------
 # Activity logging middleware
 # ---------------------------------------------------------------------------
 
@@ -112,6 +134,7 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(ActivityLogMiddleware)
+app.add_middleware(EndpointContextMiddleware)
 
 # ---------------------------------------------------------------------------
 # Tier-based usage limit middleware
@@ -508,6 +531,7 @@ app.include_router(staatsblad.router)
 app.include_router(tier_config.router)
 app.include_router(graveyard.router)
 app.include_router(me.router)
+app.include_router(bulk_import.router)
 
 # ---------------------------------------------------------------------------
 # Health check

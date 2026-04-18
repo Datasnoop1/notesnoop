@@ -7,6 +7,11 @@ services:
       - "host.docker.internal:host-gateway"
     expose:
       - "8000"
+    # Mount the repo's scripts/ dir read-only so cron jobs run via
+    # `docker exec leadpeek-backend-1 python /app/scripts/<name>.py`
+    # pick up the latest version after `git pull` without a rebuild.
+    volumes:
+      - ./scripts:/app/scripts:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 30s

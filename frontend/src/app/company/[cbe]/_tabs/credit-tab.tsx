@@ -213,7 +213,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-red-500 pl-2">
           {t("company.creditTab.leverage")}
         </h3>
-        <div className="rounded-lg border overflow-x-auto bg-white">
+        <div className="rounded-lg border bg-white">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
@@ -270,7 +270,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-amber-500 pl-2">
           {t("company.creditTab.liquidity")}
         </h3>
-        <div className="rounded-lg border overflow-x-auto bg-white">
+        <div className="rounded-lg border bg-white">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
@@ -311,7 +311,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-green-500 pl-2">
           {t("company.creditTab.profitability")}
         </h3>
-        <div className="rounded-lg border overflow-x-auto bg-white">
+        <div className="rounded-lg border bg-white">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">
@@ -344,7 +344,7 @@ export function CreditTab({ financials, detail, cbe }: CreditTabProps) {
         <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-blue-500 pl-2">
           {t("company.creditTab.workingCapital")}
         </h3>
-        <div className="rounded-lg border overflow-x-auto bg-white">
+        <div className="rounded-lg border bg-white">
           <Table>
             <TableHeader>
               <TableRow className="bg-slate-50">

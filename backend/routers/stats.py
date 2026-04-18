@@ -354,6 +354,52 @@ async def stats_margin_distribution(
 
 
 # ---------------------------------------------------------------------------
+# GET /api/stats/sector-scatter — revenue (X) vs EBITDA margin % (Y) per company
+# ---------------------------------------------------------------------------
+
+@router.get("/sector-scatter")
+async def stats_sector_scatter(
+    nace: str = Query(..., min_length=2, max_length=5, description="NACE prefix (2-5 digits)"),
+    limit: int = Query(300, ge=10, le=1000),
+):
+    """Per-company revenue vs EBITDA-margin scatter for one NACE sector.
+
+    Drives the Plotly-style scatter on the Stats page: each dot is one
+    company, X = revenue, Y = EBITDA margin %, dot size = FTE. Capped at
+    ``limit`` rows because >1000 dots in recharts becomes unreadable
+    (and slow). Excludes outliers (margin outside [-50, 80]) so the
+    median band stays legible.
+    """
+    nace = nace.strip()
+    if not nace.isdigit():
+        raise HTTPException(status_code=400, detail="NACE must be numeric")
+
+    try:
+        rows = fetch_all("""
+            SELECT
+                ci.enterprise_number AS cbe,
+                ci.name,
+                ci.city,
+                fl.revenue,
+                fl.ebitda,
+                fl.fte_total AS fte,
+                ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1) AS margin_pct
+            FROM financial_latest fl
+            JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+            WHERE ci.nace_code LIKE %s
+              AND fl.revenue > 100000
+              AND fl.ebitda IS NOT NULL
+              AND fl.ebitda / fl.revenue * 100 BETWEEN -50 AND 80
+            ORDER BY fl.revenue DESC
+            LIMIT %s
+        """, (f"{nace}%", limit))
+        return _serialize(rows)
+    except Exception:
+        logger.exception("Sector scatter query failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ---------------------------------------------------------------------------
 # GET /api/stats/size-distribution
 # ---------------------------------------------------------------------------
 

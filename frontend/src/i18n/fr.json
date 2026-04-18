@@ -151,7 +151,6 @@
     "maxNetDebtEbitda": "Max dette nette/EBITDA",
     "revenueGrowth": "Croissance CA %",
     "ebitdaGrowth": "Croissance EBITDA %",
-    "totalAssetsGrowth": "Croissance total actifs %",
     "fixedAssets": "Actifs immobilis\u00e9s (rubrique 20/28) \u20AC",
     "fixedAssetsShort": "Actifs immobilis\u00e9s \u20AC",
     "distress": "Statut",
@@ -182,7 +181,12 @@
     "hoverNetProfit": "Resultat net",
     "hoverFte": "ETP",
     "min": "Min",
-    "max": "Max"
+    "max": "Max",
+    "noFinancialsOnly": "Sans compte d\u00e9pos\u00e9",
+    "trend": "Tendance",
+    "recentlyViewed": "R\u00e9cemment consult\u00e9",
+    "recentlyViewedClear": "tout effacer",
+    "recentlyViewedRemove": "Supprimer de l'historique"
   },
 
   "company": {
@@ -250,6 +254,9 @@
       "noData": "Aucune donnee financiere disponible pour cette entreprise.",
       "retryNbb": "Reessayer depuis BNB",
       "loadNbb": "Charger depuis BNB",
+      "pdfOnlyTitle": "Depose en PDF \u2014 aucune donnee structuree disponible",
+      "pdfOnlyBody": "Cette entreprise depose des comptes annuels abreges (modele m120/m211/m212) que la BNB ne publie qu'en PDF. Le chiffre d'affaires, l'EBITDA et les rubriques du bilan ne peuvent pas etre extraits via l'API BNB pour ces depots. Les PDF originaux restent consultables sur le site BNB.",
+      "pdfOnlyLink": "Consulter sur BNB consult.cbso.nbb.be",
       "dataLoaded": "Donnees chargees avec succes.",
       "loadFailed": "Echec du chargement. L'entreprise n'a peut-etre pas de comptes deposes.",
       "title": "Compte de resultats",
@@ -486,7 +493,20 @@
     "notFound": "{count} non trouvee(s)",
     "noCustomersYet": "Pas encore de clients.",
     "noSuppliersYet": "Pas encore de fournisseurs.",
-    "uploadCsvHint": "Telechargez un fichier CSV ou Excel avec des numeros BCE pour remplir cette liste."
+    "uploadCsvHint": "Telechargez un fichier CSV ou Excel avec des numeros BCE pour remplir cette liste.",
+    "bulkImportTitle": "Import en masse par nom",
+    "bulkImportHint": "Collez une liste de noms d'entreprises (un par ligne). Nous proposons pour chaque ligne la meilleure correspondance belge. Validez puis ajoutez les entreprises selectionnees aux favoris.",
+    "bulkImportPlaceholder": "Un nom par ligne :\nSolvay\nUmicore\nKBC Group",
+    "bulkImportMatch": "Identifier les noms",
+    "bulkImportMatch2": "Meilleure correspondance",
+    "bulkImportInput": "Entree",
+    "bulkImportScore": "Score",
+    "bulkImportNoMatch": "aucune correspondance",
+    "bulkImportAlreadyStarred": "deja en favoris",
+    "bulkImportSelectedCount": "{selected} sur {total} selectionne(s)",
+    "bulkImportAddSelected": "Ajouter aux favoris",
+    "bulkImportNoResults": "Aucune correspondance. Essayez des noms plus complets (ex. \u00ab Solvay \u00bb plut\u00f4t que \u00ab Sol \u00bb).",
+    "bulkImportResultSummary": "{added} ajout\u00e9(s), {skipped} ignor\u00e9(s), {notFound} introuvable(s)"
   },
 
   "compare": {
@@ -568,7 +588,11 @@
     "rev": "CA",
     "margin": "Marge",
     "netProfit": "Resultat net",
-    "pnlNote": "Agrege sur {count} entreprises. Ratios calcules sur les totaux du portefeuille."
+    "pnlNote": "Agrege sur {count} entreprises. Ratios calcules sur les totaux du portefeuille.",
+    "suggestedFromGroup": "Suggestions du groupe\u00a0:",
+    "addAllN": "Ajouter les {count}",
+    "dismissSuggestions": "ignorer",
+    "suggestionTooltip": "Ajouter {name} (li\u00e9 via participation)"
   },
 
   "account": {

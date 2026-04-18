@@ -6,6 +6,16 @@ import ExportButtons from "@/components/export-buttons";
 import { fmtEur } from "@/lib/format";
 import { renderDelta, renderDeltaHeaders } from "../helpers";
 import type { FinancialsData } from "../types";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+  Legend,
+} from "recharts";
 
 /* ---------- Props ---------- */
 
@@ -168,8 +178,97 @@ export function BalanceSheetTab({
     URL.revokeObjectURL(url);
   }
 
+  // Latest year breakdown for the asset/financing bridge chart.
+  const latest = bsRows[0];
+  const bridgeData = (() => {
+    if (!latest || !latest.totalAssets) return null;
+    const fa = latest.totalNonCurrentAssets ?? 0;
+    const inv = latest.inventories ?? 0;
+    const rec = latest.tradeReceivables ?? 0;
+    const cash = (latest.cash ?? 0) + (latest.currentInvestments ?? 0);
+    const otherCa = (latest.otherCurrentAssets ?? 0) + (latest.totalCurrentAssets != null
+      ? Math.max(0, latest.totalCurrentAssets - inv - rec - cash - (latest.otherCurrentAssets ?? 0))
+      : 0);
+    const eq = latest.equity ?? 0;
+    const ltd = latest.ltDebt ?? 0;
+    const std = latest.stFinDebt ?? 0;
+    const tp = latest.tradePayables ?? 0;
+    const otherCl = latest.otherCurrentLiab ?? 0;
+    return [
+      {
+        side: "Assets",
+        "Fixed assets": Math.max(fa, 0),
+        Inventories: Math.max(inv, 0),
+        Receivables: Math.max(rec, 0),
+        Cash: Math.max(cash, 0),
+        Other: Math.max(otherCa, 0),
+      },
+      {
+        side: "Equity + Liabilities",
+        Equity: Math.max(eq, 0),
+        "LT debt": Math.max(ltd, 0),
+        "ST fin. debt": Math.max(std, 0),
+        "Trade payables": Math.max(tp, 0),
+        Other: Math.max(otherCl, 0),
+      },
+    ];
+  })();
+
+  const ASSET_COLORS: Record<string, string> = {
+    "Fixed assets": "#6366f1",
+    Inventories: "#a78bfa",
+    Receivables: "#22d3ee",
+    Cash: "#10b981",
+    Other: "#94a3b8",
+  };
+  const FIN_COLORS: Record<string, string> = {
+    Equity: "#10b981",
+    "LT debt": "#f97316",
+    "ST fin. debt": "#ef4444",
+    "Trade payables": "#fbbf24",
+    Other: "#94a3b8",
+  };
+
   return (
     <div>
+      {/* Balance-sheet bridge chart — latest year only */}
+      {bridgeData && latest?.totalAssets && (
+        <div className="mb-4 rounded-lg border bg-white p-3">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-emerald-500 pl-2 mb-2">
+            Balance-sheet bridge \u2014 FY{latest.fiscal_year}
+          </h3>
+          <ResponsiveContainer width="100%" height={140}>
+            <BarChart data={bridgeData} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 80 }}>
+              <XAxis type="number" hide tickFormatter={(v: number) => fmtEur(v)} />
+              <YAxis type="category" dataKey="side" tick={{ fontSize: 11 }} width={80} />
+              <Tooltip formatter={(v) => fmtEur(typeof v === "number" ? v : Number(v) || 0)} />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+              {/* Asset stack — only renders for the first row */}
+              {Object.keys(ASSET_COLORS).map((k) => (
+                <Bar key={`a-${k}`} dataKey={k} stackId="assets" fill={ASSET_COLORS[k]}>
+                  {bridgeData.map((_, i) => (
+                    <Cell key={i} fillOpacity={i === 0 ? 0.9 : 0} />
+                  ))}
+                </Bar>
+              ))}
+              {/* Financing stack — only renders for the second row */}
+              {Object.keys(FIN_COLORS).map((k) => (
+                <Bar key={`f-${k}`} dataKey={k} stackId="fin" fill={FIN_COLORS[k]}>
+                  {bridgeData.map((_, i) => (
+                    <Cell key={i} fillOpacity={i === 1 ? 0.9 : 0} />
+                  ))}
+                </Bar>
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+          <p className="text-[10px] text-slate-400 italic mt-1">
+            Top bar = where the value sits (fixed assets, working capital, cash).
+            Bottom bar = how it&apos;s funded (equity vs debt). The two bars
+            should be the same length.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
           {t("company.bs.title")}

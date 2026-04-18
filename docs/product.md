@@ -113,13 +113,15 @@ reframed as "add a tier limit" instead.
 - Async refactor: sync `requests` inside `async def` blocks the
   event loop during NBB calls.
 
-**Active investigation:**
-- **SDMX-first NBB integration.** NBB's `https://nsidisseminate-stat.
-  nbb.be/rest/` is a public SDMX REST API (no subscription key, no
-  revocation risk, bulk-friendly). A second Claude window is
-  prototyping the migration. If per-enterprise data is accessible
-  there, it replaces CBSO entirely — huge risk-reduction win. See
-  `docs/sdmx-migration-spike.md` once the other window delivers.
+**Closed investigations:**
+- **SDMX-first NBB integration — REJECTED.** The SDMX endpoint at
+  `https://nsidisseminate-stat.nbb.be/rest/` only publishes
+  sector-aggregate statistics, not per-enterprise filings. It can't
+  replace the CBSO subscription-keyed API. Decision recorded
+  2026-04-18 by the operator after the prototype came back negative.
+  Implication: we stay on CBSO, which means we keep paying the
+  silent-key-rotation tax. Mitigation is the auto-rotation tool plus
+  the hourly health-check alert.
 
 ---
 
