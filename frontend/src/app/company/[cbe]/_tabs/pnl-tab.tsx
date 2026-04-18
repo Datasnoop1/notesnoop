@@ -306,14 +306,6 @@ export function PnlTab({
 
   return (
     <div className="space-y-4">
-      {/* P&L Sankey — shown when we have both revenue + latest fiscal year */}
-      {latestPnl?.revenue && latestPnl?.fiscal_year && financials?.rubric_data && (
-        <PnlWaterfall
-          rubrics={financials.rubric_data as Record<string, Record<string, number | null>>}
-          fiscalYear={latestPnl.fiscal_year}
-        />
-      )}
-
       {/* -- Core Metrics Summary -- */}
       {latestPnl && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
@@ -335,6 +327,16 @@ export function PnlTab({
             </div>
           ))}
         </div>
+      )}
+
+      {/* P&L waterfall — under the KPI cards, collapsed by default, year
+          picker so the operator can switch fiscal year without scrolling. */}
+      {financials?.rubric_data && pnlData.length > 0 && (
+        <PnlWaterfall
+          rubrics={financials.rubric_data as Record<string, Record<string, number | null>>}
+          fiscalYears={pnlData.map((p) => p.fiscal_year).filter((y): y is number => typeof y === "number")}
+          defaultCollapsed
+        />
       )}
 
       {/* -- Income Statement -- */}

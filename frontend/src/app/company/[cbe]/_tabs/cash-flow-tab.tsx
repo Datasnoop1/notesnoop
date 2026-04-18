@@ -7,6 +7,7 @@ import { fmtEur } from "@/lib/format";
 import { renderDelta, renderDeltaHeaders } from "../helpers";
 import type { FinancialsData } from "../types";
 import { PdfOnlyBanner } from "./pdf-only-banner";
+import { CashFlowWaterfall } from "./cashflow-waterfall";
 
 /* ---------- Props ---------- */
 
@@ -154,7 +155,16 @@ export function CashFlowTab({
   }
 
   return (
-    <div>
+    <div className="space-y-4">
+      {/* Cash-flow waterfall — indirect method; collapsed by default. */}
+      {financials?.rubric_data && sorted.length > 1 && (
+        <CashFlowWaterfall
+          rubrics={financials.rubric_data as Record<string, Record<string, number | null>>}
+          fiscalYears={sorted.map((r) => r.fiscal_year).filter((y): y is number => typeof y === "number")}
+          defaultCollapsed
+        />
+      )}
+
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-cyan-500 pl-2">
           {t("company.cf.title")}

@@ -7,15 +7,7 @@ import { fmtEur } from "@/lib/format";
 import { renderDelta, renderDeltaHeaders } from "../helpers";
 import type { FinancialsData } from "../types";
 import { PdfOnlyBanner } from "./pdf-only-banner";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
+import { BalanceSheetBridge } from "./bs-bridge";
 
 /* ---------- Props ---------- */
 
@@ -185,103 +177,29 @@ export function BalanceSheetTab({
     URL.revokeObjectURL(url);
   }
 
-  // Latest year breakdown for the asset/financing bridge chart.
-  // Single stackId, distinct keys per side — each row only has values for
-  // its own side, the other side's keys are zero, so recharts stacks them
-  // cleanly. Residual on each side absorbs any data-quality gap, so both
-  // bars always sum to totalAssets (balance-sheet identity).
-  const latest = bsRows[0];
-  const bridgeData = (() => {
-    if (!latest || !latest.totalAssets) return null;
-    const target = latest.totalAssets;
-
-    // Assets
-    const fa = Math.max(latest.totalNonCurrentAssets ?? 0, 0);
-    const inv = Math.max(latest.inventories ?? 0, 0);
-    const rec = Math.max(latest.tradeReceivables ?? 0, 0);
-    const cash = Math.max((latest.cash ?? 0) + (latest.currentInvestments ?? 0), 0);
-    const otherA = Math.max(target - fa - inv - rec - cash, 0);
-
-    // Equity + Liabilities. Negative equity clamped to 0 in the bar; shown
-    // separately as a note below the chart.
-    const eq = Math.max(latest.equity ?? 0, 0);
-    const ltd = Math.max(latest.ltDebt ?? 0, 0);
-    const std = Math.max(latest.stFinDebt ?? 0, 0);
-    const tp = Math.max(latest.tradePayables ?? 0, 0);
-    const otherL = Math.max(target - eq - ltd - std - tp, 0);
-
-    return [
-      {
-        side: "Assets",
-        fixedAssets: fa,
-        inventories: inv,
-        receivables: rec,
-        cash: cash,
-        otherAssets: otherA,
-        // Liability keys absent on this row
-        equity: 0, ltDebt: 0, stDebt: 0, tradePay: 0, otherLiab: 0,
-      },
-      {
-        side: "Equity + Liabilities",
-        fixedAssets: 0, inventories: 0, receivables: 0, cash: 0, otherAssets: 0,
-        equity: eq,
-        ltDebt: ltd,
-        stDebt: std,
-        tradePay: tp,
-        otherLiab: otherL,
-      },
-    ];
-  })();
-  const negEquity = latest?.equity != null && latest.equity < 0 ? latest.equity : null;
-
-  type BridgeKey = "fixedAssets" | "inventories" | "receivables" | "cash" | "otherAssets"
-    | "equity" | "ltDebt" | "stDebt" | "tradePay" | "otherLiab";
-  const BRIDGE_BARS: Array<{ key: BridgeKey; label: string; color: string }> = [
-    { key: "fixedAssets",  label: "Fixed assets",   color: "#6366f1" },
-    { key: "inventories",  label: "Inventories",    color: "#a78bfa" },
-    { key: "receivables",  label: "Receivables",    color: "#22d3ee" },
-    { key: "cash",         label: "Cash",           color: "#10b981" },
-    { key: "otherAssets",  label: "Other assets",   color: "#94a3b8" },
-    { key: "equity",       label: "Equity",         color: "#059669" },
-    { key: "ltDebt",       label: "LT debt",        color: "#f97316" },
-    { key: "stDebt",       label: "ST fin. debt",   color: "#ef4444" },
-    { key: "tradePay",     label: "Trade payables", color: "#fbbf24" },
-    { key: "otherLiab",    label: "Other liab.",    color: "#78716c" },
-  ];
+  // Bridge rendering moved to <BalanceSheetBridge/> below. All the old
+  // recharts-specific helpers (bridgeData builder, BRIDGE_BARS, stack IDs)
+  // were deleted with the recharts rewrite — the new component owns its
+  // own bar sizing via pure CSS flex.
 
   return (
     <div>
-      {/* Balance-sheet bridge chart — latest year only */}
-      {bridgeData && latest?.totalAssets && (
-        <div className="mb-4 rounded-lg border bg-white p-3">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-emerald-500 pl-2 mb-2">
-            {`Balance-sheet bridge — FY${latest.fiscal_year}`}
-          </h3>
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={bridgeData} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 100 }}>
-              <XAxis type="number" hide tickFormatter={(v: number) => fmtEur(v)} />
-              <YAxis type="category" dataKey="side" tick={{ fontSize: 11 }} width={100} />
-              <Tooltip formatter={(v) => fmtEur(typeof v === "number" ? v : Number(v) || 0)} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              {BRIDGE_BARS.map((b) => (
-                <Bar key={b.key} dataKey={b.key} name={b.label} stackId="bal" fill={b.color} />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-          <p className="text-[10px] text-slate-400 italic mt-1">
-            Top bar = where the value sits (fixed assets, working capital, cash).
-            Bottom bar = how it&apos;s funded (equity vs debt). The two bars
-            should be the same length.
-          </p>
-          {negEquity != null && (
-            <p className="text-[10px] text-rose-600 mt-1">
-              ⚠ Negative equity ({fmtEur(Math.abs(negEquity))}): liabilities
-              exceed assets by this amount. Equity bucket above is forced to 0
-              so the bars still match visually.
-            </p>
-          )}
-        </div>
-      )}
+      {/* Balance-sheet bridge (SVG-based, proportional, with year picker). */}
+      <BalanceSheetBridge
+        bsRows={bsRows.map((r) => ({
+          fiscal_year: r.fiscal_year,
+          totalAssets: r.totalAssets,
+          totalNonCurrentAssets: r.totalNonCurrentAssets,
+          inventories: r.inventories,
+          tradeReceivables: r.tradeReceivables,
+          cash: r.cash,
+          currentInvestments: r.currentInvestments,
+          equity: r.equity,
+          ltDebt: r.ltDebt,
+          stFinDebt: r.stFinDebt,
+          tradePayables: r.tradePayables,
+        }))}
+      />
 
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
