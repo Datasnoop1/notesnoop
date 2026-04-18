@@ -46,6 +46,7 @@ type Row = {
   color: string;          // bar tailwind bg
   textColor: string;      // label text tailwind
   pctLabel?: string;      // inline % for milestones
+  indent?: boolean;       // indent sub-category labels (deductions)
 };
 
 export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }: Props) {
@@ -104,8 +105,19 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
     deductionTxt: "text-slate-500",
   };
 
+  // Waterfall math — the deductions MUST tie out to the next milestone so
+  // the floating bars form a continuous staircase with no gaps.
+  //
+  // Between Revenue and EBITDA the total drop is `revenue - ebitda`. We
+  // show it split across the rubric breakdown (Materials / Services /
+  // Personnel / Other). Any gap between the sum of those rubrics and the
+  // true total lands in the "Other OpEx" residual so the staircase lands
+  // exactly at the EBITDA milestone.
+  //
+  // Same pattern between EBIT and Net profit: total = ebit - netProfit
+  // split across Fin charges + Tax + residual (shown as "Other").
   const rows: Row[] = [];
-  // Revenue — anchored to 0, soft sky colour (starting point).
+
   rows.push({
     label: "Revenue", value: revenue, kind: "milestone",
     startPct: 0, endPct: 100,
@@ -113,25 +125,30 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
     pctLabel: "100.0%",
   });
 
-  // Deductions from revenue, running balance works downwards.
+  // Between Revenue and EBITDA: total opex = revenue - ebitda.
+  const totalOpex = Math.max(0, revenue - Math.max(0, ebitda));
+  const knownOpex = materials + services + personnel + otherOp;
+  const opexResidual = Math.max(0, totalOpex - knownOpex);
+
   let running = revenue;
-  const pushDed = (label: string, v: number) => {
+  const pushDed = (label: string, v: number, isSub = true) => {
     if (v <= 0) return;
     const endPct = toPct(running);
     running -= v;
-    const startPct = toPct(running);
+    const startPct = toPct(Math.max(0, running));
     rows.push({
       label, value: v, kind: "deduction",
       startPct, endPct,
       color: COL.deduction, textColor: COL.deductionTxt,
+      indent: isSub,
     });
   };
-  pushDed("− Materials",  materials);
-  pushDed("− Services",   services);
-  pushDed("− Personnel",  personnel);
-  pushDed("− Other OpEx", otherOp);
+  pushDed("Materials",  materials);
+  pushDed("Services",   services);
+  pushDed("Personnel",  personnel);
+  pushDed("Other OpEx", otherOp + opexResidual);
 
-  // EBITDA milestone — soft teal accent
+  // EBITDA milestone — running now equals ebitda (±rounding)
   rows.push({
     label: "EBITDA", value: Math.max(0, ebitda), kind: "milestone",
     startPct: 0, endPct: Math.min(100, toPct(Math.max(0, ebitda))),
@@ -139,19 +156,21 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
     pctLabel: revenue > 0 ? `${(ebitda / revenue * 100).toFixed(1)}%` : undefined,
   });
 
-  // − D&A: floats between EBIT and EBITDA
-  if (da > 0) {
+  // Between EBITDA and EBIT: D&A fills the full gap (ebitda - ebit)
+  const daGap = Math.max(0, Math.max(0, ebitda) - Math.max(0, ebit));
+  if (daGap > 0) {
     const endPct = toPct(Math.max(0, ebitda));
     const startPct = toPct(Math.max(0, ebit));
     rows.push({
-      label: "− D&A", value: da, kind: "deduction",
+      label: "D&A", value: daGap, kind: "deduction",
       startPct: Math.min(startPct, endPct),
       endPct: Math.max(startPct, endPct),
       color: COL.deduction, textColor: COL.deductionTxt,
+      indent: true,
     });
   }
 
-  // EBIT milestone — slightly stronger teal to mark journey progress
+  // EBIT milestone
   rows.push({
     label: "EBIT", value: Math.max(0, ebit), kind: "milestone",
     startPct: 0, endPct: Math.min(100, Math.max(0, toPct(ebit))),
@@ -159,8 +178,12 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
     pctLabel: revenue > 0 ? `${(ebit / revenue * 100).toFixed(1)}%` : undefined,
   });
 
-  // Fin charges + Tax bring EBIT down to Net profit.
-  let ebitRunning = ebit;
+  // Between EBIT and Net profit: total below-ebit = ebit - netProfit
+  const totalBelowEbit = Math.max(0, Math.max(0, ebit) - Math.max(0, netProfit));
+  const knownBelowEbit = finCharges + tax;
+  const belowEbitResidual = Math.max(0, totalBelowEbit - knownBelowEbit);
+
+  let ebitRunning = Math.max(0, ebit);
   const pushBelowEbit = (label: string, v: number) => {
     if (v <= 0) return;
     const endPct = toPct(Math.max(0, ebitRunning));
@@ -171,12 +194,14 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
       startPct: Math.min(startPct, endPct),
       endPct: Math.max(startPct, endPct),
       color: COL.deduction, textColor: COL.deductionTxt,
+      indent: true,
     });
   };
-  pushBelowEbit("− Fin. charges", finCharges);
-  pushBelowEbit("− Tax",          tax);
+  pushBelowEbit("Fin. charges", finCharges);
+  pushBelowEbit("Tax",          tax);
+  if (belowEbitResidual > 0) pushBelowEbit("Other", belowEbitResidual);
 
-  // Net profit — bottom line. Green if positive, dusty rose if negative.
+  // Net profit — bottom line
   rows.push({
     label: "Net profit", value: Math.max(0, netProfit), kind: "milestone",
     startPct: 0, endPct: Math.min(100, Math.max(0, toPct(netProfit))),
@@ -221,9 +246,9 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
               const isMilestone = r.kind === "milestone";
               return (
                 <div key={`${i}-${r.label}`} className="flex items-center gap-3 text-[12px]">
-                  <div className={`w-[110px] md:w-[140px] shrink-0 text-right truncate ${
-                    isMilestone ? `font-semibold ${r.textColor}` : r.textColor
-                  }`}>
+                  <div className={`w-[110px] md:w-[140px] shrink-0 truncate ${
+                    isMilestone ? `text-right font-semibold ${r.textColor}` : `text-right ${r.textColor}`
+                  } ${r.indent ? "pr-3 md:pr-5" : ""}`}>
                     {r.label}
                   </div>
                   <div className="flex-1 relative h-5 md:h-6 bg-slate-50 rounded overflow-hidden">

@@ -40,6 +40,7 @@ type Row = {
   kind: "milestone" | "deduction" | "addition";
   color: string;
   textColor: string;
+  indent?: boolean;
 };
 
 export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }: Props) {
@@ -140,6 +141,7 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
       startPct: toPct(Math.max(0, lo)),
       endPct: toPct(Math.max(0, hi)),
       color, textColor,
+      indent: true,
     });
   };
 
@@ -222,9 +224,9 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
               const isMilestone = r.kind === "milestone";
               return (
                 <div key={`${i}-${r.label}`} className="flex items-center gap-3 text-[12px]">
-                  <div className={`w-[120px] md:w-[150px] shrink-0 text-right truncate ${
-                    isMilestone ? `font-semibold ${r.textColor}` : r.textColor
-                  }`}>
+                  <div className={`w-[120px] md:w-[150px] shrink-0 truncate ${
+                    isMilestone ? `text-right font-semibold ${r.textColor}` : `text-right ${r.textColor}`
+                  } ${r.indent ? "pr-3 md:pr-5" : ""}`}>
                     {r.label}
                   </div>
                   <div className="flex-1 relative h-5 md:h-6 bg-slate-50 rounded overflow-hidden">

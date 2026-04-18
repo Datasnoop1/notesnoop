@@ -63,12 +63,15 @@ export function BalanceSheetBridge({ bsRows, defaultCollapsed = false }: Props) 
   const cash = Math.max((row.cash ?? 0) + (row.currentInvestments ?? 0), 0);
   const otherA = Math.max(target - fa - inv - rec - cash, 0);
 
+  // Same gray palette as the P&L and cash-flow waterfalls — milestones
+  // (Fixed assets / Cash / Equity) use slate-400, mid categories slate-300,
+  // residuals slate-100. Keeps the whole financials suite visually quiet.
   const assetSegs: Segment[] = [
-    { label: "Fixed assets",  value: fa,     color: "bg-indigo-300" },
-    { label: "Inventories",   value: inv,    color: "bg-violet-200" },
-    { label: "Receivables",   value: rec,    color: "bg-cyan-200" },
-    { label: "Cash",          value: cash,   color: "bg-emerald-300" },
-    { label: "Other",         value: otherA, color: "bg-slate-200" },
+    { label: "Fixed assets",  value: fa,     color: "bg-slate-400" },
+    { label: "Inventories",   value: inv,    color: "bg-slate-300" },
+    { label: "Receivables",   value: rec,    color: "bg-slate-300" },
+    { label: "Cash",          value: cash,   color: "bg-slate-400" },
+    { label: "Other",         value: otherA, color: "bg-slate-100" },
   ];
 
   // Equity + Liabilities side.
@@ -81,11 +84,11 @@ export function BalanceSheetBridge({ bsRows, defaultCollapsed = false }: Props) 
   const otherL = Math.max(target - eq - ltd - std - tp, 0);
 
   const liabSegs: Segment[] = [
-    { label: "Equity",           value: eq,     color: "bg-emerald-300" },
-    { label: "LT debt",          value: ltd,    color: "bg-orange-200" },
-    { label: "ST fin. debt",     value: std,    color: "bg-rose-200" },
-    { label: "Trade payables",   value: tp,     color: "bg-amber-200" },
-    { label: "Other",            value: otherL, color: "bg-slate-200" },
+    { label: "Equity",           value: eq,     color: "bg-slate-500" },
+    { label: "LT debt",          value: ltd,    color: "bg-slate-300" },
+    { label: "ST fin. debt",     value: std,    color: "bg-slate-300" },
+    { label: "Trade payables",   value: tp,     color: "bg-slate-300" },
+    { label: "Other",            value: otherL, color: "bg-slate-100" },
   ];
 
   const renderBar = (segs: Segment[], label: string) => (
