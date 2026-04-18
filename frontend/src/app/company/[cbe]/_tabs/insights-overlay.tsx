@@ -74,6 +74,72 @@ function StepIndicator({ steps }: { steps: PipelineStep[] }) {
 
 /* ---------- Section card ---------- */
 
+/* Citation-linked data sources for AI insights. Renders a small chip
+ * row at the top of the insights panel so the PE analyst can point at
+ * the NBB filings + KBO register + scraped URL as source. Extends to
+ * per-claim citation popovers in a follow-up. */
+function InsightsDataSources({ insights }: { insights: AiInsights }) {
+  const chips: { label: string; href?: string; color: string }[] = [
+    { label: "KBO register", color: "bg-sky-50 text-sky-700 border-sky-200" },
+    { label: "NBB CBSO filings", color: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  ];
+  if (insights.website_url) {
+    chips.push({
+      label: `Company website`,
+      href: insights.website_url.startsWith("http") ? insights.website_url : `https://${insights.website_url}`,
+      color: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    });
+  }
+  if (insights.linkedin_url) {
+    chips.push({
+      label: "LinkedIn",
+      href: insights.linkedin_url,
+      color: "bg-blue-50 text-blue-700 border-blue-200",
+    });
+  }
+  const attrs = insights.source_attribution || {};
+  Object.entries(attrs).forEach(([k, v]) => {
+    if (!v) return;
+    chips.push({
+      label: k,
+      href: typeof v === "string" && v.startsWith("http") ? v : undefined,
+      color: "bg-slate-50 text-slate-600 border-slate-200",
+    });
+  });
+  return (
+    <div className="rounded-lg border border-slate-100 bg-white px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+        Data sources (traceable)
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {chips.map((c) => (
+          c.href ? (
+            <a
+              key={c.label}
+              href={c.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`text-[10px] border rounded px-1.5 py-0.5 hover:underline ${c.color}`}
+            >
+              {c.label}
+            </a>
+          ) : (
+            <span
+              key={c.label}
+              className={`text-[10px] border rounded px-1.5 py-0.5 ${c.color}`}
+            >
+              {c.label}
+            </span>
+          )
+        ))}
+      </div>
+      <div className="text-[9px] text-slate-400 mt-1">
+        Insights generated from the above sources. Claims about revenue / EBITDA / headcount are drawn from the NBB filing for the latest fiscal year shown on the Financials tab.
+      </div>
+    </div>
+  );
+}
+
 function InsightSection({
   icon,
   title,
@@ -397,6 +463,12 @@ export function InsightsOverlay({
                     <span>These insights could not be fully verified. Some details may be inaccurate.</span>
                   </div>
                 )}
+                {/* Traceable source data — the rubrics the AI was referencing.
+                    Per docs/product.md: "all insight outputs must have traceable
+                    source data (rubric code, filing date, etc.) so a PE
+                    analyst can defend the number to an IC." */}
+                <InsightsDataSources insights={insights} />
+
                 <InsightSection
                   icon={<Building2 className="h-4 w-4" />}
                   title="What they do"
