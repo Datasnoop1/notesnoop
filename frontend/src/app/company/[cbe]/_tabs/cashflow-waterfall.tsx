@@ -285,7 +285,13 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
                   <div className={`w-[90px] md:w-[110px] shrink-0 text-right font-mono text-[11px] ${
                     isMilestone ? `font-semibold ${r.textColor}` : r.textColor
                   }`}>
-                    {fmtEur(Math.abs(r.value))}
+                    {/* Milestones are balances (no explicit + sign; minus
+                        if negative). Floats are flows — always signed so
+                        the reader knows at a glance whether the line adds
+                        to or subtracts from cash. */}
+                    {isMilestone
+                      ? (r.value < 0 ? `\u2212${fmtEur(Math.abs(r.value))}` : fmtEur(r.value))
+                      : (r.value >= 0 ? `+${fmtEur(r.value)}` : `\u2212${fmtEur(Math.abs(r.value))}`)}
                   </div>
                 </div>
               );

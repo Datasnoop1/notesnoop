@@ -642,6 +642,12 @@ export default function AdminPanel() {
   const [invoicesData, setInvoicesData] = useState<InvoicesData | null>(null);
   const [pnlData, setPnlData] = useState<PnlSummary | null>(null);
   const [classifying, setClassifying] = useState(false);
+  // Lazy-load guard — commerce endpoints (Stripe list + iter, OpenRouter
+  // API call, pnl-summary) only fire when the Revenue tab is actually
+  // visited. Keeps initial admin load snappy (<500ms DB-only) instead of
+  // blocking 2-3s on external API calls every time.
+  const [commerceLoaded, setCommerceLoaded] = useState(false);
+  const [commerceLoading, setCommerceLoading] = useState(false);
   const [tiers, setTiers] = useState<TierConfig[]>([]);
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
   const [tierSaving, setTierSaving] = useState<string | null>(null);
@@ -655,7 +661,11 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac, costs, llmCosts, arr, invs, pnl] = await Promise.all([
+      // Core — everything that's a DB-only query on the backend. Fast
+      // (<500ms) so we load it all on mount. Commerce endpoints (Stripe
+      // list + iter, OpenRouter live API, pnl-summary) are lazy-loaded
+      // by a separate effect when the Revenue tab is visited.
+      const [s, u, f, a, p, fby, alog, ins, usage, tc, sc, adopt, trac, llmCosts, invs] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -667,20 +677,14 @@ export default function AdminPanel() {
         adminFetch<ActivityEntry[]>("/api/admin/activity").catch(() => [] as ActivityEntry[]),
         adminFetch<Insights>("/api/admin/insights").catch(() => null),
         adminFetch<typeof usageData>("/api/admin/usage").catch(() => null),
-        adminFetch<PaymentsData>("/api/admin/payments").catch(() => null),
         adminFetch<TierConfig[]>("/api/admin/tiers").catch(() => [] as TierConfig[]),
         adminFetch<{ site_logo: string }>("/api/admin/site-config").catch(() => ({ site_logo: "/logos/dog-telescope.jpg" })),
         adminFetch<AdoptionData>("/api/admin/adoption").catch(() => null),
         adminFetch<TractionData>("/api/admin/traction").catch(() => null),
-        adminFetch<CostsData>("/api/admin/costs").catch(() => null),
         adminFetch<LlmCostBreakdown>("/api/admin/llm-cost-breakdown").catch(() => null),
-        adminFetch<ARRData>("/api/admin/arr").catch(() => null),
         adminFetch<InvoicesData>("/api/admin/invoices").catch(() => null),
-        adminFetch<PnlSummary>("/api/admin/pnl-summary").catch(() => null),
       ]);
-      setArrData(arr);
       setInvoicesData(invs);
-      setPnlData(pnl);
       setStats(s);
       setUsers(u);
       setFeedback(f);
@@ -690,12 +694,10 @@ export default function AdminPanel() {
       setActivityLog(alog);
       setInsights(ins);
       setUsageData(usage as typeof usageData);
-      setPaymentsData(pay);
       setTiers(tc);
       if (sc?.site_logo) setSiteLogo(sc.site_logo);
       setAdoptionData(adopt);
       setTractionData(trac);
-      setCostsData(costs);
       setLlmCosts(llmCosts);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
@@ -706,9 +708,40 @@ export default function AdminPanel() {
     }
   }, [router]);
 
+  /** Expensive commerce endpoints — Stripe (`payments`, `arr`,
+   *  `pnl-summary` auto_paging_iter) + OpenRouter API (`costs`). Fire
+   *  only when the user lands on the Revenue tab; gated by
+   *  `commerceLoaded` so tab-hopping doesn't re-fetch. */
+  const loadCommerce = useCallback(async () => {
+    if (commerceLoaded || commerceLoading) return;
+    setCommerceLoading(true);
+    try {
+      const [pay, costs, arr, pnl] = await Promise.all([
+        adminFetch<PaymentsData>("/api/admin/payments").catch(() => null),
+        adminFetch<CostsData>("/api/admin/costs").catch(() => null),
+        adminFetch<ARRData>("/api/admin/arr").catch(() => null),
+        adminFetch<PnlSummary>("/api/admin/pnl-summary").catch(() => null),
+      ]);
+      setPaymentsData(pay);
+      setCostsData(costs);
+      setArrData(arr);
+      setPnlData(pnl);
+      setCommerceLoaded(true);
+    } finally {
+      setCommerceLoading(false);
+    }
+  }, [commerceLoaded, commerceLoading]);
+
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Lazy-fire commerce data on first Revenue-tab visit.
+  useEffect(() => {
+    if (activeTab === "revenue" && !commerceLoaded && !commerceLoading) {
+      loadCommerce();
+    }
+  }, [activeTab, commerceLoaded, commerceLoading, loadCommerce]);
 
   /* ---- Computed readiness ---- */
 
@@ -3270,6 +3303,9 @@ export default function AdminPanel() {
                           try {
                             await adminFetch("/api/admin/invoices/classify-all", { method: "POST" });
                             loadData();
+                            // Force commerce re-fetch so the P&L table
+                            // reflects the new category labels.
+                            setCommerceLoaded(false);
                           } catch { /* ignore */ }
                           finally { setClassifying(false); }
                         }}
