@@ -154,9 +154,14 @@ def _fetch_candidate_publications(
                )
                SELECT * FROM candidates c
                WHERE NOT EXISTS (
+                   -- Only skip refs that fully completed (status='extracted').
+                   -- An 'ocr_done' checkpoint means the chunk crashed after
+                   -- OCR but before the batch persisted — we WANT to
+                   -- re-process those on resume, so we exclude them from
+                   -- the "skip" clause.
                    SELECT 1 FROM staatsblad_backfill_progress p
                    WHERE p.run_id = %s AND p.pub_reference = c.reference
-                     AND p.status IN ('extracted', 'ocr_done')
+                     AND p.status = 'extracted'
                )
                AND NOT EXISTS (
                    SELECT 1 FROM staatsblad_event e

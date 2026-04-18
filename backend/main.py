@@ -182,6 +182,11 @@ def _classify_endpoint(path: str) -> str | None:
         or "/summarize-publications" in path
         or "/similar/ai" in path
         or "/screener/nl" in path
+        # Stage 3: /events/search calls OpenRouter for query embedding
+        # on every request — bucket it with the AI endpoints so
+        # anonymous abuse is bounded.  `/companies/{cbe}/events`
+        # (non-search) is read-only DB and stays unlimited.
+        or "/events/search" in path
     ):
         return "ai_enrichments_per_day"
     if "/export" in path:

@@ -58,9 +58,11 @@ def _admin_extract_cache_record(cbe: str, count: int) -> None:
 def _normalize_name(raw: str | None) -> str:
     """Normalise a person/entity name for cross-source matching.
 
-    Strips diacritics, lowercases, collapses whitespace, removes punctuation
-    and common title prefixes. Not perfect but catches 'J. De Smet' =
-    'Jean De Smet' for the majority of the corpus.
+    Strips diacritics, lowercases, collapses whitespace, removes
+    punctuation and common title prefixes. Does NOT expand initials
+    (so 'J. De Smet' ≠ 'Jean De Smet' under this scheme) — initials
+    matching is a known-imperfect gap we accept for now; the NBB
+    snapshot usually uses full names like Staatsblad.
     """
     if not raw:
         return ""
@@ -147,22 +149,37 @@ def _merge_admins_with_staatsblad(
         k = "|".join((nk, role))
 
         if sub in ("appointment", "reappointment", "renewal"):
-            current[k] = {
-                "name": name,
-                "role": role,
-                "role_label": role,
-                "person_type": "natural" if ev.get("person_name") else "legal",
-                "identifier": None,
-                "mandate_start": str(ev.get("event_date") or ev.get("pub_date") or ""),
-                "mandate_end": None,
-                "representative_name": None,
-                "fiscal_year": None,
-                "deposit_key": f"sb_{ev.get('pub_reference')}",
-                "source": "staatsblad" if k not in current else "merged",
-                "as_of": str(ev.get("pub_date") or ""),
-                "pub_reference": ev.get("pub_reference"),
-                "summary": ev.get("summary"),
-            }
+            existing = current.get(k)
+            if existing is None:
+                current[k] = {
+                    "name": name,
+                    "role": role,
+                    "role_label": role,
+                    "person_type": "natural" if ev.get("person_name") else "legal",
+                    "identifier": None,
+                    "mandate_start": str(ev.get("event_date") or ev.get("pub_date") or ""),
+                    "mandate_end": None,
+                    "representative_name": None,
+                    "fiscal_year": None,
+                    "deposit_key": f"sb_{ev.get('pub_reference')}",
+                    "source": "staatsblad",
+                    "as_of": str(ev.get("pub_date") or ""),
+                    "pub_reference": ev.get("pub_reference"),
+                    "summary": ev.get("summary"),
+                }
+            else:
+                # Merge into the NBB-seeded (or earlier) row, preserving
+                # fields only the NBB snapshot carries (identifier,
+                # representative_name). Overlay freshness markers.
+                existing.update({
+                    "mandate_start": str(ev.get("event_date") or ev.get("pub_date") or existing.get("mandate_start") or ""),
+                    "mandate_end": None,
+                    "deposit_key": f"sb_{ev.get('pub_reference')}",
+                    "source": "merged",
+                    "as_of": str(ev.get("pub_date") or ""),
+                    "pub_reference": ev.get("pub_reference"),
+                    "summary": ev.get("summary"),
+                })
         elif sub in ("resignation", "end", "termination"):
             # Match-by-name across any role, since resignations often omit
             # role in filings. Mark all mandates for this normalised name

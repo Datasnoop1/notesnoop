@@ -350,6 +350,9 @@ def persist_events(
             # slipped past the schema maxLength on a rare call.
             summary = summary[:60]
 
+            # ON CONFLICT target must reference the unique index's
+            # expression list directly — `ON CONSTRAINT <index_name>`
+            # doesn't work for UNIQUE INDEX (only UNIQUE CONSTRAINT).
             cur.execute(
                 """INSERT INTO staatsblad_event (
                        enterprise_number, pub_reference, pub_date,
@@ -357,7 +360,9 @@ def persist_events(
                        person_name, person_role, entity_name,
                        amount_eur, amount_shares, summary, extraction_model
                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                   ON CONFLICT ON CONSTRAINT idx_staatsblad_event_dedup DO NOTHING""",
+                   ON CONFLICT (enterprise_number, pub_reference, event_type,
+                                COALESCE(person_name, ''), COALESCE(entity_name, ''))
+                   DO NOTHING""",
                 (
                     prepared.enterprise_number,
                     prepared.pub_reference,

@@ -220,7 +220,15 @@ async def get_company_network(cbe: str, max_depth: int = Query(1, ge=1, le=3)):
 
             role = role_key or "Administrator"
             is_legal = bool(ev.get("entity_name") and not ev.get("person_name"))
-            nid = f"sb_{aname[:20]}_{role_key[:10]}"
+            # Stable + collision-safe id via SHA-1 of (name, role).  Avoids
+            # breaking graph libraries on names with spaces/punctuation and
+            # long-prefix collisions from the previous `sb_{aname[:20]}_...`
+            # scheme.
+            import hashlib as _hashlib
+            _nid_digest = _hashlib.sha1(
+                f"{aname}|{role_key}".encode("utf-8"), usedforsecurity=False
+            ).hexdigest()[:16]
+            nid = f"sb_{_nid_digest}"
 
             if not any(n["id"] == nid for n in nodes):
                 nodes.append({

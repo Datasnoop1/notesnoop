@@ -289,7 +289,10 @@ export interface CompanyStructure {
   administrator_events?: AdministratorEvent[];
   shareholders: Shareholder[];
   participating_interests: ParticipatingInterest[];
-  publications: Publication[];
+  // Backend returns `staatsblad_publications` (snake_case preserved from
+  // the DB column). Older clients read via unknown-cast; the typed field
+  // is the canonical name going forward.
+  staatsblad_publications: Publication[];
 }
 
 export interface NetworkNode {

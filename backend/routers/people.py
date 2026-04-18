@@ -250,8 +250,12 @@ async def get_person_connections(name: str):
                     COALESCE(e.event_date, e.pub_date) AS mandate_date,
                     e.pub_date,
                     e.pub_reference,
+                    -- Coalesce NULL + empty role to a single bucket so
+                    -- a person with one mandate doesn't split into two
+                    -- "current-state" rows.
                     ROW_NUMBER() OVER (
-                        PARTITION BY e.enterprise_number, e.person_role
+                        PARTITION BY e.enterprise_number,
+                                     COALESCE(NULLIF(e.person_role, ''), '')
                         ORDER BY e.pub_date DESC, e.id DESC
                     ) AS rn
                 FROM staatsblad_event e

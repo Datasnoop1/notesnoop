@@ -672,12 +672,20 @@ CREATE INDEX IF NOT EXISTS idx_insolvency_case_opened
 -- being retired in favour of the LLM extractor.
 DO $staatsblad_event_migrate$
 BEGIN
+    -- Only drop when the old regex-classifier table is present: require
+    -- both (a) no `pub_reference` column AND (b) the old `subject_name`
+    -- column exists. Guards against accidentally dropping a partially-
+    -- created new table, or a future variant that just happens to lack
+    -- one column.
     IF EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_name = 'staatsblad_event'
     ) AND NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'staatsblad_event' AND column_name = 'pub_reference'
+    ) AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'staatsblad_event' AND column_name = 'subject_name'
     ) THEN
         DROP TABLE staatsblad_event CASCADE;
     END IF;
