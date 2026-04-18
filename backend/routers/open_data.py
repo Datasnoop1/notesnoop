@@ -92,10 +92,10 @@ async def company_radar(cbe: str):
         row = fetch_one(
             """
             SELECT fl.revenue, fl.ebitda, fl.ebit, fl.net_profit, fl.fte_total,
-                   fl.total_assets, fl.equity, fl.cash, fl.current_investments,
+                   fl.total_assets, fl.equity, fl.cash,
                    fl.lt_financial_debt, fl.st_financial_debt,
                    sp.rev_rank, sp.ebitda_rank, sp.margin_rank,
-                   sp.fte_rank, sp.fixed_assets_rank, sp.peer_count
+                   sp.fte_rank, sp.peer_count
             FROM financial_latest fl
             LEFT JOIN sector_percentiles sp
               ON sp.enterprise_number = fl.enterprise_number
@@ -112,10 +112,10 @@ async def company_radar(cbe: str):
 
         # Derived leverage score: inverted netDebt/EBITDA.
         # score = 100 * clamp(1 - min(ndE, 5)/5, 0..1)
+        # financial_latest has no current_investments column — use cash only.
         nd = (float(row.get("lt_financial_debt") or 0)
               + float(row.get("st_financial_debt") or 0)
-              - float(row.get("cash") or 0)
-              - float(row.get("current_investments") or 0))
+              - float(row.get("cash") or 0))
         ebitda = float(row.get("ebitda") or 0)
         if ebitda > 0:
             lev_ratio = max(0, nd / ebitda)
@@ -123,9 +123,9 @@ async def company_radar(cbe: str):
         else:
             leverage_score = None
 
-        # Liquidity proxy: cash+investments / ST debt (capped at 2×)
+        # Liquidity proxy: cash / ST debt (capped at 2×).
         stdebt = float(row.get("st_financial_debt") or 0)
-        liq_cash = float(row.get("cash") or 0) + float(row.get("current_investments") or 0)
+        liq_cash = float(row.get("cash") or 0)
         if stdebt > 0:
             ratio = liq_cash / stdebt
             liquidity_score = round(100 * min(ratio, 2) / 2, 1)

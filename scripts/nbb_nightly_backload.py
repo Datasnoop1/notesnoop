@@ -256,7 +256,14 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
     errors = 0
 
     conn = get_connection()
+    since_reconnect = 0
     try:
+        def _cycle_connection():
+            nonlocal conn, since_reconnect
+            put_connection(conn)
+            conn = get_connection()
+            since_reconnect = 0
+
         # Reverse chronological: 2026 → 2025 → 2024 → 2023 → 2022
         for fy in range(start_year, end_year - 1, -1):
             if calls >= max_calls:
@@ -342,6 +349,13 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
 
                 loaded += 1
                 rubrics_total += n
+                since_reconnect += 1
+                # Cycle the pooled connection every 100 successful stores so
+                # Postgres idle_in_transaction / server timeout doesn't
+                # silently break us mid-run.
+                if since_reconnect >= 100:
+                    _cycle_connection()
+
                 if loaded % 50 == 0:
                     log.info("progress FY%d: %d loaded, %d rubrics, %d calls",
                              fy, loaded, rubrics_total, calls)

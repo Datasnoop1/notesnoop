@@ -65,7 +65,7 @@ def candidates(batch: int) -> list[str]:
             OR EXISTS (
                 SELECT 1 FROM staatsblad_publication sp
                 WHERE sp.enterprise_number = e.enterprise_number
-                  AND sp.pub_date >= (CURRENT_DATE - INTERVAL '90 days')
+                  AND sp.pub_date::date >= (CURRENT_DATE - INTERVAL '90 days')
                   AND (
                     sp.pub_type ILIKE %s OR sp.pub_type ILIKE %s
                   )
@@ -186,11 +186,17 @@ def run(batch: int) -> None:
                 hits += 1
                 log.info("%s → %s", cbe, case.get("case_type"))
             else:
-                # Record that we checked
+                # Record that we checked so the 30-day throttle engages.
+                # Use a sentinel "no-case-<cbe>" docket_number so the INSERT
+                # succeeds even when no row existed for this CBE before.
                 execute(
-                    """UPDATE insolvency_case SET last_scraped_at = NOW()
-                       WHERE enterprise_number = %s""",
-                    (cbe,),
+                    """INSERT INTO insolvency_case
+                           (enterprise_number, docket_number, case_type,
+                            status, last_scraped_at)
+                       VALUES (%s, %s, 'no_match', 'clean', NOW())
+                       ON CONFLICT (docket_number) DO UPDATE SET
+                           last_scraped_at = NOW()""",
+                    (cbe, f"no-case-{cbe}"),
                 )
         except Exception as e:
             log.warning("scrape error for %s: %s", cbe, e)
