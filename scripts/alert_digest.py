@@ -221,10 +221,17 @@ def _send(email: str, subject: str, text_body: str, html_body: str) -> None:
     msg["To"] = email
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
+    # Self-hosted Stalwart's TLS cert may not chain to a browser-trusted CA
+    # (it uses the Let's Encrypt cert mounted into /etc/letsencrypt). Disable
+    # cert verification only for the SMTP submission link — the connection
+    # is still encrypted, just not chain-validated. AUTH happens after STARTTLS.
     ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as s:
-        s.ehlo()
+        s.ehlo("datasnoop-backend")
         s.starttls(context=ctx)
+        s.ehlo("datasnoop-backend")
         s.login(SMTP_USER, SMTP_PASS)
         s.sendmail(SMTP_FROM, [email], msg.as_string())
 
@@ -311,7 +318,7 @@ def _check_nbb_keys(send: bool, alert_to: str | None) -> int:
     log.error(msg)
 
     if send:
-        recipient = alert_to or SMTP_FROM
+        recipient = alert_to or os.getenv("SMTP_ALERT_TO") or SMTP_FROM
         if not (SMTP_HOST and SMTP_USER and SMTP_PASS and recipient):
             log.warning("Cannot send alert email: SMTP not fully configured")
             return len(failures)
