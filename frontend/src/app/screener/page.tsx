@@ -58,6 +58,10 @@ interface ScreenerRow {
   rev_history?: (number | null)[] | null;
   ebitda_history?: (number | null)[] | null;
   year_history?: (number | null)[] | null;
+  rev_rank_pct?: number | null;
+  ebitda_rank_pct?: number | null;
+  margin_rank_pct?: number | null;
+  peer_count?: number | null;
 }
 
 interface Filters {
@@ -288,6 +292,40 @@ function SortHeader({
         )}
       </span>
     </th>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  RankPill — "Top N%" pill rendered next to revenue/EBITDA/margin    */
+/* ------------------------------------------------------------------ */
+
+function RankPill({
+  rank,
+  peers,
+  label,
+}: {
+  rank: number | null | undefined;
+  peers: number | null | undefined;
+  label: string;
+}) {
+  if (rank == null || typeof rank !== "number") return null;
+  // Backend only emits a rank when peer_count >= 10; be defensive anyway.
+  if (!peers || peers < 10) return null;
+  // percent_rank is 0..1 (0 worst, 1 best). "Top N%" means
+  // the row is in the top N% of the population.
+  const topPct = Math.max(1, Math.round((1 - rank) * 100));
+  const color =
+    topPct <= 10 ? "bg-emerald-100 text-emerald-700 border-emerald-200" :
+    topPct <= 25 ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
+    topPct <= 50 ? "bg-slate-50 text-slate-600 border-slate-200" :
+    "bg-amber-50 text-amber-600 border-amber-200";
+  return (
+    <span
+      className={`inline-block rounded-sm border px-1 text-[9px] font-semibold leading-[14px] ${color}`}
+      title={`${label}: top ${topPct}% of ${peers} companies in the same NACE-2 sector`}
+    >
+      {topPct}%
+    </span>
   );
 }
 
@@ -555,6 +593,7 @@ export default function ScreenerPage() {
         if (f.distress) params.distress = f.distress;
         if (f.no_financials) params.no_financials = "true";
         params.include_sparklines = "true";
+        params.include_percentiles = "true";
         params.sort = f.sort;
         params.limit = f.limit;
 
@@ -1343,7 +1382,7 @@ export default function ScreenerPage() {
             {/* Sticky header */}
             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="py-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-left w-[180px] md:w-[280px]">
+                <th className="py-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-left w-[140px] md:w-[280px] sticky left-0 z-[11] bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">
                   {t("screener.company")}
                 </th>
                 <SortHeader
@@ -1412,8 +1451,10 @@ export default function ScreenerPage() {
                   onMouseEnter={() => setHoveredCbe(row.cbe)}
                   onMouseLeave={() => setHoveredCbe(null)}
                 >
-                  {/* Company: 2-line cell */}
-                  <td className="py-1.5 px-3 relative">
+                  {/* Company: 2-line cell — sticky on mobile so the name
+                      stays visible when horizontally scrolling the financial
+                      columns. */}
+                  <td className="py-1.5 px-3 relative sticky left-0 z-[5] bg-white group-hover:bg-indigo-50/30 shadow-[1px_0_0_rgba(226,232,240,1)] w-[140px] md:w-auto">
                     <div className="leading-tight">
                       <Link
                         href={`/company/${row.cbe}`}
@@ -1454,12 +1495,18 @@ export default function ScreenerPage() {
 
                   {/* Revenue */}
                   <td className="py-1.5 px-2 text-right font-mono text-sm text-slate-800 whitespace-nowrap">
-                    {fmtEur(row.revenue)}
+                    <span className="inline-flex items-center gap-1 justify-end">
+                      {fmtEur(row.revenue)}
+                      <RankPill rank={row.rev_rank_pct} peers={row.peer_count} label="Revenue" />
+                    </span>
                   </td>
 
                   {/* EBITDA */}
                   <td className="py-1.5 px-2 text-right font-mono text-sm text-slate-700 whitespace-nowrap">
-                    {fmtEur(row.ebitda)}
+                    <span className="inline-flex items-center gap-1 justify-end">
+                      {fmtEur(row.ebitda)}
+                      <RankPill rank={row.ebitda_rank_pct} peers={row.peer_count} label="EBITDA" />
+                    </span>
                   </td>
 
                   {/* EBIT */}
@@ -1473,7 +1520,10 @@ export default function ScreenerPage() {
                       row.margin_pct
                     )}`}
                   >
-                    {fmtPct(row.margin_pct)}
+                    <span className="inline-flex items-center gap-1 justify-end">
+                      {fmtPct(row.margin_pct)}
+                      <RankPill rank={row.margin_rank_pct} peers={row.peer_count} label="Margin" />
+                    </span>
                   </td>
 
                   {/* FTE */}

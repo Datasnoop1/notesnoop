@@ -551,7 +551,7 @@ function CsTab({
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
             placeholder={"One per line or comma-separated:\n0403.101.811\n0404202677\n0439 819 279"}
-            className="w-full flex-1 min-h-[7.5rem] px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-slate-300"
+            className="w-full flex-1 min-h-[7.5rem] px-3 py-2 text-base md:text-xs font-mono border border-slate-200 rounded-lg bg-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-slate-300"
             disabled={uploading}
           />
           <button
@@ -826,7 +826,7 @@ function BulkImportPanel({
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={t("favourites.bulkImportPlaceholder")}
-            className="w-full min-h-[8rem] px-3 py-2 text-xs font-mono border border-slate-200 rounded-lg bg-white resize-y focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-slate-300"
+            className="w-full min-h-[8rem] px-3 py-2 text-base md:text-xs font-mono border border-slate-200 rounded-lg bg-white resize-y focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-slate-300"
             disabled={matching || confirming}
           />
           <div className="flex items-center gap-2">

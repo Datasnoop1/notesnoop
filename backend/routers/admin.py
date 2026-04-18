@@ -885,6 +885,112 @@ async def admin_payments(user=Depends(_require_admin)):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/admin/arr — Annualised Recurring Revenue from Stripe
+# ---------------------------------------------------------------------------
+
+@router.get("/arr")
+async def admin_arr(user=Depends(_require_admin)):
+    """ARR = sum of successful Stripe charges in the last 28 days × 13.
+
+    Weekly breakdown lets the operator see if the run-rate is trending up or
+    down. Subscription_count is the distinct paying-customer count today.
+    Currency-aware: amounts are summed in the charge's own currency and
+    returned separately so mixed-currency books don't lie. Most DataSnoop
+    charges are in EUR.
+    """
+    if not stripe.api_key:
+        return {
+            "arr": 0, "currency": "eur", "weekly": [],
+            "subscribers": 0, "note": "Stripe not configured",
+        }
+
+    try:
+        import time as _time
+        now = int(_time.time())
+        four_weeks_ago = now - 28 * 86400
+
+        # All successful charges in the last 28 days. Pagination safeguard:
+        # Stripe returns 100 per page; we walk `has_more` until exhausted.
+        charges: list = []
+        starting_after = None
+        while True:
+            params = {
+                "created": {"gte": four_weeks_ago, "lt": now},
+                "limit": 100,
+            }
+            if starting_after:
+                params["starting_after"] = starting_after
+            page = stripe.Charge.list(**params)
+            charges.extend(page.data)
+            if not page.has_more:
+                break
+            starting_after = page.data[-1].id
+            if len(charges) > 5000:  # sanity cap
+                break
+
+        # Per-week buckets (7-day windows, newest first)
+        weekly = []
+        for w in range(4):
+            start = now - (w + 1) * 7 * 86400
+            end = now - w * 7 * 86400
+            bucket_total = 0
+            bucket_count = 0
+            for c in charges:
+                if c.status != "succeeded":
+                    continue
+                if c.refunded:
+                    continue
+                if start <= c.created < end:
+                    bucket_total += c.amount  # cents
+                    bucket_count += 1
+            weekly.append({
+                "week_start": datetime.fromtimestamp(start, tz=timezone.utc).date().isoformat(),
+                "week_end": datetime.fromtimestamp(end, tz=timezone.utc).date().isoformat(),
+                "gross_cents": bucket_total,
+                "gross_eur": round(bucket_total / 100.0, 2),
+                "charges": bucket_count,
+            })
+        weekly.reverse()  # oldest first for chart rendering
+
+        # Total 4-week revenue across succeeded, non-refunded charges
+        last_4w_cents = sum(
+            c.amount for c in charges
+            if c.status == "succeeded" and not c.refunded
+        )
+        arr_cents = last_4w_cents * 13
+        arr_eur = round(arr_cents / 100.0, 2)
+
+        # Distinct paying customers RIGHT NOW (active subscriptions).
+        # Separate from revenue — counts heads, not money.
+        active_subs = 0
+        try:
+            sub_page = stripe.Subscription.list(status="active", limit=100)
+            active_subs = len(sub_page.data)
+            while sub_page.has_more:
+                sub_page = stripe.Subscription.list(
+                    status="active", limit=100,
+                    starting_after=sub_page.data[-1].id,
+                )
+                active_subs += len(sub_page.data)
+        except Exception as e:
+            logger.warning("Subscription count failed: %s", e)
+
+        return {
+            "arr_eur": arr_eur,
+            "last_4w_eur": round(last_4w_cents / 100.0, 2),
+            "multiplier": 13,
+            "currency": "eur",
+            "weekly": weekly,
+            "active_subscribers": active_subs,
+            "window_days": 28,
+            "as_of": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        logger.exception("Admin ARR failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
 # GET /api/admin/costs — OpenRouter + fixed costs for mini P&L
 # ---------------------------------------------------------------------------
 

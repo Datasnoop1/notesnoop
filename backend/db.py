@@ -193,6 +193,23 @@ def ensure_trgm_setup():
             ON shareholder USING GIN (name gin_trgm_ops);
         """)
 
+        # 6. activity_log indexes — the table has no indexes by default and
+        #    EVERY /api/* call hits it (INSERT via ActivityLogMiddleware +
+        #    COUNT via TierLimitMiddleware). Without these, seq-scans cost
+        #    hundreds of ms per AI call once the table grows.
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_activity_log_user_date
+            ON activity_log(user_email, created_at DESC);
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_activity_log_endpoint_date
+            ON activity_log(endpoint, created_at DESC);
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_activity_log_date
+            ON activity_log(created_at DESC);
+        """)
+
         conn.commit()
         cur.close()
         _trgm_migrated = True

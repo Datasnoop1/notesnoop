@@ -35,7 +35,7 @@ function withLang(path: string): string {
   return `${path}${sep}lang=${lang}`;
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(init?.headers as Record<string, string>),
@@ -133,6 +133,10 @@ export interface ScreenerRow {
   rev_history?: (number | null)[] | null;
   ebitda_history?: (number | null)[] | null;
   year_history?: (number | null)[] | null;
+  rev_rank_pct?: number | null;
+  ebitda_rank_pct?: number | null;
+  margin_rank_pct?: number | null;
+  peer_count?: number | null;
 }
 
 export interface ScreenerFilters {

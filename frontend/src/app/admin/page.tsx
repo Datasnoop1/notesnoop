@@ -160,6 +160,24 @@ interface PaymentsData {
   currency: string;
 }
 
+interface ARRData {
+  arr_eur: number;
+  last_4w_eur: number;
+  multiplier: number;
+  currency: string;
+  weekly: {
+    week_start: string;
+    week_end: string;
+    gross_cents: number;
+    gross_eur: number;
+    charges: number;
+  }[];
+  active_subscribers: number;
+  window_days: number;
+  as_of: string;
+  note?: string;
+}
+
 interface Insights {
   total_users: number;
   active_users_7d: number;
@@ -589,6 +607,7 @@ export default function AdminPanel() {
   const [newCostAmount, setNewCostAmount] = useState("");
   const [newCostFreq, setNewCostFreq] = useState<"monthly" | "yearly" | "one-time">("monthly");
   const [paymentsData, setPaymentsData] = useState<PaymentsData | null>(null);
+  const [arrData, setArrData] = useState<ARRData | null>(null);
   const [tiers, setTiers] = useState<TierConfig[]>([]);
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierConfig>>>({});
   const [tierSaving, setTierSaving] = useState<string | null>(null);
@@ -602,7 +621,7 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
-      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac, costs, llmCosts] = await Promise.all([
+      const [s, u, f, a, p, fby, alog, ins, usage, pay, tc, sc, adopt, trac, costs, llmCosts, arr] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -621,7 +640,9 @@ export default function AdminPanel() {
         adminFetch<TractionData>("/api/admin/traction").catch(() => null),
         adminFetch<CostsData>("/api/admin/costs").catch(() => null),
         adminFetch<LlmCostBreakdown>("/api/admin/llm-cost-breakdown").catch(() => null),
+        adminFetch<ARRData>("/api/admin/arr").catch(() => null),
       ]);
+      setArrData(arr);
       setStats(s);
       setUsers(u);
       setFeedback(f);
@@ -3024,7 +3045,48 @@ export default function AdminPanel() {
             ================================================================ */}
         <TabsContent value="revenue">
           <div className="space-y-6 pt-2">
-            {/* ── Mini P&L Summary ── */}
+            {/* ── ARR headline (last 4 weeks × 13) ── */}
+            {arrData && (
+              <Card className="bg-gradient-to-br from-emerald-50 to-white border-l-4 border-l-emerald-500">
+                <CardContent className="p-4 md:p-5">
+                  <div className="flex items-start justify-between flex-wrap gap-3">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 mb-1">Annualised Recurring Revenue</div>
+                      <div className="text-3xl md:text-4xl font-bold text-emerald-700 font-mono">
+                        {arrData.currency === "eur" ? "€" : ""}{arrData.arr_eur.toLocaleString("en", { maximumFractionDigits: 0 })}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-1">
+                        €{arrData.last_4w_eur.toLocaleString("en", { maximumFractionDigits: 0 })} in the last {arrData.window_days} days × {arrData.multiplier}
+                      </div>
+                      {arrData.note && (
+                        <div className="text-[11px] text-amber-600 mt-1">{arrData.note}</div>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Active subscribers</div>
+                      <div className="text-2xl font-bold text-slate-700 font-mono">{arrData.active_subscribers}</div>
+                    </div>
+                  </div>
+
+                  {arrData.weekly.length > 0 && (
+                    <div className="mt-4 border-t pt-3">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Weekly breakdown</div>
+                      <div className="grid grid-cols-4 gap-2">
+                        {arrData.weekly.map((w) => (
+                          <div key={w.week_start} className="text-center bg-white rounded border border-slate-200 p-2">
+                            <div className="text-[9px] text-slate-400">{w.week_start.slice(5)} – {w.week_end.slice(5)}</div>
+                            <div className="text-sm font-mono font-bold text-slate-700 mt-1">€{w.gross_eur.toLocaleString("en", { maximumFractionDigits: 0 })}</div>
+                            <div className="text-[9px] text-slate-400">{w.charges} charges</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* ── Mini P&L Summary (legacy, kept for reference) ── */}
             {(() => {
               const revEur = paymentsData ? paymentsData.total_revenue / 100 : 0;
               const orUsd = costsData?.openrouter_usage_usd ?? 0;

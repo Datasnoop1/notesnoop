@@ -931,7 +931,7 @@ function SectorScatter() {
               value={nace}
               onChange={(e) => setNace(e.target.value.replace(/\D/g, "").slice(0, 5))}
               placeholder="e.g. 62 (IT) or 461 (wholesale)"
-              className="h-9 px-2 text-sm font-mono border border-slate-200 rounded w-48"
+              className="h-10 md:h-9 px-2 text-base md:text-sm font-mono border border-slate-200 rounded w-full md:w-48"
             />
             {loading && <span className="text-[11px] text-slate-400">Loading...</span>}
             {!loading && data.length > 0 && (

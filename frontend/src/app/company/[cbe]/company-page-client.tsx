@@ -28,6 +28,7 @@ import {
   scrapeCompanyLinkedIn,
   generateAiInsights,
   submitInsightsFeedback,
+  apiFetch,
 } from "@/lib/api";
 import type { SectorBenchmark, AiInsights } from "@/lib/api";
 import { fmtCbe } from "@/lib/format";
@@ -177,6 +178,31 @@ export function CompanyPageClient({
       mod.recordCompanyView({ cbe, name, city: detail.city ?? null });
     });
   }, [cbe, detail?.name, detail?.city]);
+
+  /* "What changed since last visit" — fetch server-side history BEFORE
+     recording this visit so the /since call compares to the PREVIOUS view.
+     Then record the current view to shift prev → last. Fires only for
+     authenticated users (backend silently no-ops for anonymous). */
+  const [sinceLastVisit, setSinceLastVisit] = useState<{
+    since: string | null;
+    changes: { type: string; at: string | null; label: string; meta?: Record<string, unknown> }[];
+  } | null>(null);
+  const [sinceBannerDismissed, setSinceBannerDismissed] = useState(false);
+  useEffect(() => {
+    if (!detail || !detail.name) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiFetch<typeof sinceLastVisit>(`/api/changes/${cbe}/since`);
+        if (!cancelled) setSinceLastVisit(r);
+        // Record AFTER fetching so the next visit compares to THIS one.
+        await apiFetch(`/api/changes/${cbe}/view`, { method: "POST" });
+      } catch {
+        // silent — anonymous users hit this path too
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [cbe, detail?.name]);
 
   /* -- Check for existing AI enrichment on load.
      Re-runs when `locale` changes so cached AI gets re-fetched
@@ -842,6 +868,43 @@ export function CompanyPageClient({
             </div>
           </div>
         </>
+      )}
+
+      {/* "What changed since last visit" banner — only when the user
+          has visited this company before AND there are new events. */}
+      {!sinceBannerDismissed && sinceLastVisit && sinceLastVisit.since && sinceLastVisit.changes.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 flex items-start gap-3">
+          <div className="flex-1">
+            <div className="font-semibold mb-1">
+              {sinceLastVisit.changes.length} update{sinceLastVisit.changes.length === 1 ? "" : "s"} since your last visit ({new Date(sinceLastVisit.since).toLocaleDateString()})
+            </div>
+            <ul className="space-y-0.5">
+              {sinceLastVisit.changes.slice(0, 5).map((c, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <span className="inline-block w-16 text-[10px] uppercase tracking-wider text-amber-600 shrink-0 mt-0.5">
+                    {c.type}
+                  </span>
+                  <span className="flex-1">{c.label}</span>
+                  {c.at && (
+                    <span className="text-[10px] text-amber-500 shrink-0">
+                      {new Date(c.at).toLocaleDateString()}
+                    </span>
+                  )}
+                </li>
+              ))}
+              {sinceLastVisit.changes.length > 5 && (
+                <li className="text-[10px] text-amber-600">+{sinceLastVisit.changes.length - 5} more</li>
+              )}
+            </ul>
+          </div>
+          <button
+            onClick={() => setSinceBannerDismissed(true)}
+            className="text-amber-500 hover:text-amber-700 text-xs leading-none p-1"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
       )}
 
       {/* Tabs — grouped primary + sub-nav pattern */}

@@ -564,3 +564,19 @@ CREATE TABLE IF NOT EXISTS company_view_history (
 );
 CREATE INDEX IF NOT EXISTS idx_company_view_history_user
     ON company_view_history(user_email, last_viewed_at DESC);
+
+-- ============================================================
+-- activity_log indexes (critical — every /api/* hits this table)
+-- ============================================================
+-- The table is created elsewhere (backend bootstrap). Without these
+-- indexes, TierLimitMiddleware does a seq-scan on every AI call and
+-- admin analytics pages take seconds. CREATE INDEX IF NOT EXISTS is
+-- idempotent. CONCURRENTLY would be safer but can't run inside a
+-- transaction block; the schema is only applied at boot with the
+-- app quiesced, so plain CREATE is fine.
+CREATE INDEX IF NOT EXISTS idx_activity_log_user_date
+    ON activity_log(user_email, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_log_endpoint_date
+    ON activity_log(endpoint, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_log_date
+    ON activity_log(created_at DESC);
