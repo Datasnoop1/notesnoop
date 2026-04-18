@@ -179,40 +179,52 @@ export function BalanceSheetTab({
   }
 
   // Latest year breakdown for the asset/financing bridge chart.
+  // Both bars are forced to sum to totalAssets via a residual bucket on each
+  // side, so the balance-sheet identity (Assets = Equity + Liabilities)
+  // always holds visually. Negative equity is shown as a note below the
+  // chart rather than a stacked bucket, so the bars don't fall out of sync.
   const latest = bsRows[0];
   const bridgeData = (() => {
     if (!latest || !latest.totalAssets) return null;
-    const fa = latest.totalNonCurrentAssets ?? 0;
-    const inv = latest.inventories ?? 0;
-    const rec = latest.tradeReceivables ?? 0;
-    const cash = (latest.cash ?? 0) + (latest.currentInvestments ?? 0);
-    const otherCa = (latest.otherCurrentAssets ?? 0) + (latest.totalCurrentAssets != null
-      ? Math.max(0, latest.totalCurrentAssets - inv - rec - cash - (latest.otherCurrentAssets ?? 0))
-      : 0);
-    const eq = latest.equity ?? 0;
-    const ltd = latest.ltDebt ?? 0;
-    const std = latest.stFinDebt ?? 0;
-    const tp = latest.tradePayables ?? 0;
-    const otherCl = latest.otherCurrentLiab ?? 0;
+    const target = latest.totalAssets;
+
+    // Assets — all non-negative; residual lands in "Other".
+    const fa = Math.max(latest.totalNonCurrentAssets ?? 0, 0);
+    const inv = Math.max(latest.inventories ?? 0, 0);
+    const rec = Math.max(latest.tradeReceivables ?? 0, 0);
+    const cash = Math.max((latest.cash ?? 0) + (latest.currentInvestments ?? 0), 0);
+    const knownCa = fa + inv + rec + cash;
+    const otherCa = Math.max(target - knownCa, 0);
+
+    // Equity + Liabilities — negative equity clamped to zero in the stack;
+    // residual absorbs the rest so the bar still hits `target`.
+    const eq = Math.max(latest.equity ?? 0, 0);
+    const ltd = Math.max(latest.ltDebt ?? 0, 0);
+    const std = Math.max(latest.stFinDebt ?? 0, 0);
+    const tp = Math.max(latest.tradePayables ?? 0, 0);
+    const knownLiab = eq + ltd + std + tp;
+    const otherCl = Math.max(target - knownLiab, 0);
+
     return [
       {
         side: "Assets",
-        "Fixed assets": Math.max(fa, 0),
-        Inventories: Math.max(inv, 0),
-        Receivables: Math.max(rec, 0),
-        Cash: Math.max(cash, 0),
-        Other: Math.max(otherCa, 0),
+        "Fixed assets": fa,
+        Inventories: inv,
+        Receivables: rec,
+        Cash: cash,
+        Other: otherCa,
       },
       {
         side: "Equity + Liabilities",
-        Equity: Math.max(eq, 0),
-        "LT debt": Math.max(ltd, 0),
-        "ST fin. debt": Math.max(std, 0),
-        "Trade payables": Math.max(tp, 0),
-        Other: Math.max(otherCl, 0),
+        Equity: eq,
+        "LT debt": ltd,
+        "ST fin. debt": std,
+        "Trade payables": tp,
+        Other: otherCl,
       },
     ];
   })();
+  const negEquity = latest?.equity != null && latest.equity < 0 ? latest.equity : null;
 
   const ASSET_COLORS: Record<string, string> = {
     "Fixed assets": "#6366f1",
@@ -266,6 +278,13 @@ export function BalanceSheetTab({
             Bottom bar = how it&apos;s funded (equity vs debt). The two bars
             should be the same length.
           </p>
+          {negEquity != null && (
+            <p className="text-[10px] text-rose-600 mt-1">
+              ⚠ Negative equity ({fmtEur(negEquity)}): liabilities exceed assets
+              by this amount. Equity bucket above shows 0 so the bars still
+              balance visually.
+            </p>
+          )}
         </div>
       )}
 

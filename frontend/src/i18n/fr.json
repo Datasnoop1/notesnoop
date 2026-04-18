@@ -184,6 +184,7 @@
     "max": "Max",
     "noFinancialsOnly": "Sans compte d\u00e9pos\u00e9",
     "trend": "Tendance",
+    "trendHelp": "Tendance du chiffre d'affaires sur 5 ans. Si le CA n'est pas divulgu\u00e9 (petits / micro d\u00e9posants), repli sur l'EBITDA \u2014 marqu\u00e9 'E'.",
     "recentlyViewed": "R\u00e9cemment consult\u00e9",
     "recentlyViewedClear": "tout effacer",
     "recentlyViewedRemove": "Supprimer de l'historique"

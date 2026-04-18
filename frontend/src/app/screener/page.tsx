@@ -1379,7 +1379,10 @@ export default function ScreenerPage() {
                   currentSort={filters.sort}
                   onSort={handleSort}
                 />
-                <th className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right whitespace-nowrap">
+                <th
+                  className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right whitespace-nowrap"
+                  title={t("screener.trendHelp")}
+                >
                   {t("screener.trend")}
                 </th>
                 <th className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right">
@@ -1483,22 +1486,39 @@ export default function ScreenerPage() {
                     {fmtEur(row.fixed_assets)}
                   </td>
 
-                  {/* Revenue trend sparkline */}
-                  <td
-                    className="py-1.5 px-2 text-right whitespace-nowrap"
-                    title={
-                      row.rev_history && row.rev_history.some((v) => v != null)
-                        ? (row.rev_history as (number | null)[])
-                            .map((v, i) => {
-                              const yr = row.year_history?.[i] ?? "";
-                              return `FY${yr}: ${v != null ? fmtEur(v) : "—"}`;
-                            })
-                            .join(" | ")
-                        : ""
-                    }
-                  >
-                    <Sparkline values={row.rev_history} />
-                  </td>
+                  {/* Trend sparkline — revenue by default, falls back to
+                      EBITDA for small/micro filers that don't disclose
+                      rubric 70 (revenue). */}
+                  {(() => {
+                    const revClean = (row.rev_history ?? []).filter(
+                      (v): v is number => typeof v === "number",
+                    );
+                    const useEbitda = revClean.length < 2;
+                    const series = useEbitda ? row.ebitda_history : row.rev_history;
+                    const label = useEbitda ? "EBITDA" : t("screener.revenue");
+                    const title = series && series.some((v) => v != null)
+                      ? `${label}\n` +
+                        (series as (number | null)[])
+                          .map((v, i) => {
+                            const yr = row.year_history?.[i] ?? "";
+                            return `FY${yr}: ${v != null ? fmtEur(v) : "—"}`;
+                          })
+                          .join("\n")
+                      : "";
+                    return (
+                      <td
+                        className="py-1.5 px-2 text-right whitespace-nowrap"
+                        title={title}
+                      >
+                        <Sparkline values={series} />
+                        {useEbitda && series && series.some((v) => v != null) && (
+                          <span className="ml-1 text-[9px] uppercase text-slate-400 align-middle">
+                            E
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })()}
 
                   {/* FY */}
                   <td className="py-1.5 px-2 text-right text-[11px] text-slate-400 whitespace-nowrap">

@@ -184,6 +184,7 @@
     "max": "Max",
     "noFinancialsOnly": "No financials loaded yet",
     "trend": "Trend",
+    "trendHelp": "5-year revenue trend. If revenue isn't disclosed (small / micro filers), falls back to EBITDA — marked 'E'.",
     "recentlyViewed": "Recently viewed",
     "recentlyViewedClear": "clear all",
     "recentlyViewedRemove": "Remove from history"
