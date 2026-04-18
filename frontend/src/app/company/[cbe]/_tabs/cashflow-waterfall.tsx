@@ -1,35 +1,31 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { fmtEur } from "@/lib/format";
+import { deriveCashFlow, type RubricData, type CashFlowYear } from "@/lib/cashflow";
 
-/* True floating cash-flow waterfall.
+/**
+ * Direct-method cash-flow waterfall. Visual companion to the table below.
+ * Both views read from the same derivation helper (`@/lib/cashflow`) so
+ * the numbers always agree.
  *
- *   Net profit + D&A ± ΔWorking capital = Operating CF
- *              − CapEx                  = Free cash flow
- *              ± Net debt movement      = Δ Cash
+ *   Cash from customers
+ *     − Cash paid operating
+ *     − Cash paid interest
+ *     − Cash paid taxes            = Cash from Operations
+ *                       − CapEx
+ *                       ± Δ Financial FA = Cash from Investing
+ *             ± Δ Debt  + New capital  − Dividends = Δ Cash (implied)
  *
- * Milestones render anchored to 0, widths in % of the largest absolute
- * flow so every row is visible. Deductions + additions float between
- * milestones at the running balance, so it reads like a proper
- * accounting bridge.
- *
- * Rubric codes match what companies/financials.py emits (3 = inventories,
- * 41 = receivables, 44 = trade payables, 20/28 = total fixed assets,
- * 17 = LT debt, 43 = ST fin debt).
+ *   (Observed ΔCash from BS shown separately; gap row surfaces anything
+ *   the model misses.)
  */
 
 interface Props {
-  rubrics: Record<string, Record<string, number | null>>;
+  rubrics: RubricData;
   fiscalYears: number[];
   defaultCollapsed?: boolean;
-}
-
-function rub(r: Record<string, Record<string, number | null>>, code: string, fy: number | null): number {
-  if (fy == null) return 0;
-  const v = r?.[code]?.[String(fy)];
-  return typeof v === "number" ? v : 0;
 }
 
 type Row = {
@@ -45,71 +41,84 @@ type Row = {
 
 export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }: Props) {
   const years = useMemo(
-    () => [...new Set(fiscalYears)].filter((y) => typeof y === "number").sort((a, b) => b - a),
+    () => [...new Set(fiscalYears)].filter((y) => typeof y === "number").sort((a, b) => a - b),
     [fiscalYears],
   );
 
   const [open, setOpen] = useState(!defaultCollapsed);
-  const [fy, setFy] = useState<number | null>(years[0] ?? null);
+  const [fy, setFy] = useState<number | null>(() => (years.length ? years[years.length - 1] : null));
 
-  // Re-sync fy when fiscalYears changes asynchronously. Keeps the chart
-  // from silently disappearing if years loads after mount.
   React.useEffect(() => {
     if (years.length && (fy == null || !years.includes(fy))) {
-      setFy(years[0]);
+      setFy(years[years.length - 1]);
     }
   }, [years, fy]);
 
-  if (!years.length || fy == null) return null;
+  const derived = useMemo<CashFlowYear[]>(
+    () => deriveCashFlow(rubrics, years),
+    [rubrics, years],
+  );
 
-  const prevFy = years.find((y) => y < fy) ?? null;
+  const cf = useMemo(() => derived.find((r) => r.fiscalYear === fy) ?? null, [derived, fy]);
 
-  const netProfit = rub(rubrics, "9904", fy);
-  const da = Math.max(0, rub(rubrics, "630", fy));
+  if (!years.length || fy == null || !cf || cf.cashFromOps == null) return null;
 
-  const receivablesChange = rub(rubrics, "41", fy) - rub(rubrics, "41", prevFy);
-  const inventoriesChange = rub(rubrics, "3", fy) - rub(rubrics, "3", prevFy);
-  const payablesChange = rub(rubrics, "44", fy) - rub(rubrics, "44", prevFy);
-  const wcChange = receivablesChange + inventoriesChange - payablesChange;
+  // Skip the first year — no prior period → no deltas to plot.
+  const isFirstYear = years[0] === fy;
+  if (isFirstYear) return null;
 
-  const grossFaThis = rub(rubrics, "20/28", fy);
-  const grossFaPrev = rub(rubrics, "20/28", prevFy);
-  const capex = prevFy ? Math.max(0, grossFaThis - grossFaPrev + da) : 0;
+  // Ordered list of floats that bridge between milestones. Zero-valued
+  // floats are dropped so the chart stays tidy for filers that don't
+  // disclose (say) new capital.
+  type FloatSpec = { label: string; delta: number };
+  const opsFloats: FloatSpec[] = [
+    { label: "+ Customers", delta: cf.cashFromCustomers ?? 0 },
+    { label: "− Operating payments", delta: cf.cashPaidOperating ?? 0 },
+    { label: "− Interest (net)", delta: cf.cashForInterestNet ?? 0 },
+    { label: "− Taxes", delta: cf.cashForTaxes ?? 0 },
+  ].filter((f) => f.delta !== 0);
 
-  const debtThis = rub(rubrics, "17", fy) + rub(rubrics, "43", fy);
-  const debtPrev = rub(rubrics, "17", prevFy) + rub(rubrics, "43", prevFy);
-  const debtMovement = prevFy ? (debtThis - debtPrev) : 0;
+  const invFloats: FloatSpec[] = [
+    { label: cf.capex != null && cf.capex >= 0 ? "+ Asset disposals" : "− CapEx", delta: cf.capex ?? 0 },
+    { label: cf.changeInFinancialAssets != null && cf.changeInFinancialAssets >= 0 ? "+ Divestments" : "− Acquisitions", delta: cf.changeInFinancialAssets ?? 0 },
+  ].filter((f) => f.delta !== 0);
 
-  // Milestones
-  const operatingCf = netProfit + da - wcChange;
-  const fcf = operatingCf - capex;
-  const changeInCash = fcf + debtMovement;
+  const finFloats: FloatSpec[] = [
+    { label: cf.deltaLtDebt != null && cf.deltaLtDebt >= 0 ? "+ LT borrowings" : "− LT repayments", delta: cf.deltaLtDebt ?? 0 },
+    { label: cf.deltaStDebt != null && cf.deltaStDebt >= 0 ? "+ ST borrowings" : "− ST repayments", delta: cf.deltaStDebt ?? 0 },
+    { label: cf.newCapital != null && cf.newCapital >= 0 ? "+ New capital" : "− Capital return", delta: cf.newCapital ?? 0 },
+    { label: "− Dividends", delta: cf.dividendsPaid },
+  ].filter((f) => f.delta !== 0);
 
-  // Domain — include every milestone AND every running-balance extreme so
-  // negative values (common in the WC bridge) render left of the zero line
-  // cleanly. Always includes 0 as a reference. Ceiling and floor pad 5%
-  // each so end-of-bar labels never clip.
-  const points = [
-    0,
-    netProfit,
-    netProfit + da,
-    netProfit + da - wcChange,
-    operatingCf,
-    operatingCf - capex,
-    fcf,
-    fcf + debtMovement,
-    changeInCash,
-  ];
+  // Domain for the horizontal scale — must cover every milestone AND every
+  // running-balance extremum so negative running balances render left of
+  // the zero line cleanly.
+  const points: number[] = [0, cf.cashFromOps ?? 0];
+  {
+    let running = 0;
+    for (const f of opsFloats) {
+      running += f.delta;
+      points.push(running);
+    }
+  }
+  points.push(cf.cashFromOps ?? 0);
+  points.push((cf.cashFromOps ?? 0) + (cf.cashFromInvesting ?? 0));
+  points.push(cf.impliedCashChange ?? 0);
+  {
+    let running = (cf.cashFromOps ?? 0) + (cf.cashFromInvesting ?? 0);
+    for (const f of finFloats) {
+      running += f.delta;
+      points.push(running);
+    }
+  }
+  if (cf.observedCashChange != null) points.push(cf.observedCashChange);
+
   const domainMin = Math.min(...points);
   const domainMax = Math.max(...points);
   const domainRange = Math.max(1, domainMax - domainMin);
-  // toPos(v) returns the % position of v inside the domain.
   const toPos = (v: number) => ((v - domainMin) / domainRange) * 100;
   const zeroPos = toPos(0);
 
-  // Shades-of-gray palette to match PnlWaterfall. Milestones get
-  // progressively darker; flows stay pale; only the negative-result text
-  // gets a red accent to draw the eye without adding colour to the bars.
   const COL = {
     milestone:   "bg-slate-300",
     milestoneTxt: "text-slate-700",
@@ -123,79 +132,84 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
     additionTxt: "text-slate-500",
     deduction:  "bg-slate-100",
     deductionTxt: "text-slate-500",
+    observed:    "bg-slate-200",
+    observedTxt: "text-slate-600",
   };
 
   const rows: Row[] = [];
 
-  // Milestone helper — bar extends from zero to the milestone value.
-  // Negative values render LEFT of the zero line.
   const pushMilestone = (label: string, v: number, color: string, posColor: string, negColor: string, textPos: string, textNeg: string) => {
     const startPct = Math.min(zeroPos, toPos(v));
     const endPct = Math.max(zeroPos, toPos(v));
     rows.push({
-      label, value: Math.abs(v), kind: "milestone",
+      label, value: v, kind: "milestone",
       startPct, endPct,
       color: v >= 0 ? (color || posColor) : negColor,
       textColor: v >= 0 ? textPos : textNeg,
     });
   };
 
-  // Starting milestone — Net profit anchored at zero, extends left or right
-  pushMilestone("Net profit", netProfit,
-                COL.milestone, COL.milestone, COL.negNet,
-                COL.milestoneTxt, COL.negNetTxt);
-
-  // Float helper — bridges running balance by `delta`. Negative running
-  // values are fine now; the bar just sits left of the zero line.
-  let running = netProfit;
-  const float = (label: string, delta: number, color: string, textColor: string) => {
+  let running = 0;
+  const float = (label: string, delta: number) => {
     if (delta === 0) return;
     const before = running;
     running += delta;
     const lo = Math.min(before, running);
     const hi = Math.max(before, running);
     rows.push({
-      label, value: Math.abs(delta),
+      label, value: delta,
       kind: delta > 0 ? "addition" : "deduction",
       startPct: toPos(lo),
       endPct: toPos(hi),
-      color, textColor,
+      color: delta > 0 ? COL.addition : COL.deduction,
+      textColor: delta > 0 ? COL.additionTxt : COL.deductionTxt,
       indent: true,
     });
   };
 
-  if (da > 0) float("+ D&A", +da, COL.addition, COL.additionTxt);
-  if (prevFy && wcChange !== 0) {
-    const isUse = wcChange > 0;
-    float(isUse ? "− ΔWorking cap" : "+ ΔWorking cap",
-          -wcChange,
-          isUse ? COL.deduction : COL.addition,
-          isUse ? COL.deductionTxt : COL.additionTxt);
-  }
+  // Operating bridge — start at 0, accumulate receipts and payments, land
+  // on CFO milestone.
+  for (const f of opsFloats) float(f.label, f.delta);
 
-  pushMilestone("Operating CF", operatingCf,
+  pushMilestone("Cash from Ops", cf.cashFromOps ?? 0,
                 COL.milestone, COL.milestone, COL.negNet,
                 COL.milestoneTxt, COL.negNetTxt);
 
-  running = operatingCf;
-  if (prevFy && capex > 0) float("− CapEx", -capex, COL.deduction, COL.deductionTxt);
+  running = cf.cashFromOps ?? 0;
+  for (const f of invFloats) float(f.label, f.delta);
 
-  pushMilestone("Free cash flow", fcf,
+  pushMilestone("Free cash flow", (cf.cashFromOps ?? 0) + (cf.cashFromInvesting ?? 0),
                 COL.milestoneStrong, COL.milestoneStrong, COL.negNet,
                 COL.milestoneStrongTxt, COL.negNetTxt);
 
-  running = fcf;
-  if (prevFy && debtMovement !== 0) {
-    const isBorrow = debtMovement > 0;
-    float(isBorrow ? "+ Net borrowings" : "− Net debt repay",
-          debtMovement,
-          isBorrow ? COL.addition : COL.deduction,
-          isBorrow ? COL.additionTxt : COL.deductionTxt);
-  }
+  running = (cf.cashFromOps ?? 0) + (cf.cashFromInvesting ?? 0);
+  for (const f of finFloats) float(f.label, f.delta);
 
-  pushMilestone("Δ Cash", changeInCash,
+  pushMilestone("Δ Cash (implied)", cf.impliedCashChange ?? 0,
                 COL.posNet, COL.posNet, COL.negNet,
                 COL.posNetTxt, COL.negNetTxt);
+
+  // Observed Δ cash from the balance sheet — gives the user a visual check
+  // against the derived number. Drawn in a muted palette so it reads as a
+  // reference line rather than another flow.
+  if (cf.observedCashChange != null) {
+    pushMilestone("Δ Cash (observed BS)", cf.observedCashChange,
+                  COL.observed, COL.observed, COL.negNet,
+                  COL.observedTxt, COL.negNetTxt);
+  }
+
+  const gap = cf.unreconciledGap;
+  const gapRatio = cf.observedCashChange != null && gap != null
+    ? Math.abs(gap) / Math.max(Math.abs(cf.observedCashChange), 1)
+    : 0;
+  const gapTone =
+    gap == null
+      ? "text-slate-400"
+      : gapRatio > 0.05
+        ? "text-rose-600 font-semibold"
+        : gapRatio > 0.02
+          ? "text-amber-600"
+          : "text-slate-500";
 
   return (
     <div className="rounded-lg border bg-white">
@@ -216,10 +230,10 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
           <select
             value={fy}
             onChange={(e) => setFy(Number(e.target.value))}
-            className="text-[11px] border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-600 hover:border-slate-300"
+            className="h-10 md:h-7 text-base md:text-[11px] border border-slate-200 rounded px-2 md:px-1.5 bg-white text-slate-600 hover:border-slate-300"
             aria-label="Fiscal year"
           >
-            {years.map((y) => <option key={y} value={y}>FY{y}</option>)}
+            {[...years].reverse().map((y) => <option key={y} value={y}>FY{y}</option>)}
           </select>
         )}
       </div>
@@ -231,15 +245,12 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
               const isMilestone = r.kind === "milestone";
               return (
                 <div key={`${i}-${r.label}`} className="flex items-center gap-3 text-[12px]">
-                  {/* Milestones flush-left, sub-categories indented via pl. */}
-                  <div className={`w-[120px] md:w-[150px] shrink-0 truncate text-left ${
+                  <div className={`w-[140px] md:w-[200px] shrink-0 truncate text-left ${
                     isMilestone ? `font-semibold ${r.textColor}` : r.textColor
                   } ${r.indent ? "pl-3 md:pl-5" : ""}`}>
                     {r.label}
                   </div>
                   <div className="flex-1 relative h-5 md:h-6 overflow-hidden">
-                    {/* Zero-reference line so the reader can see which
-                        side bars sit on (left = negative, right = positive). */}
                     <div
                       className="absolute top-0 bottom-0 w-px bg-slate-300"
                       style={{ left: `${zeroPos}%` }}
@@ -252,15 +263,30 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
                   <div className={`w-[90px] md:w-[110px] shrink-0 text-right font-mono text-[11px] ${
                     isMilestone ? `font-semibold ${r.textColor}` : r.textColor
                   }`}>
-                    {fmtEur(r.value)}
+                    {fmtEur(Math.abs(r.value))}
                   </div>
                 </div>
               );
             })}
+            {cf.observedCashChange != null && gap != null && (
+              <div className="flex items-center gap-3 text-[11px] pt-2 mt-2 border-t border-dashed border-slate-200">
+                <div className="w-[140px] md:w-[200px] shrink-0 text-left text-slate-500 pl-3 md:pl-5">
+                  Unexplained gap
+                </div>
+                <div className="flex-1 text-[10px] text-slate-400">
+                  observed − implied; large values suggest M&amp;A, FX or
+                  items not modelled
+                </div>
+                <div className={`w-[90px] md:w-[110px] shrink-0 text-right font-mono ${gapTone}`}>
+                  {fmtEur(gap)}
+                </div>
+              </div>
+            )}
           </div>
           <p className="text-[10px] text-slate-400 italic mt-2">
-            Indirect method. Floating bars sit at the running balance
-            between milestones. Bars scaled to the largest absolute flow.
+            Direct method. Cash receipts + payments bottom-up. Indirect
+            method is computed internally as a cross-check. Belgian GAAP
+            does not file a cash-flow statement, so every value is derived.
           </p>
         </div>
       )}

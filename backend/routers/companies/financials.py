@@ -533,10 +533,27 @@ async def get_company_financials(cbe: str):
             "70", "74", "70/76A", "60", "61", "62", "630", "631/4", "635/8",
             "640/8", "60/66A", "9901", "75", "65", "9902", "76", "66",
             "9903", "67/77", "9904",
+            # Cash-flow derivation: dividends paid (appropriation of result)
+            "694",
         ]
         bs_codes = [
             "20/28", "21", "22", "28", "29/58", "3", "41", "54/58",
             "20/58", "10/15", "16", "17", "43", "44", "10/49",
+            # Cash-flow derivation additions. Split-out rubrics matter because
+            # a holding's Δ(21/28) is dominated by Δ(28) = financial fixed
+            # assets (subsidiaries), which is M&A/consolidation — not CapEx.
+            # 22/27 — tangible fixed assets
+            # 21    — intangible fixed assets (overlaps "21" already listed)
+            # 28    — financial fixed assets (participations)
+            # 40/41 — full trade receivables (was only 41 = LT receivables)
+            # 45 — tax, remuneration, social security payables
+            # 47/48 — other amounts payable ≤1y
+            # 50/53 — current investments (cash proxy)
+            # 170/4 — LT financial debt (subset of 17)
+            # 10    — capital; 11 — share premium (actual cash-raised equity)
+            # 13 — reserves; 14 — accumulated profits (non-cash reclassifications)
+            "22/27", "40/41", "45", "47/48", "50/53", "170/4",
+            "10", "11", "13", "14",
         ]
         all_codes = list(dict.fromkeys(pnl_codes + bs_codes))
         placeholders = ",".join(["%s"] * len(all_codes))
