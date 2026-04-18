@@ -6,7 +6,6 @@ import os
 from typing import Optional
 
 import httpx
-import requests as http_requests  # kept for legacy sync paths below /load
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import fetch_all, fetch_one, get_connection, put_connection
