@@ -195,6 +195,60 @@ async def get_company_network(cbe: str, max_depth: int = Query(1, ge=1, le=3)):
             if cbe_clean:
                 nav_options[cbe_clean] = aname
 
+        # Staatsblad-sourced admin events at depth 0 — augment the NBB
+        # snapshot with freshly-filed appointments that haven't landed
+        # in an NBB annual yet. Dedupe by (name, role) so a person
+        # already in the NBB list doesn't get a duplicate node.
+        sb_admins = fetch_all("""
+            SELECT DISTINCT ON (COALESCE(person_name, entity_name), COALESCE(person_role, ''))
+                   person_name, entity_name, person_role, sub_type, pub_date,
+                   pub_reference
+            FROM staatsblad_event
+            WHERE enterprise_number = %s
+              AND event_type = 'admin_event'
+              AND COALESCE(sub_type, '') NOT IN ('resignation', 'end', 'termination')
+            ORDER BY COALESCE(person_name, entity_name), COALESCE(person_role, ''),
+                     pub_date DESC, id DESC
+        """, (cbe,))
+        for ev in sb_admins:
+            aname = ev.get("person_name") or ev.get("entity_name") or "Unknown"
+            role_key = ev.get("person_role") or ""
+            name_role = f"{aname}_{role_key}"
+            if name_role in seen_admin_names:
+                continue
+            seen_admin_names.add(name_role)
+
+            role = role_key or "Administrator"
+            is_legal = bool(ev.get("entity_name") and not ev.get("person_name"))
+            nid = f"sb_{aname[:20]}_{role_key[:10]}"
+
+            if not any(n["id"] == nid for n in nodes):
+                nodes.append({
+                    "id": nid,
+                    "label": aname,
+                    "type": "admin",
+                    "subtype": "legal" if is_legal else "natural",
+                    "size": 14 if is_legal else 12,
+                    # Staatsblad-sourced admins get a brighter emerald
+                    # tint so the UI can distinguish "fresh" edges.
+                    "color": "#10b981" if is_legal else "#34d399",
+                    "cbe": None,
+                    "depth": 1,
+                    "source": "staatsblad",
+                    "as_of": str(ev.get("pub_date") or ""),
+                })
+            edges.append({
+                "source": nid,
+                "target": cbe,
+                "type": "admin",
+                "label": role,
+                "color": "#10b981",
+                # `solid` line for Staatsblad edges (vs `dot` for NBB),
+                # signalling freshness.
+                "dash": "solid",
+                "source_data": "staatsblad",
+            })
+
         visited.update(frontier)
 
         # BFS expansion for deeper levels
