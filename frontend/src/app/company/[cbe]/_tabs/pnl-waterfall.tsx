@@ -130,23 +130,27 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   const rows: Row[] = [];
 
   // Milestone bar anchored at zero: extends right for positive, left for
-  // negative. Takes care of negative EBIT / EBITDA / net profit cleanly.
+  // negative. Value is SIGNED so the display row shows a minus for
+  // negative EBIT / EBITDA / net profit without losing the direction.
   const pushMilestone = (label: string, v: number, color: string, textColor: string, pctLabel?: string) => {
     rows.push({
-      label, value: Math.abs(v), kind: "milestone",
+      label, value: v, kind: "milestone",
       startPct: Math.min(zeroPos, toPos(v)),
       endPct: Math.max(zeroPos, toPos(v)),
       color, textColor,
       pctLabel,
     });
   };
-  // Floating bar between two running-balance positions. Bar always drawn
-  // left→right regardless of whether `running` increased or decreased.
+  // Floating bar between two running-balance positions. `value` is the
+  // SIGNED delta (toVal − fromVal) so the display row can surface `+` for
+  // add-backs ("Other op income") and `−` for real cost deductions. The
+  // bar itself is drawn left→right regardless of sign (startPct/endPct
+  // derived from the running balance extrema).
   const pushBar = (label: string, fromVal: number, toVal: number) => {
     const lo = Math.min(fromVal, toVal);
     const hi = Math.max(fromVal, toVal);
     rows.push({
-      label, value: Math.abs(toVal - fromVal),
+      label, value: toVal - fromVal,
       kind: "deduction",
       startPct: toPos(lo),
       endPct: toPos(hi),
@@ -291,7 +295,13 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
                   <div className={`w-[90px] md:w-[110px] shrink-0 text-right font-mono text-[11px] ${
                     isMilestone ? `font-semibold ${r.textColor}` : r.textColor
                   }`}>
-                    {fmtEur(r.value)}
+                    {/* Milestones are balances (show raw signed value —
+                        fmtEur adds a "-" for negatives natively). Flows
+                        are always signed so costs read as −, add-backs
+                        like "Other op income" read as +. */}
+                    {isMilestone
+                      ? fmtEur(r.value)
+                      : (r.value >= 0 ? `+${fmtEur(r.value)}` : `\u2212${fmtEur(Math.abs(r.value))}`)}
                   </div>
                 </div>
               );
