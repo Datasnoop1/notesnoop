@@ -36,19 +36,19 @@ FILTERED=$(echo "$CURRENT" | awk '
 NEW_BLOCK=$(cat <<'EOF'
 # DATASNOOP-MANAGED-BEGIN
 # NBB nightly backload (reverse chronological, FY2026 → FY2022)
-0 2 * * * cd /opt/leadpeek && docker exec leadpeek-backend-1 timeout 4h python /app/../scripts/nbb_nightly_backload.py --max-calls 5000 >> /opt/leadpeek/scripts/_watchdog_state/nightly.log 2>&1
+0 2 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 timeout 4h python /app/scripts/nbb_nightly_backload.py --max-calls 5000 >> /opt/leadpeek/scripts/_watchdog_state/nightly.log 2>&1
 # Regsol insolvency scraper (throttled candidates)
-30 3 * * * cd /opt/leadpeek && docker exec leadpeek-backend-1 python /app/../scripts/open_data_regsol.py --batch 200 >> /opt/leadpeek/scripts/_watchdog_state/regsol.log 2>&1
+30 3 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_regsol.py --batch 200 >> /opt/leadpeek/scripts/_watchdog_state/regsol.log 2>&1
 # Invoice ingest from invoice@datasnoop.be
-0 4 * * * cd /opt/leadpeek && docker exec leadpeek-backend-1 python /app/../scripts/invoice_ingest.py >> /opt/leadpeek/scripts/_watchdog_state/invoices.log 2>&1
+0 4 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/invoice_ingest.py >> /opt/leadpeek/scripts/_watchdog_state/invoices.log 2>&1
 # Staatsblad events classification (local, cheap)
-30 4 * * * cd /opt/leadpeek && docker exec leadpeek-backend-1 python /app/../scripts/open_data_staatsblad_events.py --limit 20000 >> /opt/leadpeek/scripts/_watchdog_state/staatsblad_events.log 2>&1
+30 4 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_staatsblad_events.py --limit 20000 >> /opt/leadpeek/scripts/_watchdog_state/staatsblad_events.log 2>&1
 # TED procurement (last 7 days)
-0 5 * * * cd /opt/leadpeek && docker exec leadpeek-backend-1 python /app/../scripts/open_data_ted.py --days 7 >> /opt/leadpeek/scripts/_watchdog_state/ted.log 2>&1
+0 5 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_ted.py --days 7 >> /opt/leadpeek/scripts/_watchdog_state/ted.log 2>&1
 # Valuation AI commentary — pre-generate for favourited / recently-viewed
-30 5 * * * cd /opt/leadpeek && docker exec leadpeek-backend-1 python /app/../scripts/generate_valuation_commentary.py --max-calls 50 >> /opt/leadpeek/scripts/_watchdog_state/valuation_commentary.log 2>&1
+30 5 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/generate_valuation_commentary.py --max-calls 50 >> /opt/leadpeek/scripts/_watchdog_state/valuation_commentary.log 2>&1
 # Weekly favourites digest
-0 7 * * MON cd /opt/leadpeek && docker exec leadpeek-backend-1 python /app/../scripts/alert_digest.py --send >> /opt/leadpeek/scripts/_watchdog_state/digest.log 2>&1
+0 7 * * MON cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/alert_digest.py --send >> /opt/leadpeek/scripts/_watchdog_state/digest.log 2>&1
 # DATASNOOP-MANAGED-END
 EOF
 )

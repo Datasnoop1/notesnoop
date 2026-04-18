@@ -201,6 +201,16 @@ def already_stored(message_id: str) -> bool:
     ) is not None
 
 
+def _clean(s: str) -> str:
+    """Strip NUL bytes (Postgres rejects them) + collapse runs of control
+    chars. Invoice PDFs often surface NULs between extracted glyphs."""
+    if not s:
+        return s
+    s = s.replace("\x00", "")
+    # Drop other C0 controls except \t \n \r
+    return "".join(ch for ch in s if ch in "\t\n\r" or ord(ch) >= 0x20)
+
+
 def store(message_id: str, sender: str, subject: str, invoice_date: Optional[str],
           amount_cents: Optional[int], raw_body: str) -> None:
     """Store a single invoice row. For multi-PDF emails the caller passes
@@ -213,7 +223,8 @@ def store(message_id: str, sender: str, subject: str, invoice_date: Optional[str
         VALUES (%s, %s, %s, %s, %s, %s)
         ON CONFLICT (message_id) DO NOTHING
         """,
-        (message_id, sender, subject, invoice_date, amount_cents, raw_body[:50000]),
+        (_clean(message_id), _clean(sender), _clean(subject),
+         invoice_date, amount_cents, _clean(raw_body)[:50000]),
     )
 
 
