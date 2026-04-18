@@ -68,14 +68,16 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = fal
 
   // Indirect-method bridge from EBITDA → CFO. interestExpense and
   // incomeTax are already signed as cash impact (negative for outflow).
+  // Operator-preferred order: working capital first, then taxes, then
+  // the other non-cash / financial adjustments.
   type FloatSpec = { label: string; delta: number };
   const opsFloats: FloatSpec[] = [
+    { label: (cf.wcChange ?? 0) >= 0 ? "+ ΔWorking capital" : "− ΔWorking capital", delta: cf.wcChange ?? 0 },
+    { label: cf.incomeTax <= 0 ? "− Income tax" : "+ Tax credit", delta: cf.incomeTax },
     { label: "+ Financial income", delta: cf.financialIncome },
     { label: cf.interestExpense <= 0 ? "− Interest paid" : "+ Interest refund", delta: cf.interestExpense },
-    { label: cf.incomeTax <= 0 ? "− Income tax" : "+ Tax credit", delta: cf.incomeTax },
     { label: "+ Write-downs", delta: cf.writedowns },
     { label: "+ Provisions", delta: cf.provisions },
-    { label: (cf.wcChange ?? 0) >= 0 ? "+ ΔWorking capital" : "− ΔWorking capital", delta: cf.wcChange ?? 0 },
   ].filter((f) => f.delta !== 0);
 
   const invFloats: FloatSpec[] = [

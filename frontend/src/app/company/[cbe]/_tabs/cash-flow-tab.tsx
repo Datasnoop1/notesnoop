@@ -107,17 +107,18 @@ export function CashFlowTab({
 
   const lines: CFLine[] = [
     { label: t("company.cf.ebitda"), key: "ebitda", section: t("company.cf.sectionOperating") },
-    { label: t("company.cf.financialIncome"), key: "financialIncome", indent: true, dropIfAllEmpty: true },
-    { label: t("company.cf.interestExpense"), key: "interestExpense", indent: true, dropIfAllEmpty: true },
-    { label: t("company.cf.incomeTax"), key: "incomeTax", indent: true, dropIfAllEmpty: true },
-    { label: t("company.cf.writedowns"), key: "writedowns", indent: true, dropIfAllEmpty: true },
-    { label: t("company.cf.provisions"), key: "provisions", indent: true, dropIfAllEmpty: true },
+    // After EBITDA: working capital first, then taxes, then everything else.
     { label: t("company.cf.deltaInventories"), key: "deltaInventories", indent: true, group: "cf_wc", dropIfAllEmpty: true },
     { label: t("company.cf.deltaTradeRec"), key: "deltaTradeReceivables", indent: true, group: "cf_wc" },
     { label: t("company.cf.deltaTradePay"), key: "deltaTradePayables", indent: true, group: "cf_wc" },
     { label: t("company.cf.deltaTaxSocial"), key: "deltaTaxSocialPayables", indent: true, group: "cf_wc", dropIfAllEmpty: true },
     { label: t("company.cf.deltaOtherPay"), key: "deltaOtherPayables", indent: true, group: "cf_wc", dropIfAllEmpty: true },
     { label: t("company.cf.wcChange"), key: "wcChange", bold: true, topBorder: true },
+    { label: t("company.cf.incomeTax"), key: "incomeTax", indent: true, dropIfAllEmpty: true },
+    { label: t("company.cf.financialIncome"), key: "financialIncome", indent: true, dropIfAllEmpty: true },
+    { label: t("company.cf.interestExpense"), key: "interestExpense", indent: true, dropIfAllEmpty: true },
+    { label: t("company.cf.writedowns"), key: "writedowns", indent: true, dropIfAllEmpty: true },
+    { label: t("company.cf.provisions"), key: "provisions", indent: true, dropIfAllEmpty: true },
     { label: t("company.cf.cashFromOps"), key: "cashFromOps", bold: true, topBorder: true },
 
     { label: t("company.cf.capex"), key: "capex", indent: true, section: t("company.cf.sectionInvesting") },
