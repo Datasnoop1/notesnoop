@@ -329,13 +329,12 @@ export function PnlTab({
         </div>
       )}
 
-      {/* P&L waterfall — under the KPI cards, collapsed by default, year
-          picker so the operator can switch fiscal year without scrolling. */}
+      {/* P&L waterfall — under the KPI cards, expanded by default (per
+          operator), year picker so they can switch fiscal year in-place. */}
       {financials?.rubric_data && pnlData.length > 0 && (
         <PnlWaterfall
           rubrics={financials.rubric_data as Record<string, Record<string, number | null>>}
           fiscalYears={pnlData.map((p) => p.fiscal_year).filter((y): y is number => typeof y === "number")}
-          defaultCollapsed
         />
       )}
 

@@ -4,26 +4,31 @@ import React, { useMemo, useState } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { fmtEur } from "@/lib/format";
 
-/* Horizontal waterfall: Revenue → Materials → Services → Personnel → Other
- * OpEx → EBITDA → D&A → EBIT → Fin charges → Tax → Net profit. Year picker
- * + collapsed by default + softer palette. Pure SVG/CSS, no dep.
+/* True floating horizontal waterfall.
+ *   - Milestones (Revenue / EBITDA / EBIT / Net profit) render as full bars
+ *     anchored to 0, width = milestone value as % of revenue.
+ *   - Deductions (Materials / Services / Personnel / OpEx / D&A / Fin /
+ *     Tax) render as FLOATING bars: each sits at the running balance,
+ *     reflecting exactly what was subtracted between two milestones.
  *
- * Belgian GAAP rubric mapping:
- *   70           Revenue
- *   60           Materials & consumables
- *   61           Services & other goods
- *   62           Personnel
- *   640          Other operating costs (residual bucket)
- *   630          Depreciation & amortisation
- *   9901         Operating profit (EBIT)
- *   65           Financial charges
- *   67           Tax
- *   9904         Net profit
+ * Year picker + softer palette; expanded by default (per operator).
+ *
+ * Belgian GAAP rubrics (match backend whitelist in companies/financials.py):
+ *   70    Revenue
+ *   60    Materials
+ *   61    Services
+ *   62    Personnel
+ *   640/8 Other operating costs
+ *   630   D&A
+ *   9901  EBIT
+ *   65    Financial charges
+ *   67/77 Tax
+ *   9904  Net profit
  */
 
 interface Props {
   rubrics: Record<string, Record<string, number | null>>;
-  fiscalYears: number[];             // available years, newest first
+  fiscalYears: number[];
   defaultCollapsed?: boolean;
 }
 
@@ -32,11 +37,18 @@ function rub(r: Record<string, Record<string, number | null>>, code: string, fy:
   return typeof v === "number" ? v : 0;
 }
 
-type Row =
-  | { label: string; value: number; kind: "milestone"; color: string; bar: string; pct?: number }
-  | { label: string; value: number; kind: "deduction"; color: string; bar: string };
+type Row = {
+  label: string;
+  value: number;          // absolute magnitude for display
+  startPct: number;       // bar left edge (0..100)
+  endPct: number;         // bar right edge (0..100)
+  kind: "milestone" | "deduction";
+  color: string;          // bar tailwind bg
+  textColor: string;      // label text tailwind
+  pctLabel?: string;      // inline % for milestones
+};
 
-export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = true }: Props) {
+export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }: Props) {
   const years = useMemo(
     () => [...new Set(fiscalYears)].filter((y) => typeof y === "number").sort((a, b) => b - a),
     [fiscalYears],
@@ -50,9 +62,6 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = true }: 
   const revenue = rub(rubrics, "70", fy);
   if (revenue <= 0) return null;
 
-  // Rubric codes match what backend emits (see companies/financials.py
-  // pnl_codes/bs_codes): Other OpEx is '640/8', Tax is '67/77', D&A is
-  // '630' plus '631/4' + '635/8' if granularity matters later.
   const materials = Math.max(0, rub(rubrics, "60", fy));
   const services = Math.max(0, rub(rubrics, "61", fy));
   const personnel = Math.max(0, rub(rubrics, "62", fy));
@@ -64,43 +73,97 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = true }: 
   const tax = Math.max(0, rub(rubrics, "67/77", fy));
   const netProfit = rub(rubrics, "9904", fy);
 
-  // Softer, pastel-ish palette (text + bar variants)
-  const rows: Row[] = [
-    { label: "Revenue",            value: revenue,     kind: "milestone", color: "text-indigo-700", bar: "bg-indigo-300" },
-  ];
-  if (materials > 0) rows.push({ label: "− Materials",     value: materials, kind: "deduction", color: "text-rose-600", bar: "bg-rose-200" });
-  if (services > 0)  rows.push({ label: "− Services",      value: services,  kind: "deduction", color: "text-rose-600", bar: "bg-rose-200" });
-  if (personnel > 0) rows.push({ label: "− Personnel",     value: personnel, kind: "deduction", color: "text-rose-600", bar: "bg-rose-200" });
-  if (otherOp > 0)   rows.push({ label: "− Other OpEx",    value: otherOp,   kind: "deduction", color: "text-rose-600", bar: "bg-rose-200" });
+  // Convert a raw EUR value to a % of revenue (0..100)
+  const toPct = (v: number) => (v / revenue) * 100;
 
+  const rows: Row[] = [];
+  // Milestone — anchored to 0
+  rows.push({
+    label: "Revenue", value: revenue, kind: "milestone",
+    startPct: 0, endPct: 100,
+    color: "bg-indigo-300", textColor: "text-indigo-700",
+    pctLabel: "100.0%",
+  });
+
+  // Deductions from revenue, running balance works downwards
+  let running = revenue;
+  const pushDed = (label: string, v: number, color: string) => {
+    if (v <= 0) return;
+    const endPct = toPct(running);
+    running -= v;
+    const startPct = toPct(running);
+    rows.push({
+      label, value: v, kind: "deduction",
+      startPct, endPct,
+      color, textColor: "text-rose-600",
+    });
+  };
+  pushDed("− Materials", materials, "bg-rose-200");
+  pushDed("− Services",  services,  "bg-rose-200");
+  pushDed("− Personnel", personnel, "bg-rose-200");
+  pushDed("− Other OpEx", otherOp,  "bg-rose-200");
+
+  // EBITDA milestone (may not exactly equal `running` if rubrics don't add
+  // up — we trust the rubric 9901 + 630 formula over the sum of decomposed
+  // op-costs, which can include non-standard buckets).
+  const ebitdaPct = toPct(Math.max(0, ebitda));
   rows.push({
     label: "EBITDA", value: Math.max(0, ebitda), kind: "milestone",
-    color: "text-emerald-700", bar: "bg-emerald-300",
-    pct: revenue > 0 ? (ebitda / revenue) * 100 : undefined,
-  });
-  if (da > 0) rows.push({ label: "− D&A", value: da, kind: "deduction", color: "text-amber-600", bar: "bg-amber-200" });
-  rows.push({
-    label: "EBIT", value: Math.max(0, ebit), kind: "milestone",
-    color: "text-emerald-700", bar: "bg-emerald-300",
-    pct: revenue > 0 ? (ebit / revenue) * 100 : undefined,
-  });
-  if (finCharges > 0) rows.push({ label: "− Fin. charges", value: finCharges, kind: "deduction", color: "text-rose-600", bar: "bg-rose-200" });
-  if (tax > 0)        rows.push({ label: "− Tax",          value: tax,        kind: "deduction", color: "text-slate-500", bar: "bg-slate-200" });
-  rows.push({
-    label: "Net profit", value: Math.max(0, netProfit), kind: "milestone",
-    color: netProfit >= 0 ? "text-emerald-800" : "text-rose-700",
-    bar: netProfit >= 0 ? "bg-emerald-400" : "bg-rose-300",
-    pct: revenue > 0 ? (netProfit / revenue) * 100 : undefined,
+    startPct: 0, endPct: Math.min(100, ebitdaPct),
+    color: "bg-emerald-300", textColor: "text-emerald-700",
+    pctLabel: revenue > 0 ? `${(ebitda / revenue * 100).toFixed(1)}%` : undefined,
   });
 
-  const maxBar = revenue;
+  // − D&A: between EBITDA and EBIT
+  if (da > 0) {
+    const endPct = toPct(Math.max(0, ebitda));
+    const startPct = toPct(Math.max(0, ebit));
+    rows.push({
+      label: "− D&A", value: da, kind: "deduction",
+      startPct: Math.min(startPct, endPct),
+      endPct: Math.max(startPct, endPct),
+      color: "bg-amber-200", textColor: "text-amber-600",
+    });
+  }
+
+  // EBIT milestone
+  rows.push({
+    label: "EBIT", value: Math.max(0, ebit), kind: "milestone",
+    startPct: 0, endPct: Math.min(100, Math.max(0, toPct(ebit))),
+    color: "bg-emerald-300", textColor: "text-emerald-700",
+    pctLabel: revenue > 0 ? `${(ebit / revenue * 100).toFixed(1)}%` : undefined,
+  });
+
+  // Financial charges + Tax bring EBIT down to Net profit
+  let ebitRunning = ebit;
+  const pushBelowEbit = (label: string, v: number, color: string) => {
+    if (v <= 0) return;
+    const endPct = toPct(Math.max(0, ebitRunning));
+    ebitRunning -= v;
+    const startPct = toPct(Math.max(0, ebitRunning));
+    rows.push({
+      label, value: v, kind: "deduction",
+      startPct: Math.min(startPct, endPct),
+      endPct: Math.max(startPct, endPct),
+      color, textColor: "text-rose-600",
+    });
+  };
+  pushBelowEbit("− Fin. charges", finCharges, "bg-rose-200");
+  pushBelowEbit("− Tax",          tax,        "bg-slate-200");
+
+  // Net profit milestone
+  rows.push({
+    label: "Net profit", value: Math.max(0, netProfit), kind: "milestone",
+    startPct: 0, endPct: Math.min(100, Math.max(0, toPct(netProfit))),
+    color: netProfit >= 0 ? "bg-emerald-400" : "bg-rose-300",
+    textColor: netProfit >= 0 ? "text-emerald-800" : "text-rose-700",
+    pctLabel: revenue > 0 ? `${(netProfit / revenue * 100).toFixed(1)}%` : undefined,
+  });
 
   return (
     <div className="rounded-lg border bg-white">
       {/* Header row — two siblings inside a flex, NOT nested interactive
-          elements (a <select> inside a <button> is invalid HTML and causes
-          unpredictable toggle behaviour). The left side is a semantic
-          <button> for the toggle; the year picker sits next to it. */}
+          elements. */}
       <div className="flex items-center justify-between px-3 py-2">
         <button
           type="button"
@@ -129,28 +192,31 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = true }: 
         <div className="px-3 pb-3 pt-1 border-t border-slate-100">
           <div className="space-y-1">
             {rows.map((r, i) => {
-              const pct = maxBar > 0 ? Math.min(100, (r.value / maxBar) * 100) : 0;
+              const width = Math.max(0.5, r.endPct - r.startPct);
               const isMilestone = r.kind === "milestone";
               return (
                 <div key={`${i}-${r.label}`} className="flex items-center gap-3 text-[12px]">
                   <div className={`w-[110px] md:w-[140px] shrink-0 text-right truncate ${
-                    isMilestone ? `font-semibold ${r.color}` : "text-slate-500"
+                    isMilestone ? `font-semibold ${r.textColor}` : r.textColor
                   }`}>
                     {r.label}
                   </div>
                   <div className="flex-1 relative h-5 md:h-6 bg-slate-50 rounded overflow-hidden">
                     <div
-                      className={`absolute left-0 top-0 h-full rounded ${r.bar}`}
-                      style={{ width: `${pct}%` }}
+                      className={`absolute top-0 h-full rounded ${r.color}`}
+                      style={{ left: `${r.startPct}%`, width: `${width}%` }}
                     />
-                    {isMilestone && "pct" in r && r.pct != null && (
-                      <span className="absolute right-1.5 top-0 h-full flex items-center text-[10px] text-slate-700 font-mono font-semibold">
-                        {r.pct.toFixed(1)}%
+                    {isMilestone && r.pctLabel && (
+                      <span
+                        className="absolute top-0 h-full flex items-center text-[10px] text-slate-700 font-mono font-semibold"
+                        style={{ left: `calc(${Math.min(96, r.endPct)}% + 2px)` }}
+                      >
+                        {r.pctLabel}
                       </span>
                     )}
                   </div>
                   <div className={`w-[90px] md:w-[110px] shrink-0 text-right font-mono text-[11px] ${
-                    isMilestone ? `font-semibold ${r.color}` : "text-slate-500"
+                    isMilestone ? `font-semibold ${r.textColor}` : r.textColor
                   }`}>
                     {fmtEur(r.value)}
                   </div>
@@ -159,7 +225,8 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = true }: 
             })}
           </div>
           <p className="text-[10px] text-slate-400 italic mt-2">
-            Bars scaled to Revenue (100%). Milestones show margin % vs revenue.
+            True floating waterfall — deductions sit at the running balance
+            between milestones. Bars scaled to Revenue (100%).
           </p>
         </div>
       )}

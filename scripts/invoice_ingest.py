@@ -150,10 +150,16 @@ def extract_pdf_text(payload: bytes) -> str:
         return ""
 
 
-def get_body(msg: Message) -> tuple[str, Optional[bytes]]:
-    """Return (text_body, first_pdf_attachment_bytes)."""
-    text_parts = []
-    first_pdf: Optional[bytes] = None
+def get_body(msg: Message) -> tuple[str, list[tuple[str, bytes]]]:
+    """Return (text_body, pdf_attachments).
+
+    pdf_attachments is a list of (filename, bytes) — one per PDF attachment.
+    A single email can bundle several invoices; we process each PDF as its
+    own invoice row so the operator doesn't have to forward them one at a
+    time.
+    """
+    text_parts: list[str] = []
+    pdfs: list[tuple[str, bytes]] = []
     if msg.is_multipart():
         for part in msg.walk():
             ctype = part.get_content_type()
@@ -164,15 +170,17 @@ def get_body(msg: Message) -> tuple[str, Optional[bytes]]:
                 except Exception:
                     continue
             elif ctype == "text/html" and "attachment" not in disp and not text_parts:
-                # Strip tags as fallback
                 try:
                     html = part.get_payload(decode=True).decode("utf-8", errors="replace")
                     text_parts.append(re.sub(r"<[^>]+>", " ", html))
                 except Exception:
                     continue
-            elif ctype == "application/pdf" and first_pdf is None:
+            elif ctype == "application/pdf":
                 try:
-                    first_pdf = part.get_payload(decode=True)
+                    fname = part.get_filename() or f"attachment-{len(pdfs)+1}.pdf"
+                    data = part.get_payload(decode=True)
+                    if data:
+                        pdfs.append((fname, data))
                 except Exception:
                     continue
     else:
@@ -180,20 +188,24 @@ def get_body(msg: Message) -> tuple[str, Optional[bytes]]:
             text_parts.append(msg.get_payload(decode=True).decode("utf-8", errors="replace"))
         except Exception:
             pass
-    return "\n\n".join(text_parts).strip(), first_pdf
+    return "\n\n".join(text_parts).strip(), pdfs
 
 
 def already_stored(message_id: str) -> bool:
+    """True if we've already ingested at least one row for this email."""
     if not message_id:
         return False
     return fetch_one(
-        "SELECT 1 FROM platform_invoice WHERE message_id = %s",
-        (message_id,),
+        "SELECT 1 FROM platform_invoice WHERE message_id LIKE %s",
+        (f"{message_id}%",),
     ) is not None
 
 
 def store(message_id: str, sender: str, subject: str, invoice_date: Optional[str],
           amount_cents: Optional[int], raw_body: str) -> None:
+    """Store a single invoice row. For multi-PDF emails the caller passes
+    a synthesised Message-ID suffix (e.g. '<orig>#pdf-2') so each PDF
+    gets its own row without fighting the UNIQUE constraint."""
     execute(
         """
         INSERT INTO platform_invoice
@@ -243,21 +255,33 @@ def run() -> None:
             sender = (msg.get("From") or "").strip()
             subject = (msg.get("Subject") or "").strip()
 
-            body_text, pdf_bytes = get_body(msg)
-            scan_text = body_text
-            if pdf_bytes:
-                pdf_text = extract_pdf_text(pdf_bytes)
-                if pdf_text:
-                    scan_text = (scan_text + "\n" + pdf_text) if scan_text else pdf_text
+            body_text, pdfs = get_body(msg)
 
-            amount_cents = parse_amount(scan_text)
-            invoice_date = parse_date(scan_text)
-
-            store(message_id, sender, subject, invoice_date, amount_cents, body_text)
-            new_count += 1
-            log.info("stored: %s | %s | %s cents",
-                     sender[:40], subject[:50],
-                     amount_cents if amount_cents is not None else "?")
+            # Multi-invoice handling: one row per PDF attachment. Falls
+            # back to a body-only row when the email has no PDF (e.g. the
+            # invoice is inline text).
+            if pdfs:
+                for idx, (fname, pdf_bytes) in enumerate(pdfs, start=1):
+                    pdf_text = extract_pdf_text(pdf_bytes) or ""
+                    scan = pdf_text + "\n" + body_text
+                    amt = parse_amount(scan)
+                    inv_date = parse_date(scan)
+                    row_mid = message_id if len(pdfs) == 1 else f"{message_id}#pdf-{idx}"
+                    row_subject = subject if len(pdfs) == 1 else f"{subject} — {fname}"
+                    store(row_mid, sender, row_subject, inv_date, amt,
+                          (pdf_text[:25000] + "\n\n" + body_text[:10000]))
+                    new_count += 1
+                    log.info("stored (pdf %d/%d): %s | %s | %s cents",
+                             idx, len(pdfs), sender[:40], fname[:40],
+                             amt if amt is not None else "?")
+            else:
+                amount_cents = parse_amount(body_text)
+                invoice_date = parse_date(body_text)
+                store(message_id, sender, subject, invoice_date, amount_cents, body_text)
+                new_count += 1
+                log.info("stored: %s | %s | %s cents",
+                         sender[:40], subject[:50],
+                         amount_cents if amount_cents is not None else "?")
 
         log.info("invoice_ingest done: %d new", new_count)
 

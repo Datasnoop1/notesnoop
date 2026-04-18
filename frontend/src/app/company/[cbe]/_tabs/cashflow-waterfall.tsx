@@ -4,24 +4,20 @@ import React, { useMemo, useState } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import { fmtEur } from "@/lib/format";
 
-/* Cash-flow waterfall: derived from rubrics + period-over-period deltas.
- * Net profit → + D&A → − ΔWorking capital → = Operating CF → − CapEx
- * → = Free cash flow → ± Net debt movement → = Change in cash.
+/* True floating cash-flow waterfall.
  *
- * Belgian GAAP rubrics used:
- *   9904     Net profit
- *   630      D&A (added back — non-cash)
- *   29       LT trade receivables
- *   40/41    Trade + other receivables  (we approximate with rubric 40)
- *   30       Inventories
- *   44       Trade payables
- *   22-27    Tangible + intangible fixed assets (sum for CapEx proxy)
- *   17       LT debt (for net debt movement)
- *   43       ST fin. debt
+ *   Net profit + D&A ± ΔWorking capital = Operating CF
+ *              − CapEx                  = Free cash flow
+ *              ± Net debt movement      = Δ Cash
  *
- * CapEx is approximated as: (gross fixed assets this year − last year) + D&A.
- * ΔWorking capital = Δreceivables + Δinventories − Δpayables.
- * Pure SVG/CSS, no dep.
+ * Milestones render anchored to 0, widths in % of the largest absolute
+ * flow so every row is visible. Deductions + additions float between
+ * milestones at the running balance, so it reads like a proper
+ * accounting bridge.
+ *
+ * Rubric codes match what companies/financials.py emits (3 = inventories,
+ * 41 = receivables, 44 = trade payables, 20/28 = total fixed assets,
+ * 17 = LT debt, 43 = ST fin debt).
  */
 
 interface Props {
@@ -39,13 +35,14 @@ function rub(r: Record<string, Record<string, number | null>>, code: string, fy:
 type Row = {
   label: string;
   value: number;
+  startPct: number;
+  endPct: number;
   kind: "milestone" | "deduction" | "addition";
   color: string;
-  bar: string;
-  pct?: number;  // vs revenue when we have it
+  textColor: string;
 };
 
-export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = true }: Props) {
+export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }: Props) {
   const years = useMemo(
     () => [...new Set(fiscalYears)].filter((y) => typeof y === "number").sort((a, b) => b - a),
     [fiscalYears],
@@ -56,31 +53,20 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = tru
 
   if (!years.length || fy == null) return null;
 
-  // Prior-year lookup for WC + CapEx deltas. Pick the next-older year that
-  // actually exists in rubric_data. If there's no prior year, we skip the
-  // delta-dependent rows rather than showing bogus zeros.
   const prevFy = years.find((y) => y < fy) ?? null;
 
-  // Rubric codes match what backend emits (see companies/financials.py
-  // pnl_codes + bs_codes): 3 = inventories, 41 = receivables, 44 = trade
-  // payables, 20/28 = total fixed assets, 17 = LT debt, 43 = ST fin debt.
   const netProfit = rub(rubrics, "9904", fy);
   const da = Math.max(0, rub(rubrics, "630", fy));
 
-  // Working capital change (positive when WC grows → cash use → subtracts)
   const receivablesChange = rub(rubrics, "41", fy) - rub(rubrics, "41", prevFy);
   const inventoriesChange = rub(rubrics, "3", fy) - rub(rubrics, "3", prevFy);
   const payablesChange = rub(rubrics, "44", fy) - rub(rubrics, "44", prevFy);
   const wcChange = receivablesChange + inventoriesChange - payablesChange;
 
-  // Gross fixed-assets delta + D&A ≈ CapEx (indirect method).
-  // 20/28 = total fixed assets (intangible + tangible + financial), as
-  // used elsewhere in the BS tab.
   const grossFaThis = rub(rubrics, "20/28", fy);
   const grossFaPrev = rub(rubrics, "20/28", prevFy);
   const capex = prevFy ? Math.max(0, grossFaThis - grossFaPrev + da) : 0;
 
-  // Net debt movement: Δ(LT + ST fin debt). Positive = new borrowings = cash in.
   const debtThis = rub(rubrics, "17", fy) + rub(rubrics, "43", fy);
   const debtPrev = rub(rubrics, "17", prevFy) + rub(rubrics, "43", prevFy);
   const debtMovement = prevFy ? (debtThis - debtPrev) : 0;
@@ -90,70 +76,96 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = tru
   const fcf = operatingCf - capex;
   const changeInCash = fcf + debtMovement;
 
-  const rows: Row[] = [
-    {
-      label: "Net profit", value: Math.abs(netProfit), kind: "milestone",
-      color: netProfit >= 0 ? "text-emerald-700" : "text-rose-700",
-      bar: netProfit >= 0 ? "bg-emerald-300" : "bg-rose-300",
-    },
-  ];
-  if (da > 0) rows.push({ label: "+ D&A", value: da, kind: "addition", color: "text-emerald-600", bar: "bg-emerald-200" });
+  // Scale: biggest absolute flow gives 100%. This keeps even small
+  // deductions visible — unlike scaling to revenue where they'd vanish.
+  const scaleBase = Math.max(
+    1,
+    Math.abs(netProfit) + Math.max(0, da) + Math.max(0, -wcChange) + Math.max(0, wcChange),
+    Math.abs(operatingCf),
+    Math.abs(operatingCf) + capex,
+    Math.abs(fcf) + Math.abs(debtMovement),
+    Math.abs(changeInCash),
+  );
+  const toPct = (v: number) => (v / scaleBase) * 100;
 
-  if (prevFy && wcChange !== 0) {
-    const incr = wcChange > 0;                       // WC grew → cash out → red
+  const rows: Row[] = [];
+
+  // Starting point: Net profit milestone (anchored to 0)
+  {
+    const end = Math.max(0, Math.abs(netProfit));
     rows.push({
-      label: incr ? "− ΔWorking cap" : "+ ΔWorking cap",
-      value: Math.abs(wcChange),
-      kind: incr ? "deduction" : "addition",
-      color: incr ? "text-rose-600" : "text-emerald-600",
-      bar: incr ? "bg-rose-200" : "bg-emerald-200",
+      label: "Net profit", value: Math.abs(netProfit), kind: "milestone",
+      startPct: 0, endPct: Math.min(100, toPct(end)),
+      color: netProfit >= 0 ? "bg-emerald-300" : "bg-rose-300",
+      textColor: netProfit >= 0 ? "text-emerald-700" : "text-rose-700",
     });
   }
 
+  // Build cumulative from Net profit up to Operating CF, then down through
+  // CapEx to FCF, then ± debt to Δ Cash. Each floating bar bridges two
+  // consecutive cumulative positions.
+  let running = netProfit;
+  const float = (label: string, delta: number, color: string, textColor: string) => {
+    if (delta === 0) return;
+    const before = running;
+    running += delta;
+    const lo = Math.min(before, running);
+    const hi = Math.max(before, running);
+    rows.push({
+      label, value: Math.abs(delta),
+      kind: delta > 0 ? "addition" : "deduction",
+      startPct: toPct(Math.max(0, lo)),
+      endPct: toPct(Math.max(0, hi)),
+      color, textColor,
+    });
+  };
+
+  if (da > 0)               float("+ D&A",           +da,        "bg-emerald-200", "text-emerald-600");
+  if (prevFy && wcChange !== 0) {
+    const isUse = wcChange > 0;                 // WC grew → cash use
+    float(isUse ? "− ΔWorking cap" : "+ ΔWorking cap",
+          -wcChange,
+          isUse ? "bg-rose-200" : "bg-emerald-200",
+          isUse ? "text-rose-600" : "text-emerald-600");
+  }
+
+  // Operating CF milestone
   rows.push({
     label: "Operating CF", value: Math.abs(operatingCf), kind: "milestone",
-    color: operatingCf >= 0 ? "text-emerald-800" : "text-rose-700",
-    bar: operatingCf >= 0 ? "bg-emerald-300" : "bg-rose-300",
+    startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(operatingCf)))),
+    color: operatingCf >= 0 ? "bg-emerald-300" : "bg-rose-300",
+    textColor: operatingCf >= 0 ? "text-emerald-700" : "text-rose-700",
   });
 
-  if (prevFy && capex > 0) {
-    rows.push({ label: "− CapEx", value: capex, kind: "deduction", color: "text-amber-600", bar: "bg-amber-200" });
-  }
+  // Reset running to operatingCf (for the CapEx bridge)
+  running = operatingCf;
+  if (prevFy && capex > 0) float("− CapEx", -capex, "bg-amber-200", "text-amber-600");
 
+  // FCF milestone
   rows.push({
     label: "Free cash flow", value: Math.abs(fcf), kind: "milestone",
-    color: fcf >= 0 ? "text-emerald-800" : "text-rose-700",
-    bar: fcf >= 0 ? "bg-emerald-400" : "bg-rose-400",
+    startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(fcf)))),
+    color: fcf >= 0 ? "bg-emerald-400" : "bg-rose-400",
+    textColor: fcf >= 0 ? "text-emerald-800" : "text-rose-700",
   });
 
+  // Reset running to fcf (for the debt bridge)
+  running = fcf;
   if (prevFy && debtMovement !== 0) {
-    const borrow = debtMovement > 0;
-    rows.push({
-      label: borrow ? "+ Net borrowings" : "− Net debt repay",
-      value: Math.abs(debtMovement),
-      kind: borrow ? "addition" : "deduction",
-      color: borrow ? "text-indigo-600" : "text-rose-600",
-      bar: borrow ? "bg-indigo-200" : "bg-rose-200",
-    });
+    const isBorrow = debtMovement > 0;
+    float(isBorrow ? "+ Net borrowings" : "− Net debt repay",
+          debtMovement,
+          isBorrow ? "bg-indigo-200" : "bg-rose-200",
+          isBorrow ? "text-indigo-600" : "text-rose-600");
   }
 
+  // Δ Cash milestone
   rows.push({
     label: "Δ Cash", value: Math.abs(changeInCash), kind: "milestone",
-    color: changeInCash >= 0 ? "text-emerald-800" : "text-rose-700",
-    bar: changeInCash >= 0 ? "bg-emerald-400" : "bg-rose-400",
+    startPct: 0, endPct: Math.min(100, toPct(Math.max(0, Math.abs(changeInCash)))),
+    color: changeInCash >= 0 ? "bg-emerald-400" : "bg-rose-400",
+    textColor: changeInCash >= 0 ? "text-emerald-800" : "text-rose-700",
   });
-
-  // Bars scaled to the biggest absolute milestone (Net profit or OperatingCF
-  // — whichever is larger), so deduction bars stay visible even when the
-  // final Δcash is small.
-  const maxBar = Math.max(
-    1,
-    Math.abs(netProfit),
-    Math.abs(operatingCf),
-    Math.abs(fcf),
-    Math.abs(changeInCash),
-    da, capex, Math.abs(wcChange), Math.abs(debtMovement),
-  );
 
   return (
     <div className="rounded-lg border bg-white">
@@ -185,23 +197,23 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = tru
         <div className="px-3 pb-3 pt-1 border-t border-slate-100">
           <div className="space-y-1">
             {rows.map((r, i) => {
-              const pct = maxBar > 0 ? Math.min(100, (r.value / maxBar) * 100) : 0;
+              const width = Math.max(0.5, r.endPct - r.startPct);
               const isMilestone = r.kind === "milestone";
               return (
                 <div key={`${i}-${r.label}`} className="flex items-center gap-3 text-[12px]">
                   <div className={`w-[120px] md:w-[150px] shrink-0 text-right truncate ${
-                    isMilestone ? `font-semibold ${r.color}` : "text-slate-500"
+                    isMilestone ? `font-semibold ${r.textColor}` : r.textColor
                   }`}>
                     {r.label}
                   </div>
                   <div className="flex-1 relative h-5 md:h-6 bg-slate-50 rounded overflow-hidden">
                     <div
-                      className={`absolute left-0 top-0 h-full rounded ${r.bar}`}
-                      style={{ width: `${pct}%` }}
+                      className={`absolute top-0 h-full rounded ${r.color}`}
+                      style={{ left: `${r.startPct}%`, width: `${width}%` }}
                     />
                   </div>
                   <div className={`w-[90px] md:w-[110px] shrink-0 text-right font-mono text-[11px] ${
-                    isMilestone ? `font-semibold ${r.color}` : "text-slate-500"
+                    isMilestone ? `font-semibold ${r.textColor}` : r.textColor
                   }`}>
                     {fmtEur(r.value)}
                   </div>
@@ -210,9 +222,8 @@ export function CashFlowWaterfall({ rubrics, fiscalYears, defaultCollapsed = tru
             })}
           </div>
           <p className="text-[10px] text-slate-400 italic mt-2">
-            Indirect method. Working-capital Δ, CapEx and debt movement require
-            a prior year to compute — shown only when FY{prevFy ?? "—"} data is
-            available. Bars scaled to the largest absolute flow.
+            Indirect method. Floating bars sit at the running balance
+            between milestones. Bars scaled to the largest absolute flow.
           </p>
         </div>
       )}

@@ -157,7 +157,13 @@ export function CompanyPageClient({
   const [showInsightsOverlay, setShowInsightsOverlay] = useState(false);
 
   /* -- Collapsible section state -- */
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  // Groups default-collapsed on load so the tabs feel lighter. User can
+  // expand any group via its chip. P&L op-cost breakdown in particular
+  // lives under the waterfall above it, so the table doesn't need to
+  // repeat it by default.
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
+    pnl_opex: true,
+  });
   const toggleSection = (key: string) =>
     setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
 

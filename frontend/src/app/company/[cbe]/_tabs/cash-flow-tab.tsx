@@ -156,12 +156,11 @@ export function CashFlowTab({
 
   return (
     <div className="space-y-4">
-      {/* Cash-flow waterfall — indirect method; collapsed by default. */}
+      {/* Cash-flow waterfall — indirect method; expanded by default. */}
       {financials?.rubric_data && sorted.length > 1 && (
         <CashFlowWaterfall
           rubrics={financials.rubric_data as Record<string, Record<string, number | null>>}
           fiscalYears={sorted.map((r) => r.fiscal_year).filter((y): y is number => typeof y === "number")}
-          defaultCollapsed
         />
       )}
 
