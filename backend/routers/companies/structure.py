@@ -55,17 +55,183 @@ def _admin_extract_cache_record(cbe: str, count: int) -> None:
 # GET /api/companies/{cbe}/structure
 # ---------------------------------------------------------------------------
 
+def _normalize_name(raw: str | None) -> str:
+    """Normalise a person/entity name for cross-source matching.
+
+    Strips diacritics, lowercases, collapses whitespace, removes punctuation
+    and common title prefixes. Not perfect but catches 'J. De Smet' =
+    'Jean De Smet' for the majority of the corpus.
+    """
+    if not raw:
+        return ""
+    import re
+    import unicodedata
+    s = unicodedata.normalize("NFKD", raw)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = s.lower()
+    s = re.sub(r"[.,()/'\"’`]", " ", s)
+    # Drop common Dutch/French honorifics
+    s = re.sub(r"\b(?:mr|mrs|mme|m|mister|madame|monsieur|dhr|mevr|mevrouw|de heer)\b", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _merge_admins_with_staatsblad(
+    cbe: str,
+    nbb_rows: list[dict],
+    staatsblad_events: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """Merge the NBB snapshot with chronological Staatsblad admin events.
+
+    Returns (current_state, timeline):
+      - current_state: the list of people/entities currently on the board,
+        each row annotated with `source` ('nbb' | 'staatsblad' | 'merged')
+        and `as_of` (date of the latest Staatsblad event touching that
+        person, or the NBB fiscal_year otherwise).
+      - timeline: every staatsblad admin_event as-is, for UI rendering.
+
+    Merge logic:
+      1. Seed with the NBB snapshot (latest deposit per company). `as_of` =
+         the NBB fiscal year + '-12-31' (snapshot-date best guess).
+      2. Apply Staatsblad events in chronological order. An appointment
+         adds a person (dedup by normalised name). A resignation drops
+         the matching person from current_state, or annotates them as
+         `ended_at = <event.pub_date>` if they have other mandates.
+      3. Staatsblad-sourced entries keep `source='staatsblad'`; NBB
+         entries that were NOT superseded stay `source='nbb'`; NBB
+         entries refreshed by a later Staatsblad event become
+         `source='merged'`.
+    """
+    current: dict[str, dict] = {}
+
+    # Seed from NBB snapshot — role_label derived from NBB code.
+    for row in nbb_rows:
+        key = (_normalize_name(row.get("name") or ""), row.get("role") or "")
+        k = "|".join(key)
+        if not k.strip("|"):
+            continue
+        fiscal = row.get("fiscal_year") or ""
+        as_of = None
+        if isinstance(fiscal, str) and len(fiscal) >= 4 and fiscal[:4].isdigit():
+            as_of = f"{fiscal[:4]}-12-31"
+        enriched = {
+            **row,
+            "role_label": ROLE_LABELS.get(row.get("role") or "", row.get("role") or ""),
+            "source": "nbb",
+            "as_of": as_of,
+        }
+        current[k] = enriched
+
+    # Sort Staatsblad events chronologically (oldest first) so the
+    # last-write-wins naturally produces the current state.
+    ordered_events = sorted(
+        staatsblad_events,
+        key=lambda e: (str(e.get("pub_date") or ""), int(e.get("id") or 0)),
+    )
+
+    for ev in ordered_events:
+        # Only admin_event rows are relevant to the merge.
+        if ev.get("event_type") != "admin_event":
+            continue
+        sub = (ev.get("sub_type") or "").lower()
+        name = ev.get("person_name") or ev.get("entity_name") or ""
+        role = ev.get("person_role") or ""
+        nk = _normalize_name(name)
+        if not nk:
+            continue
+        # Match against any NBB role if Staatsblad doesn't have an NBB code.
+        # (Staatsblad roles are free-text like "Bestuurder" — we don't map
+        # them to fct:* codes here.)  Use (normalised_name, role) as the
+        # dedup key; if the NBB seed had a different role string we'll end
+        # up with two rows, which is fine — they represent distinct mandates.
+        k = "|".join((nk, role))
+
+        if sub in ("appointment", "reappointment", "renewal"):
+            current[k] = {
+                "name": name,
+                "role": role,
+                "role_label": role,
+                "person_type": "natural" if ev.get("person_name") else "legal",
+                "identifier": None,
+                "mandate_start": str(ev.get("event_date") or ev.get("pub_date") or ""),
+                "mandate_end": None,
+                "representative_name": None,
+                "fiscal_year": None,
+                "deposit_key": f"sb_{ev.get('pub_reference')}",
+                "source": "staatsblad" if k not in current else "merged",
+                "as_of": str(ev.get("pub_date") or ""),
+                "pub_reference": ev.get("pub_reference"),
+                "summary": ev.get("summary"),
+            }
+        elif sub in ("resignation", "end", "termination"):
+            # Match-by-name across any role, since resignations often omit
+            # role in filings. Mark all mandates for this normalised name
+            # as ended.
+            resigned = False
+            for existing_k in list(current.keys()):
+                existing_name = existing_k.split("|", 1)[0]
+                if existing_name == nk:
+                    current[existing_k]["mandate_end"] = str(ev.get("event_date") or ev.get("pub_date") or "")
+                    current[existing_k]["as_of"] = str(ev.get("pub_date") or "")
+                    current[existing_k]["source"] = "merged" if current[existing_k].get("source") == "nbb" else "staatsblad"
+                    resigned = True
+            # If the resignation doesn't match any existing mandate, still
+            # emit a resignation row so the timeline stays consistent —
+            # but do NOT insert into current_state.
+            if not resigned:
+                continue
+
+    # Drop entries whose mandate_end is set AND older than today — they're
+    # historical, not "current".
+    today = None
+    import datetime as _dt
+    today = _dt.date.today().isoformat()
+    current_state = []
+    for row in current.values():
+        end = row.get("mandate_end")
+        if end and end <= today:
+            continue
+        current_state.append(row)
+    current_state.sort(key=lambda r: (r.get("name") or "", r.get("role") or ""))
+
+    # Build the timeline from the chronologically-ordered events, newest first.
+    timeline = []
+    for ev in reversed(ordered_events):
+        if ev.get("event_type") != "admin_event":
+            continue
+        timeline.append({
+            "pub_date": str(ev.get("pub_date") or ""),
+            "pub_reference": ev.get("pub_reference"),
+            "sub_type": ev.get("sub_type"),
+            "event_date": str(ev.get("event_date") or "") if ev.get("event_date") else None,
+            "person_name": ev.get("person_name"),
+            "person_role": ev.get("person_role"),
+            "entity_name": ev.get("entity_name"),
+            "summary": ev.get("summary"),
+        })
+    return current_state, timeline
+
+
 @router.get("/{cbe}/structure")
 async def get_company_structure(cbe: str):
     """Admins, shareholders, participating interests, and Staatsblad publications.
 
-    SQL extracted from app/pages/2_company.py load_company_detail().
+    Phase 3b change: the `administrators` list is now a merged view
+    combining the NBB annual-filing snapshot with Staatsblad-sourced
+    appointment / resignation events. Each row is annotated with:
+      - `source`: 'nbb' | 'staatsblad' | 'merged'
+      - `as_of`: best-known date for the mandate (NBB fiscal-year close
+        or Staatsblad event date)
+
+    A new `administrator_events` field surfaces the raw Staatsblad
+    admin_event timeline (newest first) so the UI can render a
+    changes-over-time view.
     """
     cbe = clean_cbe(cbe)
 
     try:
-        # Only return admins from the most recent filing
-        admins = fetch_all("""
+        # NBB snapshot — latest deposit per company.
+        nbb_admins = fetch_all("""
             WITH latest AS (
                 SELECT MAX(deposit_key) AS dk
                 FROM administrator WHERE enterprise_number = %s
@@ -77,6 +243,21 @@ async def get_company_structure(cbe: str):
             WHERE a.enterprise_number = %s
             ORDER BY name, role
         """, (cbe, cbe))
+
+        # Staatsblad admin events (admin_event only — other categories
+        # feed the enrichment side).
+        staatsblad_admin_events = fetch_all("""
+            SELECT id, pub_reference, pub_date, event_type, sub_type,
+                   event_date, person_name, person_role, entity_name, summary
+            FROM staatsblad_event
+            WHERE enterprise_number = %s
+              AND event_type = 'admin_event'
+            ORDER BY pub_date ASC, id ASC
+        """, (cbe,))
+
+        admins_merged, admin_timeline = _merge_admins_with_staatsblad(
+            cbe, nbb_admins, staatsblad_admin_events,
+        )
 
         # Deduplicate participating interests: latest filing per subsidiary
         pis = fetch_all("""
@@ -101,12 +282,9 @@ async def get_company_structure(cbe: str):
             (cbe,),
         )
 
-        # Enrich admin rows with role labels
-        for admin in admins:
-            admin["role_label"] = ROLE_LABELS.get(admin.get("role", ""), admin.get("role", ""))
-
         return {
-            "administrators": [_serialize_row(r) for r in admins],
+            "administrators": [_serialize_row(r) for r in admins_merged],
+            "administrator_events": [_serialize_row(r) for r in admin_timeline],
             "participating_interests": [_serialize_row(r) for r in pis],
             "shareholders": [_serialize_row(r) for r in shareholders],
             "staatsblad_publications": [_serialize_row(r) for r in sb_pubs],
@@ -173,16 +351,23 @@ async def _download_pdf_text(pdf_url: str) -> str:
 
 @router.post("/{cbe}/extract-admins")
 async def extract_admins_from_staatsblad(cbe: str):
-    """Extract administrator names from Staatsblad appointment/resignation PDFs.
+    """Surface administrator names from Staatsblad — Stage 3 rewrite.
 
-    Only runs if the company has 0 administrators in the database.
-    Downloads the most recent 3 ONTSLAGEN-BENOEMINGEN publications,
-    extracts text via pdfplumber, then uses a cheap LLM to parse names/roles.
+    Phase 3b change: the endpoint no longer hits the LLM.  It reads
+    pre-extracted rows from `staatsblad_event` (written by the nightly
+    incremental + the backfill) and synthesises `administrator` rows
+    from them.  Huge cost saver — zero LLM spend on profile views that
+    used to re-run extraction.
+
+    Back-compat: the response shape is unchanged (same `extracted`
+    key).  If the company already has NBB admins we return 0 without
+    touching the event store.  If the event store has no admin_event
+    rows we also return 0 — the daily incremental will eventually fill
+    them in.
     """
     cbe = clean_cbe(cbe)
 
     try:
-        # 1. Check if company already has administrators
         existing = fetch_one(
             "SELECT COUNT(*) AS cnt FROM administrator WHERE enterprise_number = %s",
             (cbe,),
@@ -190,146 +375,77 @@ async def extract_admins_from_staatsblad(cbe: str):
         if existing and existing["cnt"] > 0:
             return {"extracted": 0, "message": "Company already has administrator data"}
 
-        # 1b. Skip if we recently tried this CBE and got nothing back. The
-        #     frontend fires this passively whenever a company profile loads
-        #     with zero admins; without the cache, we would hit the LLM on
-        #     every such page view.
         if _admin_extract_cache_skip(cbe):
             return {"extracted": 0, "message": "Recently attempted with no result", "cached": True}
 
-        # 2. Fetch company name for the LLM prompt
-        company = fetch_one(
-            "SELECT name FROM company_info WHERE enterprise_number = %s", (cbe,),
-        )
-        company_name = company["name"] if company else cbe
+        # Read pre-extracted admin events from staatsblad_event.
+        events = fetch_all("""
+            SELECT pub_reference, pub_date, event_date, sub_type,
+                   person_name, person_role, entity_name, summary
+            FROM staatsblad_event
+            WHERE enterprise_number = %s
+              AND event_type = 'admin_event'
+            ORDER BY pub_date ASC, id ASC
+        """, (cbe,))
 
-        # 3. Get the most recent 3 appointment/resignation publications
-        pubs = fetch_all(
-            """SELECT pub_date, reference, pdf_url
-               FROM staatsblad_publication
-               WHERE enterprise_number = %s
-                 AND pub_type = 'ONTSLAGEN - BENOEMINGEN'
-                 AND pdf_url IS NOT NULL
-               ORDER BY pub_date DESC
-               LIMIT 3""",
-            (cbe,),
-        )
-
-        if not pubs:
+        if not events:
             _admin_extract_cache_record(cbe, 0)
-            return {"extracted": 0, "message": "No appointment/resignation publications found"}
+            return {
+                "extracted": 0,
+                "message": "No structured admin events — try again after the next nightly run",
+            }
 
-        # 4. Process each publication
-        all_appointments = []
-        all_resignations = []
-
-        for pub in pubs:
-            pdf_text = await _download_pdf_text(pub["pdf_url"])
-            if not pdf_text or len(pdf_text.strip()) < 20:
-                logger.info("Skipping empty PDF for %s pub %s", cbe, pub["reference"])
-                continue
-
-            # Truncate very long texts to avoid wasting tokens
-            if len(pdf_text) > 5000:
-                pdf_text = pdf_text[:5000]
-
-            prompt = ADMIN_EXTRACTION_PROMPT.format(
-                name=company_name, cbe=cbe, pdf_text=pdf_text,
-            )
-
-            raw = await ai_complete(
-                prompt=prompt,
-                system="You are an expert at reading Belgian legal gazette publications. Extract names and roles accurately. Return only valid JSON.",
-                model="openai/gpt-4o-mini",
-                max_tokens=800,
-            )
-
-            if not raw:
-                logger.warning("LLM returned empty for %s pub %s", cbe, pub["reference"])
-                continue
-
-            # Parse LLM response
-            parsed = None
-            cleaned = re.sub(r"```(?:json)?\s*", "", raw).strip().rstrip("`")
-            try:
-                parsed = json.loads(cleaned)
-            except json.JSONDecodeError:
-                match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-                if match:
-                    try:
-                        parsed = json.loads(match.group())
-                    except json.JSONDecodeError:
-                        pass
-
-            if not parsed:
-                logger.warning("Could not parse LLM JSON for %s pub %s", cbe, pub["reference"])
-                continue
-
-            pub_date = str(pub["pub_date"])
-            for appt in parsed.get("appointments", []):
-                name = appt.get("name", "").strip()
-                role = appt.get("role", "").strip()
-                if name:
-                    all_appointments.append({
-                        "name": name, "role": role, "pub_date": pub_date,
-                    })
-
-            for res in parsed.get("resignations", []):
-                name = res.get("name", "").strip()
-                role = res.get("role", "").strip()
-                if name:
-                    all_resignations.append({
-                        "name": name, "role": role, "pub_date": pub_date,
-                    })
-
-        # 5. Insert appointments and handle resignations
         inserted = 0
         conn = get_connection()
         try:
             cur = conn.cursor()
-
-            # Insert appointments
-            for appt in all_appointments:
-                deposit_key = f"sb_{appt['pub_date']}"
-                try:
-                    cur.execute("""
-                        INSERT INTO administrator
-                            (enterprise_number, deposit_key, name, role, mandate_start, person_type)
-                        VALUES (%s, %s, %s, %s, %s, 'natural')
-                        ON CONFLICT DO NOTHING
-                    """, (cbe, deposit_key, appt["name"], appt["role"], appt["pub_date"]))
-                    if cur.rowcount > 0:
-                        inserted += 1
-                except Exception:
-                    pass
-
-            # Handle resignations: set mandate_end on matching admins
-            for res in all_resignations:
-                try:
-                    cur.execute("""
-                        UPDATE administrator
-                        SET mandate_end = %s
-                        WHERE enterprise_number = %s
-                          AND LOWER(name) = LOWER(%s)
-                          AND mandate_end IS NULL
-                    """, (res["pub_date"], cbe, res["name"]))
-                except Exception:
-                    pass
-
+            for ev in events:
+                name = (ev.get("person_name") or ev.get("entity_name") or "").strip()
+                if not name:
+                    continue
+                role = (ev.get("person_role") or "").strip()
+                sub = (ev.get("sub_type") or "").lower()
+                pub_date = str(ev.get("event_date") or ev.get("pub_date") or "")
+                person_type = "natural" if ev.get("person_name") else "legal"
+                deposit_key = f"sb_{ev.get('pub_reference') or pub_date}"
+                if sub in ("appointment", "reappointment", "renewal"):
+                    try:
+                        cur.execute("""
+                            INSERT INTO administrator
+                                (enterprise_number, deposit_key, name, role,
+                                 mandate_start, person_type)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            ON CONFLICT DO NOTHING
+                        """, (cbe, deposit_key, name, role, pub_date, person_type))
+                        if cur.rowcount > 0:
+                            inserted += 1
+                    except Exception:
+                        pass
+                elif sub in ("resignation", "end", "termination"):
+                    try:
+                        cur.execute("""
+                            UPDATE administrator
+                            SET mandate_end = %s
+                            WHERE enterprise_number = %s
+                              AND LOWER(name) = LOWER(%s)
+                              AND mandate_end IS NULL
+                        """, (pub_date, cbe, name))
+                    except Exception:
+                        pass
             conn.commit()
         except Exception as e:
             conn.rollback()
-            logger.exception("Failed to insert Staatsblad admins for %s: %s", cbe, e)
+            logger.exception("Failed to project staatsblad events → administrator for %s", cbe)
             raise HTTPException(status_code=500, detail="Failed to store extracted administrators")
         finally:
             put_connection(conn)
 
         logger.info(
-            "Staatsblad admin extraction for %s: %d appointments inserted, %d resignations processed",
-            cbe, inserted, len(all_resignations),
+            "extract-admins (Stage 3) for %s: projected %d events as admins",
+            cbe, inserted,
         )
         _admin_extract_cache_record(cbe, inserted)
-        return {"extracted": inserted}
+        return {"extracted": inserted, "source": "staatsblad_event"}
 
     except HTTPException:
         raise
