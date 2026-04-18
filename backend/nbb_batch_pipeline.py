@@ -365,17 +365,26 @@ def rebuild_materialized_tables():
         log.info("Materialized tables rebuilt in %.1fs — financial_latest: %d rows", time.time() - t0, fl_count)
 
         # Refresh the sector_percentiles MV so screener pills + radar scores
-        # reflect the new data. CONCURRENTLY keeps it readable during refresh.
-        # Silently skip if the MV doesn't exist yet (pre-migration envs).
+        # reflect the new data. CONCURRENTLY keeps it readable during refresh
+        # but requires running OUTSIDE a transaction block. Use a dedicated
+        # short-lived connection so we don't leak autocommit mode back into
+        # the shared pool (which would break transactional assumptions for
+        # the next caller).
         try:
-            conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
-            cur2 = conn.cursor()
-            cur2.execute("SELECT to_regclass('public.sector_percentiles')")
-            if cur2.fetchone()[0] is not None:
-                sp_t0 = time.time()
-                cur2.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY sector_percentiles")
-                log.info("sector_percentiles refreshed in %.1fs", time.time() - sp_t0)
-            cur2.close()
+            import psycopg2 as _pg2
+            import os as _os
+            sp_conn = _pg2.connect(_os.getenv("DATABASE_URL"))
+            try:
+                sp_conn.set_isolation_level(_pg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
+                sp_cur = sp_conn.cursor()
+                sp_cur.execute("SELECT to_regclass('public.sector_percentiles')")
+                if sp_cur.fetchone()[0] is not None:
+                    sp_t0 = time.time()
+                    sp_cur.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY sector_percentiles")
+                    log.info("sector_percentiles refreshed in %.1fs", time.time() - sp_t0)
+                sp_cur.close()
+            finally:
+                sp_conn.close()
         except Exception as e:
             log.warning("sector_percentiles refresh failed (non-fatal): %s", e)
 

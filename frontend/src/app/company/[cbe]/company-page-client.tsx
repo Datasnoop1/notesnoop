@@ -182,18 +182,20 @@ export function CompanyPageClient({
   /* "What changed since last visit" — fetch server-side history BEFORE
      recording this visit so the /since call compares to the PREVIOUS view.
      Then record the current view to shift prev → last. Fires only for
-     authenticated users (backend silently no-ops for anonymous). */
-  const [sinceLastVisit, setSinceLastVisit] = useState<{
+     authenticated users (backend silently no-ops for anonymous).
+     Depends only on `cbe` so it fires exactly once per company, not on
+     every `detail` refetch (AI enrichment, locale change, etc.). */
+  type ChangesSinceResponse = {
     since: string | null;
     changes: { type: string; at: string | null; label: string; meta?: Record<string, unknown> }[];
-  } | null>(null);
+  } | null;
+  const [sinceLastVisit, setSinceLastVisit] = useState<ChangesSinceResponse>(null);
   const [sinceBannerDismissed, setSinceBannerDismissed] = useState(false);
   useEffect(() => {
-    if (!detail || !detail.name) return;
     let cancelled = false;
     (async () => {
       try {
-        const r = await apiFetch<typeof sinceLastVisit>(`/api/changes/${cbe}/since`);
+        const r = await apiFetch<ChangesSinceResponse>(`/api/changes/${cbe}/since`);
         if (!cancelled) setSinceLastVisit(r);
         // Record AFTER fetching so the next visit compares to THIS one.
         await apiFetch(`/api/changes/${cbe}/view`, { method: "POST" });
@@ -202,7 +204,7 @@ export function CompanyPageClient({
       }
     })();
     return () => { cancelled = true; };
-  }, [cbe, detail?.name]);
+  }, [cbe]);
 
   /* -- Check for existing AI enrichment on load.
      Re-runs when `locale` changes so cached AI gets re-fetched

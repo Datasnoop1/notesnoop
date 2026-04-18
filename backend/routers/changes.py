@@ -90,20 +90,22 @@ async def changes_since(cbe: str, user=Depends(optional_user)):
             return {"since": None, "changes": []}
 
         since = rec["prev_viewed_at"]
+        # Convert to ISO string once so TEXT columns can compare lexically
+        # (all date/timestamp columns in nbb_load_log / staatsblad / admin
+        # are TEXT in the live schema — ISO strings sort correctly).
+        since_iso = since.isoformat() if hasattr(since, "isoformat") else str(since)
         changes: list[dict] = []
 
-        # New NBB filings since last visit. nbb_load_log.loaded_at is TEXT
-        # (legacy schema — ISO-format strings, so lexicographic sort matches
-        # chronological sort). Cast to timestamp for the comparison.
+        # New NBB filings since last visit. loaded_at is TEXT, ISO-format.
         filings = fetch_all(
             """SELECT deposit_key, rubric_count, loaded_at
                FROM nbb_load_log
                WHERE enterprise_number = %s
-                 AND loaded_at::timestamp > %s
+                 AND loaded_at > %s
                  AND deposit_key NOT IN ('NO_FILINGS', 'PDF_ONLY')
                ORDER BY loaded_at DESC
                LIMIT 5""",
-            (cbe, since),
+            (cbe, since_iso),
         )
         for f in filings:
             at_val = f.get("loaded_at")
@@ -115,41 +117,45 @@ async def changes_since(cbe: str, user=Depends(optional_user)):
                 "meta": {"deposit_key": f.get("deposit_key")},
             })
 
-        # New Staatsblad publications
+        # New Staatsblad publications — columns are pub_date (TEXT YYYY-MM-DD),
+        # pub_type, reference, entity_name.
         pubs = fetch_all(
-            """SELECT reference, publication_date, title, subject
+            """SELECT reference, pub_date, pub_type, entity_name
                FROM staatsblad_publication
                WHERE enterprise_number = %s
                  AND reference != 'NO_DATA'
-                 AND publication_date > %s::date
-               ORDER BY publication_date DESC
+                 AND pub_date > %s
+               ORDER BY pub_date DESC
                LIMIT 10""",
-            (cbe, since),
+            (cbe, since_iso[:10]),   # YYYY-MM-DD slice for date comparison
         )
         for p in pubs:
             changes.append({
                 "type": "publication",
-                "at": p["publication_date"].isoformat() if p.get("publication_date") else None,
-                "label": p.get("title") or p.get("subject") or "Staatsblad publication",
+                "at": p.get("pub_date"),
+                "label": p.get("pub_type") or p.get("entity_name") or "Staatsblad publication",
                 "meta": {"reference": p.get("reference")},
             })
 
-        # Administrator changes (track newly-added rows, rough proxy)
+        # Administrator changes — columns are name, role, mandate_start (TEXT),
+        # mandate_end, identifier, person_type. mandate_start is a rough proxy
+        # for "new admin appeared" — not perfect but it's the only date column.
         admins = fetch_all(
-            """SELECT DISTINCT person_id, full_name, function, start_date
+            """SELECT DISTINCT name, role, mandate_start, identifier
                FROM administrator
                WHERE enterprise_number = %s
-                 AND start_date > %s::date
-               ORDER BY start_date DESC
+                 AND mandate_start IS NOT NULL
+                 AND mandate_start > %s
+               ORDER BY mandate_start DESC
                LIMIT 10""",
-            (cbe, since),
+            (cbe, since_iso[:10]),
         )
         for a in admins:
             changes.append({
                 "type": "administrator",
-                "at": a["start_date"].isoformat() if a.get("start_date") else None,
-                "label": f"New {a.get('function') or 'administrator'}: {a.get('full_name') or '—'}",
-                "meta": {"person_id": a.get("person_id")},
+                "at": a.get("mandate_start"),
+                "label": f"New {a.get('role') or 'administrator'}: {a.get('name') or '—'}",
+                "meta": {"identifier": a.get("identifier")},
             })
 
         # Sort by date desc so most recent surfaces first
