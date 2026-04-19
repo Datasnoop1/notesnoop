@@ -17,14 +17,17 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-    mem_limit: 1g
-    mem_reservation: 512m
+    # Bumped from 1g because EasyOCR + PyTorch + nl/fr language models
+    # consume ~2 GB when loaded. Staatsblad backfill and biweekly
+    # incremental OCR run from inside this container.
+    mem_limit: 3g
+    mem_reservation: 1g
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 3G
         reservations:
-          memory: 512M
+          memory: 1G
 
   frontend:
     build:
