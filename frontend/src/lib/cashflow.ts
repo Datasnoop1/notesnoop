@@ -301,15 +301,6 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
         }
       }
 
-      wcChange = sumOrNull(
-        deltaInventories,
-        deltaTradeReceivables,
-        deltaTradePayables,
-        deltaTaxSocialPayables,
-        deltaOtherPayables,
-        deltaOtherLtLiab,
-      );
-
       // Operating CapEx (excludes financial fixed assets). Identity:
       //   GrossAdditions ≈ ΔNetFA + D&A.
       // Raw signed `da` handles reversals correctly.
@@ -340,10 +331,20 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
       // subtract financial from total. If 170/4 is missing we can't
       // distinguish the financial-debt portion — leaving this null is
       // safer than mis-attributing to operating.
+      // Must run BEFORE the wcChange sum below, since it's one of the inputs.
       const dTotalLt = delta(rub(rubrics, "17", fy), rub(rubrics, "17", prev));
       if (dTotalLt != null && deltaLtDebt != null) {
         deltaOtherLtLiab = dTotalLt - deltaLtDebt;
       }
+
+      wcChange = sumOrNull(
+        deltaInventories,
+        deltaTradeReceivables,
+        deltaTradePayables,
+        deltaTaxSocialPayables,
+        deltaOtherPayables,
+        deltaOtherLtLiab,
+      );
 
       const dCapital = delta(rub(rubrics, "10", fy), rub(rubrics, "10", prev));
       const dSharePremium = delta(rub(rubrics, "11", fy), rub(rubrics, "11", prev));
