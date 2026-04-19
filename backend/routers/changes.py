@@ -52,7 +52,7 @@ async def record_view(cbe: str, user=Depends(optional_user)):
         return {"status": "recorded"}
     except Exception as e:
         logger.exception("record_view failed")
-        raise HTTPException(500, "Internal server error")
+        raise HTTPException(500, str(e))
 
 
 @router.get("/{cbe}/since")
@@ -156,4 +156,4 @@ async def changes_since(cbe: str, user=Depends(optional_user)):
         }
     except Exception as e:
         logger.exception("changes_since failed")
-        raise HTTPException(500, "Internal server error")
+        raise HTTPException(500, str(e))

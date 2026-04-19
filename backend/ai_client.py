@@ -762,6 +762,47 @@ def _build_corporate_graph(fetch_all, cbe: str) -> dict:
     }
 
 
+def _recent_staatsblad_events(fetch_all, cbe: str, limit: int = 6) -> list[dict]:
+    """Fetch recent structured Staatsblad events for inclusion in the
+    ai_insights_pipeline prompt — feeds the AI concrete filing history
+    instead of re-calling the gazette.
+
+    Returns up to `limit` most-recent events across all 8 categories.
+    """
+    try:
+        rows = fetch_all(
+            """SELECT pub_date, event_type, sub_type, event_date,
+                      person_name, person_role, entity_name,
+                      amount_eur, summary
+               FROM staatsblad_event
+               WHERE enterprise_number = %s
+               ORDER BY pub_date DESC, id DESC
+               LIMIT %s""",
+            (cbe, limit),
+        )
+        return [dict(r) for r in rows] if rows else []
+    except Exception as e:
+        logger.warning("Failed to fetch Staatsblad events for %s: %s", cbe, e)
+        return []
+
+
+def _format_staatsblad_events_block(events: list[dict]) -> str:
+    """Format recent Staatsblad events as a <recent_filings> block."""
+    if not events:
+        return ""
+    lines = ["<recent_filings>"]
+    for ev in events:
+        date = str(ev.get("pub_date") or "")
+        t = ev.get("event_type") or ""
+        sub = ev.get("sub_type") or ""
+        summary = ev.get("summary") or ""
+        parts = [f"  - {date} [{t}/{sub}]"] if sub else [f"  - {date} [{t}]"]
+        parts.append(summary or "(no summary)")
+        lines.append(" ".join(parts))
+    lines.append("</recent_filings>")
+    return "\n".join(lines)
+
+
 def _format_corporate_graph_block(graph: dict) -> str:
     """Format the corporate graph as a <corporate_graph> XML block for prompts.
 
@@ -932,6 +973,16 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
     graph = _build_corporate_graph(fetch_all, cbe)
     admin_names = graph["admin_names_str"]
     graph_block = _format_corporate_graph_block(graph)
+
+    # ── Stage 3d: fold recent Staatsblad events into the context ──
+    # Feeds the AI concrete filing history (structured, already LLM-
+    # parsed) instead of asking a downstream LLM to guess from labels.
+    staatsblad_events = _recent_staatsblad_events(fetch_all, cbe, limit=6)
+    staatsblad_block = _format_staatsblad_events_block(staatsblad_events)
+    if staatsblad_block:
+        # Append to graph_block so both contexts ride together in the
+        # same <context>...</context> prompt section downstream.
+        graph_block = (graph_block + "\n\n" + staatsblad_block) if graph_block else staatsblad_block
 
     # ══════════════════════════════════════════════════════════════
     # STEP 1: URL Discovery  (KBO → Google → LLM fallback)
