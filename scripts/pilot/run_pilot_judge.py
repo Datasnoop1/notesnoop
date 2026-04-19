@@ -928,11 +928,35 @@ def _bucket_avgs(scored_rows: list[dict]) -> dict[str, float]:
 
 
 def _count_hallucinated_execs(plausibility_csv: Path) -> int:
+    """Count rows with a true exec-name-hallucination flag.
+
+    Previously counted any flag containing the word "executive", which
+    fired on the INVERSE — "No executive names provided in the summary"
+    (a non-issue, not a hallucination). Now restricts to phrases that
+    actually indicate a name was fabricated.
+    """
     n = 0
     with plausibility_csv.open(encoding="utf-8") as f:
         for r in csv.DictReader(f):
-            flags = (r.get("flags") or "").lower()
-            if "executive" in flags or "admin" in flags or "hallucinat" in flags:
+            raw = (r.get("flags") or "")
+            lower = raw.lower()
+            # True hallucination phrases. Require "executive" AND one
+            # of the "fabricated" verbs, or the explicit "hallucin"
+            # stem. False-positive guard: the phrase "no executive
+            # names" (meaning none were in the summary at all) is not
+            # a hallucination.
+            if "no executive name" in lower or "no executive names" in lower:
+                continue
+            if "hallucin" in lower:
+                n += 1
+                continue
+            if "executive" in lower and any(
+                v in lower
+                for v in (
+                    "does not appear", "not in the scrape",
+                    "not in the kbo", "fabricat", "invent",
+                )
+            ):
                 n += 1
     return n
 
