@@ -62,7 +62,11 @@ from enrichment_routing import (  # noqa: E402
 
 SCOPE_SQL = {
     "pilot": """
-        -- Spread across buckets for Phase 2 smoke-test.
+        -- Spread across buckets for Phase 2 smoke-test. The name
+        -- filter is load-bearing: many `company_info` rows lack a
+        -- denomination and the worker's unknown-CBE short-circuit
+        -- skips them entirely, producing no bulk_summary (breaks the
+        -- judge's per-bucket averages — see pilot run 20260419_195819).
         (
             SELECT ci.enterprise_number,
                    CASE
@@ -84,6 +88,8 @@ SCOPE_SQL = {
              WHERE e.status = 'AC'
                AND e.juridical_situation = '000'
                AND e.type_of_enterprise = '2'
+               AND ci.name IS NOT NULL
+               AND TRIM(ci.name) <> ''
                AND (has_web OR COALESCE(fl.revenue, 0) > 0)
           ORDER BY md5(ci.enterprise_number || 'seed-phase2')
              LIMIT %s
