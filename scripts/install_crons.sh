@@ -56,6 +56,9 @@ NEW_BLOCK=$(cat <<'EOF'
 30 5 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/generate_valuation_commentary.py --max-calls 50 >> /opt/leadpeek/scripts/_watchdog_state/valuation_commentary.log 2>&1
 # Weekly favourites digest
 0 7 * * MON cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/alert_digest.py --send >> /opt/leadpeek/scripts/_watchdog_state/digest.log 2>&1
+# Nightly automated-process health report — emails t.braet@gmail.com at 06:00 UTC
+# with a per-job GREEN/RED status + Claude-ready prompts for any red items.
+0 6 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/nightly_health_report.py --send >> /opt/leadpeek/scripts/_watchdog_state/health_report.log 2>&1
 # DATASNOOP-MANAGED-END
 EOF
 )
