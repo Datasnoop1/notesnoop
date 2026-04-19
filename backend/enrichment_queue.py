@@ -20,6 +20,11 @@ from db import execute, fetch_all, fetch_one, get_connection, put_connection
 
 logger = logging.getLogger(__name__)
 
+# `claim_one` increments `attempts` at claim time — i.e. the counter
+# reflects the claim, not the failure. With MAX_ATTEMPTS=5 the job gets
+# 5 total attempts; the 5th failure flips it to 'dead'. Don't lower
+# this without also loosening the `mark_failed` comparison, or you'll
+# kill jobs after the first transient error.
 MAX_ATTEMPTS = 5
 
 _schema_ensured = False
@@ -169,6 +174,37 @@ def mark_done(cbe: str) -> None:
     )
 
 
+_SECRET_REDACT_PATTERNS = (
+    ("Bearer ", "Bearer [REDACTED]"),
+    ("api_key=", "api_key=[REDACTED]"),
+    ("apikey=", "apikey=[REDACTED]"),
+    ("sk-", "sk-[REDACTED]"),
+)
+
+
+def _redact(error: str) -> str:
+    """Defence-in-depth: scrub anything that looks like a bearer token
+    or API key before persisting an error string.
+
+    The admin dead-letter view renders `last_error` verbatim, so even
+    though no current caller sends tokens, future refactors could
+    inadvertently leak them through. Cheap belt-and-braces.
+    """
+    out = error
+    for needle, replacement in _SECRET_REDACT_PATTERNS:
+        if needle in out:
+            # Redact the needle + the next 12 chars (covers a typical
+            # token tail). Keep the rest of the message intact so
+            # admins still see the error shape.
+            import re as _re
+            out = _re.sub(
+                _re.escape(needle) + r"\S{0,80}",
+                replacement,
+                out,
+            )
+    return out
+
+
 def mark_failed(cbe: str, error: str) -> None:
     """Return a claimed job to the queue with an error annotation.
 
@@ -176,7 +212,7 @@ def mark_failed(cbe: str, error: str) -> None:
     worker never reclaims it. Dead rows surface on the admin page's
     dead-letter tab for manual inspection.
     """
-    trimmed = (error or "")[:4000]
+    trimmed = _redact((error or "")[:4000])
     execute(
         """
         UPDATE enrichment_job
@@ -207,9 +243,9 @@ def release_stale(older_than_minutes: int = 30) -> int:
                    last_error = COALESCE(last_error, '') ||
                                 ' [stale-claim released]'
              WHERE status = 'claimed'
-               AND claimed_at < NOW() - (%s || ' minutes')::interval
+               AND claimed_at < NOW() - (%s * INTERVAL '1 minute')
             """,
-            (str(int(older_than_minutes)),),
+            (int(older_than_minutes),),
         )
         released = cur.rowcount
         conn.commit()

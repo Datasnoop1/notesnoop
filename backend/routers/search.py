@@ -5,7 +5,9 @@
 Flow:
   1. Query embedding — served from `query_embedding_cache` (30-day TTL)
      with a single OpenRouter call on miss (~$0.00002/query).
-  2. pgvector cosine against `company_embedding`, HNSW `ef_search=80`.
+  2. pgvector cosine against `company_embedding` with the HNSW index. We
+     accept the pgvector default `ef_search=40` for pilot; Phase 2 will
+     tune it after retrieval-quality measurements.
   3. Filter out rows with `bulk_confidence IN ('low','insufficient_information')`
      by default. Power users opt in via `?include_uncertain=1`.
   4. Optional NACE prefix / region / min revenue filters (same columns as
@@ -23,7 +25,6 @@ semantic-first screener UX redesign.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -35,7 +36,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
-SEMANTIC_EF_SEARCH = int(os.getenv("SEMANTIC_EF_SEARCH", "80"))
 SEMANTIC_MAX_LIMIT = 50
 SEMANTIC_DEFAULT_LIMIT = 20
 
@@ -86,6 +86,9 @@ async def semantic_search(
     params: list = [str(embedding)]
 
     if not include_uncertain:
+        # SAFE: the string literal below is hardcoded — no user input
+        # reaches the SQL body here. If you ever make this clause
+        # dependent on request data, parameterise it instead.
         clauses.append(
             "COALESCE(ce_bulk.bulk_confidence, 'low') IN ('high', 'medium')"
         )
@@ -105,11 +108,6 @@ async def semantic_search(
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
-    # Configure HNSW ef_search per connection (session-scoped). This
-    # runs alongside the SELECT below in the same pooled connection
-    # because fetch_all wraps both into one cursor -> commit cycle.
-    # Postgres treats SET as transactional-ish; issuing it inside the
-    # same statement is safe.
     sql = f"""
         SELECT ce.enterprise_number,
                ci.name, ci.city, ci.nace_code,

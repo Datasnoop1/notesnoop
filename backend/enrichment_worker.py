@@ -13,7 +13,8 @@ Lifecycle contract (see `plans/i-want-to-explore-delightful-storm.md`):
   - Stale-claim release every N polls so a worker crash doesn't strand
     jobs as 'claimed' forever
 
-Entry-point: `python -m backend.enrichment_worker` (systemd unit at
+Entry-point: `python -m enrichment_worker` (run with `backend/` on
+sys.path, i.e. WORKDIR /app inside the container — see systemd unit at
 `deploy/enrichment-worker.service`).
 """
 
@@ -318,6 +319,18 @@ async def _enrich_one(cbe: str) -> dict:
 
     kbo = _load_kbo_context(cbe)
 
+    # 0. Unknown / branch-only CBE — short-circuit to a no-op done.
+    # `_load_kbo_context` returns a sentinel dict with empty name when
+    # the CBE isn't in `company_info` (e.g. establishments, branches of
+    # foreign entities). No website, no financial signal, no NACE:
+    # nothing for Q2 or the template to work with. Skip the embed call
+    # too — a "This company is a Belgian company." blurb pollutes the
+    # vector space without adding retrieval value.
+    if not (kbo.get("name") or "").strip():
+        out.update(ok=True, path="skipped_unknown_cbe",
+                   confidence="insufficient_information")
+        return out
+
     # 1. Dormant bypass ------------------------------------------------
     if is_dormant(kbo.get("juridical_situation")):
         summary = build_template_summary(kbo)
@@ -504,6 +517,14 @@ class Worker:
                 continue
 
             await sem.acquire()
+            # Re-check the stop flag between acquire and task create
+            # so a SIGTERM landing in that window doesn't leak the
+            # semaphore slot. The job stays in 'claimed' status; the
+            # next worker boot's startup release_stale(30 min) will
+            # return it to the queue.
+            if self._stop.is_set():
+                sem.release()
+                break
 
             async def _run(j=job):
                 token: Token | None = None

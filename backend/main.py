@@ -683,10 +683,12 @@ async def startup_phase1_migrations():
                     f"ADD COLUMN IF NOT EXISTS {col} {typ}"
                 )
             except Exception:
-                # Parent table not yet created — it will acquire the
-                # columns on first _ensure_enrichment_table() + re-boot.
+                # Parent table not yet created, OR transient DB hiccup
+                # on one column. Either way, keep trying the rest — the
+                # columns are independent and _ensure_enrichment_table
+                # will mop up whatever we miss on the first profile hit.
                 logger.debug("company_enrichment.%s ALTER skipped", col)
-                break
+                continue
     except Exception:
         logger.exception("aggregator_skiplist migration failed (non-fatal)")
 
