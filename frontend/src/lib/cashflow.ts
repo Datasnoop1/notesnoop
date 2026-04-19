@@ -357,16 +357,20 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
 
     const cashEnd = sumOrNull(rub(rubrics, "54/58", fy), rub(rubrics, "50/53", fy));
 
-    // Rubric 694 is the dividend PROPOSED at year-end Y (approved and paid
-    // to shareholders during year Y+1). So the cash outflow in year Y is
-    // 694 of year Y-1, not year Y. Using 694(fy) created a systematic
-    // 1-year lag gap equal to the year-over-year change in dividends —
-    // small for stable dividend payers, material when dividends jump.
-    // Note: the `newCapital` fallback deliberately still uses 694(fy),
-    // because equity roll-forward subtracts the current-year proposal
-    // (which reduces equity at year-end Y, independent of cash).
-    const dividendPriorProposal = prev != null ? rub(rubrics, "694", prev) : null;
-    const dividendsFiled = dividendPriorProposal ?? (prev != null ? 0 : rub(rubrics, "694", fy) ?? 0);
+    // Rubric 694 is the dividend PROPOSED at year-end Y (paid in Y+1).
+    // We deliberately use 694(fy), NOT 694(prev), because the bridge
+    // relies on a "split treatment" that reconciles cleanly for filers
+    // where 47/48 captures the dividend liability:
+    //   (a) The cash paid in year Y (= 694(Y-1)) flows through ΔWC as
+    //       the drop in rubric 47/48.
+    //   (b) The new accrual (694(Y)) is non-cash at year-end Y but it
+    //       reduces retained earnings, which the equity roll-forward
+    //       subtracts. Showing -694(Y) in CFF closes the loop.
+    // Switching to 694(prev) double-counted on VOL filers whose WC
+    // bridge already captured the cash payment. An earlier version of
+    // this fix attempted the lag shift and was reverted after the
+    // correctness review flagged the regression on Colruyt-class data.
+    const dividendsFiled = rub(rubrics, "694", fy) ?? 0;
     const dividendsPaid = dividendsFiled > 0 ? -dividendsFiled : 0;
 
     /* ========== INDIRECT METHOD CFO — EBITDA-start (primary) ========== */
