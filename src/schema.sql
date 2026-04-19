@@ -788,3 +788,119 @@ CREATE TABLE IF NOT EXISTS staatsblad_event_embedding (
 CREATE INDEX IF NOT EXISTS idx_staatsblad_event_embedding_cos
     ON staatsblad_event_embedding USING ivfflat (embedding vector_cosine_ops)
     WITH (lists = 100);
+
+
+-- ============================================================
+-- Phase 1: Semantic enrichment orchestrator
+-- ============================================================
+-- The bulk enrichment pipeline writes a factual JSONB summary per
+-- company into `company_enrichment.bulk_summary` (separate from the
+-- narrative `ai_insights` column used on profile pages). The embedding
+-- is derived from bulk_summary; the search endpoint filters by
+-- bulk_confidence. See `docs/architecture.md` for the full flow and
+-- `plans/i-want-to-explore-delightful-storm.md` for the rollout plan.
+
+-- company_enrichment.bulk_summary columns.
+-- `company_enrichment` is created at runtime by
+-- `backend/routers/companies/enrichment.py::_ensure_enrichment_table`;
+-- these ALTERs are idempotent and safe even if that runtime creator
+-- hasn't fired yet. Wrapped in a DO block so a missing parent table
+-- degrades to a notice instead of breaking the startup migration.
+DO $bulk_enrichment_cols$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_name = 'company_enrichment'
+    ) THEN
+        ALTER TABLE company_enrichment
+            ADD COLUMN IF NOT EXISTS bulk_summary       JSONB,
+            ADD COLUMN IF NOT EXISTS bulk_summary_at    TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS bulk_website_hash  TEXT,
+            ADD COLUMN IF NOT EXISTS bulk_website_url   TEXT,
+            ADD COLUMN IF NOT EXISTS bulk_confidence    TEXT;
+    END IF;
+END
+$bulk_enrichment_cols$;
+
+-- Postgres-backed work queue for the bulk enrichment worker.
+-- Claimed with FOR UPDATE SKIP LOCKED so multiple workers (or
+-- a single worker with WORKER_CONCURRENCY>1 using concurrent
+-- asyncio tasks) don't grab the same job. Dead rows (attempts
+-- exhausted) surface on the admin page.
+CREATE TABLE IF NOT EXISTS enrichment_job (
+    enterprise_number   VARCHAR(10) PRIMARY KEY,
+    status              TEXT NOT NULL DEFAULT 'queued',
+        -- 'queued' | 'claimed' | 'done' | 'failed' | 'dead'
+    priority            INTEGER NOT NULL DEFAULT 0,
+        -- Higher = processed sooner. Tier-1 big = 100, tier-2 = 50,
+        -- tier-3 with web = 20, tier-3 no-web = 10.
+    attempts            INTEGER NOT NULL DEFAULT 0,
+    claimed_at          TIMESTAMPTZ,
+    finished_at         TIMESTAMPTZ,
+    last_error          TEXT,
+    enqueued_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_enrichment_job_status
+    ON enrichment_job(status, priority DESC, enqueued_at);
+CREATE INDEX IF NOT EXISTS idx_enrichment_job_finished
+    ON enrichment_job(finished_at DESC);
+
+-- Query embedding cache — /api/search/semantic computes a query
+-- embedding once per distinct (lowered, trimmed) query string and
+-- reuses it for 30 days. `query_hash` = sha256(lower(q)).
+CREATE TABLE IF NOT EXISTS query_embedding_cache (
+    query_hash          TEXT PRIMARY KEY,
+    query_text          TEXT NOT NULL,
+    embedding           vector(256) NOT NULL,
+    model               TEXT NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_query_embedding_cache_created
+    ON query_embedding_cache(created_at);
+
+-- Externalised aggregator skip-list (was a hardcoded constant in
+-- `backend/scraper.py::_SKIP_DOMAINS`). `kind` distinguishes domain
+-- match from path-substring match so discovery can filter both.
+-- Maintained via the admin enrichment page; read from DB at each
+-- worker claim cycle (no in-memory caching — the table is small).
+CREATE TABLE IF NOT EXISTS aggregator_skiplist (
+    id                  SERIAL PRIMARY KEY,
+    pattern             TEXT NOT NULL,
+    kind                TEXT NOT NULL DEFAULT 'domain',
+        -- 'domain' | 'path' — domain matches against parsed netloc,
+        -- path matches as a substring on the full URL path.
+    reason              TEXT,
+    added_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    added_by            TEXT,
+    UNIQUE (pattern, kind)
+);
+
+-- Seed the skip-list with the v3-validated aggregator patterns. ON
+-- CONFLICT DO NOTHING so re-running the schema is a no-op for seeds.
+INSERT INTO aggregator_skiplist (pattern, kind, reason, added_by) VALUES
+    ('pappers.be',           'domain', 'seed: KBO aggregator',             'seed'),
+    ('bsearch.be',           'domain', 'seed: business directory',         'seed'),
+    ('handelsgids.be',       'domain', 'seed: business directory',         'seed'),
+    ('infobel.be',           'domain', 'seed: directory',                  'seed'),
+    ('immoweb.be',           'domain', 'seed: real-estate listing',        'seed'),
+    ('lemariagedelouise.be', 'domain', 'seed: wedding-vendor listing',     'seed'),
+    ('economie.fgov.be',     'domain', 'seed: KBO portal',                 'seed'),
+    ('kompass.com',          'domain', 'seed: B2B directory',              'seed'),
+    ('europages.com',        'domain', 'seed: B2B directory',              'seed'),
+    ('dnb.com',              'domain', 'seed: credit directory',           'seed'),
+    ('companyweb.be',        'domain', 'seed: directory',                  'seed'),
+    ('staatsbladmonitor.be', 'domain', 'seed: gazette mirror',             'seed'),
+    ('trends.knack.be',      'domain', 'seed: press directory',            'seed'),
+    ('/bedrijvengids/',      'path',   'seed: municipal business index',   'seed'),
+    ('/annuaire/',           'path',   'seed: FR municipal directory',     'seed'),
+    ('/infrastructuur-',     'path',   'seed: municipal infrastructure',   'seed')
+ON CONFLICT (pattern, kind) DO NOTHING;
+
+-- Enrichment worker metadata (kill switch, daily spend, etc.).
+-- The `meta` table already exists (top of this file). Keys used by
+-- the worker:
+--   enrichment_enabled       'true' | 'false' — master kill switch
+--   enrichment_daily_budget  USD ceiling per UTC day, e.g. '10'
+-- Spend tracking is derived on the fly from llm_call_log (endpoint
+-- starts with '/bulk-enrichment/'), so there is no persistent
+-- `enrichment_spend` table — it recomputes on admin-page load.

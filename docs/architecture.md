@@ -63,7 +63,11 @@ staging affect prod.
 | `user_roles` | Supabase-synced | `{email, role}` where role ∈ {anon, free, pro, admin}. |
 | `activity_log` | Every `/api/*` request | Endpoint + method + user_email (or `anon:<ip-hash>`) + timestamp. Drives tier limits and admin analytics. |
 | `ai_company_enrichment`, `ai_people_enrichment`, `ai_insights` | OpenRouter outputs | Cached LLM responses. |
-| `company_embedding` | Per-company text embeddings | Semantic search + similar-AI retrieval. |
+| `company_enrichment.bulk_*` | Phase 1 bulk pipeline | JSONB `bulk_summary` + confidence + hash of scraped text. Written by the worker; read by embedder + `/api/search/semantic`. Separate from narrative `ai_insights`. |
+| `company_embedding` | Per-company text embeddings | Semantic search + similar-AI retrieval. Embedded text comes from `bulk_summary` (Phase 1) with fallback to NACE template for no-data rows. |
+| `enrichment_job` | Phase 1 bulk-enrichment queue | Postgres-backed work queue. `status ∈ {queued, claimed, done, failed, dead}`, claimed via `FOR UPDATE SKIP LOCKED`. |
+| `query_embedding_cache` | Phase 1 /api/search/semantic | Keyed by `sha256(lower(q))`, 30-day TTL. Saves an embedding call per repeat query. |
+| `aggregator_skiplist` | Phase 1 scrape skip-list | DB-backed replacement for the `_SKIP_DOMAINS` constant. Read from `backend/scraper.py::_load_skiplist` with 5-min cache; seeded from `src/schema.sql`. |
 | `staatsblad_publications` | Scraped from publicatieblad | Legal notices, bankruptcy filings, etc. |
 
 **Don't forget**: CBE numbers in KBO files render as `0xxx.xxx.xxx`
@@ -218,6 +222,81 @@ uses `get_current_user` where it should use `_require_admin`).
    Bulk director exports are a regulatory risk. See tech-debt Group A.
 10. **EBITDA = rubric `9901` (operating profit) + rubric `630` (D&A).**
     Don't assume it's a standalone line item.
+
+---
+
+## Semantic enrichment (Phase 1 — bulk/narrative split)
+
+DataSnoop runs **two** AI enrichment pipelines on every company, written
+to **different columns** of `company_enrichment` and used for different
+surfaces:
+
+| Column | Who writes it | Who reads it | Shape |
+|---|---|---|---|
+| `bulk_summary` (JSONB) | `backend/enrichment_worker.py` | `/api/search/semantic` + profile fallback | Structured: `{business_description, products_services[], customer_segments[], confidence}`. Short, factual, embeddable. |
+| `ai_insights` (TEXT) | `backend/ai_client.py::ai_insights_pipeline` on profile open | Profile "Summary" tab | Richer narrative, 200-400 tokens, with `key_management[]`, `group_context`, etc. |
+
+**Why split:** the bulk path is Q2 (GPT-4o-mini + KBO context), optimised
+for cost at ~$0.00016/company; it must run across the full ~1.7M KBO
+universe without blowing a $100 budget. The narrative path runs on-demand
+per profile view, tolerates a more expensive model, and produces richer
+output. Both share the scraper and KBO-context builders.
+
+### Bulk pipeline (worker)
+
+```
+1. Dormant check      → dissolved (juridical 010/012/013/014)? → template, $0
+2. Website resolve    → KBO contact WEB row → else DuckDuckGo (3s throttle)
+3. Scrape             → raw httpx + trafilatura (≤8k); Zenrows basic proxy fallback
+4. KBO context block  → build_kbo_context_block({parent, admins, NACE, notes…})
+5. Q2 call            → call_q2(kbo, scraped) — GPT-4o-mini, structured output
+6. Collision check    → check_entity_collision — cheap 2nd GPT-4o-mini call
+                         that catches same-named wrong-entity matches
+7. Escalation         → tier-1 big / KBO nace-flag / q2.confidence=low
+                         → call_haiku_escalation(kbo, scraped, q2_summary)
+8. Persist            → company_enrichment.bulk_summary + bulk_website_hash
+9. Embed              → text-embedding-3-small @ 256 dims → company_embedding
+```
+
+All LLM calls tag the OpenRouter request with a `/bulk-enrichment/<cbe>`
+endpoint label (via `set_current_endpoint`) so the admin cost panel
+attributes spend correctly. Daily spend guard reads back from
+`llm_call_log.cost_usd` summed by date.
+
+### Quality floor + search filtering
+
+`/api/search/semantic` filters out `bulk_confidence IN ('low',
+'insufficient_information')` by default. `?include_uncertain=1` flips
+it. The same floor is applied by the (Phase 5) profile elaboration step
+when it decides whether to surface or fall back to a NACE-template
+blurb.
+
+### Worker operational controls
+
+| Knob | Default | Where to change |
+|---|---|---|
+| `enrichment_enabled` | `true` | `meta` table / admin pause-resume endpoint |
+| Daily USD budget | `$10` | `meta.enrichment_daily_budget` / admin endpoint |
+| Concurrency | `3` | `WORKER_CONCURRENCY` env in compose |
+| DDG throttle | `3s` | `DDG_MIN_INTERVAL_S` env |
+| Max attempts | `5` | `enrichment_queue.MAX_ATTEMPTS` |
+| Stale-claim release | `30 min` | `release_stale()` call in worker loop |
+
+Kill switch: `UPDATE meta SET value='false' WHERE variable='enrichment_enabled'`
+causes the worker to drain in-flight and sleep on the next poll.
+
+### Seeding the queue
+
+Use `python scripts/seed_enrichment_queue.py --scope <pilot|tier1_2|tier3_web|
+tier3_no_web|template>`. Priorities (`PRIORITY_TIER1..TEMPLATE`) live in
+`backend/enrichment_routing.py`. The worker claims highest-priority first.
+
+### Rollback
+
+`meta.enrichment_enabled=false` pauses. The `bulk_*` columns and
+`company_embedding` are additive — no destructive migration. Drop the
+queue table if you need to restart from zero:
+`TRUNCATE enrichment_job;` (still leaves bulk rows intact).
 
 ---
 

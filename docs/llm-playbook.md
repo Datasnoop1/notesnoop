@@ -190,6 +190,89 @@ Keep entries to ~5-15 lines. Group under the existing topic sections.
 
 ## Workflow patterns
 
+### Finding — Structured DB-fact injection moves quality more than model upgrade
+
+- **Evidence**: Spike 2 (`scripts/research/v2/REPORT_v2.md`). Same model
+  (`openai/gpt-4o-mini`), same scrape, same prompt schema. The only
+  delta was prepending a `[KBO STRUCTURED FACTS]` block with parent,
+  subsidiaries, admins, NACE, notes. Quality lifted 2.96 → 3.73 (+0.77
+  on a 0–5 judge). Bigger lift than switching to Haiku 4.5 on identical
+  inputs.
+- **Takeaway**: When the DB has ground-truth structured facts that the
+  LLM is inferring from scratch (parent/subsidiary relationships, NACE
+  classification, etc.), inject them as a pre-amble block. Don't pay for
+  a bigger model until you've given the cheap model the facts.
+  Implementation: `backend/ai_client.py::build_kbo_context_block`.
+
+### Finding — Model `confidence` field is unreliable as a sole escalation trigger
+
+- **Evidence**: Spike 2 §6. Q3 escalation pattern (Q2 → Haiku when Q2
+  self-reported `confidence=low`): 5/30 escalations fired, only 1/5 was
+  retrospectively worth the spend. Meanwhile, 3/30 confidently-wrong
+  answers (IDELCO, TotalEnergies, ArcelorMittal) went un-escalated at
+  `confidence=high`. The field fires on obvious web-fetch failures and
+  goes quiet on confidently-wrong entity matches — the exact inverse of
+  what you want.
+- **Takeaway**: Combine self-reported confidence with STRUCTURAL
+  signals. Production escalation in
+  `backend/enrichment_routing.py::should_escalate` ANDs the confidence
+  trigger with: (a) tier-1 always-escalate, (b) KBO `notes` NACE
+  warning, (c) confidence=low. Not either-or.
+
+### Finding — Entity-collision hallucinations slip past `confidence`
+
+- **Evidence**: Spike 3 / Phase 0 (`scripts/research/v3/
+  discovery_hit_rate.md` §5). AXIS Belgium (CBE 0458132681, NACE 81220 =
+  building cleaning) → DDG returned `axis.com` (the Swedish camera
+  maker). Q2 produced a coherent, internally-consistent summary AT
+  `confidence=high` — describing the camera company, not the cleaner.
+  The description is "correct about something", just not the something
+  the KBO record refers to. Q2's confidence field cannot detect this.
+- **Takeaway**: Add a cheap second-pass plausibility check that
+  cross-references the Q2 output against KBO NACE + HQ city.
+  Implementation: `backend/entity_collision.py::check_entity_collision`
+  (one GPT-4o-mini call, ~$0.00005, downgrades confidence to `low`
+  when the sector/geography materially mismatches). Expected trigger
+  rate ~3-5% on real corpora — ignore the cost, keep the signal.
+
+### Finding — DuckDuckGo rate-limits after ~50 sequential calls without throttling
+
+- **Evidence**: Phase 0 (`scripts/research/v3/discovery_hit_rate.md`
+  §5). After the initial 50-CBE matrix (~110 DDG calls for website +
+  LinkedIn pairs), a follow-up re-run on 11 CBEs got `HTTP 403
+  Forbidden` from `html.duckduckgo.com`. Backoff didn't immediately
+  recover. Production bulk workers at 400k+ CBEs would hit this in
+  minutes.
+- **Takeaway**: 3-second process-global throttle between DDG calls
+  (NOT per-task — the process has shared state, a per-task sleep
+  wouldn't rate-limit at the origin). Implementation:
+  `backend/scraper.py::_ddg_throttle` (asyncio Lock + monotonic
+  timestamp). Env override: `DDG_MIN_INTERVAL_S`.
+
+### Finding — Zenrows-Google SERP is 0% viable on the basic Zenrows plan
+
+- **Evidence**: Phase 0 §3. 38 attempted calls to Zenrows + Google
+  SERP, 0 usable URLs extracted. `premium_proxy=true` alone returns
+  HTTP 400 ("needs JavaScript rendering"). Adding `js_render=true`
+  returns `RemoteProtocolError` after ~30s. The Zenrows SERP API is
+  a separate paid product we're not subscribed to.
+- **Takeaway**: Don't invoke Zenrows as a search-layer fallback in
+  bulk. DDG alone covers 95% of hits, and the broken Zenrows path
+  costs ~$0.005 per failed call. On-profile retry (user-flagged wrong
+  website) still uses Zenrows for SCRAPING the already-known URL —
+  that path works fine.
+
+### Finding — pgvector HNSW `ef_search=80` is sensible for ~1M corpora
+
+- **Evidence**: pgvector docs + the Phase 1 plan's cost projection of
+  ~1.7M companies. HNSW index at `m=16, ef_construction=64` builds fast
+  and queries fast; `ef_search` is the runtime recall/latency knob.
+  Default is 40; 80 is the Phase 1 target (recall up, latency a few
+  ms higher).
+- **Takeaway**: Set `SET LOCAL hnsw.ef_search = 80` per query (session-
+  scoped). Raise to 120 if users report retrieval quality issues; lower
+  to 40 for bulk exports where recall matters less than throughput.
+
 ### Finding — Cost guards + resume checkpoints are mandatory for batch backfills
 
 - **Evidence**: Stage 3 `scripts/staatsblad_backfill.py` checks the

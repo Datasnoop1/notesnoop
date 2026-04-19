@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events
+from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup
 
@@ -187,6 +187,10 @@ def _classify_endpoint(path: str) -> str | None:
         # anonymous abuse is bounded.  `/companies/{cbe}/events`
         # (non-search) is read-only DB and stays unlimited.
         or "/events/search" in path
+        # Phase 1: /search/semantic calls OpenRouter for the query
+        # embedding on cache miss (~$0.00002/call at 256 dims). Cap
+        # anonymous + free-tier abuse at the AI bucket.
+        or "/search/semantic" in path
     ):
         return "ai_enrichments_per_day"
     if "/export" in path:
@@ -324,7 +328,9 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
                                   OR endpoint LIKE '%%/scrape-%%'
                                   OR endpoint LIKE '%%/summarize-publications%%'
                                   OR endpoint LIKE '%%/similar/ai%%'
-                                  OR endpoint LIKE '%%/screener/nl%%')
+                                  OR endpoint LIKE '%%/screener/nl%%'
+                                  OR endpoint LIKE '%%/events/search%%'
+                                  OR endpoint LIKE '%%/search/semantic%%')
                              AND created_at >= CURRENT_DATE""",
                         (user_label,),
                     )
@@ -576,6 +582,8 @@ app.include_router(bulk_import.router)
 app.include_router(changes.router)
 app.include_router(open_data.router)
 app.include_router(staatsblad_events.router)
+app.include_router(search.router)
+app.include_router(admin_enrichment.router)
 
 # ---------------------------------------------------------------------------
 # Health check
@@ -619,6 +627,68 @@ async def startup_rate_limiter():
     assert_single_worker_or_redis()
     backend = "redis" if isinstance(limiter, RedisRateLimiter) else "in-memory"
     logger.info("Rate limiter backend: %s", backend)
+
+
+@app.on_event("startup")
+async def startup_phase1_migrations():
+    """Run Phase 1 semantic-enrichment migrations (idempotent).
+
+    Adds `bulk_*` columns to `company_enrichment`, creates the
+    `enrichment_job`, `query_embedding_cache`, and `aggregator_skiplist`
+    tables, and seeds the skip-list. Each step is a no-op on subsequent
+    runs — see `src/schema.sql` for the canonical DDL.
+    """
+    try:
+        from enrichment_queue import ensure_schema as ensure_queue
+        ensure_queue()
+    except Exception:
+        logger.exception("enrichment_job migration failed (non-fatal)")
+
+    try:
+        from embeddings import _ensure_query_embedding_cache
+        _ensure_query_embedding_cache()
+    except Exception:
+        logger.exception("query_embedding_cache migration failed (non-fatal)")
+
+    try:
+        from db import execute as db_execute
+        db_execute(
+            """
+            CREATE TABLE IF NOT EXISTS aggregator_skiplist (
+                id          SERIAL PRIMARY KEY,
+                pattern     TEXT NOT NULL,
+                kind        TEXT NOT NULL DEFAULT 'domain',
+                reason      TEXT,
+                added_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                added_by    TEXT,
+                UNIQUE (pattern, kind)
+            )
+            """
+        )
+        # Add the bulk_* columns if company_enrichment already exists.
+        # _ensure_enrichment_table() in routers/companies/enrichment.py
+        # creates the base table on first on-profile enrichment call; if
+        # the DB is fresh we try an unconditional ALTER that succeeds the
+        # moment that table exists.
+        for col, typ in (
+            ("bulk_summary",        "JSONB"),
+            ("bulk_summary_at",     "TIMESTAMPTZ"),
+            ("bulk_website_hash",   "TEXT"),
+            ("bulk_website_url",    "TEXT"),
+            ("bulk_confidence",     "TEXT"),
+        ):
+            try:
+                db_execute(
+                    f"ALTER TABLE company_enrichment "
+                    f"ADD COLUMN IF NOT EXISTS {col} {typ}"
+                )
+            except Exception:
+                # Parent table not yet created — it will acquire the
+                # columns on first _ensure_enrichment_table() + re-boot.
+                logger.debug("company_enrichment.%s ALTER skipped", col)
+                break
+    except Exception:
+        logger.exception("aggregator_skiplist migration failed (non-fatal)")
 
 
 # ---------------------------------------------------------------------------

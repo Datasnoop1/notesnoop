@@ -319,6 +319,24 @@ def _ensure_enrichment_table():
             """)
         except Exception:
             pass  # column already exists or DB doesn't support IF NOT EXISTS
+
+    # Phase 1: bulk-summary columns used by the enrichment worker +
+    # /api/search/semantic. Decoupled from the narrative `ai_insights`
+    # column above — see `docs/architecture.md` for the split.
+    for col, typ in (
+        ("bulk_summary",        "JSONB"),
+        ("bulk_summary_at",     "TIMESTAMPTZ"),
+        ("bulk_website_hash",   "TEXT"),
+        ("bulk_website_url",    "TEXT"),
+        ("bulk_confidence",     "TEXT"),
+    ):
+        try:
+            execute(
+                f"ALTER TABLE company_enrichment "
+                f"ADD COLUMN IF NOT EXISTS {col} {typ}"
+            )
+        except Exception:
+            pass
     # AI insights feedback table
     execute("""
         CREATE TABLE IF NOT EXISTS ai_insights_feedback (

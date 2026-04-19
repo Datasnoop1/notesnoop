@@ -58,6 +58,42 @@ services:
         reservations:
           memory: 512M
 
+  # Long-running bulk-enrichment worker. Shares the backend image so the
+  # dependency set and imports stay identical. Runs `enrichment_worker.main`
+  # instead of uvicorn; the Postgres-backed queue means horizontal scaling
+  # is one-flag-away (`docker compose up -d --scale enrichment-worker=N`).
+  enrichment-worker:
+    build: ./backend
+    restart: always
+    env_file: .env.production
+    environment:
+      WORKER_CONCURRENCY: "3"
+      WORKER_POLL_INTERVAL_S: "2"
+      WORKER_IDLE_SLEEP_S: "15"
+      ENRICHMENT_DAILY_BUDGET_USD: "10"
+      DDG_MIN_INTERVAL_S: "3"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: ["python", "-m", "enrichment_worker"]
+    # Worker doesn't serve HTTP — healthcheck confirms the process is
+    # alive via a Python one-liner that imports the module.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import enrichment_worker"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    mem_limit: 1g
+    mem_reservation: 256m
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
   nginx:
     image: nginx:alpine
     restart: always

@@ -1496,3 +1496,358 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
         logger.warning("Failed to store AI insights for %s: %s", cbe, e)
 
     return insights
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 1 — bulk enrichment helpers (Q2 + Haiku escalation)
+#
+# Callable by `backend/enrichment_worker.py` and (eventually Phase 5)
+# by the on-profile elaboration step. These helpers are intentionally
+# small and composable so the worker owns the per-company orchestration
+# while this module owns the model-facing primitives.
+#
+# IMPORTANT: the legacy `ai_insights_pipeline()` above remains the
+# canonical on-profile flow for the rest of Phase 1. Phase 5 refactors
+# the profile path to call `call_elaboration_narrative()` on top of a
+# cached bulk_summary. Don't remove the old pipeline yet.
+# ══════════════════════════════════════════════════════════════════════
+
+# Model choices fixed from the Spike 2 matrix (see
+# `scripts/research/v2/REPORT_v2.md`). Q2 = GPT-4o-mini with structured
+# KBO context wins on quality AND cost; Haiku 4.5 is the escalation.
+BULK_Q2_MODEL = "openai/gpt-4o-mini"
+BULK_HAIKU_MODEL = "anthropic/claude-haiku-4.5"
+
+
+def _nn(v) -> str:
+    """Render a KBO fact line. Empty on None/blank so context stays tight."""
+    if v is None:
+        return ""
+    s = str(v).strip()
+    return s
+
+
+def build_kbo_context_block(kbo: dict) -> str:
+    """Format the KBO fact block that every bulk Q2 call prepends.
+
+    Input keys (all optional):
+      name, parent, majority_shareholders (list[str]),
+      key_subsidiaries (list[str]), admins_top3 (list[str]),
+      revenue_band (str like '5-50M EUR'), fte_band (str),
+      hq_city, primary_nace, nace_description, juridical_situation,
+      notes (freeform, e.g. NACE/website-mismatch warning).
+
+    Output is a compact `[KBO FACTS]` block (≤~400 tokens typical).
+    Spike 2 §5 found this block drives +0.77 avg quality vs scrape-only.
+    """
+
+    def _list(vals):
+        if not vals:
+            return ""
+        clean = [str(v).strip() for v in vals if v]
+        return "; ".join(clean[:5])
+
+    lines = [
+        f"Name: {_nn(kbo.get('name'))}",
+        f"HQ city: {_nn(kbo.get('hq_city'))}",
+        f"Primary NACE: {_nn(kbo.get('primary_nace'))}"
+        + (f" — {_nn(kbo.get('nace_description'))}"
+           if kbo.get("nace_description") else ""),
+        f"Parent: {_nn(kbo.get('parent'))}",
+        f"Majority shareholders: {_list(kbo.get('majority_shareholders'))}",
+        f"Key subsidiaries: {_list(kbo.get('key_subsidiaries'))}",
+        f"Top administrators: {_list(kbo.get('admins_top3'))}",
+        f"Revenue band: {_nn(kbo.get('revenue_band'))}",
+        f"FTE band: {_nn(kbo.get('fte_band'))}",
+        f"Juridical situation: {_nn(kbo.get('juridical_situation'))}",
+        f"Notes: {_nn(kbo.get('notes'))}",
+    ]
+    # Drop empty 'Key: ' lines so the block is legible at short KBO
+    # records.
+    rendered = [ln for ln in lines if ln.rsplit(":", 1)[-1].strip()]
+    return "[KBO STRUCTURED FACTS]\n" + "\n".join(rendered) + "\n[/KBO]"
+
+
+_Q2_SCHEMA_INSTRUCTION = (
+    "Return ONE JSON object matching this schema, nothing else — no prose, "
+    "no markdown fences, no trailing commentary:\n"
+    "{\n"
+    '  "business_description": "<one paragraph, 2-4 sentences>",\n'
+    '  "products_services": ["<string>", ...],\n'
+    '  "customer_segments": ["<string>", ...],\n'
+    '  "confidence": "high|medium|low|insufficient_information"\n'
+    "}\n\n"
+    "Rules:\n"
+    "- Trust the KBO facts over scraped website content when they conflict.\n"
+    "- `business_description` must describe the Belgian entity named above, "
+    "not a same-named company elsewhere. If the scrape clearly describes a "
+    "different company, set confidence=low and say so briefly.\n"
+    "- `products_services` and `customer_segments` are 2-6 short phrases each; "
+    "lowercase, no marketing fluff.\n"
+    "- `confidence=high` only if the website was substantive and the KBO facts "
+    "are consistent with it. Use `insufficient_information` when the scrape "
+    "returned nothing useful."
+)
+
+
+def _clip(text: str | None, limit: int = 3000) -> str:
+    if not text:
+        return ""
+    t = text.strip()
+    return t if len(t) <= limit else t[:limit - 1] + "…"
+
+
+async def call_q2(
+    *, kbo: dict, scraped_text: str | None, model: str = BULK_Q2_MODEL
+) -> dict:
+    """Run the Q2 bulk enrichment call (GPT-4o-mini + KBO context).
+
+    Returns a dict
+        `{summary: dict|None, raw_text: str, meta: dict, ok: bool,
+          error: str|None}`.
+
+    `summary` is the parsed 4-field object; None on JSON parse failure
+    or empty completion. `meta` carries latency / tokens for the admin
+    observability panel. Caller persists the parsed object into
+    `company_enrichment.bulk_summary`.
+    """
+    kbo_block = build_kbo_context_block(kbo)
+    body = (
+        f"{kbo_block}\n\n"
+        f"[SCRAPED WEBSITE TEXT — 3k char cap]\n"
+        f"{_clip(scraped_text, 3000)}\n[/SCRAPE]\n\n"
+        f"{_Q2_SCHEMA_INSTRUCTION}"
+    )
+    system = (
+        "You write factual one-paragraph company briefs for a Belgian private-"
+        "equity screener. Keep descriptions specific (what they make, who buys) "
+        "and never invent financials, headcounts, or ownership percentages."
+    )
+
+    meta = await ai_complete_with_meta(
+        prompt=body,
+        system=system,
+        model=model,
+        max_tokens=500,
+        temperature=0.1,
+        timeout_s=45.0,
+    )
+    if not meta.get("ok"):
+        return {
+            "summary": None,
+            "raw_text": meta.get("text") or "",
+            "meta": meta,
+            "ok": False,
+            "error": meta.get("error") or "call_failed",
+        }
+
+    text = meta.get("text") or ""
+    parsed = _extract_json(text)
+    if not isinstance(parsed, dict):
+        return {
+            "summary": None,
+            "raw_text": text,
+            "meta": meta,
+            "ok": False,
+            "error": "json_parse_failed",
+        }
+
+    # Coerce confidence to a known label, then coerce fields to the
+    # expected shapes. Tolerate string-joined lists from less-rigorous
+    # models.
+    conf = (parsed.get("confidence") or "").strip().lower()
+    if conf not in ("high", "medium", "low", "insufficient_information"):
+        conf = "low"
+    summary = {
+        "business_description": (parsed.get("business_description") or "").strip(),
+        "products_services": _coerce_list(parsed.get("products_services")),
+        "customer_segments": _coerce_list(parsed.get("customer_segments")),
+        "confidence": conf,
+    }
+
+    return {
+        "summary": summary,
+        "raw_text": text,
+        "meta": meta,
+        "ok": True,
+        "error": None,
+    }
+
+
+def _coerce_list(val) -> list[str]:
+    """Normalise model output to a short list of short strings."""
+    if isinstance(val, list):
+        items = [str(x).strip() for x in val if str(x).strip()]
+    elif isinstance(val, str) and val.strip():
+        items = [p.strip() for p in re.split(r"[,;\n]", val) if p.strip()]
+    else:
+        return []
+    # Dedup case-insensitively, preserve order, cap to 8.
+    seen: set[str] = set()
+    out: list[str] = []
+    for it in items:
+        k = it.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(it)
+        if len(out) >= 8:
+            break
+    return out
+
+
+async def call_haiku_escalation(
+    *, kbo: dict, scraped_text: str | None,
+    q2_summary: dict | None = None,
+    model: str = BULK_HAIKU_MODEL,
+) -> dict:
+    """Rerun the Q2 prompt through Haiku 4.5, optionally seeded with Q2's output.
+
+    Returns the same shape as `call_q2`. Called from the worker when
+    `enrichment_routing.should_escalate` fires.
+
+    Haiku's advantage here is group/parent disambiguation and tier-1
+    quality — Spike 1 §5 and Spike 2 §6 are the source for this choice.
+    OpenRouter exposes Haiku via its Anthropic integration; we do NOT
+    use Anthropic Batch here in Phase 1 (Phase 3 optimisation).
+    """
+    kbo_block = build_kbo_context_block(kbo)
+    seed = ""
+    if q2_summary:
+        try:
+            seed = (
+                "\n[Q2 FIRST-PASS — use as a draft to refine]\n"
+                + json.dumps(q2_summary, ensure_ascii=False)
+                + "\n[/Q2]\n"
+            )
+        except Exception:
+            seed = ""
+
+    body = (
+        f"{kbo_block}\n\n"
+        f"[SCRAPED WEBSITE TEXT — 8k char cap]\n"
+        f"{_clip(scraped_text, 8000)}\n[/SCRAPE]\n"
+        f"{seed}\n"
+        f"{_Q2_SCHEMA_INSTRUCTION}"
+    )
+    system = (
+        "You write factual one-paragraph company briefs for a Belgian private-"
+        "equity screener. Treat the KBO facts as authoritative when they "
+        "conflict with the scrape. When the scrape's entity does not match the "
+        "KBO record (e.g. same-named company in a different country or sector), "
+        "mark confidence=low and say so in the description."
+    )
+
+    meta = await ai_complete_with_meta(
+        prompt=body,
+        system=system,
+        model=model,
+        max_tokens=700,
+        temperature=0.1,
+        timeout_s=60.0,
+    )
+    if not meta.get("ok"):
+        return {
+            "summary": None,
+            "raw_text": meta.get("text") or "",
+            "meta": meta,
+            "ok": False,
+            "error": meta.get("error") or "call_failed",
+        }
+
+    text = meta.get("text") or ""
+    parsed = _extract_json(text)
+    if not isinstance(parsed, dict):
+        return {
+            "summary": None,
+            "raw_text": text,
+            "meta": meta,
+            "ok": False,
+            "error": "json_parse_failed",
+        }
+
+    conf = (parsed.get("confidence") or "").strip().lower()
+    if conf not in ("high", "medium", "low", "insufficient_information"):
+        conf = "low"
+    summary = {
+        "business_description": (parsed.get("business_description") or "").strip(),
+        "products_services": _coerce_list(parsed.get("products_services")),
+        "customer_segments": _coerce_list(parsed.get("customer_segments")),
+        "confidence": conf,
+    }
+    return {
+        "summary": summary,
+        "raw_text": text,
+        "meta": meta,
+        "ok": True,
+        "error": None,
+    }
+
+
+def build_template_summary(kbo: dict) -> dict:
+    """Deterministic template fallback — used for dormant / no-web rows.
+
+    No LLM call. Output shape matches `call_q2`/`call_haiku_escalation`
+    so the downstream embedder and search code treat it uniformly. A
+    template-only row still gets embedded (NACE + city anchor) but is
+    filtered out of the default search results by the confidence floor.
+    """
+    nace = (kbo.get("nace_description") or "").strip()
+    hq = (kbo.get("hq_city") or "").strip()
+    name = (kbo.get("name") or "").strip() or "This company"
+    dormant = (kbo.get("juridical_situation") or "").strip() in {
+        "010", "012", "013", "014",
+    }
+
+    if dormant:
+        desc = (
+            f"{name} is a Belgian legal entity currently in dissolution or "
+            f"liquidation (KBO status {kbo.get('juridical_situation')})."
+        )
+        if nace:
+            desc += f" Last registered activity: {nace}."
+    else:
+        parts = [f"{name} is a Belgian company"]
+        if nace:
+            parts.append(f"active in {nace.lower()}")
+        if hq:
+            parts.append(f"based in {hq}")
+        desc = " ".join(parts).rstrip(".") + "."
+
+    return {
+        "business_description": desc,
+        "products_services": [nace.lower()] if nace else [],
+        "customer_segments": [],
+        "confidence": (
+            "insufficient_information" if dormant or not (nace and hq) else "low"
+        ),
+    }
+
+
+def build_bulk_embedding_text(summary: dict, kbo: dict | None = None) -> str:
+    """Compose the text fed to the embedder from a bulk_summary row.
+
+    Priority order:
+      1. Factual business_description (the embedding workhorse)
+      2. Products/services, customer segments
+      3. NACE + HQ city anchors (helps templated rows retrieve)
+
+    Spike 2 §12 fixed the lean schema for bulk; this builder mirrors it.
+    """
+    bits: list[str] = []
+    desc = (summary or {}).get("business_description") if summary else None
+    if desc:
+        bits.append(str(desc).strip())
+    ps = (summary or {}).get("products_services") or []
+    if ps:
+        bits.append("Products/services: " + ", ".join(str(p) for p in ps))
+    cs = (summary or {}).get("customer_segments") or []
+    if cs:
+        bits.append("Customers: " + ", ".join(str(c) for c in cs))
+    if kbo:
+        nace = (kbo.get("nace_description") or "").strip()
+        hq = (kbo.get("hq_city") or "").strip()
+        if nace:
+            bits.append(f"Sector (NACE): {nace}")
+        if hq:
+            bits.append(f"Headquartered in {hq}, Belgium")
+    return " \n".join(bits).strip()

@@ -28,8 +28,14 @@ triage state.
 - **Frontend**: Next.js 16 + React 19 in `frontend/` (App Router, standalone build)
 - **Auth**: Supabase (JWT verified server-side via JWKS)
 - **Billing**: Stripe (subscriptions + webhooks)
-- **AI enrichment**: OpenRouter
-- **Web scraping**: Zenrows
+- **AI enrichment**: OpenRouter. Bulk-summary pipeline (Q2 = GPT-4o-mini +
+  KBO context → Haiku 4.5 escalation) feeds `company_enrichment.bulk_summary`
+  and `company_embedding`. Legacy 4-step `ai_insights_pipeline` still owns
+  on-profile narratives — refactor deferred to Phase 5.
+- **Web scraping**: raw `httpx + trafilatura` is the bulk default (no
+  credits); Zenrows is the on-profile retry path only. The Zenrows-Google
+  SERP layer is DROPPED from bulk discovery per Phase 0 (0% success on our
+  current Zenrows plan).
 - **Deployment**: docker-compose + nginx + Let's Encrypt
 - **Loaders**: `requests` for KBO/NBB ingestion, streaming CSV/JSON
 - **Legacy UI**: Streamlit app under `app/` still works against Postgres but is secondary
@@ -92,10 +98,20 @@ platform/
 - **FastAPI backend** (`backend/`):
   Routers: `dashboard`, `screener`, `companies`, `stats`, `people`,
   `favourites`, `feedback`, `admin`, `polls`, `stripe_pay`, `staatsblad`,
-  `tier_config`, `graveyard`. Validates Supabase JWTs via JWKS. Enforces
-  tier-based usage limits with in-memory rate limiting (Redis optional for
-  multi-instance scaling). Filters bot traffic. Hashes anon IPs with
-  `ACTIVITY_LOG_IP_SALT` before logging.
+  `tier_config`, `graveyard`, `search` (Phase 1 semantic),
+  `admin_enrichment` (Phase 1 admin panel). Validates Supabase JWTs via
+  JWKS. Enforces tier-based usage limits with in-memory rate limiting
+  (Redis optional for multi-instance scaling). Filters bot traffic.
+  Hashes anon IPs with `ACTIVITY_LOG_IP_SALT` before logging.
+
+- **Bulk enrichment worker** (`backend/enrichment_worker.py`): long-running
+  async process that drains a Postgres-backed queue (`enrichment_job`) to
+  populate `company_enrichment.bulk_summary` + `company_embedding`.
+  Postgres `FOR UPDATE SKIP LOCKED` makes multiple workers safe. Shipped as
+  the `enrichment-worker` service in `docker-compose*.yml`. Admin controls
+  at `/admin/enrichment` (pause/resume, daily USD budget, skip-list
+  maintenance, dead-letter retry). See `docs/architecture.md` §Semantic
+  enrichment.
 
 - **Next.js frontend** (`frontend/`):
   Screener, company deep-dive, sector benchmarking, account, billing.

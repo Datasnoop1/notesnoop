@@ -1,0 +1,52 @@
+[Unit]
+Description=DataSnoop bulk enrichment worker
+Documentation=https://github.com/albiezerozeroone-blip/datasnoop
+After=network-online.target docker.service
+Wants=network-online.target
+
+# This unit is provided for bare-metal / VPS deployments where the
+# worker runs outside docker compose. The Docker-native variant is the
+# `enrichment-worker` service in `docker-compose.yml`; most prod
+# deployments use that instead of this file.
+#
+# Install:
+#   sudo cp deploy/enrichment-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now enrichment-worker.service
+#
+# Logs:
+#   journalctl -u enrichment-worker -f
+
+[Service]
+Type=simple
+User=datasnoop
+WorkingDirectory=/opt/leadpeek
+EnvironmentFile=/opt/leadpeek/.env.production
+
+# Worker knobs — override here or in the EnvironmentFile.
+Environment=WORKER_CONCURRENCY=3
+Environment=WORKER_POLL_INTERVAL_S=2
+Environment=WORKER_IDLE_SLEEP_S=15
+Environment=ENRICHMENT_DAILY_BUDGET_USD=10
+Environment=DDG_MIN_INTERVAL_S=3
+
+ExecStart=/opt/leadpeek/.venv/bin/python -m enrichment_worker
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Clean shutdown: SIGTERM triggers the in-loop drain path so claimed
+# jobs either finish or get released as stale on the next worker start.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/leadpeek
+
+[Install]
+WantedBy=multi-user.target

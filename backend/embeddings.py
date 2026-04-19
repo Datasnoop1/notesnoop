@@ -13,6 +13,7 @@ Models (change EMBEDDING_MODEL env var to switch):
   - nvidia/llama-nemotron-embed-vl-1b-v2:free  (free, logs data, trial only)
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -26,6 +27,11 @@ logger = logging.getLogger(__name__)
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-small")
 EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", "256"))
+
+# Query-embedding cache TTL. 30 days matches the plan; the daily
+# admin-page view plus recurring screener searches mean most popular
+# queries get served from cache.
+QUERY_CACHE_TTL_DAYS = int(os.getenv("QUERY_CACHE_TTL_DAYS", "30"))
 
 _table_ensured = False
 
@@ -245,3 +251,197 @@ async def batch_embed_all(limit: int = 500) -> dict:
 
     logger.info("Batch embedding done: %d embedded, %d errors, %d total candidates", embedded, errors, len(rows))
     return {"embedded": embedded, "skipped": len(rows) - embedded - errors, "errors": errors}
+
+
+# ── Bulk embedder used by the Phase 1 enrichment worker ──────────────
+
+
+async def generate_embeddings_batch(texts: list[str]) -> list[list[float] | None]:
+    """Embed a batch of texts in a single OpenRouter call.
+
+    OpenAI's embedding endpoint accepts up to 2048 inputs per request.
+    We conservatively cap at 64 per call since the caller-side batching
+    in the worker tops out there anyway. Returns a list aligned with
+    `texts` — entries are None when the API returned a malformed result.
+    """
+    if not OPENROUTER_API_KEY or not texts:
+        return [None] * len(texts)
+
+    # OpenAI rejects empty strings in a batch; replace them with a
+    # placeholder and null-out the result so the caller can skip
+    # storing anything. Truncate each input to the documented 8k limit.
+    cleaned: list[str] = [(t or "")[:8000] or "empty" for t in texts]
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/embeddings",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": EMBEDDING_MODEL,
+                    "input": cleaned,
+                    "dimensions": EMBEDDING_DIMS,
+                },
+                timeout=60,
+            )
+            if resp.status_code != 200:
+                logger.warning(
+                    "Batch embedding API returned %d: %s",
+                    resp.status_code, resp.text[:200],
+                )
+                return [None] * len(texts)
+            data = resp.json()
+            rows = data.get("data") or []
+            # OpenAI returns items with `index` so they can be shuffled;
+            # be robust to that.
+            out: list[list[float] | None] = [None] * len(texts)
+            for item in rows:
+                i = item.get("index")
+                emb = item.get("embedding")
+                if isinstance(i, int) and 0 <= i < len(out) and isinstance(emb, list):
+                    # Null-out the placeholder we substituted.
+                    if not (texts[i] or "").strip():
+                        continue
+                    out[i] = emb
+            return out
+    except Exception as e:
+        logger.error("Batch embedding generation failed: %s", e)
+        return [None] * len(texts)
+
+
+# ── Query-embedding cache (for /api/search/semantic) ─────────────────
+
+
+_query_cache_ensured = False
+
+
+def _ensure_query_embedding_cache() -> None:
+    """Create `query_embedding_cache` if missing. Idempotent."""
+    global _query_cache_ensured
+    if _query_cache_ensured:
+        return
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        cur.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS query_embedding_cache (
+                query_hash   TEXT PRIMARY KEY,
+                query_text   TEXT NOT NULL,
+                embedding    vector({EMBEDDING_DIMS}) NOT NULL,
+                model        TEXT NOT NULL,
+                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_query_embedding_cache_created "
+            "ON query_embedding_cache(created_at)"
+        )
+        conn.commit()
+        cur.close()
+        _query_cache_ensured = True
+    except Exception:
+        conn.rollback()
+        logger.exception("query_embedding_cache migration failed (non-fatal)")
+    finally:
+        put_connection(conn)
+
+
+def _query_hash(q: str) -> str:
+    return hashlib.sha256(q.strip().lower().encode("utf-8")).hexdigest()
+
+
+async def embed_query(q: str) -> list[float] | None:
+    """Return a cached embedding for a search query, generating on miss.
+
+    Cache keyed by `sha256(lower(strip(q)))` with a 30-day TTL. Rows
+    older than the TTL are treated as misses and overwritten. A miss
+    costs one embedding API call (~$0.00002 per query on
+    text-embedding-3-small @ 256 dims) — fine, but the cache means
+    repeat queries are free. The /api/search/semantic router calls this
+    on every request.
+    """
+    text = (q or "").strip()
+    if not text:
+        return None
+    _ensure_query_embedding_cache()
+    h = _query_hash(text)
+
+    row = fetch_one(
+        "SELECT embedding::text AS embedding_text, created_at "
+        "FROM query_embedding_cache WHERE query_hash = %s",
+        (h,),
+    )
+    if row:
+        age_days = None
+        try:
+            from datetime import datetime, timezone
+            created = row.get("created_at")
+            if created is not None:
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                age_days = (datetime.now(timezone.utc) - created).days
+        except Exception:
+            age_days = None
+        if age_days is None or age_days < QUERY_CACHE_TTL_DAYS:
+            try:
+                return _parse_pgvector(row["embedding_text"])
+            except Exception:
+                pass  # fall through to regenerate
+
+    embedding = await generate_embedding(text)
+    if not embedding:
+        return None
+
+    try:
+        execute(
+            """
+            INSERT INTO query_embedding_cache
+                   (query_hash, query_text, embedding, model)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (query_hash) DO UPDATE SET
+                embedding = EXCLUDED.embedding,
+                model = EXCLUDED.model,
+                created_at = NOW()
+            """,
+            (h, text, str(embedding), EMBEDDING_MODEL),
+        )
+    except Exception:
+        logger.warning("Failed to persist query-cache row for '%s'", text[:80])
+
+    return embedding
+
+
+def _parse_pgvector(s: str) -> list[float]:
+    """Parse pgvector text output '[1.0,2.0,...]' → list[float]."""
+    s = (s or "").strip().strip("[]")
+    if not s:
+        return []
+    return [float(x) for x in s.split(",")]
+
+
+# ── Bulk embedding writer for the Phase 1 enrichment worker ────────
+
+
+def store_company_embedding(cbe: str, embedding: list[float]) -> None:
+    """Write a single company embedding. Same upsert shape as embed_company.
+
+    Kept as a public helper so the bulk worker can re-use the embedder
+    output directly instead of re-parsing `ai_insights` like
+    `embed_company` does.
+    """
+    ensure_embedding_table()
+    execute(
+        """INSERT INTO company_embedding (enterprise_number, embedding, model)
+           VALUES (%s, %s, %s)
+           ON CONFLICT (enterprise_number) DO UPDATE SET
+               embedding = EXCLUDED.embedding,
+               model = EXCLUDED.model,
+               generated_at = NOW()""",
+        (cbe.strip().zfill(10), str(embedding), EMBEDDING_MODEL),
+    )

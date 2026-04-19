@@ -1,0 +1,588 @@
+"""Bulk enrichment worker — long-running async loop.
+
+Claims jobs from `enrichment_job`, runs the per-company Q2 pipeline
+(dormant-bypass → website resolve → scrape → KBO context → Q2 → entity
+collision → Haiku escalation → embedding → write), and loops.
+
+Lifecycle contract (see `plans/i-want-to-explore-delightful-storm.md`):
+  - `enrichment_enabled` meta flag = false drains after current in-flight
+  - `ENRICHMENT_DAILY_BUDGET_USD` caps spend per UTC day
+  - WORKER_CONCURRENCY controls parallel in-flight jobs (3s DDG throttle
+    is process-global, so true parallelism on DDG is bounded by that)
+  - 5 attempts per job; 6th marks dead
+  - Stale-claim release every N polls so a worker crash doesn't strand
+    jobs as 'claimed' forever
+
+Entry-point: `python -m backend.enrichment_worker` (systemd unit at
+`deploy/enrichment-worker.service`).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import logging
+import os
+import signal
+import sys
+import time
+from contextvars import Token
+from datetime import datetime, timezone
+from typing import Optional
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logger = logging.getLogger(__name__)
+
+# Import order matters — `db` + `ai_client` need load_dotenv() to have
+# already fired, which happened above.
+from db import fetch_all, fetch_one, execute  # noqa: E402
+from ai_client import (  # noqa: E402
+    BULK_Q2_MODEL,
+    BULK_HAIKU_MODEL,
+    build_bulk_embedding_text,
+    build_template_summary,
+    call_haiku_escalation,
+    call_q2,
+    set_current_endpoint,
+    reset_current_endpoint,
+)
+from embeddings import (  # noqa: E402
+    ensure_embedding_table,
+    generate_embedding,
+    store_company_embedding,
+)
+from enrichment_queue import (  # noqa: E402
+    claim_one,
+    ensure_schema as ensure_queue_schema,
+    enrichment_enabled,
+    mark_done,
+    mark_failed,
+    meta_flag,
+    release_stale,
+)
+from enrichment_routing import (
+    confidence_is_publishable,
+    is_dormant,
+    should_escalate,
+)  # noqa: E402
+from entity_collision import check_entity_collision  # noqa: E402
+from scraper import (  # noqa: E402
+    duckduckgo_search_url,
+    scrape_company_site,
+)
+
+# ── Configuration ────────────────────────────────────────────────────
+
+WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "3"))
+POLL_INTERVAL_S = float(os.getenv("WORKER_POLL_INTERVAL_S", "2.0"))
+IDLE_SLEEP_S = float(os.getenv("WORKER_IDLE_SLEEP_S", "15.0"))
+STALE_RELEASE_EVERY_N_POLLS = int(os.getenv("WORKER_STALE_RELEASE_EVERY", "60"))
+
+ENDPOINT_LABEL_PREFIX = "/bulk-enrichment/"
+
+
+def _today_utc() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def daily_spend_usd() -> float:
+    """Sum `cost_usd` from llm_call_log for all bulk-enrichment calls today."""
+    row = fetch_one(
+        """
+        SELECT COALESCE(SUM(cost_usd), 0)::float AS total
+          FROM llm_call_log
+         WHERE endpoint LIKE %s
+           AND ts >= CURRENT_DATE
+        """,
+        (ENDPOINT_LABEL_PREFIX + "%",),
+    )
+    return float(row["total"] or 0.0) if row else 0.0
+
+
+def daily_budget_usd() -> float:
+    """Admin-configurable daily spend cap. Defaults to $10 per plan."""
+    raw = (
+        meta_flag("enrichment_daily_budget")
+        or os.getenv("ENRICHMENT_DAILY_BUDGET_USD", "10")
+    )
+    try:
+        return float(raw)
+    except Exception:
+        return 10.0
+
+
+# ── KBO context assembly ─────────────────────────────────────────────
+
+
+def _revenue_band(revenue_eur: Optional[float]) -> str:
+    if not revenue_eur or revenue_eur <= 0:
+        return "unknown"
+    r = float(revenue_eur)
+    if r >= 100_000_000:
+        return "≥100M EUR"
+    if r >= 50_000_000:
+        return "50-100M EUR"
+    if r >= 5_000_000:
+        return "5-50M EUR"
+    if r >= 500_000:
+        return "0.5-5M EUR"
+    return "<0.5M EUR"
+
+
+def _fte_band(fte: Optional[float]) -> str:
+    if not fte or fte <= 0:
+        return "unknown"
+    f = float(fte)
+    if f >= 250:
+        return "≥250"
+    if f >= 50:
+        return "50-250"
+    if f >= 10:
+        return "10-50"
+    if f >= 1:
+        return "1-10"
+    return "<1"
+
+
+def _load_kbo_context(cbe: str) -> dict:
+    """Gather the KBO facts the Q2 prompt needs.
+
+    Pulled from `company_info`, `nace_lookup`, `enterprise`, `financial_
+    latest`, `participating_interest`, `shareholder`, `administrator`.
+    Keys used by `build_kbo_context_block` / `build_template_summary`.
+
+    Kept read-only — the worker never writes to these tables.
+    """
+    info = fetch_one(
+        """
+        SELECT ci.name, ci.city, ci.nace_code,
+               nl.description AS nace_description,
+               e.juridical_situation,
+               fl.revenue, fl.fte_total,
+               (SELECT c.value FROM contact c
+                  WHERE c.entity_number = ci.enterprise_number
+                    AND c.contact_type = 'WEB'
+               LIMIT 1) AS kbo_website
+          FROM company_info ci
+     LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+     LEFT JOIN enterprise e   ON e.enterprise_number = ci.enterprise_number
+     LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+         WHERE ci.enterprise_number = %s
+        """,
+        (cbe,),
+    )
+    if not info:
+        return {"name": "", "hq_city": "", "primary_nace": "",
+                "nace_description": "", "juridical_situation": "",
+                "revenue_band": "unknown", "fte_band": "unknown",
+                "majority_shareholders": [], "key_subsidiaries": [],
+                "admins_top3": [], "parent": "", "notes": "",
+                "kbo_website": None}
+
+    try:
+        shareholders = fetch_all(
+            """SELECT name, ownership_pct FROM shareholder
+                WHERE enterprise_number = %s
+                ORDER BY ownership_pct DESC NULLS LAST LIMIT 3""",
+            (cbe,),
+        )
+    except Exception:
+        shareholders = []
+    try:
+        subsidiaries = fetch_all(
+            """SELECT name FROM participating_interest
+                WHERE enterprise_number = %s
+                ORDER BY ownership_pct DESC NULLS LAST LIMIT 5""",
+            (cbe,),
+        )
+    except Exception:
+        subsidiaries = []
+    try:
+        admins = fetch_all(
+            """SELECT name FROM administrator
+                WHERE enterprise_number = %s AND name IS NOT NULL
+             GROUP BY name
+                LIMIT 3""",
+            (cbe,),
+        )
+    except Exception:
+        admins = []
+
+    parent = ""
+    majority = []
+    for sh in shareholders:
+        name = sh.get("name") or ""
+        pct = sh.get("ownership_pct") or 0
+        if pct and pct >= 50 and not parent:
+            parent = name
+        elif name:
+            majority.append(f"{name} ({pct:.0f}%)" if pct else name)
+
+    return {
+        "name": info.get("name") or "",
+        "hq_city": info.get("city") or "",
+        "primary_nace": info.get("nace_code") or "",
+        "nace_description": info.get("nace_description") or "",
+        "juridical_situation": info.get("juridical_situation") or "",
+        "revenue_band": _revenue_band(info.get("revenue")),
+        "fte_band": _fte_band(info.get("fte_total")),
+        "majority_shareholders": majority[:5],
+        "key_subsidiaries": [s.get("name") for s in subsidiaries if s.get("name")],
+        "admins_top3": [a.get("name") for a in admins if a.get("name")],
+        "parent": parent,
+        "notes": "",
+        "kbo_website": info.get("kbo_website"),
+        "_revenue_eur": info.get("revenue"),
+        "_fte": info.get("fte_total"),
+    }
+
+
+# ── Per-company pipeline ─────────────────────────────────────────────
+
+
+def _sha256(text: str | None) -> str:
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest() if text else ""
+
+
+def _write_bulk_row(
+    cbe: str,
+    summary: dict,
+    website_url: str | None,
+    scraped_text: str | None,
+) -> None:
+    """Upsert `company_enrichment.bulk_*` columns."""
+    execute(
+        """
+        INSERT INTO company_enrichment (enterprise_number, bulk_summary,
+                                        bulk_summary_at, bulk_website_hash,
+                                        bulk_website_url, bulk_confidence)
+        VALUES (%s, %s::jsonb, NOW(), %s, %s, %s)
+        ON CONFLICT (enterprise_number) DO UPDATE SET
+            bulk_summary      = EXCLUDED.bulk_summary,
+            bulk_summary_at   = NOW(),
+            bulk_website_hash = EXCLUDED.bulk_website_hash,
+            bulk_website_url  = EXCLUDED.bulk_website_url,
+            bulk_confidence   = EXCLUDED.bulk_confidence
+        """,
+        (
+            cbe,
+            json.dumps(summary, ensure_ascii=False),
+            _sha256(scraped_text),
+            website_url,
+            (summary.get("confidence") or "").strip().lower(),
+        ),
+    )
+
+
+async def _resolve_website(kbo: dict) -> str | None:
+    """KBO contact WEB row wins; fall back to DuckDuckGo discovery."""
+    web = (kbo.get("kbo_website") or "").strip()
+    if web:
+        if not web.startswith("http"):
+            web = "https://" + web
+        return web
+
+    # Discovery — DDG only, 3s process-global throttle baked into scraper.
+    name = (kbo.get("name") or "").strip()
+    city = (kbo.get("hq_city") or "").strip()
+    if not name:
+        return None
+    try:
+        res = await duckduckgo_search_url(name, city=city)
+        return res.get("website_url")
+    except Exception as e:
+        logger.info("DDG discovery failed for %s: %s", name, e)
+        return None
+
+
+async def _enrich_one(cbe: str) -> dict:
+    """Run the full per-company flow. Returns a summary-of-outcome dict.
+
+    Never raises — failures are captured and the caller decides whether
+    to mark_failed / retry.
+    """
+    out = {
+        "cbe": cbe,
+        "ok": False,
+        "path": "",      # dormant | template | q2 | q2+haiku
+        "confidence": None,
+        "website_url": None,
+        "scraped_chars": 0,
+        "collision_downgrade": False,
+        "error": None,
+    }
+
+    kbo = _load_kbo_context(cbe)
+
+    # 1. Dormant bypass ------------------------------------------------
+    if is_dormant(kbo.get("juridical_situation")):
+        summary = build_template_summary(kbo)
+        _write_bulk_row(cbe, summary, None, None)
+        out.update(ok=True, path="dormant", confidence=summary.get("confidence"))
+        # Still embed — templated rows are searchable (confidence floor
+        # filters them out of default results, not out of the vector
+        # store).
+        await _embed_and_store(cbe, summary, kbo)
+        return out
+
+    # 2. Website resolve ----------------------------------------------
+    website_url = await _resolve_website(kbo)
+    out["website_url"] = website_url
+
+    scraped_text = ""
+    if website_url:
+        try:
+            scraped_text, _src = await scrape_company_site(website_url)
+        except Exception as e:
+            logger.info("scrape_company_site failed for %s: %s", cbe, e)
+        out["scraped_chars"] = len(scraped_text or "")
+
+    # 3. If we have no scrape and no financial signal, templated fallback
+    if not scraped_text:
+        summary = build_template_summary(kbo)
+        _write_bulk_row(cbe, summary, website_url, scraped_text)
+        await _embed_and_store(cbe, summary, kbo)
+        out.update(ok=True, path="template", confidence=summary.get("confidence"))
+        return out
+
+    # 4. Q2 call ------------------------------------------------------
+    q2 = await call_q2(kbo=kbo, scraped_text=scraped_text)
+    if not q2.get("ok") or not q2.get("summary"):
+        # Q2 failure. Write a template so the row is searchable, mark
+        # the job as failed so it is retried; don't poison the queue.
+        summary = build_template_summary(kbo)
+        _write_bulk_row(cbe, summary, website_url, scraped_text)
+        await _embed_and_store(cbe, summary, kbo)
+        out.update(ok=False, path="q2_failed",
+                   confidence=summary.get("confidence"),
+                   error=q2.get("error") or "q2_unknown")
+        return out
+
+    summary = q2["summary"]
+
+    # 5. Entity-collision check — downgrade confidence if implausible
+    try:
+        collision = await check_entity_collision(
+            company_name=kbo.get("name") or "",
+            kbo_nace_description=kbo.get("nace_description"),
+            kbo_hq_city=kbo.get("hq_city"),
+            q2_summary=summary,
+        )
+        if not collision.get("plausible"):
+            summary["confidence"] = "low"
+            summary["business_description"] = (
+                summary.get("business_description", "")
+                + " [Entity match with KBO record uncertain — flagged by "
+                "plausibility check.]"
+            )
+            out["collision_downgrade"] = True
+    except Exception as e:
+        logger.info("collision check skipped for %s: %s", cbe, e)
+
+    # 6. Escalation -------------------------------------------------
+    from enrichment_routing import classify_tier
+
+    tier = classify_tier(kbo.get("_revenue_eur"), kbo.get("_fte"))
+    escalate, reason = should_escalate(
+        tier=tier,
+        q2_confidence=summary.get("confidence"),
+        kbo_notes=kbo.get("notes"),
+    )
+    path = "q2"
+    if escalate:
+        hk = await call_haiku_escalation(
+            kbo=kbo, scraped_text=scraped_text, q2_summary=summary,
+        )
+        if hk.get("ok") and hk.get("summary"):
+            summary = hk["summary"]
+            path = "q2+haiku"
+        else:
+            logger.info(
+                "Haiku escalation failed for %s (reason=%s): %s",
+                cbe, reason, hk.get("error"),
+            )
+
+    # 7. Persist + embed --------------------------------------------
+    _write_bulk_row(cbe, summary, website_url, scraped_text)
+    await _embed_and_store(cbe, summary, kbo)
+
+    out.update(ok=True, path=path, confidence=summary.get("confidence"))
+    return out
+
+
+async def _embed_and_store(cbe: str, summary: dict, kbo: dict) -> None:
+    """Compute the embedding text, call the embedder, upsert.
+
+    Uses the Q2-aligned text builder when a real summary exists, and
+    falls back to a NACE + city anchor when nothing is available (e.g.
+    insufficient_information templates). Keeping the embed step here —
+    not inside _enrich_one's branches — so every path lands the same
+    row in `company_embedding`.
+    """
+    try:
+        text = build_bulk_embedding_text(summary, kbo)
+        if not text or len(text) < 20:
+            logger.info("embed skipped for %s: no substantive text", cbe)
+            return
+        ensure_embedding_table()
+        emb = await generate_embedding(text)
+        if emb:
+            store_company_embedding(cbe, emb)
+    except Exception as e:
+        # Embedding failure shouldn't sink the whole job — the bulk row
+        # is already persisted and can be embedded in a follow-up run.
+        logger.warning("embedding persist failed for %s: %s", cbe, e)
+
+
+# ── Worker loop ──────────────────────────────────────────────────────
+
+
+class Worker:
+    """Tiny supervisor around the concurrent enrich loop."""
+
+    def __init__(self) -> None:
+        self._stop = asyncio.Event()
+        self._in_flight = 0
+        self._poll_count = 0
+
+    def request_stop(self) -> None:
+        logger.info("stop requested — draining in-flight jobs")
+        self._stop.set()
+
+    async def run(self) -> None:
+        """Main loop. Polls, fans out claims, waits for completions."""
+        ensure_queue_schema()
+        # Warm-up: release any stale claims from a prior crash.
+        try:
+            n = release_stale(older_than_minutes=30)
+            if n:
+                logger.info("released %d stale claims on startup", n)
+        except Exception:
+            logger.exception("initial stale-release failed (non-fatal)")
+
+        sem = asyncio.Semaphore(WORKER_CONCURRENCY)
+        tasks: set[asyncio.Task] = set()
+
+        while not self._stop.is_set():
+            if not enrichment_enabled():
+                logger.info("meta.enrichment_enabled=false — sleeping")
+                await asyncio.sleep(IDLE_SLEEP_S)
+                continue
+
+            spend = daily_spend_usd()
+            budget = daily_budget_usd()
+            if spend >= budget:
+                logger.info(
+                    "daily spend $%.3f >= budget $%.2f — sleeping until reset",
+                    spend, budget,
+                )
+                await asyncio.sleep(IDLE_SLEEP_S)
+                continue
+
+            self._poll_count += 1
+            if self._poll_count % STALE_RELEASE_EVERY_N_POLLS == 0:
+                try:
+                    release_stale(older_than_minutes=30)
+                except Exception:
+                    logger.exception("periodic stale-release failed")
+
+            job = None
+            try:
+                job = claim_one()
+            except Exception:
+                logger.exception("claim_one failed")
+                await asyncio.sleep(POLL_INTERVAL_S)
+                continue
+
+            if not job:
+                # Queue is empty or nothing matched — back off.
+                await asyncio.sleep(IDLE_SLEEP_S)
+                continue
+
+            await sem.acquire()
+
+            async def _run(j=job):
+                token: Token | None = None
+                try:
+                    token = set_current_endpoint(
+                        ENDPOINT_LABEL_PREFIX + j["enterprise_number"]
+                    )
+                    self._in_flight += 1
+                    result = await _enrich_one(j["enterprise_number"])
+                    if result.get("ok"):
+                        mark_done(j["enterprise_number"])
+                        logger.info(
+                            "done cbe=%s path=%s conf=%s chars=%d collide=%s",
+                            j["enterprise_number"], result["path"],
+                            result["confidence"], result["scraped_chars"],
+                            result["collision_downgrade"],
+                        )
+                    else:
+                        mark_failed(
+                            j["enterprise_number"],
+                            result.get("error") or "unknown",
+                        )
+                        logger.info(
+                            "failed cbe=%s attempt=%s error=%s",
+                            j["enterprise_number"], j["attempts"],
+                            result.get("error"),
+                        )
+                except Exception as e:
+                    logger.exception("enrich crash cbe=%s", j["enterprise_number"])
+                    try:
+                        mark_failed(j["enterprise_number"], f"crash:{e!r}")
+                    except Exception:
+                        logger.exception("mark_failed itself failed")
+                finally:
+                    self._in_flight -= 1
+                    if token is not None:
+                        reset_current_endpoint(token)
+                    sem.release()
+
+            task = asyncio.create_task(_run())
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
+
+        # Drain: let in-flight tasks finish before returning.
+        if tasks:
+            logger.info("waiting for %d in-flight jobs to drain", len(tasks))
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def _amain() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    logger.info(
+        "enrichment-worker starting: concurrency=%d poll=%.1fs budget=$%.2f",
+        WORKER_CONCURRENCY, POLL_INTERVAL_S, daily_budget_usd(),
+    )
+    worker = Worker()
+    loop = asyncio.get_running_loop()
+    try:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, worker.request_stop)
+    except (NotImplementedError, ValueError):
+        # Windows-friendly: add_signal_handler isn't supported there,
+        # so rely on KeyboardInterrupt bubbling up.
+        pass
+    await worker.run()
+    logger.info("enrichment-worker stopped")
+
+
+def main() -> None:
+    try:
+        asyncio.run(_amain())
+    except KeyboardInterrupt:
+        logger.info("interrupted by user")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

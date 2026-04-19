@@ -16,3 +16,5 @@ redis>=5.0
 pymupdf>=1.24.0
 easyocr>=1.7.0
 anthropic>=0.38.0
+# Phase 1 — bulk-enrichment scrape extractor (raw httpx + main-content extract)
+trafilatura>=1.6.0

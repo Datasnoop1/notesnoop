@@ -67,6 +67,43 @@ services:
         reservations:
           memory: 512M
 
+  # Staging variant of the bulk-enrichment worker. Same code, but runs
+  # against the same Postgres as prod (staging + prod share the DB —
+  # see `docs/architecture.md`). Staging is where Phase 2 pilot runs
+  # the 500-CBE seed; the operator approves the prod kickoff after the
+  # quality gate passes.
+  enrichment-worker-staging:
+    build: ./backend
+    restart: always
+    env_file: .env.production
+    environment:
+      STAGING_MODE: "true"
+      # Staging pilot budget is small — operator can raise via admin UI.
+      ENRICHMENT_DAILY_BUDGET_USD: "2"
+      WORKER_CONCURRENCY: "2"
+      WORKER_POLL_INTERVAL_S: "2"
+      WORKER_IDLE_SLEEP_S: "15"
+      DDG_MIN_INTERVAL_S: "3"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      backend-staging:
+        condition: service_healthy
+    command: ["python", "-m", "enrichment_worker"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import enrichment_worker"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    mem_limit: 1g
+    mem_reservation: 256m
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
   nginx-staging:
     image: nginx:alpine
     restart: always
