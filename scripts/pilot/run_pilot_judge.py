@@ -46,10 +46,21 @@ from typing import Any, Optional
 from dotenv import load_dotenv
 
 # ── sys.path so backend modules resolve ──────────────────────────────
+# Two invocation layouts:
+#   (a) `python scripts/pilot/run_pilot_judge.py` from the repo root →
+#       backend lives at `<repo>/backend/`
+#   (b) `docker exec … python /app/scripts/pilot/run_pilot_judge.py` in the
+#       backend container → the Dockerfile copies backend/* into /app,
+#       so backend modules live at `/app/`, not `/app/backend/`.
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "backend"))
+for p in (str(ROOT), str(ROOT / "backend")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
-load_dotenv(ROOT / ".env")
+for env_path in (ROOT / ".env", ROOT / ".env.production"):
+    if env_path.exists():
+        load_dotenv(env_path)
+        break
 
 logger = logging.getLogger(__name__)
 
