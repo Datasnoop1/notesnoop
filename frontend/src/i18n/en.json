@@ -350,6 +350,7 @@
       "deltaTradePay": "\u0394 Trade Payables",
       "deltaTaxSocial": "\u0394 Tax & Social Payables",
       "deltaOtherPay": "\u0394 Other Payables",
+      "deltaOtherLtLiab": "\u0394 Other LT Liabilities (non-debt)",
       "wcChange": "Working Capital \u0394",
       "cashFromOps": "Cash from Operations",
       "capex": "CapEx (tangible + intangible)",

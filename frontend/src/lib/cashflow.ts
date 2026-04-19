@@ -93,6 +93,13 @@ export interface CashFlowYear {
   deltaTaxSocialPayables: number | null;
   /** Increase in other short-term payables (47/48) → source → positive. */
   deltaOtherPayables: number | null;
+  /** Δ(17) − Δ(170/4) — movement in non-financial LT liabilities
+   *  (LT trade payables 175/8, deferred tax 168, other LT payables 178/9).
+   *  Frequently dominated by ST→LT reclassification of operating payables;
+   *  lands here as an operating / non-cash adjustment so the bridge
+   *  reconciles when companies restructure payment terms or accrue
+   *  deferred-tax liabilities. Positive = source, negative = use. */
+  deltaOtherLtLiab: number | null;
   /** Sum of the WC lines, signed as cash impact. */
   wcChange: number | null;
 
@@ -246,6 +253,7 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
     let deltaTradePayables: number | null = null;
     let deltaTaxSocialPayables: number | null = null;
     let deltaOtherPayables: number | null = null;
+    let deltaOtherLtLiab: number | null = null;
     let wcChange: number | null = null;
 
     let capex: number | null = null;
@@ -299,6 +307,7 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
         deltaTradePayables,
         deltaTaxSocialPayables,
         deltaOtherPayables,
+        deltaOtherLtLiab,
       );
 
       // Operating CapEx (excludes financial fixed assets). Identity:
@@ -316,6 +325,25 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
 
       deltaLtDebt = delta(rub(rubrics, "170/4", fy), rub(rubrics, "170/4", prev));
       deltaStDebt = delta(rub(rubrics, "43", fy), rub(rubrics, "43", prev));
+
+      // Non-financial component of LT liabilities (rubric 17 minus 170/4):
+      // LT trade payables (175/8), deferred taxes (168), other LT payables
+      // (178/9). When companies reclassify short-term payables to long-term
+      // — Lightpoint CBE 0430548950 FY2024 shifted ~700k from 47/48 to
+      // this bucket — the old code surfaced it as a ~700k gap because the
+      // ST drop landed in WC but the LT rise was invisible. Attributing
+      // the movement to "other LT liabilities" (operating / non-cash
+      // adjustment) keeps the bridge balanced without mis-classifying
+      // these items as new financial debt.
+      //
+      // Only compute when BOTH 17 and 170/4 are filed, so we can cleanly
+      // subtract financial from total. If 170/4 is missing we can't
+      // distinguish the financial-debt portion — leaving this null is
+      // safer than mis-attributing to operating.
+      const dTotalLt = delta(rub(rubrics, "17", fy), rub(rubrics, "17", prev));
+      if (dTotalLt != null && deltaLtDebt != null) {
+        deltaOtherLtLiab = dTotalLt - deltaLtDebt;
+      }
 
       const dCapital = delta(rub(rubrics, "10", fy), rub(rubrics, "10", prev));
       const dSharePremium = delta(rub(rubrics, "11", fy), rub(rubrics, "11", prev));
@@ -477,6 +505,7 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
       deltaTradePayables,
       deltaTaxSocialPayables,
       deltaOtherPayables,
+      deltaOtherLtLiab,
       wcChange,
       cashFromOps,
       capex,

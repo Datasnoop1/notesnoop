@@ -129,6 +129,7 @@ export function CashFlowTab({
     { label: t("company.cf.deltaTradePay"), key: "deltaTradePayables", indent: true, group: "cf_wc" },
     { label: t("company.cf.deltaTaxSocial"), key: "deltaTaxSocialPayables", indent: true, group: "cf_wc", dropIfAllEmpty: true },
     { label: t("company.cf.deltaOtherPay"), key: "deltaOtherPayables", indent: true, group: "cf_wc", dropIfAllEmpty: true },
+    { label: t("company.cf.deltaOtherLtLiab"), key: "deltaOtherLtLiab", indent: true, group: "cf_wc", dropIfAllEmpty: true },
     // After WC: taxes, then other stuff.
     { label: t("company.cf.incomeTax"), key: "incomeTax", indent: true, dropIfAllEmpty: true },
     { label: t("company.cf.financialIncome"), key: "financialIncome", indent: true, dropIfAllEmpty: true },
