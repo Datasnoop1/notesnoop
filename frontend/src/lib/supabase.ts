@@ -1,6 +1,15 @@
 import { createBrowserClient } from "@supabase/ssr";
 
-const isStaging = typeof window !== "undefined" && window.location.hostname.includes("staging.");
+/**
+ * Staging detection — covers both DNS-based access (staging.datasnoop.be)
+ * and raw-IP access (62.238.14.150:8080). The port:8080 check is load-
+ * bearing: production runs on 80/443, so port 8080 uniquely identifies
+ * staging regardless of hostname. Without it, IP-based access wrongly
+ * ran as production, breaking the admin sign-in flow (Supabase OAuth
+ * redirected to prod's Site URL and cookies landed on the wrong host).
+ */
+const isStaging = typeof window !== "undefined" &&
+  (window.location.hostname.includes("staging.") || window.location.port === "8080");
 
 /**
  * One-shot cleanup for commit 32723bd, which tried to scope the session

@@ -69,8 +69,11 @@ export default function LoginPage() {
   async function handleOAuth(provider: "google" | "linkedin_oidc") {
     setLoading(true);
     setError(null);
-    // On staging, we need explicit redirectTo since Supabase Site URL is production
-    const isStaging = window.location.hostname.includes("staging.");
+    // On staging, we need explicit redirectTo since Supabase Site URL is production.
+    // Detect staging via hostname OR port 8080 (raw-IP access uses port 8080;
+    // hostname-based match alone misses 62.238.14.150:8080).
+    const isStaging = window.location.hostname.includes("staging.")
+      || window.location.port === "8080";
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       ...(isStaging ? { options: { redirectTo: `${window.location.origin}/auth/callback` } } : {}),
