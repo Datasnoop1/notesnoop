@@ -551,9 +551,18 @@ async def get_company_financials(cbe: str):
             # 50/53 — current investments (cash proxy)
             # 170/4 — LT financial debt (subset of 17)
             # 10    — capital; 11 — share premium (actual cash-raised equity)
+            # 12    — revaluation reserves (non-cash equity movement — needed
+            #         to avoid mis-classifying revaluations as new capital
+            #         in the newCapital fallback)
             # 13 — reserves; 14 — accumulated profits (non-cash reclassifications)
+            # 15    — investment grants (part of total equity 10/15 — subtract
+            #         from newCapital fallback so a grant isn't counted as
+            #         cash-raised capital)
+            # 42/48 — aggregate short-term payables (fallback when the
+            #         per-bucket rubrics 44/45/46/47/48 aren't filed individually)
             "22/27", "40/41", "45", "47/48", "50/53", "170/4",
-            "10", "11", "13", "14",
+            "10", "11", "12", "13", "14", "15",
+            "42/48",
         ]
         all_codes = list(dict.fromkeys(pnl_codes + bs_codes))
         placeholders = ",".join(["%s"] * len(all_codes))

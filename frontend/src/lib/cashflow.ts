@@ -68,6 +68,10 @@ export interface CashFlowYear {
    *  side) and for the CapEx formula below. Not shown as a separate
    *  CFO line when starting from EBITDA. */
   da: number;
+  /** True when rubric 630 wasn't filed and we imputed D&A from the
+   *  balance-sheet NetFA delta (VKT abbreviated filings often bury
+   *  D&A in the aggregate 60/66A cost without a line-item rubric). */
+  daImputed: boolean;
   /** Rubric 631/4. Non-cash write-downs; added back. */
   writedowns: number;
   /** Rubric 635/8. Movement in provisions; non-cash, added back. */
@@ -185,7 +189,35 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
 
     const netProfit = rub(rubrics, "9904", fy);
     const operatingProfit = rub(rubrics, "9901", fy);  // EBIT proxy
-    const da = rub(rubrics, "630", fy) ?? 0;
+
+    // D&A (rubric 630) is often NOT filed in VKT abbreviated submissions —
+    // the cost is embedded in total operating charges (60/66A) without a
+    // line-item breakdown. Treating da = 0 in that case is load-bearing
+    // wrong: EBITDA collapses to EBIT, and CapEx (derived from ΔNetFA +
+    // D&A) flips sign whenever NetFA decreased through depreciation,
+    // showing up as a phantom cash source roughly equal to D&A. Result:
+    // an unreconciled gap of magnitude ≈ D&A ≈ EBITDA for asset-heavy SMEs.
+    //
+    // Impute D&A from the balance sheet when 630 is missing: D&A ≈
+    // max(0, -Δ(NetFA)). Assumes gross CapEx ≈ 0 and disposals ≈ 0.
+    // Wrong in growth-capex years (under-imputes D&A) but always better
+    // than da = 0, because it zeroes out the phantom CapEx source.
+    const daFiled = rub(rubrics, "630", fy);
+    let da = daFiled ?? 0;
+    let daImputed = false;
+    if (daFiled == null && prev != null) {
+      const dTangForDa = delta(rub(rubrics, "22/27", fy), rub(rubrics, "22/27", prev));
+      const dIntangForDa = delta(rub(rubrics, "21", fy), rub(rubrics, "21", prev));
+      if (dTangForDa != null || dIntangForDa != null) {
+        const faDelta = (dTangForDa ?? 0) + (dIntangForDa ?? 0);
+        const imputed = Math.max(0, -faDelta);
+        if (imputed > 0) {
+          da = imputed;
+          daImputed = true;
+        }
+      }
+    }
+
     // EBITDA per CLAUDE.md: 9901 + 630. Starting milestone for the
     // indirect bridge; null if operating profit isn't filed (very rare
     // — 9901 is the most reliably-reported rubric across filing types).
@@ -243,6 +275,24 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
       deltaTaxSocialPayables = dTaxSocRaw;
       deltaOtherPayables = dOtherRaw;
 
+      // Fallback when per-bucket ST payables aren't filed: VKT
+      // abbreviated submissions often report only the aggregate
+      // 42/48 ("Amounts payable ≤ 1 year"). Derive the non-financial
+      // part as Δ(42/48) − Δ(43). Still misses split between
+      // trade/tax/social/other but captures the WC movement, which
+      // otherwise drops out of the bridge entirely (silently creating
+      // a gap equal to the missing payables movement).
+      if (dApRaw == null && dTaxSocRaw == null && dOtherRaw == null) {
+        const dAllStPay = delta(rub(rubrics, "42/48", fy), rub(rubrics, "42/48", prev));
+        const dStDebtForPay = delta(rub(rubrics, "43", fy), rub(rubrics, "43", prev));
+        if (dAllStPay != null) {
+          const nonFinPayDelta = dAllStPay - (dStDebtForPay ?? 0);
+          // Spread into the "other payables" bucket so it surfaces
+          // in the WC detail rows rather than being invisible.
+          deltaOtherPayables = nonFinPayDelta;
+        }
+      }
+
       wcChange = sumOrNull(
         deltaInventories,
         deltaTradeReceivables,
@@ -272,10 +322,21 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
       if (dCapital != null || dSharePremium != null) {
         newCapital = (dCapital ?? 0) + (dSharePremium ?? 0);
       } else {
+        // Back out cash-raised equity from the total-equity roll-forward:
+        //   Δ(10/15) = net_profit − dividends_proposed + new_capital
+        //              + Δ(12) revaluation  + Δ(15) grants received
+        // Rearranging:
+        //   new_capital = Δ(10/15) − net_profit + 694(fy) − Δ(12) − Δ(15)
+        // Without the Δ(12) correction a material revaluation lands in
+        // CFF as "new capital", creating a phantom financing inflow
+        // whose magnitude equals the revaluation amount — a well-known
+        // driver of large reconciliation gaps on asset-heavy SMEs.
         const dTotalEquity = delta(rub(rubrics, "10/15", fy), rub(rubrics, "10/15", prev));
         const divCurrent = rub(rubrics, "694", fy) ?? 0;
+        const dRevalReserve = delta(rub(rubrics, "12", fy), rub(rubrics, "12", prev)) ?? 0;
+        const dGrants = delta(rub(rubrics, "15", fy), rub(rubrics, "15", prev)) ?? 0;
         if (dTotalEquity != null && netProfit != null) {
-          newCapital = dTotalEquity - netProfit + divCurrent;
+          newCapital = dTotalEquity - netProfit + divCurrent - dRevalReserve - dGrants;
         }
       }
 
@@ -296,7 +357,16 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
 
     const cashEnd = sumOrNull(rub(rubrics, "54/58", fy), rub(rubrics, "50/53", fy));
 
-    const dividendsFiled = rub(rubrics, "694", fy) ?? 0;
+    // Rubric 694 is the dividend PROPOSED at year-end Y (approved and paid
+    // to shareholders during year Y+1). So the cash outflow in year Y is
+    // 694 of year Y-1, not year Y. Using 694(fy) created a systematic
+    // 1-year lag gap equal to the year-over-year change in dividends —
+    // small for stable dividend payers, material when dividends jump.
+    // Note: the `newCapital` fallback deliberately still uses 694(fy),
+    // because equity roll-forward subtracts the current-year proposal
+    // (which reduces equity at year-end Y, independent of cash).
+    const dividendPriorProposal = prev != null ? rub(rubrics, "694", prev) : null;
+    const dividendsFiled = dividendPriorProposal ?? (prev != null ? 0 : rub(rubrics, "694", fy) ?? 0);
     const dividendsPaid = dividendsFiled > 0 ? -dividendsFiled : 0;
 
     /* ========== INDIRECT METHOD CFO — EBITDA-start (primary) ========== */
@@ -393,6 +463,7 @@ export function deriveCashFlow(rubrics: RubricData, years: number[]): CashFlowYe
       interestExpense,
       incomeTax,
       da,
+      daImputed,
       writedowns,
       provisions,
       exceptionalIncome,

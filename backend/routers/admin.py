@@ -1056,24 +1056,37 @@ async def admin_confirm_invoice(invoice_id: int, body: dict, user=Depends(_requi
 
 @router.post("/invoices/classify-all")
 async def admin_classify_all_invoices(user=Depends(_require_admin)):
-    """Backfill vendor + category on every row where either is NULL.
+    """Backfill vendor, category, amount_cents, invoice_date on rows where
+    any of them are NULL and the row hasn't been manually confirmed.
 
-    Runs the invoice classifier (OpenRouter) against each row's
+    Runs the invoice classifier+extractor (OpenRouter) against each row's
     sender/subject/raw_body. Useful after deploying the classifier for
-    the first time or after a taxonomy change. Safe to re-run — already-
-    classified rows are skipped.
+    the first time, after a taxonomy change, or when the regex amount
+    parser missed many invoices (LLM now fills those gaps).
+
+    Skips `confirmed=TRUE` rows — the operator has reviewed those and
+    their values shouldn't be silently overwritten.
+
+    Safe to re-run — fully-filled rows aren't revisited.
     """
     import asyncio
     from invoice_classifier import classify_invoice
 
     rows = fetch_all(
-        """SELECT id, sender, subject, raw_body
+        """SELECT id, sender, subject, raw_body, vendor, category,
+                  amount_cents, invoice_date
            FROM platform_invoice
-           WHERE vendor IS NULL OR category IS NULL
+           WHERE confirmed IS NOT TRUE
+             AND (vendor IS NULL
+                  OR category IS NULL
+                  OR category = 'Other'
+                  OR amount_cents IS NULL
+                  OR invoice_date IS NULL)
            ORDER BY id
            LIMIT 500"""
     )
     classified = 0
+    updated_fields = {"vendor": 0, "category": 0, "amount_cents": 0, "invoice_date": 0}
     errors = 0
     for r in rows:
         try:
@@ -1083,15 +1096,46 @@ async def admin_classify_all_invoices(user=Depends(_require_admin)):
                 r.get("subject"),
                 r.get("raw_body"),
             )
-            execute(
-                "UPDATE platform_invoice SET vendor = %s, category = %s WHERE id = %s",
-                (result.get("vendor"), result.get("category"), r["id"]),
-            )
-            classified += 1
+            sets: list[str] = []
+            params: list = []
+            if r.get("vendor") is None and result.get("vendor"):
+                sets.append("vendor = %s")
+                params.append(result["vendor"])
+                updated_fields["vendor"] += 1
+            # Replace an existing "Other" category only if the LLM gave something better.
+            new_cat = result.get("category")
+            if new_cat and new_cat != "Other" and (r.get("category") in (None, "", "Other")):
+                sets.append("category = %s")
+                params.append(new_cat)
+                updated_fields["category"] += 1
+            elif r.get("category") is None and new_cat:
+                sets.append("category = %s")
+                params.append(new_cat)
+                updated_fields["category"] += 1
+            if r.get("amount_cents") is None and isinstance(result.get("amount_cents"), int):
+                sets.append("amount_cents = %s")
+                params.append(result["amount_cents"])
+                updated_fields["amount_cents"] += 1
+            if r.get("invoice_date") is None and result.get("invoice_date"):
+                sets.append("invoice_date = %s")
+                params.append(result["invoice_date"])
+                updated_fields["invoice_date"] += 1
+            if sets:
+                params.append(r["id"])
+                execute(
+                    f"UPDATE platform_invoice SET {', '.join(sets)} WHERE id = %s",
+                    tuple(params),
+                )
+                classified += 1
         except Exception:
             logger.exception("Classify failed for invoice %s", r.get("id"))
             errors += 1
-    return {"classified": classified, "errors": errors, "rows_scanned": len(rows)}
+    return {
+        "classified": classified,
+        "errors": errors,
+        "rows_scanned": len(rows),
+        "updated_fields": updated_fields,
+    }
 
 
 # ---------------------------------------------------------------------------

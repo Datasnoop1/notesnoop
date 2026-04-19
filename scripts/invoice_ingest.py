@@ -218,13 +218,28 @@ def store(message_id: str, sender: str, subject: str, invoice_date: Optional[str
     a synthesised Message-ID suffix (e.g. '<orig>#pdf-2') so each PDF
     gets its own row without fighting the UNIQUE constraint.
 
-    Also classifies the invoice via OpenRouter (vendor + category) if the
-    API key is configured. Classification failure is non-fatal: the row
-    gets NULL vendor/category and the admin backfill endpoint can retry.
+    Classifies via OpenRouter (vendor + category) AND uses the same LLM
+    call to extract amount_cents + invoice_date when the regex pre-parser
+    missed them. Classification failure is non-fatal: the row is still
+    stored and the admin backfill endpoint can retry.
     """
     classification = classify_invoice(sender, subject, raw_body)
     vendor = classification.get("vendor")
     category = classification.get("category")
+    # LLM fallback: the regex parser only handles labeled totals in a few
+    # languages. Many invoices (Hetzner "Zu zahlen", OpenRouter receipts,
+    # DKIM-only PDFs) aren't matched — we rely on the LLM for those.
+    # When regex already produced a value, trust it (cheaper + deterministic).
+    if amount_cents is None:
+        llm_amount = classification.get("amount_cents")
+        if isinstance(llm_amount, int) and llm_amount > 0:
+            amount_cents = llm_amount
+            log.info("amount fallback (LLM): %s cents for %s", llm_amount, sender[:40])
+    if invoice_date is None:
+        llm_date = classification.get("invoice_date")
+        if isinstance(llm_date, str) and llm_date:
+            invoice_date = llm_date
+            log.info("date fallback (LLM): %s for %s", llm_date, sender[:40])
     execute(
         """
         INSERT INTO platform_invoice
