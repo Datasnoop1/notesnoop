@@ -107,6 +107,8 @@ SCOPE_SQL = {
          LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
              WHERE e.status = 'AC'
                AND e.juridical_situation = '000'
+               AND ci.name IS NOT NULL
+               AND TRIM(ci.name) <> ''
                AND COALESCE(fl.revenue, 0) >= 1000000
         )
     """,
@@ -117,6 +119,8 @@ SCOPE_SQL = {
               JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
              WHERE e.status = 'AC'
                AND e.juridical_situation = '000'
+               AND ci.name IS NOT NULL
+               AND TRIM(ci.name) <> ''
                AND EXISTS (
                     SELECT 1 FROM contact c
                      WHERE c.entity_number = ci.enterprise_number
@@ -131,6 +135,8 @@ SCOPE_SQL = {
               JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
              WHERE e.status = 'AC'
                AND e.juridical_situation = '000'
+               AND ci.name IS NOT NULL
+               AND TRIM(ci.name) <> ''
                AND NOT EXISTS (
                     SELECT 1 FROM contact c
                      WHERE c.entity_number = ci.enterprise_number
