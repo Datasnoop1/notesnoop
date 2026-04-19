@@ -112,58 +112,63 @@ def download_daily_refs(target_date: str) -> list[dict]:
         return []
 
 
+def _pick(d: dict, *keys):
+    """Return the first present, non-None value from d for any of the given keys."""
+    for k in keys:
+        v = d.get(k)
+        if v is not None and v != "":
+            return v
+    return None
+
+
 def parse_filing(filing_json: dict, ref_metadata: dict | None = None) -> tuple[str, str, int | None, str, str, list[tuple]]:
     """Parse a single filing JSON into rubric rows.
 
     Returns: (cbe, deposit_key, fiscal_year, deposit_date, filing_model, rows)
     where rows is a list of (cbe, deposit_key, fiscal_year, deposit_date, filing_model, rubric_code, period, value).
+
+    NBB's 2026 extract schema: accountingData filings carry Rubrics + ReferenceNumber
+    (PascalCase) but NOT the CBE. The CBE is only in the references ZIP under
+    `enterpriseNumber` (camelCase). We must join on ReferenceNumber.
     """
-    # Extract CBE from filing (try multiple key patterns)
-    cbe = (
-        filing_json.get("EnterpriseNumber")
-        or filing_json.get("enterpriseNumber")
-        or filing_json.get("LegalEntity", {}).get("EnterpriseNumber", "")
-        or ""
-    ).replace(".", "").strip()
+    deposit_key = _pick(filing_json, "ReferenceNumber", "referenceNumber", "DepositKey") or ""
 
-    deposit_key = (
-        filing_json.get("ReferenceNumber")
-        or filing_json.get("referenceNumber")
-        or filing_json.get("DepositKey", "")
-        or ""
-    )
+    legal_entity = filing_json.get("LegalEntity") or {}
+    cbe = _pick(
+        filing_json, "EnterpriseNumber", "enterpriseNumber"
+    ) or _pick(legal_entity, "EnterpriseNumber", "enterpriseNumber") or ""
+    if not cbe and ref_metadata:
+        cbe = _pick(ref_metadata, "enterpriseNumber", "EnterpriseNumber") or ""
+    cbe = str(cbe).replace(".", "").strip()
 
-    # Get metadata from reference if available
+    if not deposit_key and ref_metadata:
+        deposit_key = _pick(ref_metadata, "referenceNumber", "ReferenceNumber") or ""
+
     fiscal_year = None
     deposit_date = ""
     filing_model = ""
 
-    if ref_metadata:
-        exercise = ref_metadata.get("ExerciseDates", {})
-        end_date = exercise.get("endDate", "")
-        fiscal_year = int(end_date[:4]) if end_date and len(end_date) >= 4 else None
-        deposit_date = ref_metadata.get("DepositDate", "")
-        filing_model = ref_metadata.get("ModelType", "")
-    else:
-        # Try to extract from filing itself
-        exercise = filing_json.get("ExerciseDates", filing_json.get("exerciseDates", {}))
-        end_date = exercise.get("endDate", exercise.get("EndDate", ""))
-        fiscal_year = int(end_date[:4]) if end_date and len(end_date) >= 4 else None
-        deposit_date = filing_json.get("DepositDate", filing_json.get("depositDate", ""))
-        filing_model = filing_json.get("ModelType", filing_json.get("modelType", ""))
+    meta_source = ref_metadata or filing_json
+    exercise = _pick(meta_source, "ExerciseDates", "exerciseDates") or {}
+    end_date = _pick(exercise, "endDate", "EndDate") or ""
+    fiscal_year = int(end_date[:4]) if end_date and len(end_date) >= 4 else None
+    deposit_date = _pick(meta_source, "DepositDate", "depositDate") or ""
+    filing_model = _pick(meta_source, "ModelType", "modelType") or ""
 
-    # Parse rubrics
     rows = []
-    for rubric in filing_json.get("Rubrics", filing_json.get("rubrics", [])):
-        code = rubric.get("Code", rubric.get("code", ""))
-        value = rubric.get("Value", rubric.get("value"))
-        period = rubric.get("Period", rubric.get("period", "N"))
+    for rubric in filing_json.get("Rubrics") or filing_json.get("rubrics") or []:
+        code = _pick(rubric, "Code", "code") or ""
+        value = _pick(rubric, "Value", "value")
+        period = _pick(rubric, "Period", "period") or "N"
 
         if code and value is not None:
-            rows.append((
-                cbe, deposit_key, fiscal_year, deposit_date,
-                filing_model, code, period, float(value),
-            ))
+            try:
+                rows.append((
+                    cbe, deposit_key, fiscal_year, deposit_date,
+                    filing_model, code, period, float(value),
+                ))
+            except (TypeError, ValueError):
+                continue
 
     return cbe, deposit_key, fiscal_year, deposit_date, filing_model, rows
 
@@ -217,26 +222,23 @@ def process_daily_extract(target_date: str, dry_run: bool = False) -> dict:
                     with zf.open(name) as f:
                         filing_json = json.load(f)
 
+                    # Look up reference metadata by the filing's own ReferenceNumber
+                    # (this is where CBE + fiscal year + model type live under the
+                    # 2026 schema — the filing itself no longer carries them).
+                    ref_key = (
+                        filing_json.get("ReferenceNumber")
+                        or filing_json.get("referenceNumber")
+                        or ""
+                    )
+                    ref_meta = ref_map.get(ref_key)
+
                     cbe, deposit_key, fiscal_year, deposit_date, filing_model, rows = parse_filing(
-                        filing_json, ref_map.get(deposit_key if 'deposit_key' in dir() else "", None)
+                        filing_json, ref_meta
                     )
 
                     if not cbe or not deposit_key or not rows:
                         skipped += 1
                         continue
-
-                    # Re-lookup metadata from ref_map using deposit_key
-                    ref_meta = ref_map.get(deposit_key)
-                    if ref_meta:
-                        cbe_r, deposit_key_r, fiscal_year_r, deposit_date_r, filing_model_r, rows = parse_filing(
-                            filing_json, ref_meta
-                        )
-                        if fiscal_year_r:
-                            fiscal_year = fiscal_year_r
-                        if deposit_date_r:
-                            deposit_date = deposit_date_r
-                        if filing_model_r:
-                            filing_model = filing_model_r
 
                     # Check if already loaded
                     cur.execute(

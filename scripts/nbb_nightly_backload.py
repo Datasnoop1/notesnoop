@@ -156,23 +156,35 @@ def fetch_filing(cbe: str, reference_number: str, session: requests.Session) -> 
         return None
 
 
+def _pick(d: dict, *keys):
+    """Return the first non-empty value in d for any of the given keys."""
+    for k in keys:
+        v = d.get(k)
+        if v is not None and v != "":
+            return v
+    return None
+
+
 def store_filing(conn, cbe: str, filing_json: dict, ref_meta: dict) -> int:
-    """Insert rubrics + load_log row. Returns number of rubric rows stored."""
-    deposit_key = ref_meta.get("ReferenceNumber") or ref_meta.get("referenceNumber")
+    """Insert rubrics + load_log row. Returns number of rubric rows stored.
+
+    Accepts NBB ref_meta in either PascalCase (legacy) or camelCase (2026 schema).
+    """
+    deposit_key = _pick(ref_meta, "ReferenceNumber", "referenceNumber")
     if not deposit_key:
         return 0
-    exercise = ref_meta.get("ExerciseDates", {})
-    end_date = exercise.get("endDate", "")
+    exercise = _pick(ref_meta, "ExerciseDates", "exerciseDates") or {}
+    end_date = _pick(exercise, "endDate", "EndDate") or ""
     fiscal_year = int(end_date[:4]) if end_date and len(end_date) >= 4 else None
-    deposit_date = ref_meta.get("DepositDate", "")
-    filing_model = ref_meta.get("ModelType", "")
+    deposit_date = _pick(ref_meta, "DepositDate", "depositDate") or ""
+    filing_model = _pick(ref_meta, "ModelType", "modelType") or ""
 
-    rubrics = filing_json.get("Rubrics", filing_json.get("rubrics", []))
+    rubrics = filing_json.get("Rubrics") or filing_json.get("rubrics") or []
     rows = []
     for r in rubrics:
-        code = r.get("Code", r.get("code", ""))
-        value = r.get("Value", r.get("value"))
-        period = r.get("Period", r.get("period", "N"))
+        code = _pick(r, "Code", "code") or ""
+        value = _pick(r, "Value", "value")
+        period = _pick(r, "Period", "period") or "N"
         if code and value is not None:
             try:
                 rows.append((
@@ -229,16 +241,19 @@ def is_pdf_only(refs: list[dict]) -> bool:
     schemes that file only as PDF (no JSON-XBRL available)."""
     if not refs:
         return False
+
+    def _end_date(r: dict) -> str:
+        return (_pick(r, "ExerciseDates", "exerciseDates") or {}).get("endDate", "") or ""
+
     # Newest ref first — most recent model is the relevant one.
     refs_sorted = sorted(
         refs,
-        key=lambda r: (r.get("ExerciseDates", {}).get("endDate", ""),
-                       r.get("DepositDate", "")),
+        key=lambda r: (_end_date(r), _pick(r, "DepositDate", "depositDate") or ""),
         reverse=True,
     )
     for r in refs_sorted:
-        model = str(r.get("ModelType", "")).lower()
-        end_date = r.get("ExerciseDates", {}).get("endDate", "")
+        model = str(_pick(r, "ModelType", "modelType") or "").lower()
+        end_date = _end_date(r)
         if end_date >= "2022-04-01" and model in {"m120", "m211", "m212"}:
             return True
     return False
@@ -313,11 +328,11 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
                 # Pick the most recent ref for this fiscal year
                 refs_sorted = sorted(
                     refs,
-                    key=lambda r: r.get("DepositDate", ""),
+                    key=lambda r: _pick(r, "DepositDate", "depositDate") or "",
                     reverse=True,
                 )
                 ref_meta = refs_sorted[0]
-                reference_number = ref_meta.get("ReferenceNumber") or ref_meta.get("referenceNumber")
+                reference_number = _pick(ref_meta, "ReferenceNumber", "referenceNumber")
                 if not reference_number:
                     time.sleep(REQUEST_DELAY)
                     continue
