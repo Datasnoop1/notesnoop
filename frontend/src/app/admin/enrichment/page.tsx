@@ -1,12 +1,15 @@
 "use client";
 
 /*
- * Admin — Bulk enrichment orchestrator.
+ * Bulk enrichment orchestrator — operator dashboard.
  *
- * Surfaces the Phase 1 worker's live state: queue depth, daily spend,
- * dead-letter rows, skip-list management, pause/resume, budget.
- * Mirrors the pattern used by `app/admin/page.tsx` (adminFetch + Card
- * layouts) so the look is consistent.
+ * Gated by a shared-secret password (not Supabase admin role). The
+ * password prompt fires once on first load, the value lives in
+ * localStorage under `enrichment_admin_pw`. A 401 from the backend
+ * clears the stored value and re-prompts.
+ *
+ * Paired with `backend/routers/admin_enrichment.py`. See that module
+ * for the header convention and the env var that holds the password.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -23,27 +26,69 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { createClient } from "@/lib/supabase";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+const PW_KEY = "enrichment_admin_pw";
 
-async function adminFetch<T>(
+function readPassword(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(PW_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writePassword(pw: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (pw === null) window.localStorage.removeItem(PW_KEY);
+    else window.localStorage.setItem(PW_KEY, pw);
+  } catch {
+    /* private mode etc. — no-op */
+  }
+}
+
+function promptPassword(): string | null {
+  if (typeof window === "undefined") return null;
+  const entered = window.prompt(
+    "Enrichment admin password",
+    "",
+  );
+  if (!entered) return null;
+  writePassword(entered);
+  return entered;
+}
+
+async function pwFetch<T>(
   path: string,
   options?: RequestInit,
 ): Promise<T> {
-  const supabase = createClient();
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error("Not authenticated");
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(options?.headers || {}),
-    },
-  });
-  if (res.status === 403) throw new Error("Admin access required");
+  let pw = readPassword() || promptPassword();
+  if (!pw) throw new Error("Password required");
+
+  const doFetch = async (password: string) =>
+    fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Enrichment-Password": password,
+        ...(options?.headers || {}),
+      },
+    });
+
+  let res = await doFetch(pw);
+  if (res.status === 401) {
+    // Stored password is wrong — clear and re-prompt once.
+    writePassword(null);
+    pw = promptPassword();
+    if (!pw) throw new Error("Password required");
+    res = await doFetch(pw);
+  }
+  if (res.status === 503) {
+    throw new Error("ENRICHMENT_ADMIN_PASSWORD not set on the server");
+  }
+  if (res.status === 401) throw new Error("Wrong password");
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json();
 }
@@ -90,9 +135,9 @@ export default function EnrichmentAdminPage() {
     setLoading(true);
     try {
       const [ov, dd, sl] = await Promise.all([
-        adminFetch<Overview>("/api/admin/enrichment/overview"),
-        adminFetch<{ items: DeadRow[] }>("/api/admin/enrichment/dead?limit=50"),
-        adminFetch<{ items: SkiplistRow[] }>("/api/admin/enrichment/skiplist"),
+        pwFetch<Overview>("/api/admin/enrichment/overview"),
+        pwFetch<{ items: DeadRow[] }>("/api/admin/enrichment/dead?limit=50"),
+        pwFetch<{ items: SkiplistRow[] }>("/api/admin/enrichment/skiplist"),
       ]);
       setOverview(ov);
       setDead(dd.items || []);
@@ -111,10 +156,15 @@ export default function EnrichmentAdminPage() {
     return () => clearInterval(t);
   }, [refresh]);
 
+  const forgetPassword = () => {
+    writePassword(null);
+    window.location.reload();
+  };
+
   const toggleEnabled = async () => {
     if (!overview) return;
     const endpoint = overview.enabled ? "pause" : "resume";
-    await adminFetch(`/api/admin/enrichment/${endpoint}`, {
+    await pwFetch(`/api/admin/enrichment/${endpoint}`, {
       method: "POST",
       body: overview.enabled ? JSON.stringify({ reason: "admin toggle" }) : undefined,
     });
@@ -125,7 +175,7 @@ export default function EnrichmentAdminPage() {
     e.preventDefault();
     const parsed = Number(budgetInput);
     if (Number.isNaN(parsed) || parsed < 0) return;
-    await adminFetch("/api/admin/enrichment/budget", {
+    await pwFetch("/api/admin/enrichment/budget", {
       method: "POST",
       body: JSON.stringify({ daily_budget_usd: parsed }),
     });
@@ -133,7 +183,7 @@ export default function EnrichmentAdminPage() {
   };
 
   const retryScope = async (scope: "failed" | "dead") => {
-    await adminFetch("/api/admin/enrichment/retry", {
+    await pwFetch("/api/admin/enrichment/retry", {
       method: "POST",
       body: JSON.stringify({ scope }),
     });
@@ -143,7 +193,7 @@ export default function EnrichmentAdminPage() {
   const addSkip = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPattern.trim()) return;
-    await adminFetch("/api/admin/enrichment/skiplist", {
+    await pwFetch("/api/admin/enrichment/skiplist", {
       method: "POST",
       body: JSON.stringify({ pattern: newPattern.trim(), kind: newKind }),
     });
@@ -152,7 +202,7 @@ export default function EnrichmentAdminPage() {
   };
 
   const removeSkip = async (id: number) => {
-    await adminFetch(`/api/admin/enrichment/skiplist/${id}`, {
+    await pwFetch(`/api/admin/enrichment/skiplist/${id}`, {
       method: "DELETE",
     });
     void refresh();
@@ -169,6 +219,9 @@ export default function EnrichmentAdminPage() {
           <Link href="/admin" className="text-sm text-muted-foreground hover:underline">
             ← Back to admin
           </Link>
+          <Button variant="ghost" size="sm" onClick={forgetPassword}>
+            Forget password
+          </Button>
           <Button variant="outline" onClick={() => void refresh()} disabled={loading}>
             Refresh
           </Button>
