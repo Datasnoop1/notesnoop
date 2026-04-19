@@ -246,3 +246,56 @@ stale staging images (~681 MB). Single zero-risk prune would take
 the server to ~74%. No data hoarding, no log leaks, all containers
 healthy, no rogue screen sessions. Recommended prunes await
 operator approval.
+
+
+## Phase 2 pilot — open follow-ups (2026-04-19)
+
+### Fix tier-1 parent/brand resolution in the bulk pipeline
+
+Pilot run 2026-04-19 (`scripts/pilot/runs/20260419_223112/PILOT_REPORT.md`)
+scored tier-1 big-company accuracy at **3.00 / 5**, below the 3.40 gate.
+The concrete misses were all the same failure mode: Q2 couldn't identify
+a well-known parent/brand because the parent isn't in KBO `shareholder`
+(foreign parents aren't recorded there) and the scraped page didn't
+surface the group affiliation.
+
+Known bad rows to use as regression tests:
+
+- `0424864156` Ets JOSKIN — €179M farm-equipment maker described as
+  "demolition contractor". Scraper got `joskin.com/en/contact` only.
+- `0466909993` D'Ieteren Automotive — missed VW Group importer identity.
+- `0430506289` ES-FINANCE — missed BNP Paribas Leasing Solutions.
+- `0412655024` Cincom Systems International — failed to identify the
+  US software vendor.
+- `0431525482` — real executive-name hallucination (Roger Mylle /
+  Bruno / Carlo not in scrape or KBO admins).
+
+Proposed fix shape (not implemented):
+1. When Q2 emits `confidence ∈ {low, insufficient_information}` AND
+   tier is tier1_big, re-run discovery: fetch the homepage (not just
+   the contact page) and optionally one DDG result scoped to
+   `"<name> parent company OR owner"`.
+2. Pipe the extra context through a Haiku 4.5 elaboration call (we
+   already escalate on tier-1 + confidence=low; this strengthens it).
+3. Regenerate embeddings for the ~2,000 tier-1 rows — cheap
+   (~$5 via `generate_embeddings_batch`).
+
+Until fixed, the confidence floor in `/api/search/semantic` hides the
+wrong descriptions from default results, but the EMBEDDINGS still
+participate in cosine search — so a "demolition" query can surface
+JOSKIN as a false positive. Regenerating after the fix cleans that up.
+
+Budget for the fix work: ~1-2 days dev + ~$5-10 to regenerate
+embeddings. Priority: **Medium** — affects ~2,000 of 1.7M rows
+(~0.1% of the target universe), but those 2,000 are the most
+recognizable companies and the ones a PE analyst spot-checks first.
+
+### Strengthen GPT-4o-mini plausibility check (false-positive pattern)
+
+The Phase 2 judge's plausibility pass flagged lots of NACE-contradiction
+false positives where the Q2 output used a literal translation of the
+NACE Dutch label. Example: NACE 43110 = "Slopen van gebouwen"; Q2
+emits "demolition of buildings"; plausibility flags as "contradicts".
+Tune the plausibility prompt to recognise equivalent-language pairs or
+compare NACE codes at the numeric level, not the string level. Reduces
+operator noise on future pilot runs. Priority: **Low**.
