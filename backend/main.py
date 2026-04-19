@@ -665,6 +665,38 @@ async def startup_phase1_migrations():
             )
             """
         )
+        # Seed with Phase 0 aggregator findings. ON CONFLICT DO NOTHING
+        # keeps this idempotent — operator-added patterns survive, seed
+        # rows are only inserted when missing.
+        _skiplist_seeds = [
+            ("pappers.be",           "domain", "seed: KBO aggregator"),
+            ("bsearch.be",           "domain", "seed: business directory"),
+            ("handelsgids.be",       "domain", "seed: business directory"),
+            ("infobel.be",           "domain", "seed: directory"),
+            ("immoweb.be",           "domain", "seed: real-estate listing"),
+            ("lemariagedelouise.be", "domain", "seed: wedding-vendor listing"),
+            ("economie.fgov.be",     "domain", "seed: KBO portal"),
+            ("kompass.com",          "domain", "seed: B2B directory"),
+            ("europages.com",        "domain", "seed: B2B directory"),
+            ("dnb.com",              "domain", "seed: credit directory"),
+            ("companyweb.be",        "domain", "seed: directory"),
+            ("staatsbladmonitor.be", "domain", "seed: gazette mirror"),
+            ("trends.knack.be",      "domain", "seed: press directory"),
+            ("/bedrijvengids/",      "path",   "seed: municipal business index"),
+            ("/annuaire/",           "path",   "seed: FR municipal directory"),
+            ("/infrastructuur-",     "path",   "seed: municipal infrastructure"),
+        ]
+        for pattern, kind, reason in _skiplist_seeds:
+            try:
+                db_execute(
+                    "INSERT INTO aggregator_skiplist "
+                    "(pattern, kind, reason, added_by) "
+                    "VALUES (%s, %s, %s, 'seed') "
+                    "ON CONFLICT (pattern, kind) DO NOTHING",
+                    (pattern, kind, reason),
+                )
+            except Exception:
+                logger.debug("skiplist seed row %s skipped", pattern)
         # Add the bulk_* columns if company_enrichment already exists.
         # _ensure_enrichment_table() in routers/companies/enrichment.py
         # creates the base table on first on-profile enrichment call; if
