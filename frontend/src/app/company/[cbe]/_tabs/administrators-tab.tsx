@@ -16,7 +16,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { GoogleSearchLink } from "@/components/google-search-link";
-import type { CompanyDetail, StructureData } from "../types";
+import type { Administrator, CompanyDetail, StructureData } from "../types";
 import { cleanCbe, downloadCsv } from "../helpers";
 
 /* ---------- props ---------- */
