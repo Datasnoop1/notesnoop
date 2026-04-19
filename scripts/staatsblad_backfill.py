@@ -146,7 +146,7 @@ def _fetch_candidate_publications(
                    SELECT sp.enterprise_number, sp.pub_date, sp.pub_type,
                           sp.reference, sp.pdf_url, sp.entity_name
                    FROM staatsblad_publication sp
-                   WHERE sp.pub_date >= %s
+                   WHERE sp.pub_date::date >= %s::date
                      AND sp.reference IS NOT NULL
                      AND sp.reference <> 'NO_DATA'
                      AND sp.pdf_url IS NOT NULL
