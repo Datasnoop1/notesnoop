@@ -114,18 +114,19 @@ def check_nbb_daily() -> CheckResult:
         (f"nbb_batch_{yesterday}",),
     )
     if not row:
-        # The cron didn't complete yesterday's extract yet — check the raw log.
-        tail = _read_log("nbb_batch.log", 60)
         return CheckResult(
             name="NBB daily pipeline",
             status="RED",
             summary=f"no meta row for {yesterday} — cron may not have run",
-            detail=tail[-1500:] or "(no log found)",
+            detail=(
+                "Log file /var/log/nbb_batch.log lives on the host and is not "
+                "visible to this container — ssh in to inspect it directly."
+            ),
             claude_prompt=(
                 f"The NBB daily pipeline has no completion marker for {yesterday}. "
-                "Check /var/log/nbb_batch.log on the Hetzner host, confirm the 01:00 "
-                "cron fired, and investigate any error. If NBB_EXTRACT_KEY was rotated, "
-                "the watchdog should handle it — verify the rotation log too."
+                "SSH to the Hetzner host and tail /var/log/nbb_batch.log, confirm the "
+                "01:00 cron fired, and investigate any error. If NBB_EXTRACT_KEY was "
+                "rotated, the watchdog should handle it — verify the rotation log too."
             ),
         )
     value = row["value"]
@@ -139,12 +140,14 @@ def check_nbb_daily() -> CheckResult:
         )
     filings, rubrics = int(m.group(1)), int(m.group(2))
     if filings == 0 or rubrics == 0:
-        tail = _read_log("nbb_batch.log", 60)
         return CheckResult(
             name="NBB daily pipeline",
             status="RED",
             summary=f"{filings} filings loaded / {rubrics} rubrics for {yesterday}",
-            detail=tail[-2000:],
+            detail=(
+                "Host log at /var/log/nbb_batch.log is not visible to this container. "
+                "SSH in to see the per-filing skip/error counts."
+            ),
             claude_prompt=(
                 f"The NBB daily pipeline ran for {yesterday} but loaded 0 rows. "
                 "Fetch one filing from the ZIP at "
@@ -182,7 +185,7 @@ def check_nbb_backload() -> CheckResult:
             detail=tail[-1500:] or "(no log found)",
         )
     calls, loaded, rubrics = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    if loaded == 0 and calls > 100:
+    if loaded == 0 and calls >= 50:
         return CheckResult(
             name="NBB nightly backload",
             status="RED",
@@ -238,23 +241,84 @@ def check_nbb_watchdog() -> CheckResult:
 
 
 def check_staatsblad_events() -> CheckResult:
-    """Staatsblad event classification: new rows added in the last 24h."""
-    tail = _read_log("staatsblad_events.log", 60)
-    m = re.search(r"staatsblad events done: (\d+) inserted", tail)
-    if m:
-        n = int(m.group(1))
-        status = "GREEN" if n > 0 else "RED"
+    """Staatsblad batch classifier (every 2 days) + nightly embed job.
+
+    Log file is shared between staatsblad_batch_every_2d.py (runs every 2 days
+    at 04:00) and staatsblad_embed.py (runs daily at 05:45). Both write to
+    staatsblad_events.log. We're green if either emitted a completion line
+    in the past 48h (batch cadence) plus the log mtime is within 26h (daily
+    embed should run every night).
+    """
+    import os as _os
+
+    tail = _read_log("staatsblad_events.log", 120)
+
+    # Completion format depends on which cron is actually installed:
+    #   - open_data_staatsblad_events.py (legacy classifier, daily)
+    #       "staatsblad events done: N inserted"
+    #   - staatsblad_batch_every_2d.py (newer, every 2 days)
+    #       "Batch cycle complete.  filings=N  events=M"
+    #   - staatsblad_embed.py (daily embedder)
+    #       "Embedded N events."
+    m_classify = None
+    m_batch = None
+    m_embed = None
+    for line in reversed(tail.splitlines()):
+        if m_classify is None:
+            mc = re.search(r"staatsblad events done:\s+(\d+)\s+inserted", line)
+            if mc:
+                m_classify = mc
+        if m_batch is None:
+            mb = re.search(r"Batch cycle complete\.\s+filings=(\d+)\s+events=(\d+)", line)
+            if mb:
+                m_batch = mb
+        if m_embed is None:
+            me = re.search(r"Embedded (\d+) events", line)
+            if me:
+                m_embed = me
+        if m_classify and m_batch and m_embed:
+            break
+
+    # Freshness: the daily embed should touch the log inside 26h.
+    stale = False
+    mtime_age_h = None
+    for d in _LOG_DIRS:
+        p = d / "staatsblad_events.log"
+        if p.exists():
+            try:
+                mtime_age_h = (datetime.now().timestamp() - p.stat().st_mtime) / 3600
+                stale = mtime_age_h > 26
+            except Exception:
+                pass
+            break
+
+    if m_classify or m_batch or m_embed:
+        bits = []
+        if m_classify:
+            bits.append(f"classify: {m_classify.group(1)} inserted")
+        if m_batch:
+            bits.append(f"batch: filings={m_batch.group(1)} events={m_batch.group(2)}")
+        if m_embed:
+            bits.append(f"embed: {m_embed.group(1)} events")
+        if mtime_age_h is not None:
+            bits.append(f"last-write {mtime_age_h:.1f}h ago")
+        status = "RED" if stale else "GREEN"
         return CheckResult(
-            name="Staatsblad classifier",
+            name="Staatsblad classify + embed",
             status=status,
-            summary=f"{n:,} events classified (last run)",
+            summary="; ".join(bits),
             detail=tail[-1500:] if status == "RED" else "",
+            claude_prompt=(
+                "Staatsblad job log is stale (>26h). The daily classify/embed cron "
+                "should have touched it. Check scripts/_watchdog_state/staatsblad_events.log "
+                "and verify the cron entries."
+            ) if status == "RED" else "",
         )
     return CheckResult(
-        name="Staatsblad classifier",
+        name="Staatsblad classify + embed",
         status="RED",
-        summary="no completion line in staatsblad_events.log",
-        detail=tail[-1000:],
+        summary="no completion line from any staatsblad job",
+        detail=tail[-1200:] or "(log empty or missing)",
     )
 
 
@@ -455,7 +519,11 @@ def main() -> int:
         print(json.dumps([r.__dict__ for r in results], indent=2))
 
     if args.send:
-        _send_email(subject, body)
+        try:
+            _send_email(subject, body)
+        except Exception as e:
+            log.error("send failed: %s — digest already printed to stdout above", e)
+            # Don't mask the digest's own RED/GREEN exit code with SMTP noise.
     else:
         log.info("dry-run — not sending. Pass --send to email.")
 
