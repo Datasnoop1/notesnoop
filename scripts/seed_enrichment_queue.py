@@ -148,6 +148,10 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=None,
                     help="cap the number of rows inserted (default: all)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--dump-json", default=None,
+                    help="also write the selected (cbe, priority) pairs to "
+                         "a JSON file — consumed by scripts/pilot/run_pilot_judge.py "
+                         "to know which CBEs to audit")
     args = ap.parse_args()
 
     ensure_schema()
@@ -180,6 +184,24 @@ def main() -> int:
     pairs = [(r["enterprise_number"], int(r["priority"])) for r in rows]
     inserted = bulk_enqueue(pairs)
     print(f"inserted {inserted} new jobs (skipped {len(pairs) - inserted} already-queued)")
+
+    if args.dump_json:
+        import json as _json
+        from pathlib import Path as _Path
+        dump_path = _Path(args.dump_json)
+        dump_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "scope": args.scope,
+            "limit": args.limit,
+            "seeded_at": __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ).isoformat(),
+            "items": [{"enterprise_number": cbe, "priority": pri}
+                       for cbe, pri in pairs],
+        }
+        dump_path.write_text(_json.dumps(payload, indent=2), encoding="utf-8")
+        print(f"wrote {len(pairs)} rows to {dump_path}")
+
     return 0
 
 

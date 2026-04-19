@@ -1,0 +1,14 @@
+# Artifacts written by run_pilot_judge.py runs. The script is checked
+# in but its outputs are not.
+pilot_cbes.json
+mock_cbes.json
+pilot_sample_30.json
+ground_truth_pilot.json
+judge_packet.json
+judge_scores.csv
+plausibility_flags.csv
+deterministic_checks.json
+meta_review.md
+PILOT_REPORT.md
+ABORTED.md
+__pycache__/
