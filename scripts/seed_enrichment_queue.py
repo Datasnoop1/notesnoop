@@ -33,14 +33,24 @@ import sys
 import time
 from pathlib import Path
 
-# Allow `python scripts/seed_enrichment_queue.py` from repo root by
-# appending backend/ to sys.path so `db` and `enrichment_queue` resolve.
+# Resolve import paths for both invocation styles:
+#   (a) `python scripts/seed_enrichment_queue.py` from the repo root →
+#       backend lives at `<repo>/backend/`
+#   (b) `docker exec … python /app/scripts/seed_enrichment_queue.py` inside
+#       the backend container → the Dockerfile copies backend/* into /app,
+#       so backend modules live at `/app/`, not `/app/backend/`.
+# Adding both paths is harmless on either side.
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "backend"))
+for p in (str(ROOT), str(ROOT / "backend")):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 from dotenv import load_dotenv  # noqa: E402
 
-load_dotenv(ROOT / ".env")
+for env_path in (ROOT / ".env", ROOT / ".env.production"):
+    if env_path.exists():
+        load_dotenv(env_path)
+        break
 
 from db import fetch_all  # noqa: E402
 from enrichment_queue import bulk_enqueue, ensure_schema  # noqa: E402
