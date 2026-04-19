@@ -379,6 +379,10 @@ def _opus_message(system: str, prompt: str, max_tokens: int, spend: Spend, label
     Tracks spend via Anthropic's published prices (Opus 4.7 is
     $15/MTok input, $75/MTok output per Anthropic pricing page — these
     are approximate; the pilot's $15 hard cap is the real safety rail).
+
+    NOTE: Opus 4.7 deprecated the `temperature` parameter — passing it
+    returns BadRequestError. Earlier Claude models accepted it; do not
+    re-add it when/if this is back-ported.
     """
     import anthropic
 
@@ -388,11 +392,9 @@ def _opus_message(system: str, prompt: str, max_tokens: int, spend: Spend, label
         system=system,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
-        temperature=0.0,
     )
     in_tok = resp.usage.input_tokens or 0
     out_tok = resp.usage.output_tokens or 0
-    # Opus 4.7: $15/MTok input, $75/MTok output.
     cost = (in_tok / 1_000_000) * 15.0 + (out_tok / 1_000_000) * 75.0
     spend.add(cost, f"opus:{label}")
     return "".join(
@@ -401,7 +403,12 @@ def _opus_message(system: str, prompt: str, max_tokens: int, spend: Spend, label
 
 
 def _sonnet_message(system: str, prompt: str, max_tokens: int, spend: Spend, label: str) -> str:
-    """One Sonnet 4.6 call. Same shape as _opus_message."""
+    """One Sonnet 4.6 call. Same shape as _opus_message.
+
+    Sonnet 4.6 still accepts `temperature`, but we omit it for symmetry
+    with Opus — both should emit deterministic-ish structured output
+    at the default temperature for their family.
+    """
     import anthropic
 
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
@@ -410,11 +417,9 @@ def _sonnet_message(system: str, prompt: str, max_tokens: int, spend: Spend, lab
         system=system,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
-        temperature=0.0,
     )
     in_tok = resp.usage.input_tokens or 0
     out_tok = resp.usage.output_tokens or 0
-    # Sonnet 4.6: $3/MTok input, $15/MTok output.
     cost = (in_tok / 1_000_000) * 3.0 + (out_tok / 1_000_000) * 15.0
     spend.add(cost, f"sonnet:{label}")
     return "".join(
@@ -452,7 +457,12 @@ async def generate_ground_truth(
         except BudgetExceeded:
             raise
         except Exception as e:
-            logger.warning("opus call failed for %s: %s", row["enterprise_number"], e)
+            # LOUD logger so a repeat of the temperature-deprecation-style
+            # silent failure surfaces in the run output.
+            logger.error(
+                "OPUS_CALL_FAILED cbe=%s error_type=%s msg=%s",
+                row["enterprise_number"], type(e).__name__, str(e)[:400],
+            )
             text = ""
         parsed = _extract_json(text) if text else None
         results.append({
@@ -485,13 +495,22 @@ JUDGE_SYSTEM_PROMPT = (
     "You are the LLM-enrichment quality judge described in "
     "scripts/research/JUDGE_RUBRIC.md. Score each row on the 5 axes "
     "(accuracy, specificity, PE-usefulness, confidence calibration, "
-    "language quality) on a 0-5 integer scale. Emit CSV with columns:\n"
+    "language quality) on a 0-5 integer scale.\n\n"
+    "CRITICAL OUTPUT REQUIREMENT — your entire response must be a "
+    "valid CSV document starting with the header line. Nothing else. "
+    "No prose preamble. No markdown fences. No closing commentary. "
+    "If ground truth is empty for a row, still emit a row with zeros "
+    "and the failure note 'no ground truth available'.\n\n"
+    "Header (exactly):\n"
     "pipeline_id,company_cbe,company_name,bucket,accuracy,specificity,"
     "pe_usefulness,confidence_calibration,language_quality,overall_avg,"
-    "failure_note\n"
-    "One header line + one row per company. overall_avg is the mean of "
-    "the 5 numeric scores to 2 decimals. failure_note is empty when all "
-    "axes >= 3, otherwise one short sentence. Respond with ONLY the CSV."
+    "failure_note\n\n"
+    "Rules:\n"
+    "- One row per company in the packet (no extras, no omissions).\n"
+    "- overall_avg = mean of the 5 numeric scores, 2 decimals.\n"
+    "- failure_note is empty when all axes >= 3, otherwise ONE short "
+    "sentence, comma-free (or quote the cell with double quotes).\n"
+    "- Use 0 (integer, not blank) when a score is 0.\n"
 )
 
 
@@ -542,22 +561,44 @@ def judge_via_sonnet(
         JUDGE_SYSTEM_PROMPT, prompt,
         max_tokens=4000, spend=spend, label="judge",
     )
-    # Strip markdown fences if present.
-    cleaned = text.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`")
-        if "\n" in cleaned:
-            cleaned = cleaned.split("\n", 1)[1]
+    cleaned = _strip_to_csv(text)
     csv_path.write_text(cleaned, encoding="utf-8")
     # Parse the CSV back.
     scored: list[dict] = []
     try:
         reader = csv.DictReader(cleaned.splitlines())
         for r in reader:
-            scored.append(r)
+            # Ignore rows where every cell is empty — artefacts of
+            # Sonnet slipping in a blank line.
+            if any((v or "").strip() for v in r.values()):
+                scored.append(r)
     except Exception:
         logger.exception("judge CSV parse failed")
     return scored
+
+
+def _strip_to_csv(text: str) -> str:
+    """Locate the CSV header and return from that line onward.
+
+    Sonnet occasionally prepends a prose line like "Here is the CSV:"
+    or wraps the result in ```csv fences. This scrubber finds the
+    `pipeline_id,company_cbe,...` header and drops anything before it,
+    plus strips trailing fences.
+    """
+    s = (text or "").strip()
+    # Kill leading markdown fence
+    if s.startswith("```"):
+        s = s.split("\n", 1)[1] if "\n" in s else s
+    # Kill trailing markdown fence
+    if s.endswith("```"):
+        s = s[: -3].rstrip()
+    # Locate header line
+    lines = s.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip().startswith("pipeline_id,company_cbe,"):
+            return "\n".join(lines[i:])
+    # No header found — return what we had so downstream fails loudly.
+    return s
 
 
 # ── Step 4: GPT-4o-mini plausibility on the 470 non-sample ───────────
@@ -788,13 +829,14 @@ def meta_review(
         if (r.get("failure_note") or "").strip():
             picks.append(r)
             break
-    # Dedup by CBE.
+    # Dedup by CBE. Use .get() so a malformed row doesn't kill the run.
     seen = set()
     picks_dedup = []
     for p in picks:
-        if p["company_cbe"] not in seen:
+        cbe = (p.get("company_cbe") or "").strip()
+        if cbe and cbe not in seen:
             picks_dedup.append(p)
-            seen.add(p["company_cbe"])
+            seen.add(cbe)
     picks = picks_dedup
 
     # Look up the full bulk_summary for each pick from the `sampled` list.
