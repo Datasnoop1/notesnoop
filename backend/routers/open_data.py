@@ -45,7 +45,7 @@ async def company_procurement(cbe: str, limit: int = Query(20, ge=1, le=200)):
         }
     except Exception as e:
         logger.exception("company_procurement failed")
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, "Internal server error")
 
 
 @router.get("/companies/{cbe}/insolvency")
@@ -65,7 +65,7 @@ async def company_insolvency(cbe: str):
         return {"cases": [_serialize(r) for r in rows]}
     except Exception as e:
         logger.exception("company_insolvency failed")
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, "Internal server error")
 
 
 @router.get("/companies/{cbe}/radar")
@@ -135,24 +135,17 @@ async def company_radar(cbe: str):
         }
     except Exception as e:
         logger.exception("company_radar failed")
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, "Internal server error")
 
 
 @router.get("/companies/{cbe}/events")
 async def company_events(cbe: str, limit: int = Query(50, ge=1, le=500)):
-    """Structured governance events — from staatsblad_event.
-
-    Kept as a thin compatibility alias for the richer /api/companies/{cbe}/events
-    endpoint in staatsblad_events.py. Projects a legacy column shape for
-    frontend callers still using (reference, subject_name, raw_title).
-    """
+    """Structured governance events — from staatsblad_event."""
     if not cbe.isdigit() or len(cbe) != 10:
         raise HTTPException(400, "CBE must be 10 digits")
     try:
         rows = fetch_all(
-            """SELECT pub_reference AS reference, pub_date, event_type,
-                      COALESCE(person_name, entity_name) AS subject_name,
-                      summary AS raw_title, sub_type
+            """SELECT reference, pub_date, event_type, subject_name, raw_title
                FROM staatsblad_event
                WHERE enterprise_number = %s
                ORDER BY pub_date DESC NULLS LAST
@@ -162,4 +155,4 @@ async def company_events(cbe: str, limit: int = Query(50, ge=1, le=500)):
         return {"events": [_serialize(r) for r in rows]}
     except Exception as e:
         logger.exception("company_events failed")
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, "Internal server error")

@@ -51,22 +51,6 @@ export interface Administrator {
   mandate_end: string | null;
   identifier: string | null;
   person_type: string | null;
-  // Stage 3 provenance/freshness
-  source?: "nbb" | "staatsblad" | "merged" | null;
-  as_of?: string | null;
-  pub_reference?: string | null;
-  summary?: string | null;
-}
-
-export interface AdministratorEvent {
-  pub_date: string;
-  pub_reference: string | null;
-  sub_type: string | null;
-  event_date: string | null;
-  person_name: string | null;
-  person_role: string | null;
-  entity_name: string | null;
-  summary: string | null;
 }
 
 export interface Shareholder {
@@ -94,7 +78,6 @@ export interface StaatsbladPub {
 
 export interface StructureData {
   administrators: Administrator[];
-  administrator_events?: AdministratorEvent[];
   participating_interests: ParticipatingInterest[];
   shareholders: Shareholder[];
   staatsblad_publications: StaatsbladPub[];

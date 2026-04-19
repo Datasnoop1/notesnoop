@@ -43,9 +43,6 @@ interface AdminRole {
   revenue: number | null;
   ebitda: number | null;
   fte_total: number | null;
-  // Stage 3c: provenance/freshness
-  source?: "nbb" | "staatsblad" | "merged" | null;
-  as_of?: string | null;
 }
 
 interface Holding {
@@ -326,57 +323,30 @@ function PeoplePageInner() {
                                           </TableRow>
                                         </TableHeader>
                                         <TableBody>
-                                          {connections.administrator_roles.map((role, idx) => {
-                                            const src = role.source ?? "nbb";
-                                            const srcLabel =
-                                              src === "staatsblad" ? "Staatsblad" :
-                                              src === "merged" ? "Updated" : null;
-                                            const srcCls =
-                                              src === "staatsblad"
-                                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                                : src === "merged"
-                                                ? "bg-amber-50 text-amber-700 border-amber-200"
-                                                : "";
-                                            return (
-                                              <TableRow key={`${role.enterprise_number}-${idx}`}>
-                                                <TableCell>
-                                                  <Link
-                                                    href={`/company/${role.enterprise_number}`}
-                                                    className="text-indigo-600 hover:text-indigo-800 hover:underline font-medium"
-                                                  >
-                                                    {role.company_name}
-                                                  </Link>
-                                                  {role.as_of && (
-                                                    <span className="ml-2 text-[10px] text-slate-400">
-                                                      as of {role.as_of}
-                                                    </span>
-                                                  )}
-                                                </TableCell>
-                                                <TableCell className="text-slate-600 text-sm">
-                                                  <div className="flex items-center gap-2">
-                                                    <span>{role.role_label || role.role || "\u2014"}</span>
-                                                    {srcLabel && (
-                                                      <Badge
-                                                        variant="secondary"
-                                                        className={`text-[10px] ${srcCls}`}
-                                                      >
-                                                        {srcLabel}
-                                                      </Badge>
-                                                    )}
-                                                  </div>
-                                                </TableCell>
-                                                <TableCell className="hidden md:table-cell text-right font-mono text-sm">
-                                                  {fmtEur(role.revenue)}
-                                                </TableCell>
-                                                <TableCell className="hidden md:table-cell text-right font-mono text-sm">
-                                                  {fmtEur(role.ebitda)}
-                                                </TableCell>
-                                                <TableCell className="hidden md:table-cell text-right font-mono text-sm">
-                                                  {fmtNumber(role.fte_total)}
-                                                </TableCell>
-                                              </TableRow>
-                                            );
-                                          })}
+                                          {connections.administrator_roles.map((role, idx) => (
+                                            <TableRow key={`${role.enterprise_number}-${idx}`}>
+                                              <TableCell>
+                                                <Link
+                                                  href={`/company/${role.enterprise_number}`}
+                                                  className="text-indigo-600 hover:text-indigo-800 hover:underline font-medium"
+                                                >
+                                                  {role.company_name}
+                                                </Link>
+                                              </TableCell>
+                                              <TableCell className="text-slate-600 text-sm">
+                                                {role.role_label || role.role || "\u2014"}
+                                              </TableCell>
+                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
+                                                {fmtEur(role.revenue)}
+                                              </TableCell>
+                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
+                                                {fmtEur(role.ebitda)}
+                                              </TableCell>
+                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
+                                                {fmtNumber(role.fte_total)}
+                                              </TableCell>
+                                            </TableRow>
+                                          ))}
                                         </TableBody>
                                       </Table>
                                     </div>

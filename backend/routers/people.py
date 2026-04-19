@@ -126,14 +126,6 @@ async def search_people(q: str = Query(..., min_length=2)):
                      JOIN addr_match m ON m.entity_number = s.enterprise_number
                      WHERE s.shareholder_type = 'individual'
                      LIMIT 5000)
-                    UNION
-                    -- Stage 3: Staatsblad admin-event person_name hits.
-                    (SELECT e.person_name AS name, e.enterprise_number
-                     FROM staatsblad_event e
-                     WHERE e.event_type = 'admin_event'
-                       AND e.person_name IS NOT NULL
-                       AND e.person_name ILIKE %s ESCAPE '\\'
-                     LIMIT 5000)
                 ),
                 names AS (
                     SELECT DISTINCT ON (entity_number) entity_number, denomination
@@ -180,8 +172,8 @@ async def search_people(q: str = Query(..., min_length=2)):
                 addr_q, addr_q,
                 addr_q, addr_q,
                 zip_q, zip_q,
-                # name-arm placeholders (admin + shareholder + staatsblad)
-                query, query, query,
+                # name-arm placeholders (admin + shareholder)
+                query, query,
             ))
             rows = [dict(r) for r in cur.fetchall()]
             cur.close()
@@ -209,15 +201,12 @@ async def search_people(q: str = Query(..., min_length=2)):
 async def get_person_connections(name: str):
     """Load all company connections for a person/entity name.
 
-    Phase 3c: admin connections are now unioned across both data
-    sources — the NBB snapshot (annual filings, year-old) AND
-    `staatsblad_event.admin_event` rows (fresh). Each connection is
-    annotated with `as_of` and `source` ('nbb' | 'staatsblad') so the
-    frontend network graph can render data-freshness visually.
+    SQL extracted from app/pages/5_people.py load_person_connections().
+    Returns administrator roles and shareholdings.
     """
     try:
-        # NBB snapshot admin connections.
-        nbb_admin_rows = fetch_all("""
+        # Administrator roles — case-insensitive match since search returns INITCAP names
+        admin_rows = fetch_all("""
             SELECT
                 a.enterprise_number,
                 COALESCE(d.denomination, a.enterprise_number) AS "company_name",
@@ -237,44 +226,7 @@ async def get_person_connections(name: str):
             ORDER BY a.mandate_start DESC
         """, (name,))
 
-        # Staatsblad admin events.  Aggregate to the (CBE, role)
-        # granularity so each row represents one mandate in the
-        # timeline; pick the LATEST event as the "current state".
-        staatsblad_admin_rows = fetch_all("""
-            WITH events AS (
-                SELECT
-                    e.enterprise_number,
-                    COALESCE(d.denomination, e.enterprise_number) AS company_name,
-                    COALESCE(NULLIF(e.person_role, ''), 'Administrator') AS role,
-                    e.sub_type,
-                    COALESCE(e.event_date, e.pub_date) AS mandate_date,
-                    e.pub_date,
-                    e.pub_reference,
-                    -- Coalesce NULL + empty role to a single bucket so
-                    -- a person with one mandate doesn't split into two
-                    -- "current-state" rows.
-                    ROW_NUMBER() OVER (
-                        PARTITION BY e.enterprise_number,
-                                     COALESCE(NULLIF(e.person_role, ''), '')
-                        ORDER BY e.pub_date DESC, e.id DESC
-                    ) AS rn
-                FROM staatsblad_event e
-                LEFT JOIN denomination d ON d.entity_number = e.enterprise_number
-                    AND d.type_of_denomination = '001' AND d.language IN ('2','1')
-                WHERE e.event_type = 'admin_event'
-                  AND LOWER(COALESCE(e.person_name, e.entity_name, '')) = LOWER(%s)
-            )
-            SELECT ev.enterprise_number, ev.company_name, ev.role, ev.sub_type,
-                   ev.mandate_date, ev.pub_date, ev.pub_reference,
-                   fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
-            FROM events ev
-            LEFT JOIN financial_latest fl ON fl.enterprise_number = ev.enterprise_number
-            WHERE ev.rn = 1
-            ORDER BY ev.pub_date DESC
-        """, (name,))
-
-        # Shareholdings — unchanged (no shareholder events yet from
-        # the extractor; that's a Phase 4+ idea).
+        # Shareholdings — case-insensitive match
         holding_rows = fetch_all("""
             SELECT
                 s.enterprise_number,
@@ -293,7 +245,7 @@ async def get_person_connections(name: str):
             ORDER BY s.ownership_pct DESC NULLS LAST
         """, (name,))
 
-        # NBB role labels (KBO fct:* codes)
+        # Enrich admin rows with role labels
         role_labels = {
             "fct:m10": "Director", "fct:m11": "Managing director",
             "fct:m12": "Chairman", "fct:m13": "Administrator",
@@ -301,55 +253,18 @@ async def get_person_connections(name: str):
             "fct:m20": "Statutory auditor", "fct:m30": "Liquidator",
             "fct:m40": "Daily management",
         }
-
-        # Annotate NBB rows with source/as_of.  fiscal_year → 'YYYY-12-31'.
-        for row in nbb_admin_rows:
+        for row in admin_rows:
             row["role_label"] = role_labels.get(row.get("role", ""), row.get("role", ""))
-            row["source"] = "nbb"
-            fy = row.get("fiscal_year") or ""
-            if isinstance(fy, str) and len(fy) >= 4 and fy[:4].isdigit():
-                row["as_of"] = f"{fy[:4]}-12-31"
-            else:
-                row["as_of"] = None
 
-        # Annotate Staatsblad rows. sub_type='resignation' → mandate is
-        # ended, so we flag it via mandate_end and don't surface it in
-        # the "active" count.
-        for row in staatsblad_admin_rows:
-            row["role_label"] = row.get("role") or "Administrator"
-            row["source"] = "staatsblad"
-            row["mandate_start"] = (
-                str(row.get("mandate_date")) if row.get("mandate_date") else None
-            )
-            sub = (row.get("sub_type") or "").lower()
-            if sub in ("resignation", "end", "termination"):
-                row["mandate_end"] = str(row.get("mandate_date")) if row.get("mandate_date") else None
-            else:
-                row["mandate_end"] = None
-            row["as_of"] = str(row.get("pub_date")) if row.get("pub_date") else None
+        # Deduplicate
+        seen_admin = set()
+        unique_admins = []
+        for row in admin_rows:
+            key = (row["enterprise_number"], row.get("role"))
+            if key not in seen_admin:
+                seen_admin.add(key)
+                unique_admins.append(row)
 
-        # Union + dedup by (CBE, role).  When both sources know the
-        # same (CBE, role), keep whichever has the LATER as_of and
-        # mark `source='merged'`.
-        combined: dict[tuple[str, str], dict] = {}
-        for row in nbb_admin_rows + staatsblad_admin_rows:
-            key = (row.get("enterprise_number") or "", row.get("role") or "")
-            existing = combined.get(key)
-            if existing is None:
-                combined[key] = row
-                continue
-            ex_date = existing.get("as_of") or ""
-            this_date = row.get("as_of") or ""
-            if this_date > ex_date:
-                merged_row = {**row, "source": "merged"}
-                combined[key] = merged_row
-            else:
-                existing["source"] = "merged"
-
-        unique_admins = list(combined.values())
-        seen_admin = set(combined.keys())
-
-        # Shareholdings dedup unchanged.
         seen_hold = set()
         unique_holdings = []
         for row in holding_rows:
@@ -358,13 +273,12 @@ async def get_person_connections(name: str):
                 seen_hold.add(key)
                 unique_holdings.append(row)
 
-        # Count distinct companies (union across both sources).
+        # Count distinct companies
         all_cbes = set()
-        for row in unique_admins:
-            all_cbes.add(row.get("enterprise_number") or "")
+        for row in admin_rows:
+            all_cbes.add(row["enterprise_number"])
         for row in holding_rows:
             all_cbes.add(row["enterprise_number"])
-        all_cbes.discard("")
 
         return {
             "name": name,

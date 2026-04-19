@@ -659,132 +659,23 @@ CREATE INDEX IF NOT EXISTS idx_insolvency_case_opened
     ON insolvency_case(opened_at DESC);
 
 -- ============================================================
--- Stage 3: Structured Staatsblad events (LLM-extracted)
+-- Open data: Structured Staatsblad events
 -- ============================================================
--- Extracted via Claude Haiku 4.5 + Anthropic batch API from the
--- full OCR'd filing text. Eight event categories covering the
--- board-level changes a PE deal-sourcer cares about. Replaces the
--- earlier regex-classifier table of the same name.
---
--- The v1 table (pre-Stage 3) had columns (id, enterprise_number,
--- reference, pub_date, event_type, subject_name, raw_title,
--- extracted_at). If we find it, drop it — the regex classifier is
--- being retired in favour of the LLM extractor.
-DO $staatsblad_event_migrate$
-BEGIN
-    -- Only drop when the old regex-classifier table is present: require
-    -- both (a) no `pub_reference` column AND (b) the old `subject_name`
-    -- column exists. Guards against accidentally dropping a partially-
-    -- created new table, or a future variant that just happens to lack
-    -- one column.
-    IF EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_name = 'staatsblad_event'
-    ) AND NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'staatsblad_event' AND column_name = 'pub_reference'
-    ) AND EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'staatsblad_event' AND column_name = 'subject_name'
-    ) THEN
-        DROP TABLE staatsblad_event CASCADE;
-    END IF;
-END
-$staatsblad_event_migrate$;
-
+-- Extends staatsblad_publication with extracted entity-event rows so
+-- "new CEO appointed", "capital increase" etc. can be listed per
+-- company in a clean timeline (feeds the summary-tab events strip + the
+-- /since "what changed" banner).
 CREATE TABLE IF NOT EXISTS staatsblad_event (
     id                SERIAL PRIMARY KEY,
     enterprise_number TEXT NOT NULL,
-    pub_reference     TEXT NOT NULL,       -- staatsblad_publication.reference
-    pub_date          DATE NOT NULL,
-    event_type        TEXT NOT NULL,
-    sub_type          TEXT,
-    event_date        DATE,                -- effective date if stated in filing, else NULL
-    person_name       TEXT,
-    person_role       TEXT,
-    entity_name       TEXT,
-    amount_eur        NUMERIC,
-    amount_shares     NUMERIC,
-    summary           TEXT NOT NULL,
-    extracted_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    extraction_model  TEXT NOT NULL,
-    CONSTRAINT staatsblad_event_type_check CHECK (event_type IN (
-        'admin_event', 'capital_event', 'share_transfer', 'ownership_change',
-        'ma_event', 'liquidation_event', 'corporate_change', 'other_notable'
-    ))
+    reference         TEXT,
+    pub_date          DATE,
+    event_type        TEXT,    -- 'director_appointed' | 'director_resigned' | 'capital_increase' | 'name_change' | 'legal_form_change' | 'liquidation' | 'merger' | 'other'
+    subject_name      TEXT,    -- person or new name
+    raw_title         TEXT,    -- original pub_type
+    extracted_at      TIMESTAMPTZ DEFAULT NOW()
 );
-
-CREATE INDEX IF NOT EXISTS idx_staatsblad_event_ent_date
+CREATE INDEX IF NOT EXISTS idx_staatsblad_event_ent
     ON staatsblad_event(enterprise_number, pub_date DESC);
-CREATE INDEX IF NOT EXISTS idx_staatsblad_event_type_date
-    ON staatsblad_event(event_type, pub_date DESC);
-CREATE INDEX IF NOT EXISTS idx_staatsblad_event_person_trgm
-    ON staatsblad_event USING GIN (person_name gin_trgm_ops);
--- Dedup guard: same (cbe, pub_reference, event_type, person_name, entity_name)
--- tuple is the same event; extractor writes ON CONFLICT DO NOTHING.
--- NULLs NOT DISTINCT requires Postgres 15+; fall back to an IS-NOT-NULL
--- partial index + an IS-NULL partial index to cover all cases.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_staatsblad_event_dedup
-    ON staatsblad_event (
-        enterprise_number, pub_reference, event_type,
-        COALESCE(person_name, ''), COALESCE(entity_name, '')
-    );
-
--- Full-text search helper — GIN on a computed tsvector of
--- summary + person_name + entity_name. Used by /api/events/search as a
--- trigram/keyword fallback to blend with pgvector cosine results.
-CREATE INDEX IF NOT EXISTS idx_staatsblad_event_fts
-    ON staatsblad_event USING GIN (to_tsvector(
-        'simple',
-        coalesce(summary, '') || ' ' ||
-        coalesce(person_name, '') || ' ' ||
-        coalesce(entity_name, '')
-    ));
-
-
--- Full body text per filing (fitz or OCR). Stored once and re-read by
--- AI-insights / excerpt-reconstruction instead of re-downloading the PDF.
-CREATE TABLE IF NOT EXISTS staatsblad_publication_text (
-    pub_reference      TEXT PRIMARY KEY,
-    enterprise_number  TEXT NOT NULL,
-    body_text          TEXT NOT NULL,
-    extraction_source  TEXT,                -- 'fitz' | 'easyocr' | 'both_empty'
-    extracted_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_staatsblad_pubtext_ent
-    ON staatsblad_publication_text(enterprise_number);
-
-
--- Backfill checkpoint. Every submitted filing writes one row so a resumed
--- run skips already-processed refs.
-CREATE TABLE IF NOT EXISTS staatsblad_backfill_progress (
-    run_id         TEXT NOT NULL,
-    pub_reference  TEXT NOT NULL,
-    status         TEXT NOT NULL,            -- 'queued' | 'ocr_done' | 'extracted' | 'failed'
-    error          TEXT,
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (run_id, pub_reference)
-);
-CREATE INDEX IF NOT EXISTS idx_staatsblad_backfill_status
-    ON staatsblad_backfill_progress(run_id, status);
-
-
--- pgvector extension for semantic search on events (Phase 3e).
--- The extension is a no-op if already installed.
-CREATE EXTENSION IF NOT EXISTS vector;
-
--- 256-dim embedding per event. 256 matches the existing
--- `text-embedding-3-small` convention used elsewhere in the codebase.
--- ON DELETE CASCADE so re-processing (e.g. re-running the extractor with a
--- newer prompt) cleans up old embeddings when events are replaced.
-CREATE TABLE IF NOT EXISTS staatsblad_event_embedding (
-    event_id   INTEGER PRIMARY KEY REFERENCES staatsblad_event(id) ON DELETE CASCADE,
-    embedding  vector(256) NOT NULL,
-    model      TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
--- IVFFlat for cosine distance. `lists = 100` is fine for 10k-500k rows;
--- Phase 4a backfill will be under 100k.
-CREATE INDEX IF NOT EXISTS idx_staatsblad_event_embedding_cos
-    ON staatsblad_event_embedding USING ivfflat (embedding vector_cosine_ops)
-    WITH (lists = 100);
+CREATE INDEX IF NOT EXISTS idx_staatsblad_event_type
+    ON staatsblad_event(event_type);

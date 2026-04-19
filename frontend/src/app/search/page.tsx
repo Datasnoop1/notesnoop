@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import {
   searchCompanies,
   searchPeople,
-  searchEvents,
   getFavourites,
   addFavourite,
   removeFavourite,
@@ -16,10 +15,10 @@ import {
   addPeopleFavourite,
   removePeopleFavourite,
 } from "@/lib/api";
-import type { SearchResult, PersonResult, StaatsbladEvent } from "@/lib/api";
+import type { SearchResult, PersonResult } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct } from "@/lib/format";
 import { useTranslation } from "@/components/language-provider";
-import { Search, Building, Users, Loader2, Star, Calendar } from "lucide-react";
+import { Search, Building, Users, Loader2, Star } from "lucide-react";
 
 export default function UnifiedSearchPage() {
   return (
@@ -36,7 +35,6 @@ function UnifiedSearchPageInner() {
   const [query, setQuery] = useState(initialQ);
   const [companies, setCompanies] = useState<SearchResult[]>([]);
   const [people, setPeople] = useState<PersonResult[]>([]);
-  const [events, setEvents] = useState<StaatsbladEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -106,16 +104,12 @@ function UnifiedSearchPageInner() {
       setLoading(true);
       setSearched(true);
       try {
-        const [c, p, evRes] = await Promise.all([
+        const [c, p] = await Promise.all([
           searchCompanies(q.trim()).catch(() => []),
           searchPeople(q.trim()).catch(() => []),
-          searchEvents(q.trim(), { limit: 10 }).catch(
-            () => ({ query: q, results: [] as StaatsbladEvent[], count: 0 })
-          ),
         ]);
         setCompanies(c);
         setPeople(p);
-        setEvents(evRes.results || []);
       } finally {
         setLoading(false);
       }
@@ -346,52 +340,8 @@ function UnifiedSearchPageInner() {
             </div>
           )}
 
-          {/* Events */}
-          {events.length > 0 && (
-            <div>
-              <h2 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-emerald-400 pl-2">
-                <Calendar className="w-3.5 h-3.5" />
-                Events ({events.length})
-              </h2>
-              <div className="space-y-1">
-                {events.map((ev) => {
-                  const who = ev.person_name || ev.entity_name || "";
-                  const tLabel = (ev.event_type || "").replace(/_/g, " ");
-                  return (
-                    <Link
-                      key={ev.id}
-                      href={`/company/${ev.enterprise_number}`}
-                      className="flex items-center gap-3 px-3 py-2 min-h-[44px] rounded-lg bg-white border border-slate-200 hover:border-emerald-300 hover:shadow-sm transition-all"
-                    >
-                      <span className="font-mono text-[11px] text-slate-500 w-24 shrink-0">
-                        {ev.event_date || ev.pub_date}
-                      </span>
-                      <Badge variant="secondary" className="text-[10px] capitalize bg-emerald-50 text-emerald-700 border-emerald-200 shrink-0">
-                        {tLabel}
-                      </Badge>
-                      <span className="text-sm font-medium text-slate-700 truncate">
-                        {ev.company_name || fmtCbe(ev.enterprise_number)}
-                      </span>
-                      {who && (
-                        <span className="text-xs text-slate-500 truncate hidden md:inline">
-                          — {who}
-                        </span>
-                      )}
-                      <span
-                        className="ml-auto text-xs text-slate-400 truncate hidden md:inline max-w-[40%]"
-                        title={ev.summary || undefined}
-                      >
-                        {ev.summary}
-                      </span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
           {/* No results */}
-          {companies.length === 0 && people.length === 0 && events.length === 0 && !loading && (
+          {companies.length === 0 && people.length === 0 && !loading && (
             <div className="rounded-lg border border-dashed border-slate-200 p-8 text-center">
               <p className="text-sm text-slate-400">{t("search.noResults", { query })}</p>
             </div>

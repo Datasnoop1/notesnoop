@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events
+from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup
 
@@ -182,11 +182,6 @@ def _classify_endpoint(path: str) -> str | None:
         or "/summarize-publications" in path
         or "/similar/ai" in path
         or "/screener/nl" in path
-        # Stage 3: /events/search calls OpenRouter for query embedding
-        # on every request — bucket it with the AI endpoints so
-        # anonymous abuse is bounded.  `/companies/{cbe}/events`
-        # (non-search) is read-only DB and stays unlimited.
-        or "/events/search" in path
     ):
         return "ai_enrichments_per_day"
     if "/export" in path:
@@ -575,7 +570,6 @@ app.include_router(me.router)
 app.include_router(bulk_import.router)
 app.include_router(changes.router)
 app.include_router(open_data.router)
-app.include_router(staatsblad_events.router)
 
 # ---------------------------------------------------------------------------
 # Health check
