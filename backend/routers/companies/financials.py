@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import fetch_all, fetch_one, get_connection, put_connection
 from auth import optional_user
+from nbb_governance import store_governance_snapshot
 from utils import clean_cbe
 from ._helpers import _serialize_row
 
@@ -260,106 +261,24 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
             else:
                 logger.info("Filing %s for %s had no rubrics", ref_number, cbe)
 
-            # --- Extract administrators from filing ---
-            admins = filing_json.get("Administrators", {})
-            for person in admins.get("NaturalPersons", []):
-                p = person.get("Person", {})
-                name = f"{p.get('FirstName', '')} {p.get('LastName', '')}".strip()
-                if not name:
-                    continue
-                for mandate in person.get("Mandates", []):
-                    role = mandate.get("FunctionMandate", "")
-                    dates = mandate.get("MandateDates", {})
-                    try:
-                        cur.execute("""
-                            INSERT INTO administrator (enterprise_number, name, role, mandate_start, mandate_end, person_type)
-                            VALUES (%s, %s, %s, %s, %s, 'natural')
-                            ON CONFLICT DO NOTHING
-                        """, (cbe, name, role, dates.get("StartDate"), dates.get("EndDate")))
-                    except Exception:
-                        pass
-            for lp in admins.get("LegalPersons", []):
-                lp_name = lp.get("Entity", {}).get("Name", "")
-                if not lp_name:
-                    continue
-                lp_id = lp.get("Entity", {}).get("Identifier", "")
-                for mandate in lp.get("Mandates", []):
-                    role = mandate.get("FunctionMandate", "")
-                    dates = mandate.get("MandateDates", {})
-                    try:
-                        cur.execute("""
-                            INSERT INTO administrator (enterprise_number, name, role, mandate_start, mandate_end, identifier, person_type)
-                            VALUES (%s, %s, %s, %s, %s, %s, 'legal')
-                            ON CONFLICT DO NOTHING
-                        """, (cbe, lp_name, role, dates.get("StartDate"), dates.get("EndDate"), lp_id or None))
-                    except Exception:
-                        pass
-
-            # --- Extract participating interests (subsidiaries) ---
-            interests = filing_json.get("ParticipatingInterests", [])
-            if isinstance(interests, list):
-                for pi in interests:
-                    entity = pi.get("Entity", {})
-                    pi_name = entity.get("Name", "")
-                    pi_id = entity.get("Identifier", "")
-                    if not pi_name:
-                        continue
-                    # Get ownership percentage from holdings
-                    pct = None
-                    for holding in pi.get("ParticipatingInterestHeld", []):
-                        pct_str = holding.get("PercentageDirectlyHeld")
-                        if pct_str:
-                            try:
-                                pct = float(pct_str) * 100  # 0.2 → 20%
-                            except (ValueError, TypeError):
-                                pass
-                            break
-                    try:
-                        cur.execute("""
-                            INSERT INTO participating_interest (enterprise_number, name, ownership_pct, identifier, fiscal_year, country)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            ON CONFLICT DO NOTHING
-                        """, (cbe, pi_name, pct, pi_id or None, str(fiscal_year) if fiscal_year else None, "BE"))
-                    except Exception:
-                        pass
-
-            # --- Extract shareholders ---
-            shareholders = filing_json.get("Shareholders", {})
-            for sh in shareholders.get("EntityShareHolders", []):
-                sh_name = sh.get("Entity", {}).get("Name", "")
-                sh_id = sh.get("Entity", {}).get("Identifier", "")
-                sh_pct = None
-                for holding in sh.get("SharesHeld", sh.get("ParticipatingInterestHeld", [])):
-                    pct_str = holding.get("PercentageDirectlyHeld")
-                    if pct_str:
-                        try:
-                            sh_pct = float(pct_str) * 100
-                        except (ValueError, TypeError):
-                            pass
-                        break
-                if sh_name:
-                    try:
-                        cur.execute("""
-                            INSERT INTO shareholder (enterprise_number, name, ownership_pct, shareholder_type, identifier, fiscal_year)
-                            VALUES (%s, %s, %s, 'entity', %s, %s)
-                            ON CONFLICT DO NOTHING
-                        """, (cbe, sh_name, sh_pct, sh_id or None, str(fiscal_year) if fiscal_year else None))
-                    except Exception:
-                        pass
-            for sh in shareholders.get("IndividualShareHolders", []):
-                p = sh.get("Person", {})
-                sh_name = f"{p.get('FirstName', '')} {p.get('LastName', '')}".strip()
-                if sh_name:
-                    try:
-                        cur.execute("""
-                            INSERT INTO shareholder (enterprise_number, name, shareholder_type, fiscal_year)
-                            VALUES (%s, %s, 'individual', %s)
-                            ON CONFLICT DO NOTHING
-                        """, (cbe, sh_name, str(fiscal_year) if fiscal_year else None))
-                    except Exception:
-                        pass
-
-            conn.commit()
+            try:
+                governance_counts = store_governance_snapshot(
+                    conn, cbe, ref_number, fiscal_year, filing_json,
+                )
+                if any(governance_counts.values()):
+                    logger.info(
+                        "Stored governance for %s filing %s: %d admins, %d shareholders, %d subsidiaries",
+                        cbe,
+                        ref_number,
+                        governance_counts["administrators"],
+                        governance_counts["shareholders"],
+                        governance_counts["participating_interests"],
+                    )
+            except Exception as gov_err:
+                logger.warning(
+                    "Governance snapshot store failed for %s filing %s: %s",
+                    cbe, ref_number, gov_err,
+                )
 
         # --- Step 5: Refresh materialized tables for this company ---
         _refresh_materialized_for_company(cur, conn, cbe)

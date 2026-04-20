@@ -47,6 +47,7 @@ import requests
 # Make backend/db importable (same pattern as nbb_batch_pipeline.py)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from db import get_connection, put_connection, fetch_one, fetch_all, execute  # type: ignore
+from nbb_governance import store_governance_snapshot  # type: ignore
 
 
 logging.basicConfig(
@@ -218,6 +219,10 @@ def store_filing(conn, cbe: str, filing_json: dict, ref_meta: dict) -> int:
             (cbe, deposit_key, len(rows)),
         )
         conn.commit()
+        try:
+            store_governance_snapshot(conn, cbe, deposit_key, fiscal_year, filing_json)
+        except Exception as gov_err:
+            log.warning("governance store failed for %s filing %s: %s", cbe, deposit_key, gov_err)
         return len(rows)
     except Exception:
         conn.rollback()
