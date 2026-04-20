@@ -165,39 +165,67 @@ def check_nbb_daily() -> CheckResult:
 
 
 def check_nbb_backload() -> CheckResult:
-    """NBB nightly backload (02:00 cron): should load >0 rows on most nights."""
-    tail = _read_log("nightly.log", 60)
-    # Look for the most recent "Backload done ... N loaded ... N rubrics"
-    m = None
+    """NBB nightly backload (02:00 cron).
+
+    Productive work = loaded rows OR no-filings sentinels OR pdf-only marks.
+    A run with high calls but zero productive work means something's broken.
+    A run where the candidate pool is exhausted (low calls) is GREEN.
+    """
+    tail = _read_log("nightly.log", 80)
+    m_rich = None     # new log line with no-filings counter
+    m_legacy = None   # older log line without no-filings
     for line in reversed(tail.splitlines()):
-        m2 = re.search(
+        mr = re.search(
+            r"Backload done in \d+s:\s+(\d+)\s+calls,\s+(\d+)\s+loaded,\s+(\d+)\s+rubrics,\s+(\d+)\s+pdf-only,\s+(\d+)\s+no-filings,\s+(\d+)\s+errors",
+            line,
+        )
+        if mr:
+            m_rich = mr
+            break
+        ml = re.search(
             r"Backload done in \d+s:\s+(\d+)\s+calls,\s+(\d+)\s+loaded,\s+(\d+)\s+rubrics",
             line,
         )
-        if m2:
-            m = m2
-            break
-    if not m:
+        if ml and not m_legacy:
+            m_legacy = ml
+    if not (m_rich or m_legacy):
         return CheckResult(
             name="NBB nightly backload",
             status="RED",
             summary="no completion line in nightly.log",
             detail=tail[-1500:] or "(no log found)",
         )
-    calls, loaded, rubrics = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if m_rich:
+        calls, loaded, rubrics, pdf_only, no_fil, errs = (int(m_rich.group(i)) for i in range(1, 7))
+        productive = loaded + no_fil + pdf_only
+        if calls >= 100 and productive == 0:
+            return CheckResult(
+                name="NBB nightly backload",
+                status="RED",
+                summary=f"{calls:,} calls, 0 productive (no loads, no sentinels)",
+                detail=tail[-2000:],
+                claude_prompt=(
+                    "The NBB nightly backload made API calls but neither loaded rows "
+                    "nor wrote NO_FILINGS sentinels — indicates a code path where "
+                    "every candidate's top ref exists in nbb_load_log already, or the "
+                    "per-company API shape changed. Pick one candidate CBE and trace "
+                    "the flow manually."
+                ),
+            )
+        return CheckResult(
+            name="NBB nightly backload",
+            status="GREEN",
+            summary=f"{calls:,} calls → {loaded:,} loaded, {rubrics:,} rubrics, "
+                    f"{no_fil:,} no-filings, {pdf_only:,} pdf-only",
+        )
+    # legacy log line (pre-2026-04-20); kept so the morning after deploy still parses.
+    calls, loaded, rubrics = int(m_legacy.group(1)), int(m_legacy.group(2)), int(m_legacy.group(3))
     if loaded == 0 and calls >= 50:
         return CheckResult(
             name="NBB nightly backload",
             status="RED",
-            summary=f"{calls:,} calls, 0 loaded — burning budget for nothing",
+            summary=f"{calls:,} calls, 0 loaded (legacy log format)",
             detail=tail[-2000:],
-            claude_prompt=(
-                "The NBB nightly backload spent its call budget but loaded zero rows. "
-                "Either the per-company API shape changed (check "
-                "scripts/nbb_nightly_backload.py store_filing) or every candidate "
-                "already has complete coverage. Pick one candidate CBE and trace the "
-                "flow manually against https://ws.cbso.nbb.be/authentic/legalEntity/{cbe}/references."
-            ),
         )
     return CheckResult(
         name="NBB nightly backload",

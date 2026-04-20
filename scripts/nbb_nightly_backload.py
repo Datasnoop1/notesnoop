@@ -74,12 +74,14 @@ def _headers() -> dict:
 
 def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
     """Companies that don't yet have fiscal_year loaded in financial_latest
-    AND haven't been marked NO_FILINGS / PDF_ONLY for any prior attempt.
+    AND haven't been marked NO_FILINGS / PDF_ONLY / NO_FILINGS_FY{fy} for
+    any prior attempt.
 
     Ordered by total_assets DESC so the biggest targets land first — they
     carry the most deal-sourcing value per API call. Falls back on CBE
     alphabetical when total_assets is unknown.
     """
+    year_sentinel = f"NO_FILINGS_FY{fiscal_year}"
     rows = fetch_all(
         """
         SELECT e.enterprise_number
@@ -96,7 +98,7 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
               SELECT 1
               FROM nbb_load_log ll
               WHERE ll.enterprise_number = e.enterprise_number
-                AND ll.deposit_key IN ('NO_FILINGS', 'PDF_ONLY')
+                AND ll.deposit_key IN ('NO_FILINGS', 'PDF_ONLY', %s)
           )
         ORDER BY (
             SELECT fl.total_assets
@@ -105,7 +107,7 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
         ) DESC NULLS LAST, e.enterprise_number
         LIMIT %s
         """,
-        (fiscal_year, limit),
+        (fiscal_year, year_sentinel, limit),
     )
     return [r["enterprise_number"] for r in rows]
 
@@ -311,10 +313,13 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
                     time.sleep(REQUEST_DELAY)
                     continue
                 if not refs:
-                    # 404/empty → no filing for this year
-                    # Only write NO_FILINGS sentinel when there's nothing for ANY year
-                    # (don't write it per-year; too noisy). Conservative: skip only THIS
-                    # year and let the next year's candidate query try again.
+                    # 404/empty → no filing for this specific (CBE, year).
+                    # Write a per-year sentinel so tomorrow's candidate query
+                    # skips this (CBE, year) pair. Crucial for early-year runs
+                    # (2025/2026) where most companies haven't filed yet and
+                    # we'd otherwise burn the budget re-asking every night.
+                    mark_no_filings(conn, cbe, f"NO_FILINGS_FY{fy}")
+                    no_filings += 1
                     time.sleep(REQUEST_DELAY)
                     continue
 
@@ -401,8 +406,8 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
 
     elapsed = time.time() - start_ts
     log.info("=" * 60)
-    log.info("Backload done in %.0fs: %d calls, %d loaded, %d rubrics, %d pdf-only, %d errors",
-             elapsed, calls, loaded, rubrics_total, pdf_only, errors)
+    log.info("Backload done in %.0fs: %d calls, %d loaded, %d rubrics, %d pdf-only, %d no-filings, %d errors",
+             elapsed, calls, loaded, rubrics_total, pdf_only, no_filings, errors)
     log.info("=" * 60)
 
     # Write a summary to meta for the admin page
@@ -411,7 +416,7 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
             "INSERT INTO meta (variable, value) VALUES (%s, %s) "
             "ON CONFLICT (variable) DO UPDATE SET value = EXCLUDED.value",
             ("nbb_nightly_backload_last",
-             f"{datetime.utcnow().isoformat()}: {loaded} loaded, {rubrics_total} rubrics, {pdf_only} pdf-only, {errors} errors, {calls} calls"),
+             f"{datetime.utcnow().isoformat()}: {loaded} loaded, {rubrics_total} rubrics, {pdf_only} pdf-only, {no_filings} no-filings, {errors} errors, {calls} calls"),
         )
     except Exception:
         pass
@@ -419,10 +424,12 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="NBB nightly backload — reverse-chronological gap fill")
-    ap.add_argument("--max-calls", type=int, default=5000,
-                    help="Hard cap on NBB API calls for this run (default 5000)")
-    ap.add_argument("--start-year", type=int, default=2026,
-                    help="Newest fiscal year to backfill (default 2026)")
+    ap.add_argument("--max-calls", type=int, default=10000,
+                    help="Hard cap on NBB API calls for this run (default 10000)")
+    ap.add_argument("--start-year", type=int, default=2024,
+                    help="Newest fiscal year to backfill (default 2024 — 2025/2026 "
+                         "filings are too sparse this early in the year; re-enable "
+                         "them manually later).")
     ap.add_argument("--end-year", type=int, default=2022,
                     help="Oldest fiscal year to backfill (default 2022)")
     ap.add_argument("--per-year-cap", type=int, default=3000,
