@@ -248,16 +248,25 @@ async def get_company_structure(cbe: str):
 
     try:
         # NBB snapshot — latest deposit per company.
-        nbb_admins = fetch_all("""
+        # EXCLUDE deposit_keys starting with 'sb_' — those are legacy
+        # Staatsblad-sourced rows from the old /extract-admins endpoint.
+        # They sort AFTER NBB keys lexicographically ('s' > 'n'), which
+        # made MAX(deposit_key) pick a single Staatsblad filing and hide
+        # every actual NBB director. Stage 3's authoritative Staatsblad
+        # data now lives in staatsblad_event, so this seed is NBB-only.
+        nbb_admins = fetch_all(r"""
             WITH latest AS (
                 SELECT MAX(deposit_key) AS dk
-                FROM administrator WHERE enterprise_number = %s
+                FROM administrator
+                WHERE enterprise_number = %s
+                  AND deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
             )
             SELECT DISTINCT ON (name, role) name, role, person_type, identifier,
                    mandate_start, mandate_end, representative_name, fiscal_year, deposit_key
             FROM administrator a
             JOIN latest l ON a.deposit_key = l.dk
             WHERE a.enterprise_number = %s
+              AND a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
             ORDER BY name, role
         """, (cbe, cbe))
 
