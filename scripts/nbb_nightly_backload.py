@@ -74,14 +74,17 @@ def _headers() -> dict:
 
 def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
     """Companies that don't yet have fiscal_year loaded in financial_latest
-    AND haven't been marked NO_FILINGS / PDF_ONLY / NO_FILINGS_FY{fy} for
-    any prior attempt.
+    AND haven't been marked NO_FILINGS / PDF_ONLY for any prior attempt.
+
+    NO_FILINGS is the global "never filed anything at NBB" sentinel.
+    Any legacy NO_FILINGS_FY{year} rows (written briefly on 2026-04-20
+    before we confirmed NBB's fiscalYear param is a no-op) also exclude
+    via the LIKE match, so we never re-probe those CBEs either.
 
     Ordered by total_assets DESC so the biggest targets land first — they
     carry the most deal-sourcing value per API call. Falls back on CBE
     alphabetical when total_assets is unknown.
     """
-    year_sentinel = f"NO_FILINGS_FY{fiscal_year}"
     rows = fetch_all(
         """
         SELECT e.enterprise_number
@@ -98,7 +101,8 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
               SELECT 1
               FROM nbb_load_log ll
               WHERE ll.enterprise_number = e.enterprise_number
-                AND ll.deposit_key IN ('NO_FILINGS', 'PDF_ONLY', %s)
+                AND (ll.deposit_key LIKE 'NO_FILINGS%%'
+                     OR ll.deposit_key = 'PDF_ONLY')
           )
         ORDER BY (
             SELECT fl.total_assets
@@ -107,7 +111,7 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
         ) DESC NULLS LAST, e.enterprise_number
         LIMIT %s
         """,
-        (fiscal_year, year_sentinel, limit),
+        (fiscal_year, limit),
     )
     return [r["enterprise_number"] for r in rows]
 
@@ -313,12 +317,12 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
                     time.sleep(REQUEST_DELAY)
                     continue
                 if not refs:
-                    # 404/empty → no filing for this specific (CBE, year).
-                    # Write a per-year sentinel so tomorrow's candidate query
-                    # skips this (CBE, year) pair. Crucial for early-year runs
-                    # (2025/2026) where most companies haven't filed yet and
-                    # we'd otherwise burn the budget re-asking every night.
-                    mark_no_filings(conn, cbe, f"NO_FILINGS_FY{fy}")
+                    # 404/empty → NBB has NO filings for this CBE under ANY year.
+                    # Verified empirically: NBB silently ignores the `fiscalYear`
+                    # query param and always returns the full history, so an
+                    # empty response is global, not year-specific. Retire the
+                    # CBE permanently with the unqualified NO_FILINGS sentinel.
+                    mark_no_filings(conn, cbe, "NO_FILINGS")
                     no_filings += 1
                     time.sleep(REQUEST_DELAY)
                     continue
@@ -330,60 +334,66 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
                     time.sleep(REQUEST_DELAY)
                     continue
 
-                # Pick the most recent ref for this fiscal year
+                # NBB returned every year's refs, not just the requested one —
+                # so iterate ALL refs and load every non-PDF, non-loaded one
+                # in a single visit. After this, the CBE has everything we can
+                # get and won't be a candidate for any year going forward.
                 refs_sorted = sorted(
                     refs,
                     key=lambda r: _pick(r, "DepositDate", "depositDate") or "",
                     reverse=True,
                 )
-                ref_meta = refs_sorted[0]
-                reference_number = _pick(ref_meta, "ReferenceNumber", "referenceNumber")
-                if not reference_number:
-                    time.sleep(REQUEST_DELAY)
-                    continue
-
-                # Skip if already loaded
-                already = fetch_one(
-                    "SELECT 1 FROM nbb_load_log WHERE enterprise_number=%s AND deposit_key=%s",
-                    (cbe, reference_number),
-                )
-                if already:
-                    time.sleep(REQUEST_DELAY)
-                    continue
-
                 time.sleep(REQUEST_DELAY)
-                calls += 1
-                if calls > max_calls:
-                    break
 
-                filing = fetch_filing(cbe, reference_number, session)
-                if not filing:
-                    errors += 1
+                for ref_meta in refs_sorted:
+                    if calls >= max_calls:
+                        break
+                    reference_number = _pick(ref_meta, "ReferenceNumber", "referenceNumber")
+                    if not reference_number:
+                        continue
+
+                    # Skip PDF-only model codes before 2022-04 JSON cutoff
+                    model = str(_pick(ref_meta, "ModelType", "modelType") or "").lower()
+                    end_date = (_pick(ref_meta, "ExerciseDates", "exerciseDates") or {}).get("endDate", "") or ""
+                    if end_date < "2022-04-01" or model in {"m120", "m211", "m212"}:
+                        continue
+
+                    already = fetch_one(
+                        "SELECT 1 FROM nbb_load_log WHERE enterprise_number=%s AND deposit_key=%s",
+                        (cbe, reference_number),
+                    )
+                    if already:
+                        continue
+
+                    calls += 1
+                    if calls > max_calls:
+                        break
+
+                    filing = fetch_filing(cbe, reference_number, session)
+                    if not filing:
+                        errors += 1
+                        time.sleep(REQUEST_DELAY)
+                        continue
+
+                    try:
+                        n = store_filing(conn, cbe, filing, ref_meta)
+                    except Exception as e:
+                        log.warning("store_filing failed for %s: %s", cbe, e)
+                        errors += 1
+                        time.sleep(REQUEST_DELAY)
+                        continue
+
+                    if n > 0:
+                        loaded += 1
+                        rubrics_total += n
+                        since_reconnect += 1
+                        if since_reconnect >= 100:
+                            _cycle_connection()
                     time.sleep(REQUEST_DELAY)
-                    continue
 
-                try:
-                    n = store_filing(conn, cbe, filing, ref_meta)
-                except Exception as e:
-                    log.warning("store_filing failed for %s: %s", cbe, e)
-                    errors += 1
-                    time.sleep(REQUEST_DELAY)
-                    continue
-
-                loaded += 1
-                rubrics_total += n
-                since_reconnect += 1
-                # Cycle the pooled connection every 100 successful stores so
-                # Postgres idle_in_transaction / server timeout doesn't
-                # silently break us mid-run.
-                if since_reconnect >= 100:
-                    _cycle_connection()
-
-                if loaded % 50 == 0:
+                if loaded % 50 == 0 and loaded > 0:
                     log.info("progress FY%d: %d loaded, %d rubrics, %d calls",
                              fy, loaded, rubrics_total, calls)
-
-                time.sleep(REQUEST_DELAY)
 
         # Refresh financial_latest + financial_by_year. These views are
         # used by the screener / profile / radar endpoints — stale data
