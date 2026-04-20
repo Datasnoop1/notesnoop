@@ -85,12 +85,15 @@ async def changes_since(cbe: str, user=Depends(optional_user)):
         changes: list[dict] = []
 
         # New NBB filings since last visit. loaded_at is TEXT, ISO-format.
+        # Exclude all sentinel keys: NO_FILINGS, NO_FILINGS_FY{year} (per-year
+        # empty markers written by the backload), and PDF_ONLY.
         filings = fetch_all(
             """SELECT deposit_key, rubric_count, loaded_at
                FROM nbb_load_log
                WHERE enterprise_number = %s
                  AND loaded_at > %s
-                 AND deposit_key NOT IN ('NO_FILINGS', 'PDF_ONLY')
+                 AND deposit_key NOT LIKE 'NO_FILINGS%%'
+                 AND deposit_key != 'PDF_ONLY'
                ORDER BY loaded_at DESC
                LIMIT 5""",
             (cbe, since_iso),

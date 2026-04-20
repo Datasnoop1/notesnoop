@@ -87,7 +87,8 @@ async def get_recently_loaded(limit: int = 10):
             JOIN (
                 SELECT enterprise_number, MAX(loaded_at) AS loaded_at
                 FROM nbb_load_log
-                WHERE deposit_key != 'NO_FILINGS'
+                WHERE deposit_key NOT LIKE 'NO_FILINGS%'
+                  AND deposit_key != 'PDF_ONLY'
                 GROUP BY enterprise_number
             ) n ON n.enterprise_number = fl.enterprise_number
             LEFT JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number

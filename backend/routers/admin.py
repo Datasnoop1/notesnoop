@@ -273,11 +273,16 @@ async def admin_insights(user=Depends(_require_admin)):
                 (SELECT COUNT(*) FROM enterprise
                  WHERE type_of_enterprise = '1' AND status = 'AC') AS total_companies,
 
-                -- Load health from nbb_load_log
+                -- Load health from nbb_load_log. Exclude all sentinel keys
+                -- (NO_FILINGS / NO_FILINGS_FY{year} / PDF_ONLY) from the
+                -- error count — those are expected "this CBE has nothing"
+                -- markers, not failed loads.
                 (SELECT COUNT(*) FROM nbb_load_log
                  WHERE rubric_count > 0) AS load_success_count,
                 (SELECT COUNT(*) FROM nbb_load_log
-                 WHERE rubric_count IS NULL OR rubric_count = 0) AS load_error_count,
+                 WHERE (rubric_count IS NULL OR rubric_count = 0)
+                   AND deposit_key NOT LIKE 'NO_FILINGS%%'
+                   AND deposit_key != 'PDF_ONLY') AS load_error_count,
 
                 -- Previous period comparisons for trend indicators
                 (SELECT COUNT(DISTINCT user_email) FROM activity_log
