@@ -13,7 +13,9 @@ import psycopg2
 import requests
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.insert(0, os.path.join(REPO_ROOT, "backend"))
+for candidate in (REPO_ROOT, os.path.join(REPO_ROOT, "backend")):
+    if os.path.exists(os.path.join(candidate, "nbb_governance.py")) and candidate not in sys.path:
+        sys.path.insert(0, candidate)
 
 try:
     from dotenv import load_dotenv
