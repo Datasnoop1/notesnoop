@@ -103,7 +103,8 @@ def _events_for_user(email: str, since: datetime) -> dict:
         LEFT JOIN company_info ci ON ci.enterprise_number = f.enterprise_number
         WHERE f.user_id = %s
           AND nll.loaded_at > %s
-          AND nll.deposit_key NOT IN ('NO_FILINGS', 'PDF_ONLY')
+          AND nll.deposit_key NOT LIKE 'NO_FILINGS%%'
+          AND nll.deposit_key != 'PDF_ONLY'
         ORDER BY nll.loaded_at DESC
         LIMIT 200
         """,
