@@ -904,3 +904,47 @@ ON CONFLICT (pattern, kind) DO NOTHING;
 -- Spend tracking is derived on the fly from llm_call_log (endpoint
 -- starts with '/bulk-enrichment/'), so there is no persistent
 -- `enrichment_spend` table — it recomputes on admin-page load.
+
+
+-- ============================================================================
+-- Staatsblad bulk-scrape queue (Phase B backfill of ejustice metadata)
+-- ============================================================================
+-- One row per CBE we still need to scrape from ejustice.just.fgov.be.
+-- The bulk scraper (`scripts/staatsblad_bulk_scrape.py`) dequeues with
+-- `FOR UPDATE SKIP LOCKED` so multiple concurrent async workers can
+-- claim disjoint CBEs safely. Mirrors the enrichment_job pattern.
+--
+-- Seeded from: SELECT enterprise_number FROM financial_latest
+--              WHERE enterprise_number NOT IN staatsblad_publication
+-- via `--seed` on the scraper, or by `scripts/staatsblad_bulk_seed.py`.
+--
+-- Status transitions:
+--   pending     -> in_progress (on dequeue)
+--   in_progress -> done         (on 200 + parseable HTML written)
+--   in_progress -> pending      (on retryable error, attempts < 3)
+--   in_progress -> failed       (on 3rd failure OR non-retryable)
+--
+-- Stale-claim recovery: rows stuck in 'in_progress' with
+-- locked_at < NOW() - 10 min are reset to 'pending' by the worker's
+-- periodic release step (mirrors enrichment_queue.release_stale).
+CREATE TABLE IF NOT EXISTS staatsblad_bulk_queue (
+    cbe           TEXT PRIMARY KEY,
+    status        TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'in_progress', 'done', 'failed')),
+    attempts      INT NOT NULL DEFAULT 0,
+    last_error    TEXT,
+    locked_at     TIMESTAMPTZ,
+    completed_at  TIMESTAMPTZ,
+    pubs_found    INT,
+    enqueued_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Partial index for fast dequeue (only pending rows matter).
+CREATE INDEX IF NOT EXISTS idx_staatsblad_bulk_queue_pending
+    ON staatsblad_bulk_queue (enqueued_at)
+    WHERE status = 'pending';
+
+-- Index for stale-claim sweeper.
+CREATE INDEX IF NOT EXISTS idx_staatsblad_bulk_queue_inprogress
+    ON staatsblad_bulk_queue (locked_at)
+    WHERE status = 'in_progress';
