@@ -282,7 +282,14 @@ async def run_backfill(
             async with sem:
                 return await _prepare_one(pub)
 
-        prepared_results = await asyncio.gather(*[_bounded(p) for p in chunk])
+        prepared_results = await asyncio.gather(
+            *[_bounded(p) for p in chunk], return_exceptions=True
+        )
+        # Treat any exception from _prepare_one as a prep failure and
+        # continue — one flaky PDF download must not kill the whole chunk.
+        prepared_results = [
+            None if isinstance(r, BaseException) else r for r in prepared_results
+        ]
         prepared_map: dict[str, dict] = {}
         requests_list: list[dict] = []
         for pub, res in zip(chunk, prepared_results):
