@@ -143,16 +143,20 @@ def release_stale(conn, older_than_minutes: int = 10) -> int:
     """Reset `in_progress` claims older than N minutes back to `pending`.
 
     Safety net for workers that crashed or lost network mid-scrape.
+    Decrements `attempts` so a crash doesn't consume a retry budget —
+    the CBE still had something to try.
     """
     with conn.cursor() as cur:
         cur.execute(
             """
             UPDATE staatsblad_bulk_queue
-               SET status = 'pending', locked_at = NULL
+               SET status = 'pending',
+                   locked_at = NULL,
+                   attempts = GREATEST(attempts - 1, 0)
              WHERE status = 'in_progress'
-               AND locked_at < NOW() - (%s || ' minutes')::interval
+               AND locked_at < NOW() - make_interval(mins => %s)
             """,
-            (str(older_than_minutes),),
+            (older_than_minutes,),
         )
         n = cur.rowcount
     conn.commit()
@@ -214,8 +218,22 @@ def mark_done(conn, cbe: str, pubs_found: int) -> None:
     conn.commit()
 
 
-def mark_retry(conn, cbe: str, reason: str, max_attempts: int = 3) -> None:
-    """Return `cbe` to `pending` for another go, or give up at max_attempts."""
+# Strip embedded credentials from error messages before they hit Postgres
+# (httpx exceptions can render the full proxy URL including user:pass).
+_CRED_RE = re.compile(r"://[^@\s/]+@")
+
+
+def _scrub(msg: str) -> str:
+    return _CRED_RE.sub("://***@", msg) if msg else msg
+
+
+def mark_retry(conn, cbe: str, reason: str, max_attempts: int = 3) -> str:
+    """Return `cbe` to `pending` for another go, or give up at max_attempts.
+
+    Returns the NEW status ('pending' or 'failed') so the caller can
+    increment stats counters accurately.
+    """
+    scrubbed = _scrub(reason)[:500]
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -227,10 +245,13 @@ def mark_retry(conn, cbe: str, reason: str, max_attempts: int = 3) -> None:
                    locked_at = NULL,
                    last_error = %s
              WHERE cbe = %s
+             RETURNING status
             """,
-            (max_attempts, reason[:500], cbe),
+            (max_attempts, scrubbed, cbe),
         )
+        row = cur.fetchone()
     conn.commit()
+    return row[0] if row else "pending"
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +306,10 @@ class ProxyPool:
                 continue
             parts = line.split(":")
             if len(parts) != 4:
-                log.warning("skip malformed proxy line: %s", line[:20])
+                # Don't log the line content — if the file path is
+                # mistyped (e.g. /etc/shadow) we don't want secrets in
+                # the log.
+                log.warning("skip malformed proxy line (wrong field count)")
                 continue
             ip, port, user, password = parts
             # httpx proxy URL format. User/pass go in URL so no
@@ -304,50 +328,68 @@ class ProxyPool:
 # ---------------------------------------------------------------------------
 
 async def fetch_one_cbe(
-    client: httpx.AsyncClient,
+    base_client: Optional[httpx.AsyncClient],
     cbe: str,
     proxy: Optional[str],
 ) -> tuple[str, Optional[list[dict]], Optional[str]]:
     """Returns (status, publications_or_None, error_or_None).
 
+    When `proxy` is set we build a short-lived AsyncClient bound to that
+    proxy URL — httpx ≥0.27 requires the `proxy` kwarg on the client
+    constructor, not on individual requests. `base_client` is used only
+    for `--mode=slow` (no proxy).
+
+    Response body is streamed and capped at MAX_BODY_BYTES to defend
+    against a hostile/misbehaving proxy pushing a giant payload.
+
     Status codes this function returns:
       'ok'          - 200 with parseable HTML; publications is the list
       'soft_block'  - 200 but body tiny / contains rate-limit marker
       'rate_limit'  - 429 / 403 / 503
-      'transport'   - timeout or connection error
-      'parse'       - 200 but zero parseable items (distinct from soft_block)
+      'transport'   - timeout, connection error, or oversize body
     """
     url = EJUSTICE_LIST_URL
     params = {"language": "nl", "btw": cbe, "page": 1}
     headers = {"User-Agent": USER_AGENT}
-    kwargs = dict(params=params, headers=headers, timeout=30.0)
+    timeout = httpx.Timeout(30.0)
+
     if proxy:
-        kwargs["proxy"] = proxy
+        # Per-call client so we can bind `proxy` at construction.
+        client_cm = httpx.AsyncClient(
+            proxy=proxy, timeout=timeout, http2=False,
+        )
+    else:
+        assert base_client is not None
+        client_cm = None  # we'll reuse base_client
 
     try:
-        r = await client.get(url, **kwargs)
+        if client_cm:
+            async with client_cm as c:
+                r = await _do_stream(c, url, params, headers)
+        else:
+            r = await _do_stream(base_client, url, params, headers)
     except httpx.TimeoutException:
         return "transport", None, "timeout"
-    except (httpx.ConnectError, httpx.ReadError, httpx.ProxyError) as e:
-        return "transport", None, f"{type(e).__name__}: {e}"[:200]
+    except _OversizeBody as e:
+        return "transport", None, f"oversize body: {e.args[0]} bytes"
+    except (httpx.ConnectError, httpx.ReadError, httpx.ProxyError, httpx.HTTPError) as e:
+        # _scrub strips any user:pass@ from the exception string
+        return "transport", None, _scrub(f"{type(e).__name__}: {e}")[:200]
 
-    if r.status_code in (429, 403, 503):
-        return "rate_limit", None, f"HTTP {r.status_code}"
-    if r.status_code != 200:
-        return "transport", None, f"HTTP {r.status_code}"
+    status_code, body = r
+    if status_code in (429, 403, 503):
+        return "rate_limit", None, f"HTTP {status_code}"
+    if status_code != 200:
+        return "transport", None, f"HTTP {status_code}"
 
-    body = r.text
     if len(body) < SOFT_BLOCK_MIN_BYTES:
         return "soft_block", None, f"body {len(body)}B"
     lower = body.lower()
     if any(m in lower for m in SOFT_BLOCK_MARKERS):
         return "soft_block", None, "body matches rate-limit marker"
 
-    # Reuse the canonical parser from src/staatsblad.py.
     items = body.split('<div class="list-item">')
     if len(items) <= 1:
-        # Not a soft block — ejustice simply has no entries for this CBE.
-        # (Rare but happens for very young / recently-struck companies.)
         return "ok", [], None
     pubs = []
     for item in items[1:]:
@@ -355,6 +397,31 @@ async def fetch_one_cbe(
         if p:
             pubs.append(p)
     return "ok", pubs, None
+
+
+MAX_BODY_BYTES = 2 * 1024 * 1024  # 2 MB cap per response
+
+
+class _OversizeBody(Exception):
+    pass
+
+
+async def _do_stream(client: httpx.AsyncClient, url: str, params: dict, headers: dict) -> tuple[int, str]:
+    """GET with a hard body-size cap to defend against runaway responses."""
+    async with client.stream("GET", url, params=params, headers=headers) as resp:
+        # Reject too-large declared Content-Length up front.
+        cl = resp.headers.get("content-length")
+        if cl and int(cl) > MAX_BODY_BYTES:
+            raise _OversizeBody(cl)
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in resp.aiter_bytes(chunk_size=64 * 1024):
+            total += len(chunk)
+            if total > MAX_BODY_BYTES:
+                raise _OversizeBody(total)
+            chunks.append(chunk)
+        body = b"".join(chunks).decode(resp.encoding or "utf-8", errors="replace")
+        return resp.status_code, body
 
 
 # ---------------------------------------------------------------------------
@@ -421,8 +488,11 @@ async def worker(
             else:
                 # retry / fail path
                 reason = f"{status}: {err or ''}"
-                await asyncio.to_thread(mark_retry, conn, cbe, reason)
-                stats["retried" if status != "parse" else "failed"] += 1
+                new_status = await asyncio.to_thread(mark_retry, conn, cbe, reason)
+                if new_status == "failed":
+                    stats["failed"] += 1
+                else:
+                    stats["retried"] += 1
                 rate_tracker.record(False)
                 # Per-worker jittered backoff. We DON'T sleep when the
                 # queue is deep and most workers are succeeding — only
@@ -454,9 +524,10 @@ def _send_alert(subject: str, body: str) -> None:
     msg["Subject"] = subject
     msg["From"] = f"DataSnoop Watchdog <{sender}>"
     msg["To"] = to
+    # Use the standard verifying TLS context — Stalwart on datasnoop.be
+    # has a valid Let's Encrypt cert, and disabling verification would
+    # expose SMTP AUTH credentials to any on-path MitM.
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
     try:
         with smtplib.SMTP(host, port, timeout=30) as s:
             s.ehlo("datasnoop-backend")
