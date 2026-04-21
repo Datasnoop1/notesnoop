@@ -264,7 +264,22 @@ def _hydrate_candidates(cbes: list[str]) -> dict[str, dict]:
     placeholders = ",".join(["%s"] * len(cbes))
     rows = fetch_all(
         f"""
-        SELECT ci.enterprise_number, ci.name, ci.city, ci.zipcode,
+        SELECT ci.enterprise_number,
+               COALESCE(
+                   NULLIF(BTRIM(ci.name), ''),
+                   (
+                       SELECT d.denomination
+                       FROM denomination d
+                       WHERE d.entity_number = ci.enterprise_number
+                         AND d.type_of_denomination = '001'
+                         AND d.denomination IS NOT NULL
+                         AND BTRIM(d.denomination) <> ''
+                       ORDER BY CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 WHEN '4' THEN 3 ELSE 4 END,
+                                d.language
+                       LIMIT 1
+                   )
+               ) AS name,
+               ci.city, ci.zipcode,
                ci.nace_code,
                fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
                fl.ebit, fl.net_profit, fl.equity, fl.total_assets,

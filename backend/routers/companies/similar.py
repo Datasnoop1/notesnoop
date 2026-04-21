@@ -57,6 +57,8 @@ FOCUS_VALUES = ("activity", "size", "geography")
 # redundant LLM call. 20 matches the upper bound of the `limit` query param.
 MAX_RANKED_ITEMS = 20
 MAX_REASONABLE_SIMILAR_FTE = 50_000
+LARGE_SIMILAR_FTE_THRESHOLD = 10_000
+MIN_REASONABLE_REVENUE_PER_FTE = 5_000
 
 
 # ── Sector Benchmarking ──────────────────────────────────────────
@@ -208,7 +210,22 @@ async def get_similar_companies(cbe: str):
             rev_min = float(revenue) * 0.1
             rev_max = float(revenue) * 10.0
             rows = fetch_all("""
-                SELECT ci.enterprise_number, ci.name, ci.city,
+                SELECT ci.enterprise_number,
+                       COALESCE(
+                           NULLIF(BTRIM(ci.name), ''),
+                           (
+                               SELECT d.denomination
+                               FROM denomination d
+                               WHERE d.entity_number = ci.enterprise_number
+                                 AND d.type_of_denomination = '001'
+                                 AND d.denomination IS NOT NULL
+                                 AND BTRIM(d.denomination) <> ''
+                               ORDER BY CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 WHEN '4' THEN 3 ELSE 4 END,
+                                        d.language
+                               LIMIT 1
+                           )
+                       ) AS name,
+                       ci.city,
                        fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
                        fl.ebit, fl.net_profit, fl.equity,
                        fl.total_assets, fl.personnel_costs
@@ -223,7 +240,22 @@ async def get_similar_companies(cbe: str):
             """, (nace, cbe, rev_min, rev_max, float(revenue)))
         else:
             rows = fetch_all("""
-                SELECT ci.enterprise_number, ci.name, ci.city,
+                SELECT ci.enterprise_number,
+                       COALESCE(
+                           NULLIF(BTRIM(ci.name), ''),
+                           (
+                               SELECT d.denomination
+                               FROM denomination d
+                               WHERE d.entity_number = ci.enterprise_number
+                                 AND d.type_of_denomination = '001'
+                                 AND d.denomination IS NOT NULL
+                                 AND BTRIM(d.denomination) <> ''
+                               ORDER BY CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 WHEN '4' THEN 3 ELSE 4 END,
+                                        d.language
+                               LIMIT 1
+                           )
+                       ) AS name,
+                       ci.city,
                        fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
                        fl.ebit, fl.net_profit, fl.equity,
                        fl.total_assets, fl.personnel_costs
@@ -276,10 +308,19 @@ def _sanitize_similar_result_row(row: dict) -> dict:
         serialized["city"] = city.strip() or None
 
     fte_total = serialized.get("fte_total")
+    revenue = serialized.get("revenue")
     if isinstance(fte_total, (int, float)) and (
         not math.isfinite(fte_total)
         or fte_total < 0
         or fte_total > MAX_REASONABLE_SIMILAR_FTE
+    ):
+        serialized["fte_total"] = None
+    elif (
+        isinstance(fte_total, (int, float))
+        and fte_total >= LARGE_SIMILAR_FTE_THRESHOLD
+        and isinstance(revenue, (int, float))
+        and revenue > 0
+        and (revenue / fte_total) < MIN_REASONABLE_REVENUE_PER_FTE
     ):
         serialized["fte_total"] = None
 
@@ -366,7 +407,22 @@ async def get_similar_companies_ai(
         try:
             target = fetch_one(
                 """
-                SELECT ci.enterprise_number, ci.name, ci.nace_code, ci.city, ci.zipcode,
+                SELECT ci.enterprise_number,
+                       COALESCE(
+                           NULLIF(BTRIM(ci.name), ''),
+                           (
+                               SELECT d.denomination
+                               FROM denomination d
+                               WHERE d.entity_number = ci.enterprise_number
+                                 AND d.type_of_denomination = '001'
+                                 AND d.denomination IS NOT NULL
+                                 AND BTRIM(d.denomination) <> ''
+                               ORDER BY CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 WHEN '4' THEN 3 ELSE 4 END,
+                                        d.language
+                               LIMIT 1
+                           )
+                       ) AS name,
+                       ci.nace_code, ci.city, ci.zipcode,
                        fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
                        fl.ebit, fl.net_profit, fl.equity, fl.total_assets, fl.personnel_costs,
                        COALESCE(nl.description, ci.nace_code) AS nace_desc,
@@ -563,7 +619,22 @@ def _try_cache(cbe: str, focus: str, content_hash: str, candidates: list[dict], 
     try:
         live = fetch_all(
             f"""
-            SELECT ci.enterprise_number, ci.name, ci.city,
+            SELECT ci.enterprise_number,
+                   COALESCE(
+                       NULLIF(BTRIM(ci.name), ''),
+                       (
+                           SELECT d.denomination
+                           FROM denomination d
+                           WHERE d.entity_number = ci.enterprise_number
+                             AND d.type_of_denomination = '001'
+                             AND d.denomination IS NOT NULL
+                             AND BTRIM(d.denomination) <> ''
+                           ORDER BY CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 WHEN '4' THEN 3 ELSE 4 END,
+                                    d.language
+                           LIMIT 1
+                       )
+                   ) AS name,
+                   ci.city,
                    fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
                    fl.ebit, fl.net_profit, fl.equity, fl.total_assets, fl.personnel_costs
             FROM company_info ci
