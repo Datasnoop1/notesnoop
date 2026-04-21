@@ -1,8 +1,6 @@
 """Companies structure router — admins, shareholders, PIs, Staatsblad extraction."""
 
-import json
 import logging
-import re
 from collections import OrderedDict
 from time import time as _time
 
@@ -10,14 +8,13 @@ import httpx
 from fastapi import APIRouter, HTTPException
 
 from db import fetch_all, fetch_one, get_connection, put_connection
-from ai_client import ai_complete
 from utils import clean_cbe
 from ._helpers import (
     _serialize_row,
     ROLE_LABELS,
     STAATSBLAD_BASE,
-    ADMIN_EXTRACTION_PROMPT,
 )
+from .structure_merge import merge_admins_with_staatsblad
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,191 +48,14 @@ def _admin_extract_cache_record(cbe: str, count: int) -> None:
     _ADMIN_EXTRACT_CACHE[cbe] = (_time(), count)
 
 
-# ---------------------------------------------------------------------------
-# GET /api/companies/{cbe}/structure
-# ---------------------------------------------------------------------------
-
-def _normalize_name(raw: str | None) -> str:
-    """Normalise a person/entity name for cross-source matching.
-
-    Strips diacritics, lowercases, collapses whitespace, removes
-    punctuation and common title prefixes. Does NOT expand initials
-    (so 'J. De Smet' ≠ 'Jean De Smet' under this scheme) — initials
-    matching is a known-imperfect gap we accept for now; the NBB
-    snapshot usually uses full names like Staatsblad.
-    """
-    if not raw:
-        return ""
-    import re
-    import unicodedata
-    s = unicodedata.normalize("NFKD", raw)
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    s = s.lower()
-    s = re.sub(r"[.,()/'\"’`]", " ", s)
-    # Drop common Dutch/French honorifics
-    s = re.sub(r"\b(?:mr|mrs|mme|m|mister|madame|monsieur|dhr|mevr|mevrouw|de heer)\b", "", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-
-def _merge_admins_with_staatsblad(
-    cbe: str,
-    nbb_rows: list[dict],
-    staatsblad_events: list[dict],
-) -> tuple[list[dict], list[dict]]:
-    """Merge the NBB snapshot with chronological Staatsblad admin events.
-
-    Returns (current_state, timeline):
-      - current_state: the list of people/entities currently on the board,
-        each row annotated with `source` ('nbb' | 'staatsblad' | 'merged')
-        and `as_of` (date of the latest Staatsblad event touching that
-        person, or the NBB fiscal_year otherwise).
-      - timeline: every staatsblad admin_event as-is, for UI rendering.
-
-    Merge logic:
-      1. Seed with the NBB snapshot (latest deposit per company). `as_of` =
-         the NBB fiscal year + '-12-31' (snapshot-date best guess).
-      2. Apply Staatsblad events in chronological order. An appointment
-         adds a person (dedup by normalised name). A resignation drops
-         the matching person from current_state, or annotates them as
-         `ended_at = <event.pub_date>` if they have other mandates.
-      3. Staatsblad-sourced entries keep `source='staatsblad'`; NBB
-         entries that were NOT superseded stay `source='nbb'`; NBB
-         entries refreshed by a later Staatsblad event become
-         `source='merged'`.
-    """
-    current: dict[str, dict] = {}
-
-    # Seed from NBB snapshot — role_label derived from NBB code.
-    for row in nbb_rows:
-        key = (_normalize_name(row.get("name") or ""), row.get("role") or "")
-        k = "|".join(key)
-        if not k.strip("|"):
-            continue
-        fiscal = row.get("fiscal_year") or ""
-        as_of = None
-        if isinstance(fiscal, str) and len(fiscal) >= 4 and fiscal[:4].isdigit():
-            as_of = f"{fiscal[:4]}-12-31"
-        enriched = {
-            **row,
-            "role_label": ROLE_LABELS.get(row.get("role") or "", row.get("role") or ""),
-            "source": "nbb",
-            "as_of": as_of,
-        }
-        current[k] = enriched
-
-    # Sort Staatsblad events chronologically (oldest first) so the
-    # last-write-wins naturally produces the current state.
-    ordered_events = sorted(
-        staatsblad_events,
-        key=lambda e: (str(e.get("pub_date") or ""), int(e.get("id") or 0)),
-    )
-
-    for ev in ordered_events:
-        # Only admin_event rows are relevant to the merge.
-        if ev.get("event_type") != "admin_event":
-            continue
-        sub = (ev.get("sub_type") or "").lower()
-        name = ev.get("person_name") or ev.get("entity_name") or ""
-        role = ev.get("person_role") or ""
-        nk = _normalize_name(name)
-        if not nk:
-            continue
-        # Match against any NBB role if Staatsblad doesn't have an NBB code.
-        # (Staatsblad roles are free-text like "Bestuurder" — we don't map
-        # them to fct:* codes here.)  Use (normalised_name, role) as the
-        # dedup key; if the NBB seed had a different role string we'll end
-        # up with two rows, which is fine — they represent distinct mandates.
-        k = "|".join((nk, role))
-
-        if sub in ("appointment", "reappointment", "renewal"):
-            existing = current.get(k)
-            if existing is None:
-                current[k] = {
-                    "name": name,
-                    "role": role,
-                    "role_label": role,
-                    "person_type": "natural" if ev.get("person_name") else "legal",
-                    "identifier": None,
-                    "mandate_start": str(ev.get("event_date") or ev.get("pub_date") or ""),
-                    "mandate_end": None,
-                    "representative_name": None,
-                    "fiscal_year": None,
-                    "deposit_key": f"sb_{ev.get('pub_reference')}",
-                    "source": "staatsblad",
-                    "as_of": str(ev.get("pub_date") or ""),
-                    "pub_reference": ev.get("pub_reference"),
-                    "summary": ev.get("summary"),
-                }
-            else:
-                # Merge into the NBB-seeded (or earlier) row, preserving
-                # fields only the NBB snapshot carries (identifier,
-                # representative_name). Overlay freshness markers.
-                existing.update({
-                    "mandate_start": str(ev.get("event_date") or ev.get("pub_date") or existing.get("mandate_start") or ""),
-                    "mandate_end": None,
-                    "deposit_key": f"sb_{ev.get('pub_reference')}",
-                    "source": "merged",
-                    "as_of": str(ev.get("pub_date") or ""),
-                    "pub_reference": ev.get("pub_reference"),
-                    "summary": ev.get("summary"),
-                })
-        elif sub in ("resignation", "end", "termination"):
-            # Match-by-name across any role, since resignations often omit
-            # role in filings. Mark all mandates for this normalised name
-            # as ended.
-            resigned = False
-            for existing_k in list(current.keys()):
-                existing_name = existing_k.split("|", 1)[0]
-                if existing_name == nk:
-                    current[existing_k]["mandate_end"] = str(ev.get("event_date") or ev.get("pub_date") or "")
-                    current[existing_k]["as_of"] = str(ev.get("pub_date") or "")
-                    current[existing_k]["source"] = "merged" if current[existing_k].get("source") == "nbb" else "staatsblad"
-                    resigned = True
-            # If the resignation doesn't match any existing mandate, still
-            # emit a resignation row so the timeline stays consistent —
-            # but do NOT insert into current_state.
-            if not resigned:
-                continue
-
-    # Drop entries whose mandate_end is set AND older than today — they're
-    # historical, not "current".
-    today = None
-    import datetime as _dt
-    today = _dt.date.today().isoformat()
-    current_state = []
-    for row in current.values():
-        end = row.get("mandate_end")
-        if end and end <= today:
-            continue
-        current_state.append(row)
-    current_state.sort(key=lambda r: (r.get("name") or "", r.get("role") or ""))
-
-    # Build the timeline from the chronologically-ordered events, newest first.
-    timeline = []
-    for ev in reversed(ordered_events):
-        if ev.get("event_type") != "admin_event":
-            continue
-        timeline.append({
-            "pub_date": str(ev.get("pub_date") or ""),
-            "pub_reference": ev.get("pub_reference"),
-            "sub_type": ev.get("sub_type"),
-            "event_date": str(ev.get("event_date") or "") if ev.get("event_date") else None,
-            "person_name": ev.get("person_name"),
-            "person_role": ev.get("person_role"),
-            "entity_name": ev.get("entity_name"),
-            "summary": ev.get("summary"),
-        })
-    return current_state, timeline
-
-
 @router.get("/{cbe}/structure")
 async def get_company_structure(cbe: str):
     """Admins, shareholders, participating interests, and Staatsblad publications.
 
     Phase 3b change: the `administrators` list is now a merged view
-    combining the NBB annual-filing snapshot with Staatsblad-sourced
-    appointment / resignation events. Each row is annotated with:
+    using the latest NBB annual-filing snapshot as the baseline, then
+    applying later Staatsblad appointment / resignation events. Each row
+    is annotated with:
       - `source`: 'nbb' | 'staatsblad' | 'merged'
       - `as_of`: best-known date for the mandate (NBB fiscal-year close
         or Staatsblad event date)
@@ -254,20 +74,34 @@ async def get_company_structure(cbe: str):
         # made MAX(deposit_key) pick a single Staatsblad filing and hide
         # every actual NBB director. Stage 3's authoritative Staatsblad
         # data now lives in staatsblad_event, so this seed is NBB-only.
+        #
+        # Prefer the actual NBB deposit_date when choosing / dating the
+        # baseline snapshot; fiscal_year is only a fallback if the filing
+        # date is missing.
         nbb_admins = fetch_all(r"""
             WITH latest AS (
-                SELECT MAX(deposit_key) AS dk
-                FROM administrator
-                WHERE enterprise_number = %s
-                  AND deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
+                SELECT a.deposit_key AS dk,
+                       MAX(fs.deposit_date) AS deposit_date
+                FROM administrator a
+                LEFT JOIN financial_summary fs
+                  ON fs.enterprise_number = a.enterprise_number
+                 AND fs.deposit_key = a.deposit_key
+                WHERE a.enterprise_number = %s
+                  AND a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
+                GROUP BY a.deposit_key
+                ORDER BY MAX(fs.deposit_date) DESC NULLS LAST,
+                         a.deposit_key DESC
+                LIMIT 1
             )
-            SELECT DISTINCT ON (name, role) name, role, person_type, identifier,
-                   mandate_start, mandate_end, representative_name, fiscal_year, deposit_key
+            SELECT DISTINCT ON (a.name, a.role)
+                   a.name, a.role, a.person_type, a.identifier,
+                   a.mandate_start, a.mandate_end, a.representative_name,
+                   a.fiscal_year, a.deposit_key, l.deposit_date
             FROM administrator a
             JOIN latest l ON a.deposit_key = l.dk
             WHERE a.enterprise_number = %s
               AND a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
-            ORDER BY name, role
+            ORDER BY a.name, a.role
         """, (cbe, cbe))
 
         # Staatsblad admin events (admin_event only — other categories
@@ -281,8 +115,10 @@ async def get_company_structure(cbe: str):
             ORDER BY pub_date ASC, id ASC
         """, (cbe,))
 
-        admins_merged, admin_timeline = _merge_admins_with_staatsblad(
-            cbe, nbb_admins, staatsblad_admin_events,
+        admins_merged, admin_timeline = merge_admins_with_staatsblad(
+            nbb_admins,
+            staatsblad_admin_events,
+            role_labels=ROLE_LABELS,
         )
 
         # Deduplicate participating interests: latest filing per subsidiary
