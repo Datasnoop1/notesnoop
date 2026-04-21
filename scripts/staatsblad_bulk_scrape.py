@@ -90,6 +90,7 @@ log = logging.getLogger("bulk_scrape")
 EJUSTICE_LIST_URL = "https://www.ejustice.just.fgov.be/cgi_tsv/list.pl"
 USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence; +https://datasnoop.be)"
 DEFAULT_PROXY_FILE = "/root/webshare_proxies.txt"
+MAX_PAGES = max(1, int(os.getenv("BULK_MAX_PAGES", "1")))
 
 # Soft-block heuristics. An ejustice list page for a real CBE is
 # consistently >20 KB; anything tiny after a 200 is a proxy interstitial
@@ -324,7 +325,8 @@ class ProxyPool:
 
 
 # ---------------------------------------------------------------------------
-# Fetch one CBE's page 1 (MAX_PAGES=1 per product decision)
+# Fetch one CBE's result pages. MAX_PAGES defaults to 1, but operators can
+# widen the scrape window (for example BULK_MAX_PAGES=5 for ~3 years).
 # ---------------------------------------------------------------------------
 
 async def fetch_one_cbe(
@@ -349,7 +351,6 @@ async def fetch_one_cbe(
       'transport'   - timeout, connection error, or oversize body
     """
     url = EJUSTICE_LIST_URL
-    params = {"language": "nl", "btw": cbe, "page": 1}
     headers = {"User-Agent": USER_AGENT}
     timeout = httpx.Timeout(30.0)
 
@@ -362,41 +363,77 @@ async def fetch_one_cbe(
         assert base_client is not None
         client_cm = None  # we'll reuse base_client
 
-    try:
-        if client_cm:
-            async with client_cm as c:
-                r = await _do_stream(c, url, params, headers)
-        else:
-            r = await _do_stream(base_client, url, params, headers)
-    except httpx.TimeoutException:
-        return "transport", None, "timeout"
-    except _OversizeBody as e:
-        return "transport", None, f"oversize body: {e.args[0]} bytes"
-    except (httpx.ConnectError, httpx.ReadError, httpx.ProxyError, httpx.HTTPError) as e:
-        # _scrub strips any user:pass@ from the exception string
-        return "transport", None, _scrub(f"{type(e).__name__}: {e}")[:200]
+    async def _fetch_page(
+        client: httpx.AsyncClient, page: int,
+    ) -> tuple[str, Optional[list[dict]], Optional[str]]:
+        params = {"language": "nl", "btw": cbe, "page": page}
+        try:
+            status_code, body = await _do_stream(client, url, params, headers)
+        except httpx.TimeoutException:
+            return "transport", None, "timeout"
+        except _OversizeBody as e:
+            return "transport", None, f"oversize body: {e.args[0]} bytes"
+        except (httpx.ConnectError, httpx.ReadError, httpx.ProxyError, httpx.HTTPError) as e:
+            return "transport", None, _scrub(f"{type(e).__name__}: {e}")[:200]
 
-    status_code, body = r
-    if status_code in (429, 403, 503):
-        return "rate_limit", None, f"HTTP {status_code}"
-    if status_code != 200:
-        return "transport", None, f"HTTP {status_code}"
+        if status_code in (429, 403, 503):
+            return "rate_limit", None, f"HTTP {status_code}"
+        if status_code != 200:
+            return "transport", None, f"HTTP {status_code}"
 
-    if len(body) < SOFT_BLOCK_MIN_BYTES:
-        return "soft_block", None, f"body {len(body)}B"
-    lower = body.lower()
-    if any(m in lower for m in SOFT_BLOCK_MARKERS):
-        return "soft_block", None, "body matches rate-limit marker"
+        if len(body) < SOFT_BLOCK_MIN_BYTES:
+            return "soft_block", None, f"body {len(body)}B"
+        lower = body.lower()
+        if any(m in lower for m in SOFT_BLOCK_MARKERS):
+            return "soft_block", None, "body matches rate-limit marker"
 
-    items = body.split('<div class="list-item">')
-    if len(items) <= 1:
-        return "ok", [], None
-    pubs = []
-    for item in items[1:]:
-        p = _parse_item(item, cbe)
-        if p:
-            pubs.append(p)
-    return "ok", pubs, None
+        items = body.split('<div class="list-item">')
+        if len(items) <= 1:
+            return "ok", [], None
+
+        pubs = []
+        for item in items[1:]:
+            p = _parse_item(item, cbe)
+            if p:
+                pubs.append(p)
+        return "ok", pubs, None
+
+    seen_refs: set[str] = set()
+    all_pubs: list[dict] = []
+
+    if client_cm:
+        async with client_cm as c:
+            client = c
+            for page in range(1, MAX_PAGES + 1):
+                status, pubs, err = await _fetch_page(client, page)
+                if status != "ok":
+                    return status, None, err
+                if not pubs:
+                    break
+                for pub in pubs:
+                    ref = str(pub.get("reference") or "")
+                    if ref and ref in seen_refs:
+                        continue
+                    if ref:
+                        seen_refs.add(ref)
+                    all_pubs.append(pub)
+    else:
+        assert base_client is not None
+        for page in range(1, MAX_PAGES + 1):
+            status, pubs, err = await _fetch_page(base_client, page)
+            if status != "ok":
+                return status, None, err
+            if not pubs:
+                break
+            for pub in pubs:
+                ref = str(pub.get("reference") or "")
+                if ref and ref in seen_refs:
+                    continue
+                if ref:
+                    seen_refs.add(ref)
+                all_pubs.append(pub)
+
+    return "ok", all_pubs, None
 
 
 MAX_BODY_BYTES = 2 * 1024 * 1024  # 2 MB cap per response

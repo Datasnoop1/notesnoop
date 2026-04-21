@@ -94,6 +94,60 @@ services:
         reservations:
           memory: 256M
 
+  # Dedicated long-running Staatsblad bulk scraper. Keeping it separate
+  # from the backend service means app deploys/recreates no longer kill
+  # the in-flight queue drain. Queue state lives in Postgres, while the
+  # Webshare proxy file and logs are mounted from the host so they survive
+  # container replacement too.
+  staatsblad-bulk-worker:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      PYTHONPATH: "/app"
+      BULK_MAX_PAGES: "${BULK_MAX_PAGES:-5}"
+      STAATSBLAD_BULK_WORKERS: "${STAATSBLAD_BULK_WORKERS:-10}"
+      STAATSBLAD_BULK_PROXY_FILE: "/run/secrets/webshare_proxies.txt"
+      STAATSBLAD_BULK_LOG_FILE: "/var/log/staatsblad_bulk/worker.log"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      backend:
+        condition: service_healthy
+    command:
+      - sh
+      - -lc
+      - >
+        mkdir -p /var/log/staatsblad_bulk &&
+        python -u /app/scripts/staatsblad_bulk_scrape.py
+        --mode=webshare
+        --workers=${STAATSBLAD_BULK_WORKERS}
+        --webshare-proxies-file=${STAATSBLAD_BULK_PROXY_FILE}
+        >> ${STAATSBLAD_BULK_LOG_FILE} 2>&1
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./src:/app/src:ro
+      - ${WEBSHARE_PROXIES_FILE:-/root/webshare_proxies.txt}:/run/secrets/webshare_proxies.txt:ro
+      - ${STAATSBLAD_BULK_LOG_DIR:-/var/log/staatsblad_bulk}:/var/log/staatsblad_bulk
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python - <<'PY'\nimport pathlib\nneedle = 'staatsblad_bulk_scrape.py'\nfor cmdline in pathlib.Path('/proc').glob('*/cmdline'):\n    try:\n        text = cmdline.read_text(errors='ignore').replace('\\x00', ' ')\n    except OSError:\n        continue\n    if needle in text:\n        raise SystemExit(0)\nraise SystemExit(1)\nPY",
+        ]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    mem_limit: 1g
+    mem_reservation: 256m
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
   nginx:
     image: nginx:alpine
     restart: always
