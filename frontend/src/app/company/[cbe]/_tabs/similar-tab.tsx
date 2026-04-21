@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Sparkles, Loader2, Scale, RefreshCw, Heart, CheckSquare, Square, FolderPlus, ChevronDown } from "lucide-react";
@@ -25,6 +25,9 @@ interface AiSimilarCompany {
 interface SimilarTabProps {
   cbe: string;
 }
+
+const DEFAULT_LIMIT = 10;
+const EXPANDED_LIMIT = 30;
 
 /* ---------- Helpers ---------- */
 
@@ -54,7 +57,6 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
   const [addingToProject, setAddingToProject] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [noMoreAvailable, setNoMoreAvailable] = useState(false);
-  const triggered = useRef(false);
 
   const toggleSelect = (ent: string) => setSelected((prev) => {
     const next = new Set(prev);
@@ -115,7 +117,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
   // Returns the mapped array on success, or null on error. expandResults
   // needs the real fetched length (React state updates are batched / async,
   // so reading `companies.length` after an await gives a stale closure value).
-  const loadSimilar = async (limit?: number): Promise<AiSimilarCompany[] | null> => {
+  const loadSimilar = async (limit = DEFAULT_LIMIT): Promise<AiSimilarCompany[] | null> => {
     setLoading(true);
     setError(null);
     try {
@@ -139,7 +141,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
 
   const expandResults = async () => {
     const prevCount = companies.length;
-    const data = await loadSimilar(20);
+    const data = await loadSimilar(EXPANDED_LIMIT);
     // Only flip the "no more" flag when the refetch actually succeeded AND
     // didn't grow the list. On fetch error, keep existing rows + let the
     // user retry via the Regenerate icon.
@@ -152,15 +154,17 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
   const resetResults = async () => {
     setExpanded(false);
     setNoMoreAvailable(false);
-    await loadSimilar();
+    await loadSimilar(DEFAULT_LIMIT);
   };
 
-  // Auto-trigger on mount
+  // Reload when the viewed company changes so the button state and results
+  // always match the current profile.
   useEffect(() => {
-    if (!triggered.current) {
-      triggered.current = true;
-      loadSimilar();
-    }
+    setCompanies([]);
+    setSelected(new Set());
+    setExpanded(false);
+    setNoMoreAvailable(false);
+    void loadSimilar(DEFAULT_LIMIT);
   }, [cbe]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Loading state

@@ -32,14 +32,14 @@ FOCUS_WEIGHTS = {
 
 
 MIN_SCORE_FLOOR = 15        # candidates below this 0–100 score are dropped (§3.4)
-LLM_INPUT_SET_SIZE = 25     # trim to this many before sending to the re-ranker
-FALLBACK_TRIGGER = 20       # leg C runs only if A+B together yield fewer than this
+LLM_INPUT_SET_SIZE = 40     # trim to this many before sending to the re-ranker
+FALLBACK_TRIGGER = 30       # leg C runs only if A+B together yield fewer than this
 
 # Per-leg fetch caps. Larger than LLM_INPUT_SET_SIZE because the blend can
 # reorder candidates, and because dedup across legs shrinks the merged pool.
-LEG_A_LIMIT = 60
-LEG_B_LIMIT = 60
-LEG_C_LIMIT = 40
+LEG_A_LIMIT = 80
+LEG_B_LIMIT = 80
+LEG_C_LIMIT = 60
 
 
 # ──────────────────────────────────────────────────────────────────────────

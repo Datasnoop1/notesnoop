@@ -38,7 +38,7 @@ MIN_CANDIDATES_FOR_LLM = 5
 # LLM-output schema bounds (§4.3).
 MIN_REASON_CHARS = 20
 MAX_REASON_CHARS = 300
-MAX_LLM_ITEMS = 20
+MAX_LLM_ITEMS = 30
 
 
 PROMPT_TEMPLATE = """You are a Belgian company analyst ranking candidates for private equity deal sourcing. Rank by how similar each candidate's CORE BUSINESS is to the TARGET.

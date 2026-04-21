@@ -47,7 +47,7 @@ router = APIRouter()
 
 # Bumped whenever §4.2 prompt text or §4.3 output schema changes. Any bump
 # forces cache invalidation for every CBE because the hash includes it.
-PROMPT_VERSION = "v2.0.1"
+PROMPT_VERSION = "v2.0.3"
 
 FOCUS_VALUES = ("activity", "size", "geography")
 
@@ -55,7 +55,7 @@ FOCUS_VALUES = ("activity", "size", "geography")
 # The client-supplied `limit` is then applied as a post-filter so "Find more"
 # (which expands limit from 10 to 20) doesn't trigger a cache miss and a
 # redundant LLM call. 20 matches the upper bound of the `limit` query param.
-MAX_RANKED_ITEMS = 20
+MAX_RANKED_ITEMS = 30
 MAX_REASONABLE_SIMILAR_FTE = 50_000
 LARGE_SIMILAR_FTE_THRESHOLD = 10_000
 MIN_REASONABLE_REVENUE_PER_FTE = 5_000
@@ -359,7 +359,7 @@ def _emit_log(event: dict) -> None:
 async def get_similar_companies_ai(
     cbe: str,
     focus: Literal["activity", "size", "geography"] = Query("activity"),
-    limit: int = Query(10, ge=1, le=20),
+    limit: int = Query(10, ge=1, le=30),
     user=Depends(optional_user),
 ):
     """Blend NACE, embedding, and size-band peers; re-rank with an LLM.
@@ -687,7 +687,12 @@ def _cache_miss_reason(cbe: str, focus: str, content_hash: str) -> str:
 
 
 def _apply_llm_ranking(candidates: list[dict], items: list[dict], limit: int) -> list[dict]:
-    """Reorder candidates by LLM ranks; the LLM may return fewer than ``limit``."""
+    """Reorder candidates by LLM ranks, then backfill from blended candidates.
+
+    This keeps the model in charge of the top of the list while ensuring the
+    expanded "Find more" view still grows even when the model only returns a
+    shorter ranked subset.
+    """
     items_sorted = sorted(items, key=lambda x: x["rank"])
     out: list[dict] = []
     used_indices: set[int] = set()
@@ -699,6 +704,15 @@ def _apply_llm_ranking(candidates: list[dict], items: list[dict], limit: int) ->
         out.append(_candidate_to_result(candidates[idx], entry["reason"]))
         if len(out) >= limit:
             break
+
+    if len(out) < limit:
+        for idx, candidate in enumerate(candidates):
+            if idx in used_indices:
+                continue
+            used_indices.add(idx)
+            out.append(_candidate_to_result(candidate, None))
+            if len(out) >= limit:
+                break
     return out
 
 
