@@ -9,6 +9,7 @@ and ``backend/ai_routing.py`` for the moving parts.
 
 import json
 import logging
+import math
 import time
 from typing import Literal, Optional
 
@@ -55,6 +56,7 @@ FOCUS_VALUES = ("activity", "size", "geography")
 # (which expands limit from 10 to 20) doesn't trigger a cache miss and a
 # redundant LLM call. 20 matches the upper bound of the `limit` query param.
 MAX_RANKED_ITEMS = 20
+MAX_REASONABLE_SIMILAR_FTE = 50_000
 
 
 # ── Sector Benchmarking ──────────────────────────────────────────
@@ -233,7 +235,7 @@ async def get_similar_companies(cbe: str):
                 LIMIT 100
             """, (nace, cbe))
 
-        return [_serialize_row(r) for r in rows]
+        return [_sanitize_similar_result_row(r) for r in rows]
     except HTTPException:
         raise
     except Exception:
@@ -254,10 +256,40 @@ _RESULT_FIELDS = (
 )
 
 
+def _sanitize_similar_result_row(row: dict) -> dict:
+    """Normalise Similar-tab rows without changing profile-overview fields."""
+    serialized = _serialize_row(row)
+
+    name = serialized.get("name")
+    if isinstance(name, str):
+        name = name.strip()
+    if not name:
+        enterprise_number = serialized.get("enterprise_number")
+        serialized["name"] = (
+            f"CBE {enterprise_number}" if enterprise_number else "Unknown company"
+        )
+    else:
+        serialized["name"] = name
+
+    city = serialized.get("city")
+    if isinstance(city, str):
+        serialized["city"] = city.strip() or None
+
+    fte_total = serialized.get("fte_total")
+    if isinstance(fte_total, (int, float)) and (
+        not math.isfinite(fte_total)
+        or fte_total < 0
+        or fte_total > MAX_REASONABLE_SIMILAR_FTE
+    ):
+        serialized["fte_total"] = None
+
+    return serialized
+
+
 def _candidate_to_result(c: dict, ai_reason: Optional[str]) -> dict:
     """Shape one blended candidate into the public API response row."""
     row = c.get("row", {})
-    serialized = _serialize_row({k: row.get(k) for k in _RESULT_FIELDS})
+    serialized = _sanitize_similar_result_row({k: row.get(k) for k in _RESULT_FIELDS})
     serialized["ai_reason"] = ai_reason
     serialized["match_score"] = int(c.get("match_score") or 0)
     serialized["provenance"] = c.get("provenance") or "fallback_size_band"
@@ -550,7 +582,7 @@ def _try_cache(cbe: str, focus: str, content_hash: str, candidates: list[dict], 
         raw = by_cbe.get(c)
         if not raw:
             continue
-        serialized = _serialize_row({k: raw.get(k) for k in _RESULT_FIELDS})
+        serialized = _sanitize_similar_result_row({k: raw.get(k) for k in _RESULT_FIELDS})
         serialized["ai_reason"] = reasons[i] if i < len(reasons) else None
         serialized["match_score"] = int(match_scores[i]) if i < len(match_scores) else None
         serialized["provenance"] = provenance[i] if i < len(provenance) else "fallback_size_band"
