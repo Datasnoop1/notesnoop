@@ -12,7 +12,7 @@
 # New jobs installed:
 #   - daily_update.sh at 03:00 (tracked wrapper; replaces legacy host-only entry)
 #   - nbb_nightly_backload.py at 02:00 (5000 calls/run, locked wrapper)
-#   - nbb daytime backload hourly 06:00-22:00 UTC (500 calls/run, locked wrapper)
+#   - nbb daytime backload hourly 06:00-22:00 UTC (1500 calls/run, locked wrapper)
 #   - invoice_ingest.py at 04:00
 #   - open_data_ted.py at 05:00
 #   - open_data_staatsblad_events.py at 04:30
@@ -46,9 +46,9 @@ NEW_BLOCK=$(cat <<'EOF'
 # Uses a host-side lock so daytime drip-feed and nightly run never overlap.
 0 2 * * * MAX_CALLS=5000 PER_YEAR_CAP=3000 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
 # Quiet daytime drip-feed for missing historical NBB data.
-# Small hourly budget so we use spare quota during business hours without
-# crowding out user-triggered loads.
-0 6-22 * * * MAX_CALLS=500 PER_YEAR_CAP=500 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+# Larger hourly budget so we use most spare daytime capacity, while still
+# finishing comfortably within an hour on current timings.
+0 6-22 * * * MAX_CALLS=1500 PER_YEAR_CAP=1500 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
 # Regsol insolvency scraper (throttled candidates)
 30 3 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_regsol.py --batch 200 >> /opt/leadpeek/scripts/_watchdog_state/regsol.log 2>&1
 # Invoice ingest from invoice@datasnoop.be
