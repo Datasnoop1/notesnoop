@@ -11,7 +11,8 @@
 #
 # New jobs installed:
 #   - daily_update.sh at 03:00 (tracked wrapper; replaces legacy host-only entry)
-#   - nbb_nightly_backload.py at 02:00 (4-hour timeout, 5000 calls/run)
+#   - nbb_nightly_backload.py at 02:00 (5000 calls/run, locked wrapper)
+#   - nbb daytime backload hourly 06:00-22:00 UTC (500 calls/run, locked wrapper)
 #   - invoice_ingest.py at 04:00
 #   - open_data_ted.py at 05:00
 #   - open_data_staatsblad_events.py at 04:30
@@ -41,8 +42,13 @@ NEW_BLOCK=$(cat <<'EOF'
 # drift out of sync with auto-rotation.
 0 3 * * * bash /opt/leadpeek/scripts/daily_update.sh >> /var/log/datapeak_daily.log 2>&1
 # NBB nightly backload (reverse chronological, FY2024 → FY2022 — newer years
-# are too sparse this early in 2026; re-enable later when filings exist)
-0 2 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 timeout 4h python /app/scripts/nbb_nightly_backload.py --max-calls 5000 >> /opt/leadpeek/scripts/_watchdog_state/nightly.log 2>&1
+# are too sparse this early in 2026; re-enable later when filings exist).
+# Uses a host-side lock so daytime drip-feed and nightly run never overlap.
+0 2 * * * MAX_CALLS=5000 PER_YEAR_CAP=3000 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+# Quiet daytime drip-feed for missing historical NBB data.
+# Small hourly budget so we use spare quota during business hours without
+# crowding out user-triggered loads.
+0 6-22 * * * MAX_CALLS=500 PER_YEAR_CAP=500 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
 # Regsol insolvency scraper (throttled candidates)
 30 3 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_regsol.py --batch 200 >> /opt/leadpeek/scripts/_watchdog_state/regsol.log 2>&1
 # Invoice ingest from invoice@datasnoop.be
