@@ -62,7 +62,7 @@ class NbbNightlyBackloadBootstrapTests(unittest.TestCase):
 
             chosen = self.module._bootstrap_backend_path(script_path)
 
-            self.assertEqual(chosen, backend_dir)
+            self.assertEqual(chosen, [backend_dir])
 
     def test_bootstrap_falls_back_to_repo_root_in_container_layout(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -74,7 +74,7 @@ class NbbNightlyBackloadBootstrapTests(unittest.TestCase):
 
             chosen = self.module._bootstrap_backend_path(script_path)
 
-            self.assertEqual(chosen, tmp)
+            self.assertEqual(chosen, [tmp])
 
     def test_bootstrap_raises_when_backend_modules_missing(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -32,6 +32,7 @@ lightweight checkpoint in `meta` for resume-after-crash.
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import logging
 import os
 import sys
@@ -46,23 +47,58 @@ import psycopg2.extras
 import requests
 
 
-def _bootstrap_backend_path(script_file: str | None = None) -> str:
-    """Make backend modules importable in both repo and container layouts."""
+def _backend_candidates(script_file: str | None = None) -> list[Path]:
+    """Return possible directories that may contain backend modules."""
     script_path = Path(script_file or __file__).resolve()
     repo_root = script_path.parent.parent
-    candidates = [repo_root / "backend", repo_root]
+    return [repo_root / "backend", repo_root]
+
+
+def _bootstrap_backend_path(script_file: str | None = None) -> list[str]:
+    """Make backend modules importable in both repo and container layouts."""
+    added: list[str] = []
+    candidates = _backend_candidates(script_file)
     for candidate in candidates:
         if (candidate / "db.py").exists():
             candidate_str = str(candidate)
             if candidate_str not in sys.path:
                 sys.path.insert(0, candidate_str)
-            return candidate_str
-    raise RuntimeError(f"Could not locate backend modules for {script_path}")
+            added.append(candidate_str)
+    if not added:
+        script_path = Path(script_file or __file__).resolve()
+        raise RuntimeError(f"Could not locate backend modules for {script_path}")
+    return added
 
 
-_BACKEND_IMPORT_ROOT = _bootstrap_backend_path()
-from db import get_connection, put_connection, fetch_one, fetch_all, execute  # type: ignore
-from nbb_governance import store_governance_snapshot  # type: ignore
+def _load_backend_module(module_name: str):
+    """Load a backend module explicitly from disk if normal import is brittle."""
+    module = sys.modules.get(module_name)
+    if module is not None:
+        return module
+
+    for candidate in _backend_candidates():
+        module_path = candidate / f"{module_name}.py"
+        if not module_path.exists():
+            continue
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        if spec is None or spec.loader is None:
+            continue
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        return module
+    raise ModuleNotFoundError(module_name)
+
+
+_BACKEND_IMPORT_ROOTS = _bootstrap_backend_path()
+_db = _load_backend_module("db")
+_nbb_governance = _load_backend_module("nbb_governance")
+get_connection = _db.get_connection
+put_connection = _db.put_connection
+fetch_one = _db.fetch_one
+fetch_all = _db.fetch_all
+execute = _db.execute
+store_governance_snapshot = _nbb_governance.store_governance_snapshot
 
 
 logging.basicConfig(
@@ -424,8 +460,8 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
             # financial_latest + financial_by_year are "tables" (not MVs)
             # in this schema, rebuilt by nbb_batch_pipeline.rebuild_materialized_tables.
             # Safest: call the same function.
-            from nbb_batch_pipeline import rebuild_materialized_tables  # type: ignore
-            rebuild_materialized_tables()
+            nbb_batch_pipeline = _load_backend_module("nbb_batch_pipeline")
+            nbb_batch_pipeline.rebuild_materialized_tables()
         except Exception as e:
             log.warning("refresh failed (non-fatal): %s", e)
         finally:
