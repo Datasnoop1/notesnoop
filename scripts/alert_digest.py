@@ -27,6 +27,7 @@ import re
 import smtplib
 import ssl
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -54,6 +55,9 @@ SMTP_PASS = os.getenv("SMTP_PASS")
 SMTP_FROM = os.getenv("SMTP_FROM", "claude@datasnoop.be")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "https://datasnoop.be")
 DEFAULT_LOOKBACK_DAYS = 7
+HEALTH_CHECK_OK = 0
+HEALTH_CHECK_AUTH_FAILURE = 10
+HEALTH_CHECK_TRANSIENT_FAILURE = 11
 
 # Defensive: never let a misconfigured env value become a javascript: href
 # in the digest. If the operator sets a malformed URL, fall back to the
@@ -249,6 +253,23 @@ def _record_sent(email: str, event_count: int) -> None:
     )
 
 
+def _classify_nbb_probe_status(status_code: int) -> tuple[str | None, str | None]:
+    """Return (kind, message) for one HTTP status from an NBB probe.
+
+    kind is one of:
+      - None        => probe is considered healthy enough
+      - "auth"      => key/config issue, worth attempting rotation
+      - "transient" => timeout/rate-limit/upstream issue, do not rotate
+    """
+    if status_code in (200, 404, 415):
+        return None, None
+    if status_code in (401, 403):
+        return "auth", f"HTTP {status_code} (auth failure — likely rotated)"
+    if status_code in (408, 409, 425, 429, 500, 502, 503, 504):
+        return "transient", f"HTTP {status_code} (transient/upstream)"
+    return "transient", f"HTTP {status_code}"
+
+
 def _check_nbb_keys(send: bool, alert_to: str | None) -> int:
     """Ping AuthenticData + Extracts with the live keys; alert on 401/403.
 
@@ -267,35 +288,46 @@ def _check_nbb_keys(send: bool, alert_to: str | None) -> int:
     base = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
     probe_cbe = "0403091220"
 
-    failures: list[str] = []
+    auth_failures: list[str] = []
+    transient_failures: list[str] = []
 
     def _probe(name: str, url: str, key: str) -> None:
         if not key:
-            failures.append(f"{name}: env key not set")
+            auth_failures.append(f"{name}: env key not set")
             return
-        try:
-            r = requests.get(
-                url,
-                headers={
-                    "Accept": "application/json",
-                    "NBB-CBSO-Subscription-Key": key,
-                    "X-Request-Id": str(_uuid.uuid4()),
-                    "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
-                },
-                timeout=20,
-            )
-        except Exception as e:
-            failures.append(f"{name}: connection error {type(e).__name__}")
-            return
-        # 200 = OK; 415 = key valid, just an Accept-header mismatch (still
-        # fine for our purposes — we only fail loud on auth-class errors);
-        # 401/403 = the rotation we want to catch.
-        if r.status_code in (401, 403):
-            failures.append(f"{name}: HTTP {r.status_code} (auth — likely rotated)")
-        elif r.status_code >= 500:
-            failures.append(f"{name}: HTTP {r.status_code} (NBB upstream)")
-        elif r.status_code not in (200, 404, 415):
-            failures.append(f"{name}: HTTP {r.status_code}")
+        last_kind = None
+        last_message = None
+        for attempt in range(1, 3):
+            try:
+                r = requests.get(
+                    url,
+                    headers={
+                        "Accept": "application/json",
+                        "NBB-CBSO-Subscription-Key": key,
+                        "X-Request-Id": str(_uuid.uuid4()),
+                        "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
+                    },
+                    timeout=20,
+                )
+            except requests.exceptions.RequestException as e:
+                last_kind = "transient"
+                last_message = f"{name}: connection error {type(e).__name__}"
+            else:
+                kind, detail = _classify_nbb_probe_status(r.status_code)
+                if kind is None:
+                    return
+                last_kind = kind
+                last_message = f"{name}: {detail}"
+                if kind == "auth":
+                    break
+
+            if attempt < 2 and last_kind == "transient":
+                time.sleep(2)
+
+        if last_kind == "auth" and last_message:
+            auth_failures.append(last_message)
+        elif last_message:
+            transient_failures.append(last_message)
 
     _probe(
         "AuthenticData",
@@ -311,34 +343,50 @@ def _check_nbb_keys(send: bool, alert_to: str | None) -> int:
         extract_key,
     )
 
-    if not failures:
+    if not auth_failures and not transient_failures:
         log.info("NBB health check: all probes green")
-        return 0
+        return HEALTH_CHECK_OK
 
-    msg = "NBB health check FAILED: " + " | ".join(failures)
+    failure_kind = "auth" if auth_failures else "transient"
+    failures = auth_failures if auth_failures else transient_failures
+    msg = f"NBB {failure_kind} health check FAILED: " + " | ".join(failures)
     log.error(msg)
 
     if send:
         recipient = alert_to or os.getenv("SMTP_ALERT_TO") or SMTP_FROM
         if not (SMTP_HOST and SMTP_USER and SMTP_PASS and recipient):
             log.warning("Cannot send alert email: SMTP not fully configured")
-            return len(failures)
+            return HEALTH_CHECK_AUTH_FAILURE if auth_failures else HEALTH_CHECK_TRANSIENT_FAILURE
         try:
             _send(
                 recipient,
-                "[DataSnoop] NBB key health check failed",
-                msg + "\n\nRotate the affected key(s) on the NBB subscription portal "
-                "and apply via the protocol in docs/architecture.md gotcha #1.",
-                f"<p style='font-family:system-ui'><b>{html.escape(msg)}</b></p>"
-                "<p>Rotate the affected key(s) on the NBB subscription portal and "
-                "apply via the protocol in <code>docs/architecture.md</code> "
-                "gotcha #1.</p>",
+                (
+                    "[DataSnoop] NBB auth health check failed"
+                    if auth_failures
+                    else "[DataSnoop] NBB upstream health check failing"
+                ),
+                (
+                    msg + "\n\nRotate the affected key(s) on the NBB subscription portal "
+                    "and apply via the protocol in docs/architecture.md gotcha #1."
+                    if auth_failures
+                    else msg + "\n\nNBB is timing out or rate-limiting. Do not auto-rotate keys for this class of failure."
+                ),
+                (
+                    f"<p style='font-family:system-ui'><b>{html.escape(msg)}</b></p>"
+                    "<p>Rotate the affected key(s) on the NBB subscription portal and "
+                    "apply via the protocol in <code>docs/architecture.md</code> "
+                    "gotcha #1.</p>"
+                    if auth_failures
+                    else f"<p style='font-family:system-ui'><b>{html.escape(msg)}</b></p>"
+                    "<p>NBB is timing out or rate-limiting. This is an upstream/transient failure, "
+                    "not an automatic key-rotation trigger.</p>"
+                ),
             )
             log.info("Alert email sent to %s", recipient)
         except Exception:
             log.exception("Failed to send NBB alert email")
 
-    return len(failures)
+    return HEALTH_CHECK_AUTH_FAILURE if auth_failures else HEALTH_CHECK_TRANSIENT_FAILURE
 
 
 def run(send: bool, only_user: str | None) -> None:
@@ -387,8 +435,7 @@ def main():
     )
     args = parser.parse_args()
     if args.health_check:
-        failures = _check_nbb_keys(send=args.send, alert_to=args.alert_to)
-        sys.exit(1 if failures > 0 else 0)
+        sys.exit(_check_nbb_keys(send=args.send, alert_to=args.alert_to))
     run(send=args.send, only_user=args.user)
 
 

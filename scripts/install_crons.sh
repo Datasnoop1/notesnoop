@@ -5,12 +5,12 @@
 # Usage: ssh root@hetzner "bash /opt/leadpeek/scripts/install_crons.sh"
 #
 # Existing jobs preserved:
-#   - daily_update.sh at 03:00
 #   - kbo_cron.sh at 06:00
 #   - nbb_batch_pipeline.py at 01:00
 #   - nbb_watchdog.sh every 15 min
 #
 # New jobs installed:
+#   - daily_update.sh at 03:00 (tracked wrapper; replaces legacy host-only entry)
 #   - nbb_nightly_backload.py at 02:00 (4-hour timeout, 5000 calls/run)
 #   - invoice_ingest.py at 04:00
 #   - open_data_ted.py at 05:00
@@ -30,11 +30,16 @@ CURRENT=$(crontab -l 2>/dev/null || true)
 FILTERED=$(echo "$CURRENT" | awk '
   /^# DATASNOOP-MANAGED-BEGIN$/ { skip=1; next }
   /^# DATASNOOP-MANAGED-END$/ { skip=0; next }
+  /\/opt\/leadpeek\/scripts\/daily_update\.sh/ { next }
   !skip { print }
 ')
 
 NEW_BLOCK=$(cat <<'EOF'
 # DATASNOOP-MANAGED-BEGIN
+# Daily NBB + Staatsblad loaders via the backend container. Replaces the old
+# host-only daily_update.sh that hardcoded DATABASE_URL / NBB keys and could
+# drift out of sync with auto-rotation.
+0 3 * * * bash /opt/leadpeek/scripts/daily_update.sh >> /var/log/datapeak_daily.log 2>&1
 # NBB nightly backload (reverse chronological, FY2024 → FY2022 — newer years
 # are too sparse this early in 2026; re-enable later when filings exist)
 0 2 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 timeout 4h python /app/scripts/nbb_nightly_backload.py --max-calls 10000 >> /opt/leadpeek/scripts/_watchdog_state/nightly.log 2>&1

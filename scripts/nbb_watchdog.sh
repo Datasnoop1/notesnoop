@@ -1,29 +1,34 @@
 #!/bin/bash
-# NBB key watchdog — runs every 15 min from cron.
+# NBB key watchdog - runs every 15 min from cron.
 #
 # Logic:
 #   1. Probe NBB (AuthenticData + Extracts) via alert_digest.py --health-check.
+#      Exit codes:
+#        0  = green
+#        10 = auth failure, worth rotating
+#        11 = transient/upstream failure, do NOT rotate
 #   2. If green: silent (log line only). Done.
-#   3. If red AND we haven't auto-rotated in the last $COOLDOWN_MIN minutes:
+#   3. If transient red: alert once per repeat window, but do NOT rotate.
+#   4. If auth red AND we haven't auto-rotated in the last $COOLDOWN_MIN minutes:
 #        a. Email "rotation in progress" (informational).
 #        b. Run the rotator script.
 #        c. Probe again.
-#        d. Email "rotation succeeded" or "rotation FAILED — manual fix needed".
-#   4. If red AND we ARE within the cooldown window:
-#        - Email "still red after recent auto-rotate; investigate" — but only
+#        d. Email "rotation succeeded" or "rotation FAILED - manual fix needed".
+#   5. If auth red AND we ARE within the cooldown window:
+#        - Email "still red after recent auto-rotate; investigate" - but only
 #          ONCE per cooldown window (lock prevents repeated emails).
 #
 # Files:
-#   /opt/leadpeek/scripts/_watchdog.lock      flock guard — only one
+#   /opt/leadpeek/scripts/_watchdog.lock      flock guard - only one
 #                                             watchdog runs at a time
 #   /opt/leadpeek/scripts/_watchdog.last_rot  ISO timestamp of last rotate
 #   /opt/leadpeek/scripts/_watchdog.last_alert  ISO timestamp of last "still red" alert
 #
 # Exit codes:
 #   0 green or recovered after auto-rotate
-#   1 red, auto-rotate fired and succeeded   (still 0 ok-or-fixed; reserved)
-#   2 red, auto-rotate fired and FAILED      (operator action needed)
-#   3 red but in cooldown — alerted but did not auto-rotate
+#   2 auth red, auto-rotate fired and FAILED      (operator action needed)
+#   3 auth red but in cooldown - alerted but did not auto-rotate
+#   4 transient red - alerted but deliberately did not auto-rotate
 
 set -uo pipefail
 
@@ -39,6 +44,7 @@ LOG="$STATE_DIR/watchdog.log"
 
 COOLDOWN_MIN="${WATCHDOG_COOLDOWN_MIN:-30}"
 ALERT_REPEAT_MIN="${WATCHDOG_ALERT_REPEAT_MIN:-60}"
+AUTH_FAILURE_EXIT=10
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 log() { echo "$(ts) $*" | tee -a "$LOG"; }
@@ -46,7 +52,7 @@ log() { echo "$(ts) $*" | tee -a "$LOG"; }
 # Fail to acquire lock = a previous run is still in flight; bail silently.
 exec 9>"$LOCK"
 if ! flock -n 9; then
-    log "another watchdog instance is running — exiting"
+    log "another watchdog instance is running - exiting"
     exit 0
 fi
 
@@ -59,9 +65,30 @@ if [ $HEALTH_EXIT -eq 0 ]; then
     exit 0
 fi
 
-log "RED — output: $HEALTH_OUTPUT"
+log "RED - output: $HEALTH_OUTPUT"
 
-# --- 2. Cooldown check ---
+# --- 2. Transient-vs-auth split ---
+if [ $HEALTH_EXIT -ne $AUTH_FAILURE_EXIT ]; then
+    log "transient/upstream probe failure (exit $HEALTH_EXIT) - not auto-rotating"
+
+    should_alert=1
+    if [ -f "$LAST_ALERT" ]; then
+        la_ts=$(cat "$LAST_ALERT")
+        la_epoch=$(date -d "$la_ts" +%s 2>/dev/null || echo 0)
+        if [ $(( ($(date +%s) - la_epoch) / 60 )) -lt $ALERT_REPEAT_MIN ]; then
+            should_alert=0
+        fi
+    fi
+    if [ $should_alert -eq 1 ]; then
+        bash "$SCRIPTS_DIR/_watchdog_send_alert.sh" "probe-transient-no-rotate" "$HEALTH_OUTPUT"
+        ts > "$LAST_ALERT"
+    else
+        log "skipping repeat alert (within $ALERT_REPEAT_MIN-min repeat window)"
+    fi
+    exit 4
+fi
+
+# --- 3. Cooldown check (auth failures only) ---
 in_cooldown=0
 if [ -f "$LAST_ROTATE" ]; then
     last_ts=$(cat "$LAST_ROTATE")
@@ -93,7 +120,7 @@ if [ $in_cooldown -eq 1 ]; then
     exit 3
 fi
 
-# --- 3. Auto-rotate ---
+# --- 4. Auto-rotate ---
 log "auto-rotating..."
 bash "$SCRIPTS_DIR/_watchdog_send_alert.sh" "rotating" "$HEALTH_OUTPUT"
 

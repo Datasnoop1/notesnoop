@@ -17,12 +17,92 @@ from ._helpers import _serialize_row
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_NBB_AUTH_FAILURE_STATUSES = {401, 403}
+_NBB_RETRYABLE_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504}
+
 # Cap concurrent NBB loads at 3. NBB doesn't publish rate limits but
 # advises 1-2s between calls; parallel /load calls from different IPs
 # would multiply NBB traffic and risk key revocation. Three in
 # flight keeps the service responsive under burst while staying
 # well inside the politeness envelope.
 _LOAD_SEMAPHORE = asyncio.Semaphore(3)
+
+
+def _pick(d: dict | None, *keys: str):
+    """Return the first present, non-empty value from a dict."""
+    if not isinstance(d, dict):
+        return None
+    for key in keys:
+        value = d.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _normalise_reference(ref: dict) -> dict:
+    """Flatten NBB reference metadata across PascalCase and camelCase variants."""
+    exercise = _pick(ref, "ExerciseDates", "exerciseDates") or {}
+    end_date = _pick(exercise, "endDate", "EndDate") or ""
+    fiscal_year = int(end_date[:4]) if end_date and len(end_date) >= 4 else None
+    return {
+        "reference_number": str(_pick(ref, "ReferenceNumber", "referenceNumber") or ""),
+        "deposit_date": str(_pick(ref, "DepositDate", "depositDate") or ""),
+        "model_type": str(_pick(ref, "ModelType", "modelType") or ""),
+        "fiscal_year": fiscal_year,
+        "raw": ref,
+    }
+
+
+def _no_filings_result(cbe: str) -> dict:
+    return {
+        "enterprise_number": cbe,
+        "filings_found": 0,
+        "filings_loaded": 0,
+        "rubrics_loaded": 0,
+        "status": "no_filings",
+    }
+
+
+async def _nbb_get(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    headers: dict,
+    params: dict | None = None,
+    timeout: float = 15.0,
+    attempts: int = 3,
+):
+    """GET one NBB endpoint with light retry on transient failures only."""
+    backoff_s = 1.0
+    last_exc = None
+    for attempt in range(1, attempts + 1):
+        try:
+            response = await client.get(url, headers=headers, params=params, timeout=timeout)
+        except httpx.RequestError as exc:
+            last_exc = exc
+            if attempt >= attempts:
+                raise
+            logger.warning(
+                "NBB request failed on attempt %d/%d for %s: %s",
+                attempt, attempts, url, exc,
+            )
+            await asyncio.sleep(backoff_s)
+            backoff_s = min(backoff_s * 2, 4.0)
+            continue
+
+        if response.status_code in _NBB_RETRYABLE_STATUSES and attempt < attempts:
+            logger.warning(
+                "NBB returned transient HTTP %d on attempt %d/%d for %s",
+                response.status_code, attempt, attempts, url,
+            )
+            await asyncio.sleep(backoff_s)
+            backoff_s = min(backoff_s * 2, 4.0)
+            continue
+        return response
+
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError(f"NBB request exhausted retries without a response: {url}")
 
 
 # ---------------------------------------------------------------------------
@@ -76,38 +156,43 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
     if fiscal_year:
         ref_params["fiscalYear"] = str(fiscal_year)
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient() as client:
         try:
-            resp = await client.get(
+            resp = await _nbb_get(
+                client,
                 f"{nbb_base}/authentic/legalEntity/{cbe}/references",
-                headers=headers_ref, params=ref_params or None,
+                headers=headers_ref,
+                params=ref_params or None,
+                timeout=15.0,
             )
         except Exception as e:
             logger.error("NBB references request failed for %s: %s", cbe, e)
             raise HTTPException(status_code=502, detail=f"NBB API connection error: {e}")
 
+    if resp.status_code == 404:
+        return _no_filings_result(cbe)
+
+    if resp.status_code in _NBB_AUTH_FAILURE_STATUSES:
+        raise HTTPException(status_code=503, detail="NBB API authentication failed")
+
     if resp.status_code != 200:
         raise HTTPException(
-            status_code=resp.status_code,
+            status_code=502,
             detail=f"NBB API error fetching references: HTTP {resp.status_code}",
         )
 
     references = resp.json()
     if not references:
-        return {
-            "enterprise_number": cbe,
-            "filings_found": 0,
-            "filings_loaded": 0,
-            "rubrics_loaded": 0,
-            "status": "no_filings",
-        }
+        return _no_filings_result(cbe)
+
+    normalised_refs = [_normalise_reference(ref) for ref in references]
 
     # Sort newest-first then try up to 15 references to find 5 successful
     # filings — old filings are PDF-only by virtue of pre-XBRL age and
     # would burn slots without ever loading data.
     sorted_refs = sorted(
-        references,
-        key=lambda r: (r.get("DepositDate") or "", r.get("ReferenceNumber") or ""),
+        normalised_refs,
+        key=lambda r: (r["deposit_date"], r["reference_number"]),
         reverse=True,
     )
     refs_to_load = sorted_refs[:15]
@@ -127,163 +212,169 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
     # extractable regardless of model.
     pdf_only_404s = 0
     post2022_eligible_count = sum(
-        1 for r in references
-        if r.get("DepositDate", "") >= "2022-04"
-        and isinstance(r.get("ModelType"), str)
-        and not r["ModelType"].endswith("-p")
+        1 for r in normalised_refs
+        if r["deposit_date"] >= "2022-04"
+        and isinstance(r["model_type"], str)
+        and not r["model_type"].endswith("-p")
     )
     post2022_total = sum(
-        1 for r in references if r.get("DepositDate", "") >= "2022-04"
+        1 for r in normalised_refs if r["deposit_date"] >= "2022-04"
     )
 
     try:
         cur = conn.cursor()
+        async with httpx.AsyncClient() as client:
+            for ref in refs_to_load:
+                if filings_loaded >= 5:
+                    break  # Stop after 5 successful filings
+                ref_number = ref["reference_number"]
+                if not ref_number:
+                    continue
 
-        for ref in refs_to_load:
-            if filings_loaded >= 5:
-                break  # Stop after 5 successful filings
-            ref_number = ref.get("ReferenceNumber", "")
-            if not ref_number:
-                continue
+                # Check if already loaded (skip duplicates)
+                cur.execute(
+                    "SELECT 1 FROM nbb_load_log WHERE enterprise_number = %s AND deposit_key = %s",
+                    (cbe, ref_number),
+                )
+                if cur.fetchone():
+                    logger.info("Skipping already-loaded filing %s for %s", ref_number, cbe)
+                    continue
 
-            # Check if already loaded (skip duplicates)
-            cur.execute(
-                "SELECT 1 FROM nbb_load_log WHERE enterprise_number = %s AND deposit_key = %s",
-                (cbe, ref_number),
-            )
-            if cur.fetchone():
-                logger.info("Skipping already-loaded filing %s for %s", ref_number, cbe)
-                continue
+                # Respect NBB rate limits (non-blocking — asyncio sleep yields
+                # control, so other requests on this worker aren't frozen).
+                await asyncio.sleep(1)
 
-            # Respect NBB rate limits (non-blocking — asyncio sleep yields
-            # control, so other requests on this worker aren't frozen).
-            await asyncio.sleep(1)
-
-            # Fetch JSON-XBRL data — httpx async so the whole worker
-            # doesn't freeze for up to 30s if NBB is slow.
-            headers_json = {
-                "Accept": "application/x.jsonxbrl",
-                "NBB-CBSO-Subscription-Key": nbb_key,
-                "X-Request-Id": str(uuid.uuid4()),
-                "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
-            }
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    filing_resp = await client.get(
+                # Fetch JSON-XBRL data — async + light retry for transient
+                # timeouts so a slow NBB response doesn't instantly break the
+                # profile-triggered loader.
+                headers_json = {
+                    "Accept": "application/x.jsonxbrl",
+                    "NBB-CBSO-Subscription-Key": nbb_key,
+                    "X-Request-Id": str(uuid.uuid4()),
+                    "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
+                }
+                try:
+                    filing_resp = await _nbb_get(
+                        client,
                         f"{nbb_base}/authentic/deposit/{ref_number}/accountingData",
                         headers=headers_json,
+                        timeout=30.0,
                     )
-            except Exception as e:
-                logger.error("NBB filing request failed for ref %s: %s", ref_number, e)
-                errors.append(f"ref {ref_number}: connection error")
-                continue
+                except Exception as e:
+                    logger.error("NBB filing request failed for ref %s: %s", ref_number, e)
+                    errors.append(f"ref {ref_number}: connection error")
+                    continue
 
-            if filing_resp.status_code != 200:
-                logger.warning(
-                    "NBB filing %s returned HTTP %d", ref_number, filing_resp.status_code,
-                )
-                errors.append(f"ref {ref_number}: HTTP {filing_resp.status_code}")
-                # Detect the specific "no JSON-XBRL published" 404 — body
-                # contains the diagnostic string. Used after the loop to
-                # set the pdf_only flag on the response.
-                if filing_resp.status_code == 404:
-                    body = (filing_resp.text or "").lower()
-                    if "json xbrl" in body or "jsonxbrl" in body:
-                        pdf_only_404s += 1
-                continue
+                if filing_resp.status_code in _NBB_AUTH_FAILURE_STATUSES:
+                    raise HTTPException(status_code=503, detail="NBB API authentication failed")
 
-            filing_json = filing_resp.json()
+                if filing_resp.status_code != 200:
+                    logger.warning(
+                        "NBB filing %s returned HTTP %d", ref_number, filing_resp.status_code,
+                    )
+                    errors.append(f"ref {ref_number}: HTTP {filing_resp.status_code}")
+                    # Detect the specific "no JSON-XBRL published" 404 — body
+                    # contains the diagnostic string. Used after the loop to
+                    # set the pdf_only flag on the response.
+                    if filing_resp.status_code == 404:
+                        body = (filing_resp.text or "").lower()
+                        if "json xbrl" in body or "jsonxbrl" in body:
+                            pdf_only_404s += 1
+                    continue
 
-            # Extract metadata from reference
-            deposit_date = ref.get("DepositDate", "")
-            filing_model = ref.get("ModelType", "")
-            exercise = ref.get("ExerciseDates", {})
-            end_date = exercise.get("endDate", "")
-            fiscal_year = int(end_date[:4]) if end_date and len(end_date) >= 4 else None
+                filing_json = filing_resp.json()
 
-            # Parse rubrics (handle both capitalized and lowercase keys)
-            rows = []
-            for rubric in filing_json.get("Rubrics", filing_json.get("rubrics", [])):
-                code = rubric.get("Code", rubric.get("code", ""))
-                value = rubric.get("Value", rubric.get("value"))
-                period = rubric.get("Period", rubric.get("period", "N"))
+                # Extract metadata from the normalized reference
+                deposit_date = ref["deposit_date"]
+                filing_model = ref["model_type"]
+                filing_fiscal_year = ref["fiscal_year"]
 
-                if code and value is not None:
+                # Parse rubrics (handle both capitalized and lowercase keys)
+                rows = []
+                for rubric in filing_json.get("Rubrics", filing_json.get("rubrics", [])):
+                    code = rubric.get("Code", rubric.get("code", ""))
+                    value = rubric.get("Value", rubric.get("value"))
+                    period = rubric.get("Period", rubric.get("period", "N"))
+
+                    if code and value is not None:
+                        try:
+                            float_val = float(str(value).replace(",", ".").strip())
+                        except (ValueError, TypeError):
+                            logger.warning(
+                                "Skipping rubric %s in filing %s: non-numeric value %r",
+                                code, ref_number, value,
+                            )
+                            continue
+                        rows.append((
+                            cbe, ref_number, filing_fiscal_year, deposit_date,
+                            filing_model, code, period, float_val,
+                        ))
+
+                if rows:
                     try:
-                        float_val = float(str(value).replace(",", ".").strip())
-                    except (ValueError, TypeError):
-                        logger.warning(
-                            "Skipping rubric %s in filing %s: non-numeric value %r",
-                            code, ref_number, value,
+                        # Reset connection state if in error
+                        if conn.status != 1:  # STATUS_READY = 1
+                            conn.rollback()
+                            logger.warning("Connection was in bad state for %s, rolled back", cbe)
+
+                        psycopg2.extras.execute_batch(
+                            cur,
+                            """INSERT INTO financial_data
+                               (enterprise_number, deposit_key, fiscal_year, deposit_date,
+                                filing_model, rubric_code, period, value)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                               ON CONFLICT DO NOTHING""",
+                            rows,
                         )
-                        continue
-                    rows.append((
-                        cbe, ref_number, fiscal_year, deposit_date,
-                        filing_model, code, period, float_val,
-                    ))
-
-            if rows:
-                try:
-                    # Reset connection state if in error
-                    if conn.status != 1:  # STATUS_READY = 1
+                        # Log the load
+                        cur.execute(
+                            "INSERT INTO nbb_load_log (enterprise_number, deposit_key, rubric_count) "
+                            "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+                            (cbe, ref_number, len(rows)),
+                        )
+                        conn.commit()  # Commit EACH filing immediately
+                        total_rubrics += len(rows)
+                        filings_loaded += 1
+                        logger.info(
+                            "Loaded filing %s for %s: %d rubrics (FY %s) — committed",
+                            ref_number, cbe, len(rows), filing_fiscal_year,
+                        )
+                    except Exception as batch_err:
                         conn.rollback()
-                        logger.warning("Connection was in bad state for %s, rolled back", cbe)
+                        logger.error(
+                            "Failed to insert rubrics for filing %s of %s: %s",
+                            ref_number, cbe, batch_err,
+                        )
+                        errors.append(f"ref {ref_number}: insert failed: {batch_err}")
+                else:
+                    logger.info("Filing %s for %s had no rubrics", ref_number, cbe)
 
-                    psycopg2.extras.execute_batch(
-                        cur,
-                        """INSERT INTO financial_data
-                           (enterprise_number, deposit_key, fiscal_year, deposit_date,
-                            filing_model, rubric_code, period, value)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                           ON CONFLICT DO NOTHING""",
-                        rows,
+                try:
+                    governance_counts = store_governance_snapshot(
+                        conn, cbe, ref_number, filing_fiscal_year, filing_json,
                     )
-                    # Log the load
-                    cur.execute(
-                        "INSERT INTO nbb_load_log (enterprise_number, deposit_key, rubric_count) "
-                        "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
-                        (cbe, ref_number, len(rows)),
+                    if any(governance_counts.values()):
+                        logger.info(
+                            "Stored governance for %s filing %s: %d admins, %d shareholders, %d subsidiaries",
+                            cbe,
+                            ref_number,
+                            governance_counts["administrators"],
+                            governance_counts["shareholders"],
+                            governance_counts["participating_interests"],
+                        )
+                except Exception as gov_err:
+                    logger.warning(
+                        "Governance snapshot store failed for %s filing %s: %s",
+                        cbe, ref_number, gov_err,
                     )
-                    conn.commit()  # Commit EACH filing immediately
-                    total_rubrics += len(rows)
-                    filings_loaded += 1
-                    logger.info(
-                        "Loaded filing %s for %s: %d rubrics (FY %s) — committed",
-                        ref_number, cbe, len(rows), fiscal_year,
-                    )
-                except Exception as batch_err:
-                    conn.rollback()
-                    logger.error(
-                        "Failed to insert rubrics for filing %s of %s: %s",
-                        ref_number, cbe, batch_err,
-                    )
-                    errors.append(f"ref {ref_number}: insert failed: {batch_err}")
-            else:
-                logger.info("Filing %s for %s had no rubrics", ref_number, cbe)
-
-            try:
-                governance_counts = store_governance_snapshot(
-                    conn, cbe, ref_number, fiscal_year, filing_json,
-                )
-                if any(governance_counts.values()):
-                    logger.info(
-                        "Stored governance for %s filing %s: %d admins, %d shareholders, %d subsidiaries",
-                        cbe,
-                        ref_number,
-                        governance_counts["administrators"],
-                        governance_counts["shareholders"],
-                        governance_counts["participating_interests"],
-                    )
-            except Exception as gov_err:
-                logger.warning(
-                    "Governance snapshot store failed for %s filing %s: %s",
-                    cbe, ref_number, gov_err,
-                )
 
         # --- Step 5: Refresh materialized tables for this company ---
         _refresh_materialized_for_company(cur, conn, cbe)
 
         cur.close()
+    except HTTPException:
+        conn.rollback()
+        raise
     except Exception as e:
         conn.rollback()
         logger.exception("Error loading financial data for %s", cbe)

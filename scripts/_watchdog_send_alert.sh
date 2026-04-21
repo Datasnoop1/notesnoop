@@ -2,7 +2,8 @@
 # Helper: send a watchdog alert email.
 #
 # Usage: _watchdog_send_alert.sh <kind> <body>
-#   kind ∈ {rotating, rotated-ok, rotate-failed, still-red-after-rotate}
+#   kind in {rotating, rotated-ok, rotate-failed, still-red-after-rotate,
+#            probe-transient-no-rotate}
 #
 # Body and subject are passed via -e env vars to docker exec so quoting,
 # newlines, and special characters survive intact. SMTP credentials are
@@ -14,11 +15,12 @@ KIND="${1:-unknown}"
 BODY="${2:-(no detail)}"
 
 case "$KIND" in
-    rotating)               SUBJECT="[DataSnoop] NBB keys failed — auto-rotation in progress" ;;
-    rotated-ok)             SUBJECT="[DataSnoop] NBB keys auto-rotated successfully" ;;
-    rotate-failed)          SUBJECT="[DataSnoop] NBB AUTO-ROTATE FAILED — manual intervention needed" ;;
-    still-red-after-rotate) SUBJECT="[DataSnoop] NBB still red after recent auto-rotate — investigate" ;;
-    *)                      SUBJECT="[DataSnoop] NBB watchdog: $KIND" ;;
+    rotating)                  SUBJECT="[DataSnoop] NBB keys failed - auto-rotation in progress" ;;
+    rotated-ok)                SUBJECT="[DataSnoop] NBB keys auto-rotated successfully" ;;
+    rotate-failed)             SUBJECT="[DataSnoop] NBB AUTO-ROTATE FAILED - manual intervention needed" ;;
+    still-red-after-rotate)    SUBJECT="[DataSnoop] NBB still red after recent auto-rotate - investigate" ;;
+    probe-transient-no-rotate) SUBJECT="[DataSnoop] NBB probe red - transient issue, no auto-rotate" ;;
+    *)                         SUBJECT="[DataSnoop] NBB watchdog: $KIND" ;;
 esac
 
 HOSTNAME_STR="$(uname -n)"
@@ -47,7 +49,7 @@ hostn   = os.getenv("WATCHDOG_HOST", "?")
 ts      = os.getenv("WATCHDOG_TS", "")
 
 if not (host and user and pwd and to):
-    print("Missing SMTP config — cannot send.", file=sys.stderr)
+    print("Missing SMTP config - cannot send.", file=sys.stderr)
     sys.exit(1)
 
 body_in = sys.stdin.read()
