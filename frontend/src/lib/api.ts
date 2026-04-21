@@ -825,6 +825,11 @@ export interface NbbLoadResult {
   filings_found: number;
   filings_loaded: number;
   rubrics_loaded: number;
+  governance_loaded?: {
+    administrators: number;
+    shareholders: number;
+    participating_interests: number;
+  };
   status?: string;
   /** True when NBB has only PDF-only filings for this CBE (every recent
    *  deposit returned the "no published json xbrl" 404). */

@@ -211,6 +211,124 @@ class FinancialReferenceNormalizationTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 503)
         self.assertTrue(fake_conn.rolled_back)
 
+    def test_already_loaded_filing_backfills_missing_nbb_admins(self):
+        class FakeResponse:
+            def __init__(self, status_code, payload=None, text=""):
+                self.status_code = status_code
+                self._payload = payload
+                self.text = text
+
+            def json(self):
+                return self._payload
+
+        class FakeClient:
+            responses = [
+                FakeResponse(
+                    200,
+                    [
+                        {
+                            "referenceNumber": "2024-67890",
+                            "depositDate": "2024-09-15",
+                            "modelType": "VOL",
+                            "exerciseDates": {"endDate": "2024-03-31"},
+                        }
+                    ],
+                ),
+                FakeResponse(200, {"administrators": {"naturalPersons": []}}),
+            ]
+
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def get(self, *_args, **_kwargs):
+                return type(self).responses.pop(0)
+
+        class FakeCursor:
+            def __init__(self):
+                self.last_sql = ""
+
+            def execute(self, sql, *_args, **_kwargs):
+                self.last_sql = " ".join(str(sql).split())
+
+            def fetchone(self):
+                if "FROM nbb_load_log" in self.last_sql and "COUNT(*)" in self.last_sql:
+                    return (True, 0)
+                return None
+
+            def close(self):
+                return None
+
+        class FakeConnection:
+            status = 1
+
+            def __init__(self):
+                self.rolled_back = False
+                self.cursor_obj = FakeCursor()
+
+            def cursor(self):
+                return self.cursor_obj
+
+            def rollback(self):
+                self.rolled_back = True
+
+            def commit(self):
+                return None
+
+        fake_conn = FakeConnection()
+        original_client = self.financials.httpx.AsyncClient
+        original_get_connection = self.financials.get_connection
+        original_put_connection = self.financials.put_connection
+        original_sleep = self.financials.asyncio.sleep
+        original_store = self.financials.store_governance_snapshot
+        original_refresh = self.financials._refresh_materialized_for_company
+        self.financials.httpx.AsyncClient = FakeClient
+        self.financials.get_connection = lambda: fake_conn
+        self.financials.put_connection = lambda _conn: None
+        governance_calls = []
+        self.financials.store_governance_snapshot = (
+            lambda conn, cbe, deposit_key, fiscal_year, filing_json: governance_calls.append(
+                (conn, cbe, deposit_key, fiscal_year, filing_json)
+            ) or {
+                "administrators": 2,
+                "shareholders": 0,
+                "participating_interests": 0,
+            }
+        )
+        self.financials._refresh_materialized_for_company = lambda *_args, **_kwargs: None
+
+        async def _fast_sleep(_seconds):
+            return None
+
+        self.financials.asyncio.sleep = _fast_sleep
+        self.addCleanup(setattr, self.financials.httpx, "AsyncClient", original_client)
+        self.addCleanup(setattr, self.financials, "get_connection", original_get_connection)
+        self.addCleanup(setattr, self.financials, "put_connection", original_put_connection)
+        self.addCleanup(setattr, self.financials.asyncio, "sleep", original_sleep)
+        self.addCleanup(setattr, self.financials, "store_governance_snapshot", original_store)
+        self.addCleanup(setattr, self.financials, "_refresh_materialized_for_company", original_refresh)
+
+        result = asyncio.run(
+            self.financials._do_load(
+                "0403091220",
+                None,
+                "auth-key",
+                "https://ws.cbso.nbb.be",
+            )
+        )
+
+        self.assertEqual(result["filings_loaded"], 0)
+        self.assertEqual(result["rubrics_loaded"], 0)
+        self.assertEqual(result["governance_loaded"]["administrators"], 2)
+        self.assertEqual(result["status"], "governance_backfilled")
+        self.assertEqual(len(governance_calls), 1)
+        self.assertFalse(fake_conn.rolled_back)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -59,7 +59,47 @@ def _no_filings_result(cbe: str) -> dict:
         "filings_found": 0,
         "filings_loaded": 0,
         "rubrics_loaded": 0,
+        "governance_loaded": _empty_governance_counts(),
         "status": "no_filings",
+    }
+
+
+def _empty_governance_counts() -> dict[str, int]:
+    return {
+        "administrators": 0,
+        "shareholders": 0,
+        "participating_interests": 0,
+    }
+
+
+def _sum_governance_counts(counts: dict[str, int]) -> int:
+    return sum(int(counts.get(key, 0) or 0) for key in _empty_governance_counts())
+
+
+def _get_filing_sync_state(cur, cbe: str, deposit_key: str) -> dict[str, int | bool]:
+    """Return whether financials exist already, and whether NBB admins do too."""
+    cur.execute(
+        """
+        SELECT
+            EXISTS(
+                SELECT 1
+                FROM nbb_load_log
+                WHERE enterprise_number = %s
+                  AND deposit_key = %s
+            ) AS financials_loaded,
+            COALESCE((
+                SELECT COUNT(*)
+                FROM administrator
+                WHERE enterprise_number = %s
+                  AND deposit_key = %s
+            ), 0) AS admin_count
+        """,
+        (cbe, deposit_key, cbe, deposit_key),
+    )
+    row = cur.fetchone() or (False, 0)
+    return {
+        "financials_loaded": bool(row[0]),
+        "admin_count": int(row[1] or 0),
     }
 
 
@@ -201,6 +241,7 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
     conn = get_connection()
     total_rubrics = 0
     filings_loaded = 0
+    governance_loaded = _empty_governance_counts()
     errors = []
     # NBB only publishes JSON-XBRL for the m02-f model (full-format scheme
     # used by larger companies). Smaller filers using m120/m211/m212 with
@@ -231,14 +272,19 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
                 if not ref_number:
                     continue
 
-                # Check if already loaded (skip duplicates)
-                cur.execute(
-                    "SELECT 1 FROM nbb_load_log WHERE enterprise_number = %s AND deposit_key = %s",
-                    (cbe, ref_number),
-                )
-                if cur.fetchone():
+                sync_state = _get_filing_sync_state(cur, cbe, ref_number)
+                financials_loaded_already = bool(sync_state["financials_loaded"])
+                has_nbb_admins = int(sync_state["admin_count"] or 0) > 0
+
+                if financials_loaded_already and has_nbb_admins:
                     logger.info("Skipping already-loaded filing %s for %s", ref_number, cbe)
                     continue
+                if financials_loaded_already:
+                    logger.info(
+                        "Re-checking already-loaded filing %s for %s to backfill missing NBB admins",
+                        ref_number,
+                        cbe,
+                    )
 
                 # Respect NBB rate limits (non-blocking — asyncio sleep yields
                 # control, so other requests on this worker aren't frozen).
@@ -333,9 +379,17 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
                             (cbe, ref_number, len(rows)),
                         )
                         conn.commit()  # Commit EACH filing immediately
-                        total_rubrics += len(rows)
-                        filings_loaded += 1
-                        logger.info(
+                        if financials_loaded_already:
+                            logger.info(
+                                "Reused existing financial rows for filing %s of %s while backfilling governance",
+                                ref_number,
+                                cbe,
+                            )
+                        else:
+                            total_rubrics += len(rows)
+                            filings_loaded += 1
+                        if not financials_loaded_already:
+                            logger.info(
                             "Loaded filing %s for %s: %d rubrics (FY %s) — committed",
                             ref_number, cbe, len(rows), filing_fiscal_year,
                         )
@@ -353,6 +407,8 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
                     governance_counts = store_governance_snapshot(
                         conn, cbe, ref_number, filing_fiscal_year, filing_json,
                     )
+                    for key, value in governance_counts.items():
+                        governance_loaded[key] += int(value or 0)
                     if any(governance_counts.values()):
                         logger.info(
                             "Stored governance for %s filing %s: %d admins, %d shareholders, %d subsidiaries",
@@ -422,8 +478,17 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
         "filings_found": len(references),
         "filings_loaded": filings_loaded,
         "rubrics_loaded": total_rubrics,
+        "governance_loaded": governance_loaded,
         "pdf_only": pdf_only,
-        "status": "loaded" if filings_loaded > 0 else ("pdf_only" if pdf_only else "no_new_data"),
+        "status": (
+            "loaded"
+            if filings_loaded > 0
+            else (
+                "governance_backfilled"
+                if _sum_governance_counts(governance_loaded) > 0
+                else ("pdf_only" if pdf_only else "no_new_data")
+            )
+        ),
     }
     if errors:
         result["errors"] = errors

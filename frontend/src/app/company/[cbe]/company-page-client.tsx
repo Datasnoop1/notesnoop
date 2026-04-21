@@ -127,6 +127,8 @@ export function CompanyPageClient({
   const [nbbLoading, setNbbLoading] = useState(false);
   const [nbbResult, setNbbResult] = useState<"success" | "error" | "no-data" | "pdf-only" | null>(null);
   const nbbAutoTriggered = React.useRef(false);
+  const nbbAutoInFlight = React.useRef(false);
+  const adminExtractTriggered = React.useRef(false);
   const aiPreloadTriggered = React.useRef(false);
   const router = useRouter();
 
@@ -173,6 +175,17 @@ export function CompanyPageClient({
     const interval = setInterval(() => setLoadElapsed(Math.floor((Date.now() - loadStartTime) / 1000)), 1000);
     return () => clearInterval(interval);
   }, [loadStartTime]);
+
+  useEffect(() => {
+    nbbAutoTriggered.current = false;
+    nbbAutoInFlight.current = false;
+    adminExtractTriggered.current = false;
+    setNbbLoading(false);
+    setNbbResult(null);
+    setLoadOverlay(false);
+    setLoadStages([]);
+    setLoadStartTime(null);
+  }, [cbe]);
 
   /* Track this profile in localStorage so the screener / dashboard can
      surface a "Recently viewed" panel. Only fires after we've resolved
@@ -284,30 +297,41 @@ export function CompanyPageClient({
 
   /* -- Auto-load missing NBB data / publications -- */
   const runAutoLoad = useCallback(async (fin: FinancialsData | null, str: StructureData | null) => {
-    const needsFinancials = fin && fin.summary && fin.summary.length === 0;
-    const needsPublications = !str?.staatsblad_publications?.length;
+    const needsFinancials = !!(fin?.summary && fin.summary.length === 0);
+    const hasNbbBackedAdmins = !!str?.administrators?.some(
+      (admin) => admin.source === "nbb" || admin.source === "merged"
+    );
+    const needsNbbAdmins = !!str && !hasNbbBackedAdmins;
+    const needsPublications = !!str && !str.staatsblad_publications?.length;
 
-    if (!(needsFinancials || needsPublications) || nbbAutoTriggered.current) return;
+    if (nbbAutoTriggered.current) return;
     nbbAutoTriggered.current = true;
+    nbbAutoInFlight.current = true;
 
-    // Build loading stages
+    const shouldShowOverlay = needsFinancials || needsNbbAdmins || needsPublications;
     const stages: LoadStage[] = [];
-    if (needsFinancials) {
-      stages.push({ label: "Gathering financial data", status: "pending" });
-      stages.push({ label: "Processing and storing data", status: "pending" });
+    if (shouldShowOverlay) {
+      stages.push({
+        label: needsFinancials
+          ? "Checking latest financials and NBB board data"
+          : needsNbbAdmins
+            ? "Checking NBB board data"
+            : "Checking NBB for updates",
+        status: "pending",
+      });
+      if (needsPublications) {
+        stages.push({ label: "Loading publications", status: "pending" });
+      }
+      stages.push({ label: "Done", status: "pending" });
+      setLoadStages(stages);
+      setLoadOverlay(true);
+      setLoadStartTime(Date.now());
     }
-    if (needsPublications) {
-      stages.push({ label: "Loading publications", status: "pending" });
-    }
-    stages.push({ label: "Done", status: "pending" });
-
-    setLoadStages(stages);
-    setLoadOverlay(true);
-    setLoadStartTime(Date.now());
     setNbbLoading(true);
 
     let stageIdx = 0;
     const advance = (status: "done" | "error" = "done") => {
+      if (!shouldShowOverlay) return;
       setLoadStages((prev) => {
         const next = [...prev];
         next[stageIdx] = { ...next[stageIdx], status };
@@ -317,34 +341,43 @@ export function CompanyPageClient({
       stageIdx++;
     };
 
-    // Start first stage
-    setLoadStages((prev) => { const n = [...prev]; n[0] = { ...n[0], status: "active" }; return n; });
-
-    // Load financials
-    if (needsFinancials) {
-      try {
-        const data = await loadCompanyNBB(cbe);
-        advance();
-        if (data.rubrics_loaded > 0) {
-          const [newF, newS] = await Promise.all([
-            getCompanyFinancials(cbe),
-            getCompanyStructure(cbe),
-          ]);
-          setFinancials(newF as unknown as FinancialsData);
-          setStructure(newS as unknown as StructureData);
-          setNbbResult("success");
-        } else {
-          setNbbResult("no-data");
-        }
-        advance();
-      } catch {
-        advance("error");
-        advance("error");
-        setNbbResult("error");
-      }
+    if (shouldShowOverlay) {
+      setLoadStages((prev) => {
+        const next = [...prev];
+        next[0] = { ...next[0], status: "active" };
+        return next;
+      });
     }
 
-    // Load publications
+    try {
+      const data = await loadCompanyNBB(cbe);
+      const governanceLoaded = (data.governance_loaded?.administrators ?? 0)
+        + (data.governance_loaded?.shareholders ?? 0)
+        + (data.governance_loaded?.participating_interests ?? 0);
+      const shouldRefreshNbbData = data.rubrics_loaded > 0
+        || data.filings_loaded > 0
+        || governanceLoaded > 0
+        || data.status === "governance_backfilled";
+
+      if (shouldRefreshNbbData) {
+        const [newF, newS] = await Promise.all([
+          getCompanyFinancials(cbe),
+          getCompanyStructure(cbe),
+        ]);
+        setFinancials(newF as unknown as FinancialsData);
+        setStructure(newS as unknown as StructureData);
+        setNbbResult("success");
+      } else if (data.pdf_only) {
+        setNbbResult("pdf-only");
+      } else {
+        setNbbResult("no-data");
+      }
+      advance();
+    } catch {
+      advance("error");
+      setNbbResult("error");
+    }
+
     if (needsPublications) {
       try {
         await loadPublications(cbe);
@@ -356,15 +389,19 @@ export function CompanyPageClient({
       }
     }
 
-    // Mark done
-    setLoadStages((prev) => {
-      const n = [...prev];
-      n[n.length - 1] = { ...n[n.length - 1], status: "done" };
-      return n;
-    });
+    if (shouldShowOverlay) {
+      setLoadStages((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = { ...next[next.length - 1], status: "done" };
+        return next;
+      });
+    }
+    nbbAutoInFlight.current = false;
     setNbbLoading(false);
     setLoadStartTime(null);
-    setTimeout(() => setLoadOverlay(false), 3000);
+    if (shouldShowOverlay) {
+      setTimeout(() => setLoadOverlay(false), 3000);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cbe]);
 
@@ -410,9 +447,8 @@ export function CompanyPageClient({
      limits cap LLM-burning calls per day per IP). The Staatsblad scrape
      is essential profile data and runs for everyone; the extract-admins
      LLM step is tier-counted so anonymous abuse stays bounded. */
-  const adminExtractTriggered = React.useRef(false);
   useEffect(() => {
-    if (!structure || adminExtractTriggered.current) return;
+    if (!structure || adminExtractTriggered.current || nbbAutoInFlight.current) return;
     const hasAdmins = structure.administrators.length > 0;
     if (hasAdmins) return;
 
