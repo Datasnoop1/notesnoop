@@ -407,14 +407,15 @@ export function CompanyPageClient({
 
   /* -- Load company detail, financials, structure -- */
   useEffect(() => {
-    // SSR provided initial data — skip fetch, just run auto-load checks
+    // Even with SSR data, refresh the profile client-side once so newly
+    // ingested admins / subsidiaries are not hidden behind the server page
+    // cache window.
     if (initialDetail) {
-      runAutoLoad(initialFinancials, initialStructure);
-      return;
+      setLoading(false);
+    } else {
+      setLoading(true);
     }
 
-    // Fallback: client-side fetch when SSR data unavailable
-    setLoading(true);
     nbbAutoTriggered.current = false;
     Promise.all([
       getCompanyDetail(cbe),
@@ -430,7 +431,11 @@ export function CompanyPageClient({
       })
       .catch((err) => {
         console.error("Failed to load company data:", err);
-        setLoading(false);
+        if (initialDetail) {
+          runAutoLoad(initialFinancials, initialStructure);
+        } else {
+          setLoading(false);
+        }
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cbe]);
