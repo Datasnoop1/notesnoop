@@ -10,7 +10,7 @@ registered companies first) so we maximise impact per API call.
 
 Designed to run via cron at 02:00 nightly for a bounded number of calls:
     0 2 * * * cd /opt/leadpeek && docker exec leadpeek-backend-1 \
-        timeout 4h python /app/../scripts/nbb_nightly_backload.py \
+        timeout 4h python /app/scripts/nbb_nightly_backload.py \
         --max-calls 5000 \
         >> scripts/_watchdog_state/nightly.log 2>&1
 
@@ -37,15 +37,30 @@ import os
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import psycopg2
 import psycopg2.extras
 import requests
 
-# Make backend/db importable (same pattern as nbb_batch_pipeline.py)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+
+def _bootstrap_backend_path(script_file: str | None = None) -> str:
+    """Make backend modules importable in both repo and container layouts."""
+    script_path = Path(script_file or __file__).resolve()
+    repo_root = script_path.parent.parent
+    candidates = [repo_root / "backend", repo_root]
+    for candidate in candidates:
+        if (candidate / "db.py").exists():
+            candidate_str = str(candidate)
+            if candidate_str not in sys.path:
+                sys.path.insert(0, candidate_str)
+            return candidate_str
+    raise RuntimeError(f"Could not locate backend modules for {script_path}")
+
+
+_BACKEND_IMPORT_ROOT = _bootstrap_backend_path()
 from db import get_connection, put_connection, fetch_one, fetch_all, execute  # type: ignore
 from nbb_governance import store_governance_snapshot  # type: ignore
 
@@ -431,7 +446,7 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
             "INSERT INTO meta (variable, value) VALUES (%s, %s) "
             "ON CONFLICT (variable) DO UPDATE SET value = EXCLUDED.value",
             ("nbb_nightly_backload_last",
-             f"{datetime.utcnow().isoformat()}: {loaded} loaded, {rubrics_total} rubrics, {pdf_only} pdf-only, {no_filings} no-filings, {errors} errors, {calls} calls"),
+             f"{datetime.now(timezone.utc).isoformat()}: {loaded} loaded, {rubrics_total} rubrics, {pdf_only} pdf-only, {no_filings} no-filings, {errors} errors, {calls} calls"),
         )
     except Exception:
         pass
@@ -439,8 +454,8 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="NBB nightly backload — reverse-chronological gap fill")
-    ap.add_argument("--max-calls", type=int, default=10000,
-                    help="Hard cap on NBB API calls for this run (default 10000)")
+    ap.add_argument("--max-calls", type=int, default=5000,
+                    help="Hard cap on NBB API calls for this run (default 5000)")
     ap.add_argument("--start-year", type=int, default=2024,
                     help="Newest fiscal year to backfill (default 2024 — 2025/2026 "
                          "filings are too sparse this early in the year; re-enable "

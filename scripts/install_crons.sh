@@ -42,7 +42,7 @@ NEW_BLOCK=$(cat <<'EOF'
 0 3 * * * bash /opt/leadpeek/scripts/daily_update.sh >> /var/log/datapeak_daily.log 2>&1
 # NBB nightly backload (reverse chronological, FY2024 → FY2022 — newer years
 # are too sparse this early in 2026; re-enable later when filings exist)
-0 2 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 timeout 4h python /app/scripts/nbb_nightly_backload.py --max-calls 10000 >> /opt/leadpeek/scripts/_watchdog_state/nightly.log 2>&1
+0 2 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 timeout 4h python /app/scripts/nbb_nightly_backload.py --max-calls 5000 >> /opt/leadpeek/scripts/_watchdog_state/nightly.log 2>&1
 # Regsol insolvency scraper (throttled candidates)
 30 3 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_regsol.py --batch 200 >> /opt/leadpeek/scripts/_watchdog_state/regsol.log 2>&1
 # Invoice ingest from invoice@datasnoop.be
