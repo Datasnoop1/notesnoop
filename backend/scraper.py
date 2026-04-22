@@ -584,10 +584,12 @@ def _extract_best_website(html: str, company_name: str) -> str | None:
 
         # Score the candidate
         score = 0
-        domain_slug = re.sub(r"[^a-z0-9]", "", domain.split(".")[0])
+        domain_parts = [p for p in domain.split(".") if p]
+        primary_label = domain_parts[-2] if len(domain_parts) >= 2 else domain_parts[0]
+        domain_slug = re.sub(r"[^a-z0-9]", "", primary_label)
         token_hit = any(tok in domain_slug for tok in name_tokens)
         slug_hit = bool(
-            name_slug and domain_slug and (
+            name_slug and len(domain_slug) >= 4 and (
                 name_slug in domain_slug or domain_slug in name_slug
             )
         )
