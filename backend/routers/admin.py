@@ -132,6 +132,156 @@ async def financials_by_year(user=Depends(_require_admin)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/nbb-backload")
+async def nbb_backload_progress(user=Depends(_require_admin)):
+    """NBB backload progress and recent throughput for the admin panel."""
+    try:
+        overview = fetch_one("""
+            WITH remaining AS (
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM financial_by_year fby
+                            WHERE fby.enterprise_number = e.enterprise_number
+                              AND fby.fiscal_year = 2024
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM nbb_load_log ll
+                            WHERE ll.enterprise_number = e.enterprise_number
+                              AND (ll.deposit_key LIKE 'NO_FILINGS%%'
+                                   OR ll.deposit_key = 'PDF_ONLY')
+                        )
+                    ) AS fy2024_remaining,
+                    COUNT(*) FILTER (
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM financial_by_year fby
+                            WHERE fby.enterprise_number = e.enterprise_number
+                              AND fby.fiscal_year = 2023
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM nbb_load_log ll
+                            WHERE ll.enterprise_number = e.enterprise_number
+                              AND (ll.deposit_key LIKE 'NO_FILINGS%%'
+                                   OR ll.deposit_key = 'PDF_ONLY')
+                        )
+                    ) AS fy2023_remaining,
+                    COUNT(*) FILTER (
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM financial_by_year fby
+                            WHERE fby.enterprise_number = e.enterprise_number
+                              AND fby.fiscal_year = 2022
+                        )
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM nbb_load_log ll
+                            WHERE ll.enterprise_number = e.enterprise_number
+                              AND (ll.deposit_key LIKE 'NO_FILINGS%%'
+                                   OR ll.deposit_key = 'PDF_ONLY')
+                        )
+                    ) AS fy2022_remaining
+                FROM enterprise e
+                WHERE e.status = 'AC'
+                  AND e.type_of_enterprise = '1'
+            )
+            SELECT
+                (SELECT COUNT(*)
+                 FROM enterprise e
+                 WHERE e.status = 'AC'
+                   AND e.type_of_enterprise = '1') AS active_targets,
+                (SELECT COUNT(DISTINCT enterprise_number)
+                 FROM nbb_load_log
+                 WHERE deposit_key LIKE 'NO_FILINGS%%') AS retired_no_filings,
+                (SELECT COUNT(DISTINCT enterprise_number)
+                 FROM nbb_load_log
+                 WHERE deposit_key = 'PDF_ONLY') AS retired_pdf_only,
+                (SELECT COUNT(DISTINCT enterprise_number)
+                 FROM financial_by_year) AS companies_with_financial_history,
+                (SELECT COUNT(*)
+                 FROM financial_by_year) AS financial_year_rows,
+                remaining.fy2024_remaining,
+                remaining.fy2023_remaining,
+                remaining.fy2022_remaining,
+                (SELECT value
+                 FROM meta
+                 WHERE variable = 'nbb_nightly_backload_last') AS last_checkpoint
+            FROM remaining
+        """)
+
+        windows = fetch_one("""
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '24 hours'
+                ) AS rows_24h,
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '24 hours'
+                      AND deposit_key = 'NO_FILINGS'
+                ) AS no_filings_24h,
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '24 hours'
+                      AND deposit_key <> 'NO_FILINGS'
+                      AND COALESCE(rubric_count, 0) > 0
+                ) AS real_filings_24h,
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '24 hours'
+                      AND deposit_key = 'PDF_ONLY'
+                ) AS pdf_only_24h,
+                MIN(loaded_at::timestamptz) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '24 hours'
+                ) AS first_seen_24h,
+                MAX(loaded_at::timestamptz) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '24 hours'
+                ) AS last_seen_24h,
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '7 days'
+                ) AS rows_7d,
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '7 days'
+                      AND deposit_key = 'NO_FILINGS'
+                ) AS no_filings_7d,
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '7 days'
+                      AND deposit_key <> 'NO_FILINGS'
+                      AND COALESCE(rubric_count, 0) > 0
+                ) AS real_filings_7d,
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '7 days'
+                      AND deposit_key = 'PDF_ONLY'
+                ) AS pdf_only_7d
+            FROM nbb_load_log
+        """)
+
+        recent_real = fetch_all("""
+            SELECT enterprise_number, deposit_key, rubric_count, loaded_at
+            FROM nbb_load_log
+            WHERE deposit_key <> 'NO_FILINGS'
+              AND COALESCE(rubric_count, 0) > 0
+            ORDER BY loaded_at::timestamptz DESC
+            LIMIT 12
+        """)
+        for row in recent_real:
+            if row.get("loaded_at"):
+                row["loaded_at"] = str(row["loaded_at"])
+
+        daily_rows = int((windows or {}).get("rows_24h") or 0)
+        remaining_now = int((overview or {}).get("fy2024_remaining") or 0)
+        eta_days = round(remaining_now / daily_rows, 1) if daily_rows > 0 else None
+
+        return {
+            **(overview or {}),
+            **(windows or {}),
+            "eta_days_from_24h_pace": eta_days,
+            "recent_real_filings": recent_real,
+        }
+    except Exception as e:
+        logger.exception("NBB backload progress failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/users")
 async def list_users(user=Depends(_require_admin)):
     """List all known users."""

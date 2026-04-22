@@ -310,6 +310,35 @@ interface TierConfig {
   updated_at: string;
 }
 
+interface NbbBackloadProgress {
+  active_targets: number;
+  retired_no_filings: number;
+  retired_pdf_only: number;
+  companies_with_financial_history: number;
+  financial_year_rows: number;
+  fy2024_remaining: number;
+  fy2023_remaining: number;
+  fy2022_remaining: number;
+  last_checkpoint: string | null;
+  rows_24h: number;
+  no_filings_24h: number;
+  real_filings_24h: number;
+  pdf_only_24h: number;
+  first_seen_24h: string | null;
+  last_seen_24h: string | null;
+  rows_7d: number;
+  no_filings_7d: number;
+  real_filings_7d: number;
+  pdf_only_7d: number;
+  eta_days_from_24h_pace: number | null;
+  recent_real_filings: {
+    enterprise_number: string;
+    deposit_key: string;
+    rubric_count: number;
+    loaded_at: string;
+  }[];
+}
+
 /* ---------- API helper ---------- */
 
 async function adminFetch<T>(
@@ -575,7 +604,7 @@ function ReadinessGauge({ score }: { score: number }) {
      - Operations: people, configuration, money (the day-to-day ops desk)
    The actual TabsContent panels are unchanged; only the visible TabsList
    gets filtered by the current sheet. */
-const PULSE_TABS = ["traction", "readiness", "usage"] as const;
+const PULSE_TABS = ["traction", "readiness", "nbb", "usage"] as const;
 const OPS_TABS = ["users", "feedback", "polls", "tiers", "activity", "revenue", "settings"] as const;
 type AdminSheet = "pulse" | "operations";
 type AdminTabKey = (typeof PULSE_TABS)[number] | (typeof OPS_TABS)[number];
@@ -623,6 +652,7 @@ export default function AdminPanel() {
   const [newOptionText, setNewOptionText] = useState("");
   const [userView, setUserView] = useState<"all" | "active">("all");
   const [finByYear, setFinByYear] = useState<{ fiscal_year: number; companies: number; filings: number }[]>([]);
+  const [nbbBackload, setNbbBackload] = useState<NbbBackloadProgress | null>(null);
   const [insights, setInsights] = useState<Insights | null>(null);
   const [usageData, setUsageData] = useState<{
     daily: { day: string; registered_requests: number; guest_requests: number; unique_registered: number; unique_guests: number }[];
@@ -665,7 +695,7 @@ export default function AdminPanel() {
       // (<500ms) so we load it all on mount. Commerce endpoints (Stripe
       // list + iter, OpenRouter live API, pnl-summary) are lazy-loaded
       // by a separate effect when the Revenue tab is visited.
-      const [s, u, f, a, p, fby, alog, ins, usage, tc, sc, adopt, trac, llmCosts, invs] = await Promise.all([
+      const [s, u, f, a, p, fby, nbb, alog, ins, usage, tc, sc, adopt, trac, llmCosts, invs] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
@@ -674,6 +704,7 @@ export default function AdminPanel() {
         ),
         adminFetch<Poll[]>("/api/polls").catch(() => [] as Poll[]),
         adminFetch<{ fiscal_year: number; companies: number; filings: number }[]>("/api/admin/financials-by-year").catch(() => []),
+        adminFetch<NbbBackloadProgress>("/api/admin/nbb-backload").catch(() => null),
         adminFetch<ActivityEntry[]>("/api/admin/activity").catch(() => [] as ActivityEntry[]),
         adminFetch<Insights>("/api/admin/insights").catch(() => null),
         adminFetch<typeof usageData>("/api/admin/usage").catch(() => null),
@@ -691,6 +722,7 @@ export default function AdminPanel() {
       setActivity(a);
       setPolls(p);
       setFinByYear(fby);
+      setNbbBackload(nbb);
       setActivityLog(alog);
       setInsights(ins);
       setUsageData(usage as typeof usageData);
@@ -1205,6 +1237,10 @@ export default function AdminPanel() {
               <TabsTrigger value="readiness">
                 <Gauge className="size-3.5 mr-1.5" />
                 Readiness
+              </TabsTrigger>
+              <TabsTrigger value="nbb">
+                <Database className="size-3.5 mr-1.5" />
+                NBB Backload
               </TabsTrigger>
               <TabsTrigger value="usage">
                 <Activity className="size-3.5 mr-1.5" />
@@ -1967,6 +2003,198 @@ export default function AdminPanel() {
                   </CardContent>
                 </Card>
               </div>
+            )}
+          </div>
+        </TabsContent>
+
+        {/* ================================================================
+            TAB: NBB Backload
+            ================================================================ */}
+        <TabsContent value="nbb">
+          <div className="space-y-6 pt-2">
+            {!nbbBackload ? (
+              <Card className="bg-white">
+                <CardContent>
+                  <p className="py-8 text-center text-sm text-slate-400">
+                    Loading NBB backload progress...
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <Card className="bg-white">
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                          Remaining
+                        </span>
+                        <Database className="size-3.5 text-slate-300" />
+                      </div>
+                      <div className="text-2xl font-bold font-mono text-slate-900">
+                        {fmt(nbbBackload.fy2024_remaining)}
+                      </div>
+                      <div className="text-[10px] text-slate-400 mb-1">
+                        unresolved companies in the current sweep
+                      </div>
+                      <ProgressBar
+                        value={nbbBackload.active_targets - nbbBackload.fy2024_remaining}
+                        target={nbbBackload.active_targets}
+                        colorCoded
+                      />
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-white">
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                          Processed 24h
+                        </span>
+                        <Activity className="size-3.5 text-indigo-300" />
+                      </div>
+                      <div className="text-2xl font-bold font-mono text-slate-900">
+                        {fmt(nbbBackload.rows_24h)}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {fmt(nbbBackload.no_filings_24h)} no-filings, {fmt(nbbBackload.real_filings_24h)} real filings
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-white">
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                          ETA
+                        </span>
+                        <Clock className="size-3.5 text-amber-300" />
+                      </div>
+                      <div className="text-2xl font-bold font-mono text-slate-900">
+                        {nbbBackload.eta_days_from_24h_pace == null ? "--" : `${nbbBackload.eta_days_from_24h_pace}d`}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        based on the last 24h throughput
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-white">
+                    <CardContent>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
+                          Last Checkpoint
+                        </span>
+                        <CircleCheck className="size-3.5 text-emerald-300" />
+                      </div>
+                      <div className="text-sm font-semibold text-slate-900">
+                        {nbbBackload.last_seen_24h ? toBelgianTime(nbbBackload.last_seen_24h) : "--"}
+                      </div>
+                      <div className="text-[10px] text-slate-400 line-clamp-3 mt-1">
+                        {nbbBackload.last_checkpoint || "No checkpoint recorded"}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <Card className="bg-white">
+                    <CardContent>
+                      <SectionHeading icon={TrendingUp}>Progress Realized</SectionHeading>
+                      <div className="space-y-4">
+                        <HorizontalBar
+                          label="Resolved in current sweep"
+                          value={nbbBackload.active_targets - nbbBackload.fy2024_remaining}
+                          total={nbbBackload.active_targets}
+                        />
+                        <HorizontalBar
+                          label="Companies with financial history"
+                          value={nbbBackload.companies_with_financial_history}
+                          total={nbbBackload.active_targets}
+                        />
+                        <HorizontalBar
+                          label="Retired as NO_FILINGS"
+                          value={nbbBackload.retired_no_filings}
+                          total={nbbBackload.active_targets}
+                        />
+                        <HorizontalBar
+                          label="Retired as PDF_ONLY"
+                          value={nbbBackload.retired_pdf_only}
+                          total={nbbBackload.active_targets}
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="bg-white">
+                    <CardContent>
+                      <SectionHeading icon={BarChart3}>Recent Throughput</SectionHeading>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-lg border border-slate-200 p-3">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-400">Last 24h</div>
+                          <div className="mt-1 text-xl font-bold font-mono text-slate-900">{fmt(nbbBackload.rows_24h)}</div>
+                          <div className="text-xs text-slate-500 mt-1">{fmt(nbbBackload.real_filings_24h)} real filings</div>
+                          <div className="text-xs text-slate-500">{fmt(nbbBackload.no_filings_24h)} no-filings</div>
+                        </div>
+                        <div className="rounded-lg border border-slate-200 p-3">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-400">Last 7d</div>
+                          <div className="mt-1 text-xl font-bold font-mono text-slate-900">{fmt(nbbBackload.rows_7d)}</div>
+                          <div className="text-xs text-slate-500 mt-1">{fmt(nbbBackload.real_filings_7d)} real filings</div>
+                          <div className="text-xs text-slate-500">{fmt(nbbBackload.no_filings_7d)} no-filings</div>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-400">FY2024 left</div>
+                          <div className="mt-1 text-lg font-bold font-mono text-slate-900">{fmt(nbbBackload.fy2024_remaining)}</div>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-400">FY2023 left</div>
+                          <div className="mt-1 text-lg font-bold font-mono text-slate-900">{fmt(nbbBackload.fy2023_remaining)}</div>
+                        </div>
+                        <div className="rounded-lg bg-slate-50 p-3">
+                          <div className="text-[10px] uppercase tracking-wide text-slate-400">FY2022 left</div>
+                          <div className="mt-1 text-lg font-bold font-mono text-slate-900">{fmt(nbbBackload.fy2022_remaining)}</div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card className="bg-white">
+                  <CardContent>
+                    <SectionHeading icon={Building2}>Recent Real Filings Loaded</SectionHeading>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>CBE</TableHead>
+                          <TableHead>Deposit</TableHead>
+                          <TableHead className="text-right">Rubrics</TableHead>
+                          <TableHead>Loaded</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {nbbBackload.recent_real_filings.length > 0 ? (
+                          nbbBackload.recent_real_filings.map((row) => (
+                            <TableRow key={`${row.enterprise_number}-${row.deposit_key}`}>
+                              <TableCell className="font-mono text-xs">{row.enterprise_number}</TableCell>
+                              <TableCell className="font-mono text-xs">{row.deposit_key}</TableCell>
+                              <TableCell className="text-right font-mono text-xs">{fmt(row.rubric_count)}</TableCell>
+                              <TableCell className="text-xs text-slate-500">{toBelgianTime(row.loaded_at)}</TableCell>
+                            </TableRow>
+                          ))
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center text-sm text-slate-400">
+                              No recent real filings yet.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </>
             )}
           </div>
         </TabsContent>
