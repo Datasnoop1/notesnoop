@@ -622,6 +622,19 @@ async def progress_logger(
 # ---------------------------------------------------------------------------
 
 async def run(args: argparse.Namespace) -> int:
+    if args.daemon:
+        cycle = 0
+        while True:
+            cycle += 1
+            rc = await run_once(args)
+            if rc != 0:
+                return rc
+            log.info("daemon idle: sleeping %.1f seconds before next queue check", args.daemon_sleep)
+            await asyncio.sleep(args.daemon_sleep)
+    return await run_once(args)
+
+
+async def run_once(args: argparse.Namespace) -> int:
     # Seed step (optional; safe to call any time)
     if args.seed:
         with _db() as conn:
@@ -754,6 +767,14 @@ def main() -> int:
     p.add_argument(
         "--backoff-base", type=float, default=1.0,
         help="Base seconds for exponential backoff on worker retries",
+    )
+    p.add_argument(
+        "--daemon", action="store_true",
+        help="Stay alive after the queue drains and poll for newly-seeded work",
+    )
+    p.add_argument(
+        "--daemon-sleep", type=float, default=60.0,
+        help="Seconds to wait between queue checks in --daemon mode",
     )
     args = p.parse_args()
     try:

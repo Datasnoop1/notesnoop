@@ -131,6 +131,7 @@ services:
         mkdir -p /var/log/staatsblad_bulk &&
         python -u /app/scripts/staatsblad_bulk_scrape.py
         --mode=webshare
+        --daemon
         --workers="$$workers"
         --webshare-proxies-file="$$proxy_file"
         >> "$$log_file" 2>&1
