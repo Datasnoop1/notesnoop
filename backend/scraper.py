@@ -30,7 +30,7 @@ ZENROWS_BASE = "https://api.zenrows.com/v1/"
 # 3 seconds between CALLS (not per CBE) is the Phase 0 recommendation.
 # Overridable via env for tuning / local smoke tests.
 DDG_MIN_INTERVAL_S = float(os.getenv("DDG_MIN_INTERVAL_S", "3.0"))
-BING_FALLBACK_ENABLED = os.getenv("BING_FALLBACK_ENABLED", "true").strip().lower() in {
+BING_FALLBACK_ENABLED = os.getenv("BING_FALLBACK_ENABLED", "false").strip().lower() in {
     "1",
     "true",
     "yes",
