@@ -355,11 +355,9 @@ def _website_likely_matches_company(kbo: dict, website_url: str, scraped_text: s
     domain_hits = sum(1 for tok in tokens if tok in host_slug)
     text_hits = sum(1 for tok in tokens if tok in text_lower)
 
-    if text_hits >= 2:
-        return True
-    if text_hits >= 1 and domain_hits >= 1:
-        return True
-    return False
+    if len(tokens) <= 1:
+        return text_hits >= 1 and domain_hits >= 1
+    return text_hits >= 2
 
 
 async def _resolve_website(kbo: dict) -> str | None:
