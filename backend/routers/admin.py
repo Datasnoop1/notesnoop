@@ -1180,7 +1180,7 @@ async def admin_invoices(user=Depends(_require_admin)):
                ORDER BY 1 DESC"""
         )
         for m in monthly:
-            m["eur_total"] = round((m.get("cents_total") or 0) / 100.0, 2)
+            m["eur_total"] = round(float(m.get("cents_total") or 0) / 100.0, 2)
 
         return {"invoices": rows, "monthly": monthly}
     except Exception as e:
