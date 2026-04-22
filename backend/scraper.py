@@ -515,6 +515,28 @@ def _extract_best_website(html: str, company_name: str) -> str | None:
     soup = BeautifulSoup(html, "html.parser")
     candidates: list[tuple[str, int]] = []  # (url, priority_score)
 
+    legal_noise = {
+        "bv",
+        "bvba",
+        "nv",
+        "sa",
+        "srl",
+        "sprl",
+        "asbl",
+        "vzw",
+        "cv",
+        "cvba",
+        "group",
+        "holding",
+        "services",
+    }
+    name_slug = re.sub(r"[^a-z0-9]", "", company_name.lower())
+    name_tokens = [
+        tok
+        for tok in re.findall(r"[a-z0-9]{4,}", company_name.lower())
+        if tok not in legal_noise
+    ]
+
     skip_domains, skip_paths = _load_skiplist()
 
     # Extract URLs from <a> tags — handles both DuckDuckGo and Google formats
@@ -562,14 +584,25 @@ def _extract_best_website(html: str, company_name: str) -> str | None:
 
         # Score the candidate
         score = 0
-        name_slug = re.sub(r"[^a-z0-9]", "", company_name.lower())
         domain_slug = re.sub(r"[^a-z0-9]", "", domain.split(".")[0])
+        token_hit = any(tok in domain_slug for tok in name_tokens)
+        slug_hit = bool(
+            name_slug and domain_slug and (
+                name_slug in domain_slug or domain_slug in name_slug
+            )
+        )
+
+        # Precision guard: never accept a candidate with zero lexical overlap.
+        # This blocks random SERP drift (e.g. forums/app stores) from
+        # poisoning company summaries when search quality degrades.
+        if not token_hit and not slug_hit:
+            continue
 
         # Strong signal: domain matches company name
-        if name_slug and domain_slug and (
-            name_slug in domain_slug or domain_slug in name_slug
-        ):
+        if slug_hit:
             score += 10
+        elif token_hit:
+            score += 6
 
         # Prefer .be domains for Belgian companies
         if domain.endswith(".be"):
