@@ -1347,6 +1347,87 @@ export default function AdminPanel() {
                   </div>
                 )}
 
+                {/* Invoice Pulse (costs snapshot in Pulse tab) */}
+                {invoicesData && (() => {
+                  const recentMonths = invoicesData.monthly.slice(0, 6);
+                  const latest = recentMonths[0];
+                  const maxEur = Math.max(
+                    1,
+                    ...recentMonths.map((m) => Number(m.eur_total || 0)),
+                  );
+                  const latestEur = Number(latest?.eur_total || 0);
+                  const latestInvoices = Number(latest?.invoices || 0);
+                  const latestAvg = latestInvoices > 0 ? latestEur / latestInvoices : 0;
+
+                  return (
+                    <Card className="bg-white">
+                      <CardContent className="pt-4 pb-4 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                            <CreditCard className="size-3 inline mr-1" />
+                            Invoice Pulse (6m)
+                          </h3>
+                          {latest?.ym ? (
+                            <Badge variant="outline" className="text-[10px] font-mono">
+                              {latest.ym}
+                            </Badge>
+                          ) : null}
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="rounded-lg border border-slate-200 p-3">
+                            <div className="text-[10px] text-slate-400 mb-1">Current month cost</div>
+                            <div className="text-lg font-bold text-rose-600 font-mono">
+                              €{latestEur.toLocaleString("en", { maximumFractionDigits: 0 })}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 p-3">
+                            <div className="text-[10px] text-slate-400 mb-1">Current month invoices</div>
+                            <div className="text-lg font-bold text-slate-900 font-mono">{fmt(latestInvoices)}</div>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 p-3">
+                            <div className="text-[10px] text-slate-400 mb-1">Avg invoice value</div>
+                            <div className="text-lg font-bold text-slate-900 font-mono">
+                              €{latestAvg.toLocaleString("en", { maximumFractionDigits: 0 })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {recentMonths.length > 0 ? (
+                          <div className="space-y-2">
+                            {recentMonths
+                              .slice()
+                              .reverse()
+                              .map((m) => {
+                                const eur = Number(m.eur_total || 0);
+                                const widthPct = Math.max(4, Math.round((eur / maxEur) * 100));
+                                return (
+                                  <div key={m.ym} className="flex items-center gap-2">
+                                    <div className="w-14 text-[10px] font-mono text-slate-500">{m.ym}</div>
+                                    <div className="h-2 flex-1 rounded bg-slate-100 overflow-hidden">
+                                      <div
+                                        className="h-full rounded bg-rose-400"
+                                        style={{ width: `${widthPct}%` }}
+                                      />
+                                    </div>
+                                    <div className="w-16 text-right text-[10px] font-mono text-slate-600">
+                                      €{eur.toLocaleString("en", { maximumFractionDigits: 0 })}
+                                    </div>
+                                    <div className="w-12 text-right text-[10px] text-slate-400">
+                                      {m.invoices} inv
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-slate-400">No invoice data yet.</div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
+
                 {/* Daily Trend Chart */}
                 {tractionData.daily_trend.length > 0 && (
                   <Card className="bg-white">
