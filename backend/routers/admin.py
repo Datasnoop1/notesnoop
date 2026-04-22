@@ -215,6 +215,22 @@ async def nbb_backload_progress(user=Depends(_require_admin)):
         windows = fetch_one("""
             SELECT
                 COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '1 hour'
+                ) AS rows_1h,
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '1 hour'
+                      AND deposit_key = 'NO_FILINGS'
+                ) AS no_filings_1h,
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '1 hour'
+                      AND deposit_key <> 'NO_FILINGS'
+                      AND COALESCE(rubric_count, 0) > 0
+                ) AS real_filings_1h,
+                COUNT(*) FILTER (
+                    WHERE loaded_at::timestamptz >= NOW() - INTERVAL '1 hour'
+                      AND deposit_key = 'PDF_ONLY'
+                ) AS pdf_only_1h,
+                COUNT(*) FILTER (
                     WHERE loaded_at::timestamptz >= NOW() - INTERVAL '24 hours'
                 ) AS rows_24h,
                 COUNT(*) FILTER (

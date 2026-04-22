@@ -322,6 +322,10 @@ interface NbbBackloadProgress {
   fy2023_remaining: number;
   fy2022_remaining: number;
   last_checkpoint: string | null;
+  rows_1h: number;
+  no_filings_1h: number;
+  real_filings_1h: number;
+  pdf_only_1h: number;
   rows_24h: number;
   no_filings_24h: number;
   real_filings_24h: number;
@@ -2055,15 +2059,15 @@ export default function AdminPanel() {
                     <CardContent>
                       <div className="flex items-center justify-between mb-1">
                         <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
-                          Processed 24h
+                          Loads Last Hour
                         </span>
                         <Activity className="size-3.5 text-indigo-300" />
                       </div>
                       <div className="text-2xl font-bold font-mono text-slate-900">
-                        {fmt(nbbBackload.rows_24h)}
+                        {fmt(nbbBackload.rows_1h)}
                       </div>
                       <div className="text-[10px] text-slate-400">
-                        {fmt(nbbBackload.no_filings_24h)} no-filings, {fmt(nbbBackload.real_filings_24h)} real filings
+                        {fmt(nbbBackload.no_filings_1h)} no-filings, {fmt(nbbBackload.real_filings_1h)} real filings
                       </div>
                     </CardContent>
                   </Card>
