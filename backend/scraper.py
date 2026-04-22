@@ -9,6 +9,8 @@ import os
 import logging
 import re
 import time as _time
+import html as _html
+import xml.etree.ElementTree as _et
 
 import httpx
 from dotenv import load_dotenv
@@ -28,6 +30,12 @@ ZENROWS_BASE = "https://api.zenrows.com/v1/"
 # 3 seconds between CALLS (not per CBE) is the Phase 0 recommendation.
 # Overridable via env for tuning / local smoke tests.
 DDG_MIN_INTERVAL_S = float(os.getenv("DDG_MIN_INTERVAL_S", "3.0"))
+BING_FALLBACK_ENABLED = os.getenv("BING_FALLBACK_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 _ddg_lock = asyncio.Lock()
 _ddg_last_call: float = 0.0
@@ -253,6 +261,7 @@ async def duckduckgo_search_website_url(
     """
     location_part = f" {city}" if city else ""
     website_query = f"{company_name}{location_part} {country} official website"
+    ddg_rate_limited = False
     await _ddg_throttle()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -264,12 +273,20 @@ async def duckduckgo_search_website_url(
             if resp.status_code == 200:
                 return _extract_best_website(resp.text, company_name)
             if resp.status_code in (403, 429):
+                ddg_rate_limited = True
                 logger.warning(
                     "DuckDuckGo rate-limited (%s) on website search for %s",
                     resp.status_code, company_name,
                 )
     except Exception as e:
         logger.warning("DuckDuckGo website search failed for %s: %s", company_name, e)
+    if BING_FALLBACK_ENABLED:
+        if ddg_rate_limited:
+            logger.info("Website discovery fallback for %s: trying Bing RSS after DDG rate-limit", company_name)
+        website = await bing_search_website_url(company_name, city=city, country=country)
+        if website:
+            logger.info("Website discovery for %s: website from Bing RSS — %s", company_name, website)
+            return website
     return None
 
 
@@ -279,6 +296,7 @@ async def duckduckgo_search_linkedin_url(
     """LinkedIn-only DDG lookup for the profile pipeline."""
     location_part = f" {city}" if city else ""
     linkedin_query = f"{company_name}{location_part} site:linkedin.com/company"
+    ddg_rate_limited = False
     await _ddg_throttle()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -290,13 +308,68 @@ async def duckduckgo_search_linkedin_url(
             if resp.status_code == 200:
                 return _extract_linkedin_url(resp.text)
             if resp.status_code in (403, 429):
+                ddg_rate_limited = True
                 logger.warning(
                     "DuckDuckGo rate-limited (%s) on LinkedIn search for %s",
                     resp.status_code, company_name,
                 )
     except Exception as e:
         logger.warning("DuckDuckGo LinkedIn search failed for %s: %s", company_name, e)
+    if BING_FALLBACK_ENABLED:
+        if ddg_rate_limited:
+            logger.info("LinkedIn discovery fallback for %s: trying Bing RSS after DDG rate-limit", company_name)
+        linkedin = await bing_search_linkedin_url(company_name, city=city)
+        if linkedin:
+            logger.info("LinkedIn discovery for %s: LinkedIn from Bing RSS — %s", company_name, linkedin)
+            return linkedin
     return None
+
+
+async def _bing_rss_links(query: str, timeout: float = 6.0) -> list[str]:
+    """Run a Bing RSS query and return candidate result URLs."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://www.bing.com/search",
+                params={"q": query, "format": "rss"},
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            if resp.status_code != 200:
+                logger.info("Bing RSS returned %s for query %s", resp.status_code, query)
+                return []
+            root = _et.fromstring(resp.text)
+            links: list[str] = []
+            for item in root.findall(".//item/link"):
+                if item.text and item.text.startswith("http"):
+                    links.append(item.text.strip())
+            return links
+    except Exception as e:
+        logger.info("Bing RSS lookup failed for query %s: %s", query, e)
+        return []
+
+
+async def bing_search_website_url(
+    company_name: str, city: str = "", country: str = "Belgium"
+) -> str | None:
+    """Website discovery via Bing RSS fallback."""
+    location_part = f" {city}" if city else ""
+    query = f"{company_name}{location_part} {country} official website"
+    links = await _bing_rss_links(query)
+    if not links:
+        return None
+    return _extract_best_website_from_urls(links, company_name)
+
+
+async def bing_search_linkedin_url(
+    company_name: str, city: str = ""
+) -> str | None:
+    """LinkedIn company-page discovery via Bing RSS fallback."""
+    location_part = f" {city}" if city else ""
+    query = f"{company_name}{location_part} site:linkedin.com/company"
+    links = await _bing_rss_links(query)
+    if not links:
+        return None
+    return _extract_linkedin_url_from_urls(links)
 
 
 async def zenrows_search_url(
@@ -398,6 +471,31 @@ async def _zenrows_fetch(url: str, timeout: int = 5) -> str:
 # The live list lives in the `aggregator_skiplist` table, loaded via
 # `_load_skiplist()`. DO NOT extend this set — add to the DB instead.
 _SKIP_DOMAINS: frozenset[str] = _SEED_SKIP_DOMAINS
+
+
+def _extract_best_website_from_urls(urls: list[str], company_name: str) -> str | None:
+    """Rank a plain URL list using the same heuristics as HTML extraction."""
+    if not urls:
+        return None
+    fake_html = "".join(
+        f'<a href="{_html.escape(u, quote=True)}">result</a>'
+        for u in urls
+        if u and u.startswith("http")
+    )
+    return _extract_best_website(fake_html, company_name)
+
+
+def _extract_linkedin_url_from_urls(urls: list[str]) -> str | None:
+    """Return the first clean linkedin.com/company URL from a URL list."""
+    from urllib.parse import urlparse
+
+    for url in urls:
+        if not url or "linkedin.com/company/" not in url.lower():
+            continue
+        parsed = urlparse(url)
+        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        return clean_url.rstrip("/")
+    return None
 
 
 def _extract_best_website(html: str, company_name: str) -> str | None:
