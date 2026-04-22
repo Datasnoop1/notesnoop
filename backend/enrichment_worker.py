@@ -25,12 +25,14 @@ import hashlib
 import json
 import logging
 import os
+import re
 import signal
 import sys
 import time
 from contextvars import Token
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -287,6 +289,79 @@ def _write_bulk_row(
     )
 
 
+_NAME_MATCH_NOISE = {
+    "group",
+    "holding",
+    "consulting",
+    "management",
+    "services",
+    "solutions",
+    "association",
+    "bank",
+    "fund",
+    "capital",
+    "international",
+    "global",
+    "europe",
+    "european",
+    "company",
+    "bedrijven",
+    "enterprise",
+    "industries",
+    "industry",
+    "medical",
+}
+
+
+def _name_tokens(name: str) -> list[str]:
+    tokens = [
+        tok for tok in re.findall(r"[a-z0-9]{4,}", (name or "").lower())
+        if tok not in _NAME_MATCH_NOISE
+    ]
+    # Keep order but drop duplicates.
+    seen: set[str] = set()
+    out: list[str] = []
+    for tok in tokens:
+        if tok in seen:
+            continue
+        seen.add(tok)
+        out.append(tok)
+    return out
+
+
+def _website_likely_matches_company(kbo: dict, website_url: str, scraped_text: str) -> bool:
+    """Conservative lexical check to avoid off-topic website summaries.
+
+    We only trust non-KBO-discovered websites when their domain/text
+    contain meaningful company-name tokens. This blocks generic SERP
+    drift (forums, app stores, encyclopedias) from producing confident
+    but wrong Q2 outputs.
+    """
+    name = (kbo.get("name") or "").strip()
+    if not name or not website_url or not scraped_text:
+        return False
+
+    tokens = _name_tokens(name)
+    if not tokens:
+        return False
+
+    parsed = urlparse(website_url)
+    host = parsed.netloc.lower().lstrip("www.")
+    host_parts = [p for p in host.split(".") if p]
+    core = host_parts[-2] if len(host_parts) >= 2 else (host_parts[0] if host_parts else "")
+    host_slug = re.sub(r"[^a-z0-9]", "", core)
+
+    text_lower = (scraped_text or "").lower()
+    domain_hits = sum(1 for tok in tokens if tok in host_slug)
+    text_hits = sum(1 for tok in tokens if tok in text_lower)
+
+    if text_hits >= 2:
+        return True
+    if text_hits >= 1 and domain_hits >= 1:
+        return True
+    return False
+
+
 async def _resolve_website(kbo: dict) -> str | None:
     """KBO contact WEB row wins; fall back to DuckDuckGo discovery."""
     web = (kbo.get("kbo_website") or "").strip()
@@ -359,6 +434,13 @@ async def _enrich_one(cbe: str) -> dict:
             scraped_text, _src = await scrape_company_site(website_url)
         except Exception as e:
             logger.info("scrape_company_site failed for %s: %s", cbe, e)
+        # KBO-declared website rows are trusted. Search-discovered URLs
+        # must pass a lexical relevance check before Q2 sees the text.
+        from_kbo = bool((kbo.get("kbo_website") or "").strip())
+        if scraped_text and not from_kbo:
+            if not _website_likely_matches_company(kbo, website_url, scraped_text):
+                logger.info("website relevance check rejected %s for %s; falling back to template path", website_url, cbe)
+                scraped_text = ""
         out["scraped_chars"] = len(scraped_text or "")
 
     # 3. If we have no scrape and no financial signal, templated fallback
