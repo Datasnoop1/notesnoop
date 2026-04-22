@@ -182,14 +182,21 @@ def ensure_semantic_schema() -> None:
     if _semantic_schema_ensured:
         return
     from ai_client import _ensure_llm_call_log_table
-    from embeddings import ensure_embedding_table, ensure_query_embedding_cache
+    from embeddings import ensure_embedding_table
+
+    # Support both legacy/private and public helper names to avoid
+    # boot failures during mixed-version deploys.
+    try:
+        from embeddings import ensure_query_embedding_cache as _ensure_query_cache
+    except ImportError:
+        from embeddings import _ensure_query_embedding_cache as _ensure_query_cache
 
     ensure_meta_defaults()
     ensure_company_enrichment_table()
     ensure_queue_schema()
     _ensure_llm_call_log_table()
     ensure_embedding_table()
-    ensure_query_embedding_cache()
+    _ensure_query_cache()
     ensure_aggregator_skiplist()
     _semantic_schema_ensured = True
 
