@@ -610,7 +610,7 @@ type AdminSheet = "pulse" | "operations";
 type AdminTabKey = (typeof PULSE_TABS)[number] | (typeof OPS_TABS)[number];
 
 const SHEET_FOR_TAB: Record<AdminTabKey, AdminSheet> = {
-  traction: "pulse", readiness: "pulse", usage: "pulse",
+  traction: "pulse", readiness: "pulse", nbb: "pulse", usage: "pulse",
   users: "operations", feedback: "operations", polls: "operations",
   tiers: "operations", activity: "operations", revenue: "operations", settings: "operations",
 };
