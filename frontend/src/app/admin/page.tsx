@@ -22,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase";
+import { EnrichmentDashboard } from "@/components/admin/enrichment-dashboard";
 import {
   LineChart,
   Line,
@@ -74,6 +75,7 @@ import {
   Check,
   Image,
   Loader2,
+  Rocket,
 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
@@ -605,14 +607,14 @@ function ReadinessGauge({ score }: { score: number }) {
    The actual TabsContent panels are unchanged; only the visible TabsList
    gets filtered by the current sheet. */
 const PULSE_TABS = ["traction", "readiness", "nbb", "usage"] as const;
-const OPS_TABS = ["users", "feedback", "polls", "tiers", "activity", "revenue", "settings"] as const;
+const OPS_TABS = ["users", "feedback", "polls", "tiers", "activity", "enrichment", "revenue", "settings"] as const;
 type AdminSheet = "pulse" | "operations";
 type AdminTabKey = (typeof PULSE_TABS)[number] | (typeof OPS_TABS)[number];
 
 const SHEET_FOR_TAB: Record<AdminTabKey, AdminSheet> = {
   traction: "pulse", readiness: "pulse", nbb: "pulse", usage: "pulse",
   users: "operations", feedback: "operations", polls: "operations",
-  tiers: "operations", activity: "operations", revenue: "operations", settings: "operations",
+  tiers: "operations", activity: "operations", enrichment: "operations", revenue: "operations", settings: "operations",
 };
 
 export default function AdminPanel() {
@@ -1273,6 +1275,10 @@ export default function AdminPanel() {
               <TabsTrigger value="activity">
                 <Clock className="size-3.5 mr-1.5" />
                 Activity
+              </TabsTrigger>
+              <TabsTrigger value="enrichment">
+                <Rocket className="size-3.5 mr-1.5" />
+                Enrichment
               </TabsTrigger>
               <TabsTrigger value="revenue">
                 <CreditCard className="size-3.5 mr-1.5" />
@@ -3365,6 +3371,12 @@ export default function AdminPanel() {
           </div>
         </TabsContent>
 
+        <TabsContent value="enrichment">
+          <div className="pt-2">
+            <EnrichmentDashboard embedded />
+          </div>
+        </TabsContent>
+
         {/* ================================================================
             TAB: Revenue (Stripe Payments)
             ================================================================ */}
@@ -3418,7 +3430,7 @@ export default function AdminPanel() {
                   <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Platform invoices (ingested)</h3>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Ingested nightly from invoice@datasnoop.be. Amounts are best-effort; click "confirm" to lock.</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Ingested nightly from invoice@datasnoop.be. Amounts are best-effort; click &quot;confirm&quot; to lock.</p>
                     </div>
                     {invoicesData.monthly.length > 0 && (
                       <div className="text-right">

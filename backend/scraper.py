@@ -179,12 +179,17 @@ def is_linkedin_url(url: str) -> bool:
 
 
 async def duckduckgo_search_url(
-    company_name: str, city: str = "", country: str = "Belgium"
+    company_name: str,
+    city: str = "",
+    country: str = "Belgium",
+    *,
+    include_website: bool = True,
+    include_linkedin: bool = True,
 ) -> dict:
-    """Search DuckDuckGo for a company's website and LinkedIn page.
+    """Search DuckDuckGo for a company's website and/or LinkedIn page.
 
-    Free, no API key, no rate limits. Primary search method.
-    Returns: {"website_url": str|None, "linkedin_url": str|None}
+    Callers can disable unneeded lookups so the bulk worker doesn't pay
+    the DDG throttle cost for LinkedIn discovery it never uses.
     """
     location_part = f" {city}" if city else ""
     website_url = None
@@ -237,6 +242,63 @@ async def duckduckgo_search_url(
     return {"website_url": website_url, "linkedin_url": linkedin_url}
 
 
+async def duckduckgo_search_website_url(
+    company_name: str, city: str = "", country: str = "Belgium"
+) -> str | None:
+    """Website-only DDG lookup for the bulk worker.
+
+    The generic helper also performs a LinkedIn search, which is useful
+    for profile enrichment but wastes a second throttled DDG call during
+    bulk website discovery.
+    """
+    location_part = f" {city}" if city else ""
+    website_query = f"{company_name}{location_part} {country} official website"
+    await _ddg_throttle()
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"https://html.duckduckgo.com/html/?q={_url_encode(website_query)}",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                follow_redirects=True,
+            )
+            if resp.status_code == 200:
+                return _extract_best_website(resp.text, company_name)
+            if resp.status_code in (403, 429):
+                logger.warning(
+                    "DuckDuckGo rate-limited (%s) on website search for %s",
+                    resp.status_code, company_name,
+                )
+    except Exception as e:
+        logger.warning("DuckDuckGo website search failed for %s: %s", company_name, e)
+    return None
+
+
+async def duckduckgo_search_linkedin_url(
+    company_name: str, city: str = ""
+) -> str | None:
+    """LinkedIn-only DDG lookup for the profile pipeline."""
+    location_part = f" {city}" if city else ""
+    linkedin_query = f"{company_name}{location_part} site:linkedin.com/company"
+    await _ddg_throttle()
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"https://html.duckduckgo.com/html/?q={_url_encode(linkedin_query)}",
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                follow_redirects=True,
+            )
+            if resp.status_code == 200:
+                return _extract_linkedin_url(resp.text)
+            if resp.status_code in (403, 429):
+                logger.warning(
+                    "DuckDuckGo rate-limited (%s) on LinkedIn search for %s",
+                    resp.status_code, company_name,
+                )
+    except Exception as e:
+        logger.warning("DuckDuckGo LinkedIn search failed for %s: %s", company_name, e)
+    return None
+
+
 async def zenrows_search_url(
     company_name: str, city: str = "", country: str = "Belgium"
 ) -> dict:
@@ -280,6 +342,24 @@ async def zenrows_search_url(
         company_name, website_url or "(none)", linkedin_url or "(none)",
     )
     return {"website_url": website_url, "linkedin_url": linkedin_url}
+
+
+async def zenrows_search_website_url(
+    company_name: str, city: str = "", country: str = "Belgium"
+) -> str | None:
+    """Website-only Zenrows search for the retry path."""
+    if not ZENROWS_KEY:
+        return None
+    location_part = f" {city}" if city else ""
+    website_query = f"{company_name}{location_part} {country} official website"
+    google_url = f"https://www.google.com/search?q={_url_encode(website_query)}&num=10&hl=en"
+    try:
+        html = await _zenrows_fetch(google_url, timeout=5)
+        if html:
+            return _extract_best_website(html, company_name)
+    except Exception as e:
+        logger.warning("Zenrows website search failed for %s: %s", company_name, e)
+    return None
 
 
 def _url_encode(query: str) -> str:

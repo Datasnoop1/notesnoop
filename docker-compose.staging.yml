@@ -78,10 +78,11 @@ services:
     env_file: .env.production
     environment:
       STAGING_MODE: "true"
-      # Staging pilot budget is small — operator can raise via admin UI.
-      ENRICHMENT_DAILY_BUDGET_USD: "2"
-      WORKER_CONCURRENCY: "2"
-      WORKER_POLL_INTERVAL_S: "2"
+      # The semantic worker is mostly network-bound, so higher concurrency
+      # uses the 4-core VPS more effectively than a conservative default.
+      ENRICHMENT_DAILY_BUDGET_USD: "50"
+      WORKER_CONCURRENCY: "6"
+      WORKER_POLL_INTERVAL_S: "1"
       WORKER_IDLE_SLEEP_S: "15"
       DDG_MIN_INTERVAL_S: "3"
     extra_hosts:
@@ -113,6 +114,8 @@ services:
     env_file: .env.production
     environment:
       PYTHONPATH: "/app"
+      BULK_MAX_PAGES: "${BULK_MAX_PAGES:-5}"
+      STAATSBLAD_BULK_WORKERS: "${STAATSBLAD_BULK_WORKERS:-10}"
       STAATSBLAD_BULK_PROXY_FILE: "/run/secrets/webshare_proxies.txt"
       STAATSBLAD_BULK_LOG_FILE: "/var/log/staatsblad_bulk/worker.log"
     extra_hosts:
@@ -124,17 +127,12 @@ services:
       - sh
       - -lc
       - >
-        export BULK_MAX_PAGES="$${BULK_MAX_PAGES:-5}" &&
-        workers="$${STAATSBLAD_BULK_WORKERS:-10}" &&
-        proxy_file="$${STAATSBLAD_BULK_PROXY_FILE:-/run/secrets/webshare_proxies.txt}" &&
-        log_file="$${STAATSBLAD_BULK_LOG_FILE:-/var/log/staatsblad_bulk/worker.log}" &&
         mkdir -p /var/log/staatsblad_bulk &&
         python -u /app/scripts/staatsblad_bulk_scrape.py
         --mode=webshare
-        --daemon
-        --workers="$$workers"
-        --webshare-proxies-file="$$proxy_file"
-        >> "$$log_file" 2>&1
+        --workers=${STAATSBLAD_BULK_WORKERS}
+        --webshare-proxies-file=${STAATSBLAD_BULK_PROXY_FILE}
+        >> ${STAATSBLAD_BULK_LOG_FILE} 2>&1
     volumes:
       - ./scripts:/app/scripts:ro
       - ./src:/app/src:ro
@@ -166,6 +164,7 @@ services:
       - "8080:80"
     volumes:
       - ./nginx/staging.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${DEMO_BOX_PATH:-/srv/demo-box}:/var/www/demo-box:ro
     depends_on:
       - frontend-staging
       - backend-staging

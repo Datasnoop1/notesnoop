@@ -165,6 +165,57 @@ def claim_one() -> dict | None:
         put_connection(conn)
 
 
+def claim_many(limit: int) -> list[dict]:
+    """Atomically claim up to `limit` queued jobs in one round-trip.
+
+    Same ordering and concurrency guarantees as `claim_one`, but reduces
+    database chatter when a worker has several free slots to fill.
+    """
+    ensure_schema()
+    limit = max(0, int(limit))
+    if limit <= 0:
+        return []
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            WITH next AS (
+                SELECT enterprise_number
+                  FROM enrichment_job
+                 WHERE status = 'queued'
+              ORDER BY priority DESC, enqueued_at ASC
+                 LIMIT %s
+                 FOR UPDATE SKIP LOCKED
+            )
+            UPDATE enrichment_job j
+               SET status = 'claimed',
+                   attempts = j.attempts + 1,
+                   claimed_at = NOW()
+              FROM next
+             WHERE j.enterprise_number = next.enterprise_number
+         RETURNING j.enterprise_number, j.priority, j.attempts
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+        conn.commit()
+        cur.close()
+        return [
+            {
+                "enterprise_number": row[0],
+                "priority": row[1],
+                "attempts": row[2],
+            }
+            for row in rows
+        ]
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        put_connection(conn)
+
+
 def mark_done(cbe: str) -> None:
     """Move a claimed job to `done`. Idempotent."""
     execute(

@@ -910,7 +910,14 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
 
     Returns a dict with structured insight fields, suitable for JSON storage.
     """
-    from scraper import scrape_url, _strip_html, slugify_company_name, duckduckgo_search_url, zenrows_search_url
+    from scraper import (
+        scrape_url,
+        _strip_html,
+        slugify_company_name,
+        duckduckgo_search_linkedin_url,
+        duckduckgo_search_website_url,
+        zenrows_search_website_url,
+    )
 
     fetch_one = conn_helpers["fetch_one"]
     fetch_all = conn_helpers.get("fetch_all", lambda q, p: [])
@@ -1004,12 +1011,12 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
         try:
             if use_zenrows:
                 logger.info("URL discovery for %s: using Zenrows (previous website was flagged wrong)", name)
-                search_results = await zenrows_search_url(name, city=city)
+                website_candidate = await zenrows_search_website_url(name, city=city)
             else:
-                search_results = await duckduckgo_search_url(name, city=city)
+                website_candidate = await duckduckgo_search_website_url(name, city=city)
             search_source = "Zenrows" if use_zenrows else "DuckDuckGo"
-            if search_results.get("website_url"):
-                website_url = search_results["website_url"]
+            if website_candidate:
+                website_url = website_candidate
                 url_source_website = search_source
                 logger.info("URL discovery for %s: website from %s — %s", name, search_source, website_url)
             # Don't grab LinkedIn from search yet — website HTML is checked first
@@ -1093,9 +1100,9 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
     # ── LinkedIn search only if website didn't have it ────────────
     if not linkedin_url:
         try:
-            search_results = await duckduckgo_search_url(name, city=city)
-            if search_results.get("linkedin_url"):
-                linkedin_url = search_results["linkedin_url"]
+            linkedin_candidate = await duckduckgo_search_linkedin_url(name, city=city)
+            if linkedin_candidate:
+                linkedin_url = linkedin_candidate
                 url_source_linkedin = "DuckDuckGo"
                 logger.info("URL discovery for %s: LinkedIn from DuckDuckGo — %s", name, linkedin_url)
         except Exception as e:

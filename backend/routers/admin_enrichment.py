@@ -30,6 +30,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
@@ -41,6 +42,7 @@ from enrichment_queue import (
     set_meta_flag,
     stats as queue_stats,
 )
+from semantic_bootstrap import ensure_semantic_schema, get_semantic_readiness
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +71,22 @@ def _require_password(
 @router.get("/overview")
 async def enrichment_overview(_: None = Depends(_require_password)):
     """One-stop panel for the admin UI: status + budget + counters."""
+    ensure_semantic_schema()
     counts = queue_stats()
     enabled = enrichment_enabled()
+    readiness = get_semantic_readiness()
+    total_jobs = sum(int(v or 0) for v in counts.values())
+    done_jobs = int(counts.get("done", 0) or 0)
+    queued_jobs = int(counts.get("queued", 0) or 0)
+    claimed_jobs = int(counts.get("claimed", 0) or 0)
+    failed_jobs = int(counts.get("failed", 0) or 0)
+    dead_jobs = int(counts.get("dead", 0) or 0)
+    completed_jobs = done_jobs + dead_jobs
+    completion_pct = (
+        round((completed_jobs / total_jobs) * 100, 2)
+        if total_jobs > 0
+        else 0.0
+    )
 
     row_spend = fetch_one(
         """
@@ -109,12 +125,145 @@ async def enrichment_overview(_: None = Depends(_require_password)):
     )
     last_hour_done = int(row_rate["n"] or 0) if row_rate else 0
 
+    row_last_day = fetch_one(
+        """
+        SELECT COUNT(*)::int AS n
+          FROM enrichment_job
+         WHERE status = 'done'
+           AND finished_at >= NOW() - INTERVAL '24 hours'
+        """
+    )
+    last_day_done = int(row_last_day["n"] or 0) if row_last_day else 0
+
+    row_first_enqueued = fetch_one(
+        "SELECT MIN(enqueued_at) AS ts FROM enrichment_job"
+    )
+    first_enqueued_at = (
+        row_first_enqueued["ts"].isoformat()
+        if row_first_enqueued and row_first_enqueued.get("ts")
+        else None
+    )
+
+    confidence_rows = fetch_all(
+        """
+        SELECT
+            COALESCE(NULLIF(bulk_confidence, ''), 'missing') AS confidence,
+            COUNT(*)::int AS n
+          FROM company_enrichment
+         WHERE bulk_summary IS NOT NULL
+      GROUP BY 1
+      ORDER BY 1
+        """
+    )
+    confidence_counts = {str(r["confidence"]): int(r["n"]) for r in confidence_rows}
+    publishable_rows = int(readiness["counts"]["publishable_rows"] or 0)
+    bulk_rows = int(readiness["counts"]["bulk_rows"] or 0)
+    publishable_pct = (
+        round((publishable_rows / bulk_rows) * 100, 2)
+        if bulk_rows > 0
+        else 0.0
+    )
+
+    row_recent = fetch_one(
+        """
+        SELECT
+            COUNT(*) FILTER (
+                WHERE status = 'done'
+                  AND finished_at >= NOW() - INTERVAL '6 hours'
+            )::int AS done_6h,
+            COUNT(*) FILTER (
+                WHERE status = 'done'
+                  AND finished_at >= NOW() - INTERVAL '24 hours'
+            )::int AS done_24h
+          FROM enrichment_job
+        """
+    )
+    done_6h = int(row_recent["done_6h"] or 0) if row_recent else 0
+    done_24h = int(row_recent["done_24h"] or 0) if row_recent else 0
+    eta_days: float | None = None
+    eta_at: str | None = None
+    if queued_jobs > 0 and done_24h > 0:
+        eta_days = round(queued_jobs / done_24h, 2)
+        eta_dt = datetime.now(timezone.utc) + timedelta(days=eta_days)
+        eta_at = eta_dt.isoformat()
+
+    throughput_window = []
+    throughput_rows = fetch_all(
+        """
+        SELECT
+            TO_CHAR(bucket, 'YYYY-MM-DD HH24:00') AS label,
+            COALESCE(done_count, 0)::int AS done_count,
+            COALESCE(avg_cost_usd, 0)::float AS avg_cost_usd
+          FROM (
+            SELECT generate_series(
+              date_trunc('hour', NOW() - INTERVAL '23 hours'),
+              date_trunc('hour', NOW()),
+              INTERVAL '1 hour'
+            ) AS bucket
+          ) hours
+          LEFT JOIN (
+            SELECT
+                date_trunc('hour', finished_at) AS bucket,
+                COUNT(*) AS done_count
+              FROM enrichment_job
+             WHERE status = 'done'
+               AND finished_at >= NOW() - INTERVAL '24 hours'
+          GROUP BY 1
+          ) job_stats ON job_stats.bucket = hours.bucket
+          LEFT JOIN (
+            SELECT
+                date_trunc('hour', ts) AS bucket,
+                AVG(cost_usd) AS avg_cost_usd
+              FROM llm_call_log
+             WHERE endpoint LIKE '/bulk-enrichment/%'
+               AND ts >= NOW() - INTERVAL '24 hours'
+          GROUP BY 1
+          ) cost_stats ON cost_stats.bucket = hours.bucket
+      ORDER BY hours.bucket
+        """
+    )
+    for row in throughput_rows:
+        throughput_window.append(
+            {
+                "label": row["label"],
+                "done_count": int(row["done_count"] or 0),
+                "avg_cost_usd": float(row["avg_cost_usd"] or 0.0),
+            }
+        )
+
     return {
         "enabled": enabled,
         "queue_counts": counts,
+        "progress": {
+            "total_jobs": total_jobs,
+            "completed_jobs": completed_jobs,
+            "done_jobs": done_jobs,
+            "queued_jobs": queued_jobs,
+            "claimed_jobs": claimed_jobs,
+            "failed_jobs": failed_jobs,
+            "dead_jobs": dead_jobs,
+            "completion_pct": completion_pct,
+            "first_enqueued_at": first_enqueued_at,
+        },
+        "quality": {
+            "bulk_rows": bulk_rows,
+            "publishable_rows": publishable_rows,
+            "publishable_pct": publishable_pct,
+            "confidence_counts": confidence_counts,
+        },
+        "throughput": {
+            "last_hour_completed": last_hour_done,
+            "last_6h_completed": done_6h,
+            "last_24h_completed": done_24h,
+            "last_day_completed": last_day_done,
+            "eta_days": eta_days,
+            "eta_at": eta_at,
+            "hourly_window": throughput_window,
+        },
         "today_spend_usd": today_spend,
         "daily_budget_usd": budget,
         "last_hour_completed": last_hour_done,
+        "readiness": readiness,
         "recent_done": [
             {
                 "enterprise_number": r["enterprise_number"],
@@ -129,6 +278,7 @@ async def enrichment_overview(_: None = Depends(_require_password)):
 @router.get("/dead")
 async def enrichment_dead(limit: int = 100, _: None = Depends(_require_password)):
     """Dead-letter list + recent failures for the admin page."""
+    ensure_semantic_schema()
     limit = max(1, min(int(limit), 500))
     return {"items": recent_failures(limit=limit)}
 
@@ -139,6 +289,7 @@ class PauseBody(BaseModel):
 
 @router.post("/pause")
 async def pause_worker(body: PauseBody, _: None = Depends(_require_password)):
+    ensure_semantic_schema()
     set_meta_flag("enrichment_enabled", "false")
     logger.info("enrichment paused, reason=%s", (body.reason or "")[:200])
     return {"enabled": False}
@@ -146,6 +297,7 @@ async def pause_worker(body: PauseBody, _: None = Depends(_require_password)):
 
 @router.post("/resume")
 async def resume_worker(_: None = Depends(_require_password)):
+    ensure_semantic_schema()
     set_meta_flag("enrichment_enabled", "true")
     logger.info("enrichment resumed")
     return {"enabled": True}
@@ -157,6 +309,7 @@ class BudgetBody(BaseModel):
 
 @router.post("/budget")
 async def set_budget(body: BudgetBody, _: None = Depends(_require_password)):
+    ensure_semantic_schema()
     if body.daily_budget_usd < 0 or body.daily_budget_usd > 10_000:
         raise HTTPException(status_code=422, detail="out_of_range")
     set_meta_flag("enrichment_daily_budget", f"{body.daily_budget_usd:.2f}")
@@ -172,6 +325,7 @@ class RetryBody(BaseModel):
 
 @router.post("/retry")
 async def retry_jobs(body: RetryBody, _: None = Depends(_require_password)):
+    ensure_semantic_schema()
     if body.enterprise_numbers:
         cbes = [c.strip().zfill(10) for c in body.enterprise_numbers if c]
         execute(
@@ -205,6 +359,7 @@ async def retry_jobs(body: RetryBody, _: None = Depends(_require_password)):
 
 @router.get("/skiplist")
 async def list_skiplist(_: None = Depends(_require_password)):
+    ensure_semantic_schema()
     rows = fetch_all(
         """SELECT id, pattern, kind, reason, added_at, added_by
              FROM aggregator_skiplist
@@ -221,6 +376,7 @@ class SkiplistAdd(BaseModel):
 
 @router.post("/skiplist")
 async def add_skiplist(body: SkiplistAdd, _: None = Depends(_require_password)):
+    ensure_semantic_schema()
     pattern = (body.pattern or "").strip().lower()
     if not pattern or len(pattern) > 120:
         raise HTTPException(status_code=422, detail="pattern_length")
@@ -248,6 +404,7 @@ async def add_skiplist(body: SkiplistAdd, _: None = Depends(_require_password)):
 
 @router.delete("/skiplist/{row_id}")
 async def delete_skiplist(row_id: int, _: None = Depends(_require_password)):
+    ensure_semantic_schema()
     execute("DELETE FROM aggregator_skiplist WHERE id = %s", (int(row_id),))
     try:
         from scraper import invalidate_skiplist_cache

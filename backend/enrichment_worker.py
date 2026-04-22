@@ -57,7 +57,7 @@ from embeddings import (  # noqa: E402
     store_company_embedding,
 )
 from enrichment_queue import (  # noqa: E402
-    claim_one,
+    claim_many,
     ensure_schema as ensure_queue_schema,
     enrichment_enabled,
     mark_done,
@@ -72,8 +72,12 @@ from enrichment_routing import (
 )  # noqa: E402
 from entity_collision import check_entity_collision  # noqa: E402
 from scraper import (  # noqa: E402
-    duckduckgo_search_url,
+    duckduckgo_search_website_url,
     scrape_company_site,
+)
+from semantic_bootstrap import (  # noqa: E402
+    ensure_semantic_schema,
+    record_worker_heartbeat,
 )
 
 # ── Configuration ────────────────────────────────────────────────────
@@ -92,16 +96,20 @@ def _today_utc() -> str:
 
 def daily_spend_usd() -> float:
     """Sum `cost_usd` from llm_call_log for all bulk-enrichment calls today."""
-    row = fetch_one(
-        """
-        SELECT COALESCE(SUM(cost_usd), 0)::float AS total
-          FROM llm_call_log
-         WHERE endpoint LIKE %s
-           AND ts >= CURRENT_DATE
-        """,
-        (ENDPOINT_LABEL_PREFIX + "%",),
-    )
-    return float(row["total"] or 0.0) if row else 0.0
+    try:
+        row = fetch_one(
+            """
+            SELECT COALESCE(SUM(cost_usd), 0)::float AS total
+              FROM llm_call_log
+             WHERE endpoint LIKE %s
+               AND ts >= CURRENT_DATE
+            """,
+            (ENDPOINT_LABEL_PREFIX + "%",),
+        )
+        return float(row["total"] or 0.0) if row else 0.0
+    except Exception:
+        logger.exception("daily spend query failed; treating spend as 0")
+        return 0.0
 
 
 def daily_budget_usd() -> float:
@@ -293,8 +301,7 @@ async def _resolve_website(kbo: dict) -> str | None:
     if not name:
         return None
     try:
-        res = await duckduckgo_search_url(name, city=city)
-        return res.get("website_url")
+        return await duckduckgo_search_website_url(name, city=city)
     except Exception as e:
         logger.info("DDG discovery failed for %s: %s", name, e)
         return None
@@ -466,9 +473,74 @@ class Worker:
         logger.info("stop requested — draining in-flight jobs")
         self._stop.set()
 
+    def _launch_job(
+        self,
+        job: dict,
+        sem: asyncio.Semaphore,
+        tasks: set[asyncio.Task],
+    ) -> None:
+        """Start one claimed job in the background.
+
+        `_in_flight` increments at launch time so the outer loop can make
+        accurate fill decisions without racing the task startup.
+        """
+        self._in_flight += 1
+        record_worker_heartbeat(
+            "working",
+            f"cbe={job['enterprise_number']}",
+        )
+
+        async def _run(j=job):
+            token: Token | None = None
+            try:
+                token = set_current_endpoint(
+                    ENDPOINT_LABEL_PREFIX + j["enterprise_number"]
+                )
+                result = await _enrich_one(j["enterprise_number"])
+                if result.get("ok"):
+                    mark_done(j["enterprise_number"])
+                    logger.info(
+                        "done cbe=%s path=%s conf=%s chars=%d collide=%s",
+                        j["enterprise_number"], result["path"],
+                        result["confidence"], result["scraped_chars"],
+                        result["collision_downgrade"],
+                    )
+                else:
+                    mark_failed(
+                        j["enterprise_number"],
+                        result.get("error") or "unknown",
+                    )
+                    logger.info(
+                        "failed cbe=%s attempt=%s error=%s",
+                        j["enterprise_number"], j["attempts"],
+                        result.get("error"),
+                    )
+                record_worker_heartbeat(
+                    "working" if self._in_flight > 1 else "idle",
+                    f"last_cbe={j['enterprise_number']}",
+                )
+            except Exception as e:
+                logger.exception("enrich crash cbe=%s", j["enterprise_number"])
+                try:
+                    mark_failed(j["enterprise_number"], f"crash:{e!r}")
+                except Exception:
+                    logger.exception("mark_failed itself failed")
+                record_worker_heartbeat("error", f"crash:{j['enterprise_number']}")
+            finally:
+                self._in_flight -= 1
+                if token is not None:
+                    reset_current_endpoint(token)
+                sem.release()
+
+        task = asyncio.create_task(_run())
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+
     async def run(self) -> None:
         """Main loop. Polls, fans out claims, waits for completions."""
+        record_worker_heartbeat("starting", "boot")
         ensure_queue_schema()
+        ensure_semantic_schema()
         # Warm-up: release any stale claims from a prior crash.
         try:
             n = release_stale(older_than_minutes=30)
@@ -481,8 +553,12 @@ class Worker:
         tasks: set[asyncio.Task] = set()
 
         while not self._stop.is_set():
+            # Free any completed tasks before computing available worker slots.
+            tasks = {task for task in tasks if not task.done()}
+
             if not enrichment_enabled():
                 logger.info("meta.enrichment_enabled=false — sleeping")
+                record_worker_heartbeat("paused", "disabled")
                 await asyncio.sleep(IDLE_SLEEP_S)
                 continue
 
@@ -492,6 +568,10 @@ class Worker:
                 logger.info(
                     "daily spend $%.3f >= budget $%.2f — sleeping until reset",
                     spend, budget,
+                )
+                record_worker_heartbeat(
+                    "paused",
+                    f"budget:{spend:.3f}/{budget:.2f}",
                 )
                 await asyncio.sleep(IDLE_SLEEP_S)
                 continue
@@ -503,75 +583,48 @@ class Worker:
                 except Exception:
                     logger.exception("periodic stale-release failed")
 
-            job = None
-            try:
-                job = claim_one()
-            except Exception:
-                logger.exception("claim_one failed")
+            free_slots = max(0, WORKER_CONCURRENCY - self._in_flight)
+            if free_slots <= 0:
                 await asyncio.sleep(POLL_INTERVAL_S)
                 continue
 
-            if not job:
-                # Queue is empty or nothing matched — back off.
-                await asyncio.sleep(IDLE_SLEEP_S)
+            jobs: list[dict] = []
+            try:
+                jobs = claim_many(free_slots)
+            except Exception:
+                logger.exception("claim_many failed")
+                record_worker_heartbeat("error", "claim_many_failed")
+                await asyncio.sleep(POLL_INTERVAL_S)
                 continue
 
-            await sem.acquire()
-            # Re-check the stop flag between acquire and task create
-            # so a SIGTERM landing in that window doesn't leak the
-            # semaphore slot. The job stays in 'claimed' status; the
-            # next worker boot's startup release_stale(30 min) will
-            # return it to the queue.
-            if self._stop.is_set():
-                sem.release()
-                break
+            if not jobs:
+                # Queue is empty or temporarily exhausted. If work is still
+                # running, poll again soon instead of going fully idle.
+                record_worker_heartbeat(
+                    "working" if self._in_flight > 0 else "idle",
+                    "queue_empty" if self._in_flight == 0 else "awaiting_in_flight",
+                )
+                await asyncio.sleep(POLL_INTERVAL_S if self._in_flight > 0 else IDLE_SLEEP_S)
+                continue
 
-            async def _run(j=job):
-                token: Token | None = None
-                try:
-                    token = set_current_endpoint(
-                        ENDPOINT_LABEL_PREFIX + j["enterprise_number"]
-                    )
-                    self._in_flight += 1
-                    result = await _enrich_one(j["enterprise_number"])
-                    if result.get("ok"):
-                        mark_done(j["enterprise_number"])
-                        logger.info(
-                            "done cbe=%s path=%s conf=%s chars=%d collide=%s",
-                            j["enterprise_number"], result["path"],
-                            result["confidence"], result["scraped_chars"],
-                            result["collision_downgrade"],
-                        )
-                    else:
-                        mark_failed(
-                            j["enterprise_number"],
-                            result.get("error") or "unknown",
-                        )
-                        logger.info(
-                            "failed cbe=%s attempt=%s error=%s",
-                            j["enterprise_number"], j["attempts"],
-                            result.get("error"),
-                        )
-                except Exception as e:
-                    logger.exception("enrich crash cbe=%s", j["enterprise_number"])
-                    try:
-                        mark_failed(j["enterprise_number"], f"crash:{e!r}")
-                    except Exception:
-                        logger.exception("mark_failed itself failed")
-                finally:
-                    self._in_flight -= 1
-                    if token is not None:
-                        reset_current_endpoint(token)
+            for job in jobs:
+                await sem.acquire()
+                # Re-check the stop flag between acquire and task create
+                # so a SIGTERM landing in that window doesn't leak the
+                # semaphore slot. The job stays in 'claimed' status; the
+                # next worker boot's startup release_stale(30 min) will
+                # return it to the queue.
+                if self._stop.is_set():
                     sem.release()
-
-            task = asyncio.create_task(_run())
-            tasks.add(task)
-            task.add_done_callback(tasks.discard)
+                    break
+                self._launch_job(job, sem, tasks)
 
         # Drain: let in-flight tasks finish before returning.
         if tasks:
             logger.info("waiting for %d in-flight jobs to drain", len(tasks))
+            record_worker_heartbeat("draining", f"in_flight={len(tasks)}")
             await asyncio.gather(*tasks, return_exceptions=True)
+        record_worker_heartbeat("stopped", "clean_exit")
 
 
 async def _amain() -> None:
