@@ -229,70 +229,97 @@ export function CompanyPageClient({
      Re-runs when `locale` changes so cached AI gets re-fetched
      translated to the user's new site language. */
   useEffect(() => {
-    getEnrichment(cbe)
-      .then((data) => {
-        if (data && data.summary) setAiSummary(data.summary);
-        // Restore existing website enrichment
-        if (data && data.website_summary) {
-          try {
-            const parsed = typeof data.website_summary === "string"
-              ? JSON.parse(data.website_summary)
-              : data.website_summary;
-            if (parsed && typeof parsed === "object") {
-              setWebsiteScrape({
-                summary: parsed.summary || "",
-                products: parsed.products || "",
-                employees: parsed.employees || "",
-                key_people: parsed.key_people || "",
-                website_url: data.website_url || "",
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+    let idleId: number | null = null;
+
+    const run = () => {
+      getEnrichment(cbe)
+        .then((data) => {
+          if (cancelled) return;
+          if (data && data.summary) setAiSummary(data.summary);
+          // Restore existing website enrichment
+          if (data && data.website_summary) {
+            try {
+              const parsed = typeof data.website_summary === "string"
+                ? JSON.parse(data.website_summary)
+                : data.website_summary;
+              if (parsed && typeof parsed === "object") {
+                setWebsiteScrape({
+                  summary: parsed.summary || "",
+                  products: parsed.products || "",
+                  employees: parsed.employees || "",
+                  key_people: parsed.key_people || "",
+                  website_url: data.website_url || "",
+                });
+              }
+            } catch {
+              // website_summary wasn't valid JSON -- skip
+            }
+          }
+          // Restore existing LinkedIn enrichment
+          if (data && data.linkedin_summary) {
+            try {
+              const parsed = typeof data.linkedin_summary === "string"
+                ? JSON.parse(data.linkedin_summary)
+                : data.linkedin_summary;
+              if (parsed && typeof parsed === "object") {
+                setLinkedinScrape({
+                  summary: parsed.summary || "",
+                  employee_count: parsed.employee_count || "",
+                  industry: parsed.industry || "",
+                  specialties: parsed.specialties || "",
+                  linkedin_url: parsed.linkedin_url || "",
+                });
+              }
+            } catch {
+              // linkedin_summary wasn't valid JSON -- skip
+            }
+          }
+          // Restore existing AI insights
+          if (data && data.ai_insights) {
+            try {
+              const parsed = typeof data.ai_insights === "string"
+                ? JSON.parse(data.ai_insights)
+                : data.ai_insights;
+              if (parsed && typeof parsed === "object") {
+                setAiInsights(parsed as AiInsights);
+              }
+            } catch {
+              // ai_insights wasn't valid JSON -- skip
+            }
+          } else if (!aiPreloadTriggered.current) {
+            // No cached insights — pre-generate in background after the
+            // main profile content has had a chance to render.
+            aiPreloadTriggered.current = true;
+            setAiInsightsLoading(true);
+            generateAiInsights(cbe)
+              .then((result) => {
+                if (!cancelled) setAiInsights(result);
+              })
+              .catch(() => {}) // fails silently for unauthenticated users
+              .finally(() => {
+                if (!cancelled) setAiInsightsLoading(false);
               });
-            }
-          } catch {
-            // website_summary wasn't valid JSON -- skip
           }
-        }
-        // Restore existing LinkedIn enrichment
-        if (data && data.linkedin_summary) {
-          try {
-            const parsed = typeof data.linkedin_summary === "string"
-              ? JSON.parse(data.linkedin_summary)
-              : data.linkedin_summary;
-            if (parsed && typeof parsed === "object") {
-              setLinkedinScrape({
-                summary: parsed.summary || "",
-                employee_count: parsed.employee_count || "",
-                industry: parsed.industry || "",
-                specialties: parsed.specialties || "",
-                linkedin_url: parsed.linkedin_url || "",
-              });
-            }
-          } catch {
-            // linkedin_summary wasn't valid JSON -- skip
-          }
-        }
-        // Restore existing AI insights
-        if (data && data.ai_insights) {
-          try {
-            const parsed = typeof data.ai_insights === "string"
-              ? JSON.parse(data.ai_insights)
-              : data.ai_insights;
-            if (parsed && typeof parsed === "object") {
-              setAiInsights(parsed as AiInsights);
-            }
-          } catch {
-            // ai_insights wasn't valid JSON -- skip
-          }
-        } else if (!aiPreloadTriggered.current) {
-          // No cached insights — pre-generate in background
-          aiPreloadTriggered.current = true;
-          setAiInsightsLoading(true);
-          generateAiInsights(cbe)
-            .then((result) => setAiInsights(result))
-            .catch(() => {}) // fails silently for unauthenticated users
-            .finally(() => setAiInsightsLoading(false));
-        }
-      })
-      .catch(() => {});
+        })
+        .catch(() => {});
+    };
+
+    // Defer enrichment work slightly so the first profile paint wins.
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      idleId = window.requestIdleCallback(run, { timeout: 1200 });
+    } else {
+      timeoutId = globalThis.setTimeout(run, 250);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) globalThis.clearTimeout(timeoutId);
+      if (idleId !== null && typeof window !== "undefined" && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleId);
+      }
+    };
   }, [cbe, locale]);
 
   /* -- Auto-load missing NBB data / publications -- */
@@ -407,22 +434,52 @@ export function CompanyPageClient({
 
   /* -- Load company detail, financials, structure -- */
   useEffect(() => {
-    // Even with SSR data, refresh the profile client-side once so newly
-    // ingested admins / subsidiaries are not hidden behind the server page
-    // cache window.
+    let cancelled = false;
+    let refreshTimer: number | null = null;
+    nbbAutoTriggered.current = false;
     if (initialDetail) {
+      setDetail(initialDetail);
+      setFinancials(initialFinancials);
+      setStructure(initialStructure);
       setLoading(false);
-    } else {
-      setLoading(true);
+      runAutoLoad(initialFinancials, initialStructure);
+
+      // When SSR already gave us the page shell, only refresh the data that
+      // changes most often in practice: structure + financials. This keeps
+      // subsidiaries/admin updates fresh without paying for a full second
+      // profile load on every open.
+      refreshTimer = window.setTimeout(() => {
+        Promise.all([
+          getCompanyFinancials(cbe),
+          getCompanyStructure(cbe),
+        ])
+          .then(async ([f, s]) => {
+            if (cancelled) return;
+            setFinancials(f as unknown as FinancialsData);
+            setStructure(s as unknown as StructureData);
+            await runAutoLoad(f as unknown as FinancialsData, s as unknown as StructureData);
+          })
+          .catch((err) => {
+            if (!cancelled) {
+              console.error("Failed to refresh company financials/structure:", err);
+            }
+          });
+      }, 150);
+
+      return () => {
+        cancelled = true;
+        if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+      };
     }
 
-    nbbAutoTriggered.current = false;
+    setLoading(true);
     Promise.all([
       getCompanyDetail(cbe),
       getCompanyFinancials(cbe),
       getCompanyStructure(cbe),
     ])
       .then(async ([d, f, s]) => {
+        if (cancelled) return;
         setDetail(d as unknown as CompanyDetail);
         setFinancials(f as unknown as FinancialsData);
         setStructure(s as unknown as StructureData);
@@ -431,12 +488,15 @@ export function CompanyPageClient({
       })
       .catch((err) => {
         console.error("Failed to load company data:", err);
-        if (initialDetail) {
-          runAutoLoad(initialFinancials, initialStructure);
-        } else {
+        if (!cancelled) {
           setLoading(false);
         }
       });
+
+    return () => {
+      cancelled = true;
+      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cbe]);
 
