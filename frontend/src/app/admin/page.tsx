@@ -691,6 +691,29 @@ export default function AdminPanel() {
   const [siteLogo, setSiteLogo] = useState<string>("/logos/dog-telescope.jpg");
   const [logoSaving, setLogoSaving] = useState(false);
 
+  const loadHeavyData = useCallback(async () => {
+    const [a, alog, ins, usage, adopt, trac, llmCostData, invs] = await Promise.all([
+      adminFetch<ActivitySummary[]>("/api/admin/activity/summary").catch(
+        () => [] as ActivitySummary[]
+      ),
+      adminFetch<ActivityEntry[]>("/api/admin/activity").catch(() => [] as ActivityEntry[]),
+      adminFetch<Insights>("/api/admin/insights").catch(() => null),
+      adminFetch<typeof usageData>("/api/admin/usage").catch(() => null),
+      adminFetch<AdoptionData>("/api/admin/adoption").catch(() => null),
+      adminFetch<TractionData>("/api/admin/traction").catch(() => null),
+      adminFetch<LlmCostBreakdown>("/api/admin/llm-cost-breakdown").catch(() => null),
+      adminFetch<InvoicesData>("/api/admin/invoices").catch(() => null),
+    ]);
+    setActivity(a);
+    setActivityLog(alog);
+    setInsights(ins);
+    setUsageData(usage as typeof usageData);
+    setAdoptionData(adopt);
+    setTractionData(trac);
+    setLlmCosts(llmCostData);
+    setInvoicesData(invs);
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
       const supabase = createClient();
@@ -701,42 +724,25 @@ export default function AdminPanel() {
       // (<500ms) so we load it all on mount. Commerce endpoints (Stripe
       // list + iter, OpenRouter live API, pnl-summary) are lazy-loaded
       // by a separate effect when the Revenue tab is visited.
-      const [s, u, f, a, p, fby, nbb, alog, ins, usage, tc, sc, adopt, trac, llmCosts, invs] = await Promise.all([
+      const [s, u, f, p, fby, nbb, tc, sc] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
         adminFetch<FeedbackRow[]>("/api/admin/feedback"),
-        adminFetch<ActivitySummary[]>("/api/admin/activity/summary").catch(
-          () => [] as ActivitySummary[]
-        ),
         adminFetch<Poll[]>("/api/polls").catch(() => [] as Poll[]),
         adminFetch<{ fiscal_year: number; companies: number; filings: number }[]>("/api/admin/financials-by-year").catch(() => []),
         adminFetch<NbbBackloadProgress>("/api/admin/nbb-backload").catch(() => null),
-        adminFetch<ActivityEntry[]>("/api/admin/activity").catch(() => [] as ActivityEntry[]),
-        adminFetch<Insights>("/api/admin/insights").catch(() => null),
-        adminFetch<typeof usageData>("/api/admin/usage").catch(() => null),
         adminFetch<TierConfig[]>("/api/admin/tiers").catch(() => [] as TierConfig[]),
         adminFetch<{ site_logo: string }>("/api/admin/site-config").catch(() => ({ site_logo: "/logos/dog-telescope.jpg" })),
-        adminFetch<AdoptionData>("/api/admin/adoption").catch(() => null),
-        adminFetch<TractionData>("/api/admin/traction").catch(() => null),
-        adminFetch<LlmCostBreakdown>("/api/admin/llm-cost-breakdown").catch(() => null),
-        adminFetch<InvoicesData>("/api/admin/invoices").catch(() => null),
       ]);
-      setInvoicesData(invs);
       setStats(s);
       setUsers(u);
       setFeedback(f);
-      setActivity(a);
       setPolls(p);
       setFinByYear(fby);
       setNbbBackload(nbb);
-      setActivityLog(alog);
-      setInsights(ins);
-      setUsageData(usage as typeof usageData);
       setTiers(tc);
       if (sc?.site_logo) setSiteLogo(sc.site_logo);
-      setAdoptionData(adopt);
-      setTractionData(trac);
-      setLlmCosts(llmCosts);
+      void loadHeavyData();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -744,7 +750,7 @@ export default function AdminPanel() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [loadHeavyData, router]);
 
   /** Expensive commerce endpoints — Stripe (`payments`, `arr`,
    *  `pnl-summary` auto_paging_iter) + OpenRouter API (`costs`). Fire

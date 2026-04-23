@@ -3,6 +3,7 @@
 import json
 import os
 import logging
+import time
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
@@ -19,6 +20,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 _feedback_columns_migrated = False
+_ADMIN_ROLE_CACHE_TTL_SECONDS = 60.0
+_admin_role_cache: dict[str, tuple[float, bool]] = {}
 
 
 def _ensure_feedback_columns():
@@ -38,15 +41,28 @@ def _ensure_feedback_columns():
 
 def _require_admin(user=Depends(get_current_user)):
     """Dependency: require admin role."""
-    email = user.get("email", "")
-    user_id = user.get("id", "")
-    logger.info("Admin check: email=%s id=%s", email, user_id)
+    email = (user.get("email") or "").strip().lower()
+    user_id = (user.get("id") or "").strip().lower()
+    if not email and not user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
-    role_row = fetch_one(
-        "SELECT role FROM user_roles WHERE email = %s OR email = %s",
-        (email, user_id),
-    )
-    if not role_row or role_row["role"] != "admin":
+    cache_key = email or user_id
+    now = time.monotonic()
+    cached = _admin_role_cache.get(cache_key)
+    if cached and cached[0] > now:
+        is_admin = cached[1]
+    else:
+        role_row = fetch_one(
+            "SELECT role FROM user_roles WHERE email = %s OR email = %s",
+            (email, user_id),
+        )
+        is_admin = bool(role_row and role_row["role"] == "admin")
+        if len(_admin_role_cache) > 5000:
+            _admin_role_cache.clear()
+        _admin_role_cache[cache_key] = (now + _ADMIN_ROLE_CACHE_TTL_SECONDS, is_admin)
+
+    logger.debug("Admin check: email=%s id=%s is_admin=%s", email, user_id, is_admin)
+    if not is_admin:
         raise HTTPException(status_code=403, detail="Forbidden")
     return user
 
