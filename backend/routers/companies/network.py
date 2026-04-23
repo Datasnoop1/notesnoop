@@ -411,18 +411,13 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
     and people; edges carry the relationship type and a human-readable label.
     Total nodes are capped at MAX_DEEP_NETWORK_NODES to prevent explosion.
     """
-    cbe = clean_cbe(cbe)
+    raw_center = (cbe or "").strip()
+    is_person_center = raw_center.startswith("person:")
+    person_name = raw_center.split(":", 1)[1].strip() if is_person_center else None
+    if not is_person_center:
+        cbe = clean_cbe(cbe)
 
     try:
-        # Resolve the starting company name
-        header = fetch_one(
-            "SELECT denomination AS name FROM denomination "
-            "WHERE entity_number = %s AND type_of_denomination = '001' LIMIT 1",
-            (cbe,),
-        )
-        if not header:
-            raise HTTPException(status_code=404, detail=f"Company {cbe} not found")
-
         nodes: list[dict] = []
         edges: list[dict] = []
         node_ids: set[str] = set()
@@ -455,16 +450,98 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
                 "mandate_end": mandate_end,
             })
 
-        # Seed node
-        _add_node(cbe, header["name"], "company", 0)
-
-        # BFS frontier — set of CBE numbers to expand at the next depth
-        frontier: set[str] = {cbe}
-
         # Reference date for active-mandate classification.
         today_str = date.today().isoformat()
 
-        for current_depth in range(1, depth + 1):
+        # Seed node + first frontier
+        if is_person_center:
+            if not person_name:
+                raise HTTPException(status_code=404, detail="Person not found")
+
+            root_id = f"person:{person_name}"
+            _add_node(root_id, person_name, "person", 0)
+
+            seed_admin_rows = fetch_all(
+                "SELECT enterprise_number, role, "
+                "       BOOL_OR(mandate_end IS NULL OR mandate_end >= %s) AS is_active, "
+                "       MAX(mandate_end) AS last_mandate_end "
+                "FROM administrator WHERE name = %s "
+                "GROUP BY enterprise_number, role",
+                [today_str, person_name],
+            )
+            seed_sh_rows = fetch_all(
+                "SELECT DISTINCT enterprise_number, ownership_pct "
+                "FROM shareholder WHERE name = %s",
+                (person_name,),
+            )
+
+            seed_company_ids = sorted(
+                {
+                    row.get("enterprise_number")
+                    for row in (seed_admin_rows + seed_sh_rows)
+                    if row.get("enterprise_number")
+                }
+            )
+            if not seed_company_ids:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Person {person_name} not found in company network",
+                )
+
+            seed_name_map = _fetch_entity_names(seed_company_ids)
+            frontier: set[str] = set()
+
+            seen_seed_admin = set()
+            for row in seed_admin_rows:
+                ent = row["enterprise_number"]
+                role_key = row.get("role") or ""
+                edge_key = (root_id, ent, "administrator", role_key)
+                if edge_key in seen_seed_admin:
+                    continue
+                seen_seed_admin.add(edge_key)
+
+                role_label = ROLE_LABELS.get(role_key, role_key or "Administrator")
+                _add_node(ent, seed_name_map.get(ent, ent), "company", 1)
+                _add_edge(
+                    root_id,
+                    ent,
+                    "administrator",
+                    role_label,
+                    is_active=bool(row.get("is_active", True)),
+                    mandate_end=row.get("last_mandate_end"),
+                )
+                frontier.add(ent)
+
+            seen_seed_sh = set()
+            for row in seed_sh_rows:
+                ent = row["enterprise_number"]
+                edge_key = (root_id, ent, "shareholder")
+                if edge_key in seen_seed_sh:
+                    continue
+                seen_seed_sh.add(edge_key)
+
+                pct = row.get("ownership_pct")
+                pct_label = f"{pct:.0f}%" if pct else ""
+                _add_node(ent, seed_name_map.get(ent, ent), "company", 1)
+                _add_edge(root_id, ent, "shareholder", pct_label)
+                frontier.add(ent)
+
+            start_depth = 2
+        else:
+            # Resolve the starting company name
+            header = fetch_one(
+                "SELECT denomination AS name FROM denomination "
+                "WHERE entity_number = %s AND type_of_denomination = '001' LIMIT 1",
+                (cbe,),
+            )
+            if not header:
+                raise HTTPException(status_code=404, detail=f"Company {cbe} not found")
+
+            _add_node(cbe, header["name"], "company", 0)
+            frontier = {cbe}
+            start_depth = 1
+
+        for current_depth in range(start_depth, depth + 1):
             if not frontier or len(nodes) >= MAX_DEEP_NETWORK_NODES:
                 break
 
@@ -699,5 +776,5 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Deep network query failed for %s", cbe)
+        logger.exception("Deep network query failed for %s", raw_center or cbe)
         raise HTTPException(status_code=500, detail="Internal server error")

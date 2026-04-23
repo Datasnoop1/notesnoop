@@ -40,6 +40,10 @@ function isCompanyNodeId(id: string | undefined): id is string {
   return typeof id === "string" && /^\d{10}$/.test(id);
 }
 
+function isPersonNodeId(id: string | undefined): id is string {
+  return typeof id === "string" && id.startsWith("person:");
+}
+
 /* Depth-based color palette (darker = closer to target) */
 const DEPTH_COLORS: Record<number, string> = {
   0: "#4f46e5", // indigo-600 — target company
@@ -65,15 +69,15 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
   const [loading, setLoading] = useState(true);
   const [depth, setDepth] = useState(2);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  // The CBE the graph is currently centered on. Starts as the company
+  // The node the graph is currently centered on. Starts as the company
   // whose profile the user is on; a node click re-centers the graph
   // without navigating away from the tab. A small pill at the top lets
   // the operator jump back to the original.
-  const [centerCbe, setCenterCbe] = useState<string>(cbe);
+  const [centerNodeId, setCenterNodeId] = useState<string>(cbe);
   const [centerLabel, setCenterLabel] = useState<string>(companyName);
   // Reset to the profile's CBE whenever the parent route changes.
   useEffect(() => {
-    setCenterCbe(cbe);
+    setCenterNodeId(cbe);
     setCenterLabel(companyName);
   }, [cbe, companyName]);
   // Initialize with a viewport-aware default so the first render isn't 0-wide
@@ -92,7 +96,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    getDeepNetwork(centerCbe, depth)
+    getDeepNetwork(centerNodeId, depth)
       .then((resp: DeepNetworkResponse) => {
         const adapted: NetworkData = {
           nodes: resp.nodes.map((n) => ({
@@ -116,7 +120,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
       })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [centerCbe, depth]);
+  }, [centerNodeId, depth]);
 
   // Close fullscreen on Escape
   useEffect(() => {
@@ -159,20 +163,16 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
     return () => observer.disconnect();
   }, [isFullscreen, loading, ForceGraph, data]);
 
-  // Clicking a node RE-CENTERS the spider web on that company instead of
-  // navigating away. Jumping to the full profile stays available via the
-  // "Open profile" chip next to the center badge.
+  // Clicking a node RE-CENTERS the spider web around either a company or a
+  // person. Synthetic subsidiary placeholders still do not expand.
   const handleNodeClick = useCallback(
-    (node: { id?: string; label?: string }) => {
-      // Only real company nodes can become the graph center. Person and
-      // synthetic subsidiary ids like `person:...` / `sub:...` do not have
-      // a company profile endpoint and previously caused a 404 + blank graph.
-      if (isCompanyNodeId(node.id) && node.id !== centerCbe) {
-        setCenterCbe(node.id);
+    (node: { id?: string; label?: string; type?: string }) => {
+      if ((isCompanyNodeId(node.id) || isPersonNodeId(node.id)) && node.id !== centerNodeId) {
+        setCenterNodeId(node.id);
         setCenterLabel(node.label || node.id);
       }
     },
-    [centerCbe]
+    [centerNodeId]
   );
 
   if (loading) {
@@ -201,7 +201,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   // Depth-based node colors (darker closer to target)
   const nodeColor = (node: { type?: string; id?: string; depth?: number }) => {
-    if (node.id === centerCbe) return "#4f46e5";
+    if (node.id === centerNodeId) return "#4f46e5";
     if (node.depth != null) return DEPTH_COLORS[node.depth] || "#c7d2fe";
     return "#94a3b8";
   };
@@ -223,7 +223,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
       label: n.label,
       type: n.type,
       depth: n.depth,
-      val: n.id === centerCbe ? 3 : 1,
+      val: n.id === centerNodeId ? 3 : 1,
     })),
     // Include ALL edges from the backend (inter-node connections for depth 2+)
     links: data.edges.map((e) => ({
@@ -244,6 +244,8 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
     : "";
 
   const depthLevels = [...new Set(data.nodes.map((n) => n.depth ?? 0))].sort();
+  const centeredOnOriginalCompany = centerNodeId === cbe;
+  const centeredCompanyId = isCompanyNodeId(centerNodeId) ? centerNodeId : null;
 
   return (
     <div className={wrapperClass}>
@@ -278,24 +280,29 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
               focused on. After a node click this is different from the
               profile's CBE, so we also offer a back-to-original pill and
               a link to the clicked company's full profile. */}
-          {centerCbe !== cbe && (
+          {!centeredOnOriginalCompany && (
             <div className="flex items-center gap-2 px-3 py-2 mb-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs">
               <span className="text-indigo-700">
-                Centered on <strong>{centerLabel}</strong> <span className="text-indigo-400 font-mono">({centerCbe})</span>
+                Centered on <strong>{centerLabel}</strong>{" "}
+                {centeredCompanyId && (
+                  <span className="text-indigo-400 font-mono">({centeredCompanyId})</span>
+                )}
               </span>
               <button
                 type="button"
-                onClick={() => { setCenterCbe(cbe); setCenterLabel(companyName); }}
+                onClick={() => { setCenterNodeId(cbe); setCenterLabel(companyName); }}
                 className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100"
               >
                 <ArrowLeft className="h-3 w-3" /> Back to {companyName}
               </button>
-              <Link
-                href={`/company/${centerCbe}`}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100"
-              >
-                <ExternalLink className="h-3 w-3" /> Open profile
-              </Link>
+              {centeredCompanyId && (
+                <Link
+                  href={`/company/${centeredCompanyId}`}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100"
+                >
+                  <ExternalLink className="h-3 w-3" /> Open profile
+                </Link>
+              )}
             </div>
           )}
 

@@ -523,7 +523,7 @@ export interface DeepNetworkResponse {
 }
 
 export const getDeepNetwork = (cbe: string, depth?: number) =>
-  apiFetch<DeepNetworkResponse>(`/api/companies/${cbe}/deep-network${depth ? `?depth=${depth}` : ''}`);
+  apiFetch<DeepNetworkResponse>(`/api/companies/${encodeURIComponent(cbe)}/deep-network${depth ? `?depth=${depth}` : ''}`);
 
 // ── Stats ──────────────────────────────────────────────────
 export interface StatsOverview {
