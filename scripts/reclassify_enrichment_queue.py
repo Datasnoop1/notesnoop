@@ -43,6 +43,15 @@ from enrichment_routing import (  # noqa: E402
 from semantic_bootstrap import ensure_semantic_schema  # noqa: E402
 
 
+def _validate_placeholder_count(sql: str, params: tuple) -> None:
+    expected = sql.count("%s")
+    actual = len(params)
+    if expected != actual:
+        raise ValueError(
+            f"placeholder mismatch: expected {expected} params, got {actual}"
+        )
+
+
 def _base_cte(status_filter_sql: str) -> str:
     return f"""
         WITH recomputed AS (
@@ -105,9 +114,9 @@ def _counts_query(statuses: list[str]) -> tuple[str, tuple]:
     params = (FASTLANE_EBITDA_FLOOR,) + tuple(statuses) + (
         FASTLANE_EBITDA_FLOOR,
         FASTLANE_EBITDA_FLOOR,
-        FASTLANE_EBITDA_FLOOR,
         PRIORITY_TEMPLATE,
     )
+    _validate_placeholder_count(sql, params)
     return sql, params
 
 
@@ -122,6 +131,7 @@ def _apply_query(statuses: list[str]) -> tuple[str, tuple]:
            AND j.priority IS DISTINCT FROM r.new_priority
     """
     params = (FASTLANE_EBITDA_FLOOR,) + tuple(statuses)
+    _validate_placeholder_count(sql, params)
     return sql, params
 
 
