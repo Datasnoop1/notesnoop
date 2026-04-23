@@ -21,6 +21,11 @@ the non-obvious operational rules are:
 Then scan [`docs/tech-debt.md`](docs/tech-debt.md) for the current
 triage state.
 
+If your task touches the semantic pipeline, also read
+[`docs/semantic-operations.md`](docs/semantic-operations.md). It is the
+canonical runbook for semantic queue policy, fast-lane rules, excluded
+legal forms, ETA interpretation, and staging/prod rollout procedure.
+
 ## Tech Stack
 
 - **Database**: PostgreSQL (`DATABASE_URL` env var). SQLite era is over.
@@ -32,10 +37,10 @@ triage state.
   KBO context → Haiku 4.5 escalation) feeds `company_enrichment.bulk_summary`
   and `company_embedding`. Legacy 4-step `ai_insights_pipeline` still owns
   on-profile narratives — refactor deferred to Phase 5.
-- **Web scraping**: raw `httpx + trafilatura` is the bulk default (no
-  credits); Zenrows is the on-profile retry path only. The Zenrows-Google
-  SERP layer is DROPPED from bulk discovery per Phase 0 (0% success on our
-  current Zenrows plan).
+- **Web scraping**: raw `httpx + trafilatura` is the bulk default;
+  Zenrows remains the bulk scrape proxy fallback and the on-profile retry
+  path. The Zenrows-Google SERP layer is DROPPED from bulk discovery per
+  Phase 0 (0% success on our current Zenrows plan).
 - **Deployment**: docker-compose + nginx + Let's Encrypt
 - **Loaders**: `requests` for KBO/NBB ingestion, streaming CSV/JSON
 - **Legacy UI**: Streamlit app under `app/` still works against Postgres but is secondary
@@ -72,12 +77,17 @@ platform/
 ├── scripts/
 │   ├── init_db.py
 │   ├── screen.py
+│   ├── semantic_status.py          # semantic health / ETA snapshot
+│   ├── seed_enrichment_queue.py    # semantic queue seeding
+│   ├── reclassify_enrichment_queue.py   # semantic reprioritisation
+│   ├── apply_semantic_exclusions.py     # semantic corpus cleanup
 │   └── test_nbb_loader.py          # Only test file currently
 ├── data/                           # KBO ZIPs / NBB downloads (gitignored)
 ├── docs/
 │   ├── kbo-schema.md
 │   ├── nbb-api.md
-│   └── belgian-gaap.md
+│   ├── belgian-gaap.md
+│   └── semantic-operations.md   # semantic worker runbook + handoff doc
 ├── .env.example
 └── .gitignore
 ```
@@ -111,7 +121,8 @@ platform/
   the `enrichment-worker` service in `docker-compose*.yml`. Admin controls
   at `/admin/enrichment` (pause/resume, daily USD budget, skip-list
   maintenance, dead-letter retry). See `docs/architecture.md` §Semantic
-  enrichment.
+  enrichment and `docs/semantic-operations.md` for the live operator
+  workflow.
 
 - **Next.js frontend** (`frontend/`):
   Screener, company deep-dive, sector benchmarking, account, billing.
@@ -140,7 +151,7 @@ platform/
 
 ## Conventions
 
-- All scripts runnable standalone with `python src/script.py`
+- All scripts runnable standalone with `python path/to/script.py`
 - Use argparse for CLI arguments
 - Log to stdout with timestamps
 - `.env` for secrets, never hardcode API keys
@@ -167,6 +178,12 @@ docker compose up -d --build
 # Staging (port 8080, HTTP)
 docker compose -f docker-compose.staging.yml up -d --build
 ```
+
+Server env nuance:
+- `/opt/leadpeek/.env` feeds docker-compose build args
+- `/opt/leadpeek/.env.production` is the runtime env file
+- runtime env changes require `docker compose up -d --force-recreate`, not a
+  plain `restart`
 
 The OneDrive multi-device single-user model is **obsolete**. All data lives in
 Postgres; multiple users hit the same DB through the FastAPI backend. Don't
@@ -214,14 +231,21 @@ policy by default, without asking:
 1. Before any change is merged to `master`, run TWO independent review
    agents in parallel: (a) a correctness/regression audit and (b) a
    security review. Both must pass.
-2. If both pass, merge the PR into `master` automatically.
-3. Trigger the staging deploy (`./scripts/deploy_staging.sh`) so the
-   operator can test on port 8080.
-4. NEVER deploy to production automatically. Production deploy requires
+2. If both pass and the change is docs-only or otherwise read-only with
+   no shared-DB side effects, merge into `master` automatically.
+3. If the change touches a shared-production surface (semantic worker,
+   loaders, queue scripts, schema, deploy scripts, billing, auth, or any
+   code that can mutate the shared prod DB from staging), pause for
+   operator approval before merging or deploying.
+4. Only trigger staging deploy automatically for changes that cannot
+   mutate the shared prod DB. For semantic and other shared-DB workflows,
+   staging is code-validation only and must not be treated as a safe
+   worker sandbox.
+5. NEVER deploy to production automatically. Production deploy requires
    the operator to explicitly approve after staging is green.
-5. If either agent flags CRITICAL issues, fix them first and re-run both
+6. If either agent flags CRITICAL issues, fix them first and re-run both
    agents. Do NOT merge with known criticals.
-6. If the deploy scripts require parameters the assistant doesn't have
+7. If the deploy scripts require parameters the assistant doesn't have
    (server IP, SSH key), hand the command off to the operator with a
    copy-paste-ready invocation.
 

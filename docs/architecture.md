@@ -36,7 +36,7 @@ decisions, and gotchas that would otherwise need to be relearned.
 ```
 
 Three containers per environment: `backend`, `frontend`, `nginx`.
-Prod and staging run on the **same Hetzner VPS** (`62.238.14.150`)
+Prod and staging run on the **same Hetzner VPS**
 in separate docker-compose projects (`leadpeek` vs `leadpeek-staging`).
 Prod shares the DB with staging — **there is no staging DB**; staging
 reads from the same Postgres that prod does. Implications: data loads
@@ -61,11 +61,12 @@ staging affect prod.
 | `financial_summary`, `financial_latest`, `financial_by_year` | Views / materialised per-company | Pre-pivoted P&L / BS figures for fast reads. |
 | `nace_lookup` | Static reference | NACE code → description, descriptions in 3 languages. |
 | `user_roles` | Supabase-synced | `{email, role}` where role ∈ {anon, free, pro, admin}. |
+| `meta` | Small operational key-value table | Stores runtime toggles such as `enrichment_enabled` and semantic daily budget. |
 | `activity_log` | Every `/api/*` request | Endpoint + method + user_email (or `anon:<ip-hash>`) + timestamp. Drives tier limits and admin analytics. |
 | `ai_company_enrichment`, `ai_people_enrichment`, `ai_insights` | OpenRouter outputs | Cached LLM responses. |
 | `company_enrichment.bulk_*` | Phase 1 bulk pipeline | JSONB `bulk_summary` + confidence + hash of scraped text. Written by the worker; read by embedder + `/api/search/semantic`. Separate from narrative `ai_insights`. |
 | `company_embedding` | Per-company text embeddings | Semantic search + similar-AI retrieval. Embedded text comes from `bulk_summary` (Phase 1) with fallback to NACE template for no-data rows. |
-| `enrichment_job` | Phase 1 bulk-enrichment queue | Postgres-backed work queue. `status ∈ {queued, claimed, done, failed, dead}`, claimed via `FOR UPDATE SKIP LOCKED`. |
+| `enrichment_job` | Phase 1 bulk-enrichment queue | Postgres-backed work queue. `status ∈ {queued, claimed, done, failed, dead, excluded}`, claimed via `FOR UPDATE SKIP LOCKED`. `excluded` means intentionally outside the semantic corpus, not "completed". |
 | `query_embedding_cache` | Phase 1 /api/search/semantic | Keyed by `sha256(lower(q))`, 30-day TTL. Saves an embedding call per repeat query. |
 | `aggregator_skiplist` | Phase 1 scrape skip-list | DB-backed replacement for the `_SKIP_DOMAINS` constant. Read from `backend/scraper.py::_load_skiplist` with 5-min cache; seeded from `src/schema.sql`. |
 | `staatsblad_publications` | Scraped from publicatieblad | Legal notices, bankruptcy filings, etc. |
@@ -110,8 +111,8 @@ dots on load; never pad.
 
 **Role enforcement on admin routes** uses a router-level
 `Depends(_require_admin)` dependency — independent of any middleware.
-See `docs/tech-debt.md` item 10 for the one current drift (`/api/polls`
-uses `get_current_user` where it should use `_require_admin`).
+See `docs/tech-debt.md` for any currently known auth drift rather than
+assuming every admin-labelled surface is already aligned.
 
 ---
 
@@ -121,10 +122,10 @@ uses `get_current_user` where it should use `_require_admin`).
 
 ```
 # Staging (port 8080, plain HTTP, same DB as prod)
-./scripts/deploy_staging.sh 62.238.14.150 ~/.ssh/hetzner_leadpeek
+./scripts/deploy_staging.sh <SERVER_IP> <SSH_KEY_PATH>
 
 # Prod (port 443, Let's Encrypt)
-./scripts/deploy.sh 62.238.14.150 ~/.ssh/hetzner_leadpeek
+./scripts/deploy.sh <SERVER_IP> <SSH_KEY_PATH>
 ```
 
 ### What deploy scripts do
@@ -139,7 +140,9 @@ uses `get_current_user` where it should use `_require_admin`).
 - `/opt/leadpeek/.env` — **build-arg source**. `docker-compose.yml`
   references `${NEXT_PUBLIC_SUPABASE_URL}` etc. from this file during
   the frontend Docker build. Changing values here requires a
-  rebuild (`--build`).
+  rebuild (`--build`). Keep this file limited to non-sensitive build-time
+  values such as `NEXT_PUBLIC_*`; runtime secrets belong in
+  `.env.production`.
 - `/opt/leadpeek/.env.production` — **runtime env**. The backend +
   frontend containers read this via `env_file`. Changing values here
   requires **`docker compose up -d --force-recreate`**, not a plain
@@ -147,7 +150,8 @@ uses `get_current_user` where it should use `_require_admin`).
 - **`deploy.sh` SCPs local `.env.production` over the server's.**
   If the server's version has drifted (e.g. you added a key on the
   server only), `deploy.sh` will overwrite it. Always `md5sum`
-  both before running.
+  both before running, and make a remote backup first:
+  `cp /opt/leadpeek/.env.production /opt/leadpeek/.env.production.bak.$(date +%s)`.
 
 ### Standing deploy rules
 
@@ -212,8 +216,11 @@ uses `get_current_user` where it should use `_require_admin`).
 6. **Staging and prod share the same DB.** Any write via staging
    hits prod's data. No isolation.
 7. **`STAGING_MODE` env** gates a "staging admin-only" middleware.
-   Currently OFF (staging is open for anonymous browsing). Admin
-   routes still gated at the router level via `_require_admin`.
+   If staging remains connected to the shared prod DB, it must be
+   treated as privileged/internal-only; do not rely on anonymous-public
+   staging for workflows that can mutate queue, enrichment, or billing
+   state. Admin routes are still gated at the router level via
+   `_require_admin`.
 8. **Nginx `scrollbar-none` class** (Tailwind utility) hides the
    native scrollbar — if a table has `overflow-x-auto scrollbar-none`,
    mobile users have no visual cue that they can scroll. Drop
@@ -227,9 +234,14 @@ uses `get_current_user` where it should use `_require_admin`).
 
 ## Semantic enrichment (Phase 1 — bulk/narrative split)
 
-DataSnoop runs **two** AI enrichment pipelines on every company, written
-to **different columns** of `company_enrichment` and used for different
-surfaces:
+Operational runbook: [`docs/semantic-operations.md`](semantic-operations.md).
+Read that before changing queue policy, fast-lane thresholds, excluded legal
+forms, or ETA assumptions.
+
+DataSnoop runs **two** AI enrichment pipelines, written to **different
+columns** of `company_enrichment` and used for different surfaces. The
+bulk pipeline processes the target corpus automatically; the narrative
+pipeline runs on-demand when a user opens a profile.
 
 | Column | Who writes it | Who reads it | Shape |
 |---|---|---|---|
@@ -245,17 +257,21 @@ output. Both share the scraper and KBO-context builders.
 ### Bulk pipeline (worker)
 
 ```
-1. Dormant check      → dissolved (juridical 010/012/013/014)? → template, $0
-2. Website resolve    → KBO contact WEB row → else DuckDuckGo (3s throttle)
-3. Scrape             → raw httpx + trafilatura (≤8k); Zenrows basic proxy fallback
-4. KBO context block  → build_kbo_context_block({parent, admins, NACE, notes…})
-5. Q2 call            → call_q2(kbo, scraped) — GPT-4o-mini, structured output
-6. Collision check    → check_entity_collision — cheap 2nd GPT-4o-mini call
-                         that catches same-named wrong-entity matches
-7. Escalation         → tier-1 big / KBO nace-flag / q2.confidence=low
-                         → call_haiku_escalation(kbo, scraped, q2_summary)
-8. Persist            → company_enrichment.bulk_summary + bulk_website_hash
-9. Embed              → text-embedding-3-small @ 256 dims → company_embedding
+1. Unknown / branch-only CBE → no-op skip
+2. Excluded-form check → out-of-scope legal forms → mark `excluded`, no corpus write
+3. Dormant check       → `is_dormant(...)` short-circuit (`DISSOLVED_SITUATION_CODES`)
+4. EBITDA fast lane    → known EBITDA below floor → template + embed, no discovery
+5. Website resolve     → KBO contact WEB row → else DuckDuckGo (throttled)
+6. Scrape              → raw httpx + trafilatura (≤8k); Zenrows basic proxy fallback
+7. Template fallback   → scrape absent or untrustworthy → deterministic summary
+8. KBO context block   → build_kbo_context_block({parent, admins, NACE, notes…})
+9. Q2 call             → call_q2(kbo, scraped) — GPT-4o-mini, structured output
+10. Collision check    → check_entity_collision — cheap 2nd GPT-4o-mini call
+                          that catches same-named wrong-entity matches
+11. Escalation         → tier-1 big / KBO nace-flag / q2.confidence=low
+                          → call_haiku_escalation(kbo, scraped, q2_summary)
+12. Persist            → company_enrichment.bulk_summary + bulk_website_hash
+13. Embed              → text-embedding-3-small @ 256 dims → company_embedding
 ```
 
 All LLM calls tag the OpenRouter request with a `/bulk-enrichment/<cbe>`
@@ -278,7 +294,8 @@ blurb.
 | `enrichment_enabled` | `true` | `meta` table / admin pause-resume endpoint |
 | Daily USD budget | `$10` | `meta.enrichment_daily_budget` / admin endpoint |
 | Concurrency | `3` | `WORKER_CONCURRENCY` env in compose |
-| DDG throttle | `3s` | `DDG_MIN_INTERVAL_S` env |
+| DDG throttle | env-tuned, intentionally conservative | `DDG_MIN_INTERVAL_S` env |
+| EBITDA fast lane floor | `200000` EUR | `SEMANTIC_FASTLANE_EBITDA_FLOOR` env |
 | Max attempts | `5` | `enrichment_queue.MAX_ATTEMPTS` |
 | Stale-claim release | `30 min` | `release_stale()` call in worker loop |
 
@@ -294,9 +311,15 @@ tier3_no_web|template>`. Priorities (`PRIORITY_TIER1..TEMPLATE`) live in
 ### Rollback
 
 `meta.enrichment_enabled=false` pauses. The `bulk_*` columns and
-`company_embedding` are additive — no destructive migration. Drop the
-queue table if you need to restart from zero:
-`TRUNCATE enrichment_job;` (still leaves bulk rows intact).
+`company_embedding` are additive — no destructive migration.
+
+**Warning: staging and prod share the same DB. Never run queue-destructive
+commands from a staging shell.**
+
+If you need to restart the queue from zero, truncate it only from the
+production backend context:
+`TRUNCATE enrichment_job;` (still leaves bulk rows intact). See
+`docs/semantic-operations.md` for the safe semantic rollout procedure.
 
 ---
 
