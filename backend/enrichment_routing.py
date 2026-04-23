@@ -42,6 +42,13 @@ PRIORITY_TEMPLATE = 5
 # liquidation / struck off). Source: Spike 1 §4 finding 1.
 DISSOLVED_SITUATION_CODES = frozenset({"010", "012", "013", "014"})
 
+# Out-of-scope legal forms for the semantic company corpus. The operator
+# explicitly asked to keep these out of semantic enrichment entirely, so
+# they should never consume LLM calls, embeddings, or queue capacity.
+EXCLUDED_JURIDICAL_FORMS = frozenset(
+    {"017", "070", "030", "011", "012", "612", "721", "124"}
+)
+
 # Latest known EBITDA below this floor goes straight to the deterministic
 # fast lane. Missing EBITDA is handled separately from this explicit rule.
 FASTLANE_EBITDA_FLOOR = float(
@@ -89,6 +96,13 @@ def is_fastlane_ebitda(ebitda_eur: Optional[float]) -> bool:
     except (TypeError, ValueError):
         logger.info("invalid EBITDA value for fast-lane check: %r", ebitda_eur)
         return False
+
+
+def is_semantic_excluded_form(juridical_form: Optional[str]) -> bool:
+    """True when the legal form is intentionally outside the semantic corpus."""
+    if not juridical_form:
+        return False
+    return juridical_form.strip() in EXCLUDED_JURIDICAL_FORMS
 
 
 def is_dormant(juridical_situation: Optional[str]) -> bool:

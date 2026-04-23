@@ -35,12 +35,14 @@ type Overview = {
   queue_counts: Record<string, number>;
   progress: {
     total_jobs: number;
+    raw_total_jobs: number;
     completed_jobs: number;
     done_jobs: number;
     queued_jobs: number;
     claimed_jobs: number;
     failed_jobs: number;
     dead_jobs: number;
+    excluded_jobs: number;
     completion_pct: number;
     first_enqueued_at: string | null;
   };
@@ -445,7 +447,10 @@ export function EnrichmentDashboard({
                         </div>
                         <div className="mt-2 text-sm text-sky-100/90">
                           {formatNumber(overview.progress.completed_jobs)} van{" "}
-                          {formatNumber(overview.progress.total_jobs)} jobs afgerond of afgevoerd
+                          {formatNumber(overview.progress.total_jobs)} targetjobs afgerond of afgevoerd
+                          {overview.progress.excluded_jobs > 0
+                            ? ` • ${formatNumber(overview.progress.excluded_jobs)} expliciet uitgesloten`
+                            : ""}
                         </div>
                       </div>
                       <Meter
@@ -520,7 +525,7 @@ export function EnrichmentDashboard({
               </Card>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <StatCard
                 label="Queue Remaining"
                 value={formatNumber(overview.progress.queued_jobs)}
@@ -533,6 +538,13 @@ export function EnrichmentDashboard({
                 hint={`${formatNumber(overview.throughput.last_hour_completed)} in het laatste uur`}
                 icon={Gauge}
                 accent="text-sky-700"
+              />
+              <StatCard
+                label="Excluded"
+                value={formatNumber(overview.progress.excluded_jobs)}
+                hint="bewust buiten semantic corpus"
+                icon={AlertTriangle}
+                accent="text-amber-700"
               />
               <StatCard
                 label="Spend Today"

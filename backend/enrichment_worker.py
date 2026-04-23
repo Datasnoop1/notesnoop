@@ -63,6 +63,7 @@ from enrichment_queue import (  # noqa: E402
     ensure_schema as ensure_queue_schema,
     enrichment_enabled,
     mark_done,
+    mark_excluded,
     mark_failed,
     meta_flag,
     release_stale,
@@ -71,6 +72,7 @@ from enrichment_routing import (
     confidence_is_publishable,
     is_fastlane_ebitda,
     is_dormant,
+    is_semantic_excluded_form,
     should_escalate,
 )  # noqa: E402
 from entity_collision import check_entity_collision  # noqa: E402
@@ -174,6 +176,7 @@ def _load_kbo_context(cbe: str) -> dict:
         SELECT ci.name, ci.city, ci.nace_code,
                nl.description AS nace_description,
                e.juridical_situation,
+               e.juridical_form,
                fl.revenue, fl.ebitda, fl.fte_total,
                (SELECT c.value FROM contact c
                   WHERE c.entity_number = ci.enterprise_number
@@ -190,6 +193,7 @@ def _load_kbo_context(cbe: str) -> dict:
     if not info:
         return {"name": "", "hq_city": "", "primary_nace": "",
                 "nace_description": "", "juridical_situation": "",
+                "juridical_form": "",
                 "revenue_band": "unknown", "fte_band": "unknown",
                 "majority_shareholders": [], "key_subsidiaries": [],
                 "admins_top3": [], "parent": "", "notes": "",
@@ -240,6 +244,7 @@ def _load_kbo_context(cbe: str) -> dict:
         "primary_nace": info.get("nace_code") or "",
         "nace_description": info.get("nace_description") or "",
         "juridical_situation": info.get("juridical_situation") or "",
+        "juridical_form": info.get("juridical_form") or "",
         "revenue_band": _revenue_band(info.get("revenue")),
         "fte_band": _fte_band(info.get("fte_total")),
         "majority_shareholders": majority[:5],
@@ -414,6 +419,16 @@ async def _enrich_one(cbe: str) -> dict:
         return out
 
     # 1. Dormant bypass ------------------------------------------------
+    if is_semantic_excluded_form(kbo.get("juridical_form")):
+        out.update(
+            ok=True,
+            path="excluded_juridical_form",
+            confidence="insufficient_information",
+            exclude_reason=f"juridical_form:{kbo.get('juridical_form') or ''}",
+        )
+        return out
+
+    # 1a. Dormant bypass -----------------------------------------------
     if is_dormant(kbo.get("juridical_situation")):
         summary = build_template_summary(kbo)
         _write_bulk_row(cbe, summary, None, None)
@@ -592,13 +607,22 @@ class Worker:
                 )
                 result = await _enrich_one(j["enterprise_number"])
                 if result.get("ok"):
-                    mark_done(j["enterprise_number"])
-                    logger.info(
-                        "done cbe=%s path=%s conf=%s chars=%d collide=%s",
-                        j["enterprise_number"], result["path"],
-                        result["confidence"], result["scraped_chars"],
-                        result["collision_downgrade"],
-                    )
+                    if result.get("path") == "excluded_juridical_form":
+                        mark_excluded(j["enterprise_number"])
+                        logger.info(
+                            "excluded cbe=%s path=%s reason=%s",
+                            j["enterprise_number"],
+                            result["path"],
+                            result.get("exclude_reason"),
+                        )
+                    else:
+                        mark_done(j["enterprise_number"])
+                        logger.info(
+                            "done cbe=%s path=%s conf=%s chars=%d collide=%s",
+                            j["enterprise_number"], result["path"],
+                            result["confidence"], result["scraped_chars"],
+                            result["collision_downgrade"],
+                        )
                 else:
                     mark_failed(
                         j["enterprise_number"],
