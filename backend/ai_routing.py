@@ -1,53 +1,98 @@
-"""Routes LLM calls through OpenRouter for the similar-companies endpoint.
+"""Routes LLM calls through OpenRouter or Ollama for the similar-companies endpoint.
 
 Tiers:
-  DEFAULT — standard interactive calls.
-  CHEAP   — cache-warm refreshes, background re-scoring.
+  DEFAULT - interactive shortlist pass.
+  FINAL   - premium final judgment pass for the top shortlist.
+  CHEAP   - cache-warm refreshes, background re-scoring.
 
-Premium models are explicitly not used on this endpoint; cost control
-takes priority over marginal ranking-quality gains.
-
-All costs are approximate $/1M tokens from OpenRouter public pricing
-at time of writing; verify before committing to SLAs.
+All costs are approximate $/1M tokens from vendor public pricing at time
+of writing; verify before committing to SLAs.
 """
+
+import os
+
+
+def _env_model(name: str, default: str) -> str:
+    value = os.getenv(name, "").strip()
+    return value or default
+
+
+def _env_chain(name: str, default: list[str]) -> list[str]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return list(default)
+    items = [item.strip() for item in raw.split(",") if item.strip()]
+    return items or list(default)
+
+
+_DEFAULT_FALLBACK_CHAIN = [
+    "ollama:kimi-k2.6",
+    "google/gemini-2.5-flash",
+    "openai/gpt-4o-mini",
+    "anthropic/claude-haiku-4-5",
+]
+
+_FINAL_FALLBACK_CHAIN = [
+    "anthropic/claude-sonnet-4.6",
+    "google/gemini-2.5-flash",
+    "anthropic/claude-haiku-4-5",
+]
+
 
 SIMILAR_COMPANIES_ROUTING = {
     "DEFAULT": {
-        "model": "anthropic/claude-haiku-4-5",
-        "max_tokens": 1200,
-        "temperature": 0.2,
-        # Strong JSON instruction-following, reliable structured output,
-        # mid-tier cost. The task is exactly the kind of bounded ranking
-        # Haiku-class models excel at without Flash's occasional JSON drift.
+        "model": _env_model(
+            "SIMILAR_COMPANIES_DEFAULT_MODEL",
+            "ollama:kimi-k2.6",
+        ),
+        "max_tokens": 1000,
+        "temperature": 0.1,
+        # Interactive shortlist pass. This stage trims the candidate set
+        # before the premium final judge is called.
+    },
+    "FINAL": {
+        "model": _env_model(
+            "SIMILAR_COMPANIES_FINAL_MODEL",
+            "anthropic/claude-sonnet-4.6",
+        ),
+        "max_tokens": 1600,
+        "temperature": 0.1,
+        # Final ranking + explanation pass over the shortlisted candidates.
     },
     "CHEAP": {
-        "model": "google/gemini-2.5-flash-lite",
+        "model": _env_model(
+            "SIMILAR_COMPANIES_CHEAP_MODEL",
+            "google/gemini-2.5-flash-lite",
+        ),
         "max_tokens": 1200,
         "temperature": 0.2,
         # Cheapest tier with acceptable JSON compliance for cache-warm
         # refreshes where latency and cost matter more than nuance.
         # Used for background recomputes and low-signal targets.
     },
-    "FALLBACK_CHAIN": [
-        "anthropic/claude-haiku-4-5",
-        "google/gemini-2.5-flash",
-        "openai/gpt-4o-mini",
-        "deepseek/deepseek-chat-v3",
-    ],
-    # Chain is tried in order on timeout, 5xx, or JSON-parse failure.
-    # Gemini 2.5 Flash is the primary fallback: different provider,
-    # proven on this exact prompt shape in the existing implementation.
-    # gpt-4o-mini is third for provider diversity. DeepSeek is last-
-    # resort — cheap, adequate JSON, occasionally slow.
-    "REQUEST_TIMEOUT_S": 12,
+    "FALLBACK_CHAIN": _env_chain(
+        "SIMILAR_COMPANIES_FALLBACK_CHAIN",
+        _DEFAULT_FALLBACK_CHAIN,
+    ),
+    "FINAL_FALLBACK_CHAIN": _env_chain(
+        "SIMILAR_COMPANIES_FINAL_FALLBACK_CHAIN",
+        _FINAL_FALLBACK_CHAIN,
+    ),
+    # Chains are tried in order on timeout, 5xx, or JSON-parse failure.
+    # Models prefixed with `ollama:` route through OLLAMA_BASE_URL using
+    # OLLAMA_API_KEY (for example `ollama:kimi-k2.6`).
+    "SHORTLIST_SIZE": 15,
+    "REQUEST_TIMEOUT_S": 15,
     "MAX_RETRIES_PER_MODEL": 1,
 }
 
 
 # Approximate OpenRouter pricing per 1M tokens (USD). Used only for
-# cost estimation in observability logs — not for billing. Update as
+# cost estimation in observability logs - not for billing. Update as
 # upstream pricing changes.
 MODEL_PRICING_USD_PER_1M = {
+    "ollama:kimi-k2.6":              {"input": 0.95, "output": 4.00},
+    "anthropic/claude-sonnet-4.6":   {"input": 3.00, "output": 15.00},
     "anthropic/claude-haiku-4-5":    {"input": 1.00, "output": 5.00},
     "google/gemini-2.5-flash":       {"input": 0.30, "output": 2.50},
     "google/gemini-2.5-flash-lite":  {"input": 0.10, "output": 0.40},
@@ -56,66 +101,34 @@ MODEL_PRICING_USD_PER_1M = {
 }
 
 
-# Premium model substrings that must never appear in the routing table.
-# Used by self-tests and the assertion below to enforce the cost policy.
-_PREMIUM_SUBSTRINGS = (
-    "claude-sonnet", "claude-opus", "sonnet-4", "opus-4",
-    "gpt-4-turbo", "gpt-4o-2024", "gpt-4.1", "gpt-4.5",
-    "gemini-2.5-pro", "gemini-1.5-pro",
-    "o1-", "o3-",
-)
-
-
-def _assert_no_premium_models() -> None:
-    """Fail at import time if a premium model has leaked into the routing table.
-
-    The cost policy in §11 of the implementation spec forbids Sonnet/Opus/GPT-4-
-    class models on this endpoint. This guard makes that policy enforceable at
-    the code level instead of at review time.
-    """
-    models: list[str] = [
-        SIMILAR_COMPANIES_ROUTING["DEFAULT"]["model"],
-        SIMILAR_COMPANIES_ROUTING["CHEAP"]["model"],
-        *SIMILAR_COMPANIES_ROUTING["FALLBACK_CHAIN"],
-    ]
-    for m in models:
-        lower = m.lower()
-        for bad in _PREMIUM_SUBSTRINGS:
-            if bad in lower:
-                raise AssertionError(
-                    f"Premium model {m!r} is not allowed on the similar-companies "
-                    f"endpoint (matched substring {bad!r}). See §11 of the spec."
-                )
-
-
-_assert_no_premium_models()
-
-
 def select_tier(cheap_mode: bool = False) -> str:
     """Select tier for the similar-companies endpoint.
 
     CHEAP is reserved for background or cache-warm calls only.
-    Interactive requests always use DEFAULT. Premium is not an option.
+    Interactive requests start with DEFAULT; the caller may then run a
+    second FINAL pass for the shortlisted candidates.
     """
     return "CHEAP" if cheap_mode else "DEFAULT"
 
 
 def get_tier_config(tier: str) -> dict:
     """Return the config dict for a named tier. Raises KeyError if unknown."""
-    if tier not in ("DEFAULT", "CHEAP"):
-        raise KeyError(f"Unknown tier {tier!r}; must be 'DEFAULT' or 'CHEAP'.")
+    if tier not in ("DEFAULT", "FINAL", "CHEAP"):
+        raise KeyError(f"Unknown tier {tier!r}; must be 'DEFAULT', 'FINAL', or 'CHEAP'.")
     return SIMILAR_COMPANIES_ROUTING[tier]
 
 
-def get_fallback_chain(primary_model: str) -> list[str]:
+def get_fallback_chain(primary_model: str, tier: str = "DEFAULT") -> list[str]:
     """Return the fallback chain with the primary pulled to the front.
 
-    The chain in SIMILAR_COMPANIES_ROUTING is the canonical order; if the
-    caller's primary model sits mid-chain (e.g. CHEAP tier's flash-lite),
-    we still want to try the primary first, then walk the rest of the
-    chain in order, skipping any duplicate.
+    The configured chain is the canonical order for the chosen tier; if the
+    caller's primary model sits mid-chain, we still want to try the primary
+    first, then walk the rest of the chain in order, skipping any duplicate.
     """
-    chain = list(SIMILAR_COMPANIES_ROUTING["FALLBACK_CHAIN"])
+    if tier == "FINAL":
+        chain = list(SIMILAR_COMPANIES_ROUTING["FINAL_FALLBACK_CHAIN"])
+    else:
+        chain = list(SIMILAR_COMPANIES_ROUTING["FALLBACK_CHAIN"])
     ordered: list[str] = [primary_model]
     for m in chain:
         if m != primary_model:

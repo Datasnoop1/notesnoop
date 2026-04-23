@@ -63,6 +63,8 @@ def _load_similar_module():
     rerank_stub.build_target_insight_block = lambda *args, **kwargs: ""
     rerank_stub.call_rerank_llm = lambda *args, **kwargs: None
     rerank_stub.render_prompt = lambda *args, **kwargs: ""
+    rerank_stub.render_shortlist_prompt = lambda *args, **kwargs: ""
+    rerank_stub.render_final_prompt = lambda *args, **kwargs: ""
     sys.modules["rerank"] = rerank_stub
 
     similar_cache_stub = types.ModuleType("similar_cache")
@@ -95,29 +97,30 @@ def _load_similar_module():
 _similar = _load_similar_module()
 _extract_reason_sections = _similar._extract_reason_sections
 _normalize_reason = _similar._normalize_reason
+_candidate_to_result = _similar._candidate_to_result
 
 
 def test_period_delimited_reason_normalizes_to_structured_format():
     fallback = (
         "Activity: Packaging machinery for food producers | "
-        "Size: Comparable EUR10-20M manufacturer scale | "
+        "Size: Comparable €10-20M manufacturer scale | "
         "Geography: Different region, secondary factor"
     )
     raw = (
         "Activity: Packaging machinery for food producers. "
-        "Size: Similar EUR10-20M manufacturer scale. "
+        "Size: Similar €10-20M manufacturer scale. "
         "Geography: Different region, secondary factor."
     )
 
     normalized = _normalize_reason(raw, fallback)
     assert normalized == (
         "Activity: Packaging machinery for food producers | "
-        "Size: Similar EUR10-20M manufacturer scale | "
+        "Size: Similar €10-20M manufacturer scale | "
         "Geography: Different region, secondary factor"
     )
     assert _extract_reason_sections(normalized) == {
         "activity": "Packaging machinery for food producers",
-        "size": "Similar EUR10-20M manufacturer scale",
+        "size": "Similar €10-20M manufacturer scale",
         "geography": "Different region, secondary factor",
     }
 
@@ -141,7 +144,57 @@ def test_generic_reason_backfills_missing_sections():
     )
 
 
+def test_structured_sections_override_free_text_and_stay_structured():
+    candidate = {
+        "match_score": 87,
+        "provenance": "embedding+nace",
+        "nace_match_label": "exact",
+        "revenue_ratio": 1.05,
+        "activity_overlap_score": 0.71,
+        "activity_anchor": "industrial refrigeration systems",
+        "geo_label": "same_province",
+        "row": {
+            "enterprise_number": "0000000002",
+            "name": "PeerCo NV",
+            "city": "Antwerp",
+            "revenue": 950000.0,
+            "ebitda": 120000.0,
+            "fte_total": 18.0,
+            "fiscal_year": 2024,
+            "ebit": 100000.0,
+            "net_profit": 70000.0,
+            "equity": 150000.0,
+            "total_assets": 400000.0,
+            "personnel_costs": 250000.0,
+            "nace_code": "46690",
+            "nace_desc": "Wholesale of other machinery",
+        },
+    }
+
+    result = _candidate_to_result(
+        candidate,
+        "same sector",
+        {
+            "activity": "Industrial refrigeration systems for food processors",
+            "size": "Revenue is very close to the target; FTE around 18",
+            "geography": "Same province area: Antwerp",
+        },
+    )
+
+    assert result["ai_reason"] == (
+        "Activity: Industrial refrigeration systems for food processors | "
+        "Size: Revenue is very close to the target; FTE around 18 | "
+        "Geography: Same province area: Antwerp"
+    )
+    assert result["ai_reason_sections"] == {
+        "activity": "Industrial refrigeration systems for food processors",
+        "size": "Revenue is very close to the target; FTE around 18",
+        "geography": "Same province area: Antwerp",
+    }
+
+
 if __name__ == "__main__":
     test_period_delimited_reason_normalizes_to_structured_format()
     test_generic_reason_backfills_missing_sections()
+    test_structured_sections_override_free_text_and_stay_structured()
     print("All similar-reasoning tests passed.")

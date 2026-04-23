@@ -34,9 +34,9 @@ from retrieval import (
 )
 from rerank import (
     MIN_CANDIDATES_FOR_LLM,
-    build_target_insight_block,
     call_rerank_llm,
-    render_prompt,
+    render_final_prompt,
+    render_shortlist_prompt,
 )
 from similar_cache import compute_content_hash, ensure_similar_cache_schema
 from utils import clean_cbe
@@ -48,7 +48,7 @@ router = APIRouter()
 
 # Bumped whenever §4.2 prompt text or §4.3 output schema changes. Any bump
 # forces cache invalidation for every CBE because the hash includes it.
-PROMPT_VERSION = "v2.2.0"
+PROMPT_VERSION = "v2.3.0"
 
 FOCUS_VALUES = ("activity", "size", "geography")
 
@@ -57,6 +57,7 @@ FOCUS_VALUES = ("activity", "size", "geography")
 # (which expands limit from 10 to 20) doesn't trigger a cache miss and a
 # redundant LLM call. 20 matches the upper bound of the `limit` query param.
 MAX_RANKED_ITEMS = 30
+SHORTLIST_SIZE = int(SIMILAR_COMPANIES_ROUTING.get("SHORTLIST_SIZE", 15))
 MAX_REASONABLE_SIMILAR_FTE = 50_000
 LARGE_SIMILAR_FTE_THRESHOLD = 10_000
 MIN_REASONABLE_REVENUE_PER_FTE = 5_000
@@ -95,42 +96,46 @@ async def sector_benchmark(cbe: str):
                 WHERE ci.nace_code = %s
             )
             SELECT
-                (SELECT COUNT(*) FROM peers WHERE revenue IS NOT NULL) AS peer_count,
                 c.fiscal_year, c.revenue, c.ebitda, c.net_profit, c.equity, c.total_assets, c.fte_total,
                 c.ebitda_margin, c.equity_ratio,
+                COUNT(*) FILTER (WHERE p.revenue IS NOT NULL) AS peer_count,
                 -- Revenue
-                (SELECT COUNT(*) FROM peers WHERE revenue < c.revenue AND revenue IS NOT NULL) AS rev_below,
-                (SELECT COUNT(*) FROM peers WHERE revenue IS NOT NULL) AS rev_total,
-                (SELECT PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY revenue) FROM peers WHERE revenue IS NOT NULL) AS rev_p25,
-                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY revenue) FROM peers WHERE revenue IS NOT NULL) AS rev_med,
-                (SELECT PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY revenue) FROM peers WHERE revenue IS NOT NULL) AS rev_p75,
+                COUNT(*) FILTER (WHERE p.revenue < c.revenue AND p.revenue IS NOT NULL) AS rev_below,
+                COUNT(*) FILTER (WHERE p.revenue IS NOT NULL) AS rev_total,
+                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY p.revenue) FILTER (WHERE p.revenue IS NOT NULL) AS rev_p25,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.revenue) FILTER (WHERE p.revenue IS NOT NULL) AS rev_med,
+                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY p.revenue) FILTER (WHERE p.revenue IS NOT NULL) AS rev_p75,
                 -- EBITDA
-                (SELECT COUNT(*) FROM peers WHERE ebitda < c.ebitda AND ebitda IS NOT NULL) AS ebitda_below,
-                (SELECT COUNT(*) FROM peers WHERE ebitda IS NOT NULL) AS ebitda_total,
-                (SELECT PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ebitda) FROM peers WHERE ebitda IS NOT NULL) AS ebitda_p25,
-                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ebitda) FROM peers WHERE ebitda IS NOT NULL) AS ebitda_med,
-                (SELECT PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ebitda) FROM peers WHERE ebitda IS NOT NULL) AS ebitda_p75,
+                COUNT(*) FILTER (WHERE p.ebitda < c.ebitda AND p.ebitda IS NOT NULL) AS ebitda_below,
+                COUNT(*) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_total,
+                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY p.ebitda) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_p25,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.ebitda) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_med,
+                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY p.ebitda) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_p75,
                 -- Net Profit
-                (SELECT COUNT(*) FROM peers WHERE net_profit < c.net_profit AND net_profit IS NOT NULL) AS np_below,
-                (SELECT COUNT(*) FROM peers WHERE net_profit IS NOT NULL) AS np_total,
-                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY net_profit) FROM peers WHERE net_profit IS NOT NULL) AS np_med,
+                COUNT(*) FILTER (WHERE p.net_profit < c.net_profit AND p.net_profit IS NOT NULL) AS np_below,
+                COUNT(*) FILTER (WHERE p.net_profit IS NOT NULL) AS np_total,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.net_profit) FILTER (WHERE p.net_profit IS NOT NULL) AS np_med,
                 -- FTE
-                (SELECT COUNT(*) FROM peers WHERE fte_total < c.fte_total AND fte_total IS NOT NULL) AS fte_below,
-                (SELECT COUNT(*) FROM peers WHERE fte_total IS NOT NULL) AS fte_total_cnt,
-                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY fte_total) FROM peers WHERE fte_total IS NOT NULL) AS fte_med,
+                COUNT(*) FILTER (WHERE p.fte_total < c.fte_total AND p.fte_total IS NOT NULL) AS fte_below,
+                COUNT(*) FILTER (WHERE p.fte_total IS NOT NULL) AS fte_total_cnt,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.fte_total) FILTER (WHERE p.fte_total IS NOT NULL) AS fte_med,
                 -- Total Assets
-                (SELECT COUNT(*) FROM peers WHERE total_assets < c.total_assets AND total_assets IS NOT NULL) AS ta_below,
-                (SELECT COUNT(*) FROM peers WHERE total_assets IS NOT NULL) AS ta_total,
-                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY total_assets) FROM peers WHERE total_assets IS NOT NULL) AS ta_med,
+                COUNT(*) FILTER (WHERE p.total_assets < c.total_assets AND p.total_assets IS NOT NULL) AS ta_below,
+                COUNT(*) FILTER (WHERE p.total_assets IS NOT NULL) AS ta_total,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.total_assets) FILTER (WHERE p.total_assets IS NOT NULL) AS ta_med,
                 -- EBITDA Margin
-                (SELECT COUNT(*) FROM peers WHERE ebitda_margin < c.ebitda_margin AND ebitda_margin IS NOT NULL) AS em_below,
-                (SELECT COUNT(*) FROM peers WHERE ebitda_margin IS NOT NULL) AS em_total,
-                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY ebitda_margin) FROM peers WHERE ebitda_margin IS NOT NULL) AS em_med,
+                COUNT(*) FILTER (WHERE p.ebitda_margin < c.ebitda_margin AND p.ebitda_margin IS NOT NULL) AS em_below,
+                COUNT(*) FILTER (WHERE p.ebitda_margin IS NOT NULL) AS em_total,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.ebitda_margin) FILTER (WHERE p.ebitda_margin IS NOT NULL) AS em_med,
                 -- Equity Ratio
-                (SELECT COUNT(*) FROM peers WHERE equity_ratio < c.equity_ratio AND equity_ratio IS NOT NULL) AS er_below,
-                (SELECT COUNT(*) FROM peers WHERE equity_ratio IS NOT NULL) AS er_total,
-                (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY equity_ratio) FROM peers WHERE equity_ratio IS NOT NULL) AS er_med
+                COUNT(*) FILTER (WHERE p.equity_ratio < c.equity_ratio AND p.equity_ratio IS NOT NULL) AS er_below,
+                COUNT(*) FILTER (WHERE p.equity_ratio IS NOT NULL) AS er_total,
+                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.equity_ratio) FILTER (WHERE p.equity_ratio IS NOT NULL) AS er_med
             FROM company c
+            CROSS JOIN peers p
+            GROUP BY
+                c.fiscal_year, c.revenue, c.ebitda, c.net_profit, c.equity,
+                c.total_assets, c.fte_total, c.ebitda_margin, c.equity_ratio
         """, (cbe, nace))
 
         if not row or not row.get("fiscal_year"):
@@ -420,6 +425,47 @@ def _format_reason_sections(sections: dict[str, str]) -> str:
     return " | ".join(parts)
 
 
+def _clean_reason_section(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split()).strip(" |.;:-")
+
+
+def _is_generic_activity_section(text: str) -> bool:
+    lowered = text.lower()
+    if not lowered:
+        return True
+    generic_patterns = (
+        "same sector",
+        "same industry",
+        "similar activity",
+        "related activity",
+        "same nace",
+        "business-profile match",
+        "comparable business",
+    )
+    if any(pattern in lowered for pattern in generic_patterns):
+        return True
+    words = re.findall(r"[a-z0-9][a-z0-9&/+.-]*", lowered)
+    return len(words) < 3
+
+
+def _normalize_reason_sections(
+    ai_sections: dict[str, str] | None,
+    fallback_reason: str,
+) -> dict[str, str]:
+    fallback_sections = _extract_reason_sections(fallback_reason)
+    merged: dict[str, str] = {}
+    for key in _REASON_ORDER:
+        value = _clean_reason_section((ai_sections or {}).get(key))
+        if key == "activity" and _is_generic_activity_section(value):
+            value = ""
+        if not value:
+            value = fallback_sections.get(key) or ""
+        merged[key] = value
+    return merged
+
+
 def _fallback_reason_from_candidate(candidate: dict) -> str:
     row = candidate.get("row", {})
     activity = _describe_nace_match(
@@ -452,9 +498,19 @@ def _fallback_reason_from_payload(
     return _structured_reason(activity, size, geography)
 
 
-def _normalize_reason(ai_reason: Optional[str], fallback_reason: str) -> str:
+def _normalize_reason(
+    ai_reason: Optional[str],
+    fallback_reason: str,
+    ai_sections: dict[str, str] | None = None,
+) -> str:
     fallback_sections = _extract_reason_sections(fallback_reason)
     fallback_normalized = _format_reason_sections(fallback_sections) or fallback_reason
+    if ai_sections:
+        normalized = _format_reason_sections(
+            _normalize_reason_sections(ai_sections, fallback_reason)
+        )
+        if normalized:
+            return normalized
     if not ai_reason:
         return fallback_normalized
     text = ai_reason.strip()
@@ -484,13 +540,23 @@ def _normalize_reason(ai_reason: Optional[str], fallback_reason: str) -> str:
     })
 
 
-def _candidate_to_result(c: dict, ai_reason: Optional[str]) -> dict:
+def _candidate_to_result(
+    c: dict,
+    ai_reason: Optional[str],
+    ai_sections: dict[str, str] | None = None,
+) -> dict:
     """Shape one blended candidate into the public API response row."""
     row = c.get("row", {})
     serialized = _sanitize_similar_result_row({k: row.get(k) for k in _RESULT_FIELDS})
-    normalized_reason = _normalize_reason(ai_reason, _fallback_reason_from_candidate(c))
+    fallback_reason = _fallback_reason_from_candidate(c)
+    normalized_reason = _normalize_reason(ai_reason, fallback_reason, ai_sections=ai_sections)
+    normalized_sections = (
+        _normalize_reason_sections(ai_sections, fallback_reason)
+        if ai_sections
+        else _extract_reason_sections(normalized_reason)
+    )
     serialized["ai_reason"] = normalized_reason
-    serialized["ai_reason_sections"] = _extract_reason_sections(normalized_reason)
+    serialized["ai_reason_sections"] = normalized_sections
     serialized["match_score"] = int(c.get("match_score") or 0)
     serialized["provenance"] = c.get("provenance") or "fallback_size_band"
     serialized["signals"] = {
@@ -516,6 +582,48 @@ def _emit_log(event: dict) -> None:
         logger.exception("Failed to emit similar_ai log line")
 
 
+def _record_llm_result(log_event: dict, llm_result: dict) -> None:
+    log_event["model_attempted"].extend(llm_result.get("attempted", []))
+    log_event["llm_latency_ms"] += sum(llm_result.get("latencies", {}).values())
+    for model, usage in (llm_result.get("usage") or {}).items():
+        log_event["input_tokens"] += usage.get("input_tokens", 0)
+        log_event["output_tokens"] += usage.get("output_tokens", 0)
+        log_event["cost_usd_estimated"] += estimate_cost_usd(
+            model, usage.get("input_tokens", 0), usage.get("output_tokens", 0),
+        )
+
+
+def _apply_ranked_shortlist(candidates: list[dict], items: list[dict], limit: int) -> list[dict]:
+    items_sorted = sorted(items, key=lambda x: x["rank"])
+    shortlisted: list[dict] = []
+    used_indices: set[int] = set()
+    for entry in items_sorted:
+        idx = entry["index"] - 1
+        if idx < 0 or idx >= len(candidates) or idx in used_indices:
+            continue
+        used_indices.add(idx)
+        shortlisted.append(candidates[idx])
+        if len(shortlisted) >= limit:
+            break
+    if len(shortlisted) < limit:
+        for idx, candidate in enumerate(candidates):
+            if idx in used_indices:
+                continue
+            used_indices.add(idx)
+            shortlisted.append(candidate)
+            if len(shortlisted) >= limit:
+                break
+    return shortlisted
+
+
+def _compose_pipeline_model_used(shortlist_model: str | None, final_model: str | None) -> str | None:
+    left = (shortlist_model or "").strip()
+    right = (final_model or "").strip()
+    if left and right:
+        return f"{left} -> {right}"
+    return right or left or None
+
+
 @router.get("/{cbe}/similar/ai")
 async def get_similar_companies_ai(
     cbe: str,
@@ -534,6 +642,8 @@ async def get_similar_companies_ai(
     tier_key = select_tier(cheap_mode=False)
     tier_cfg = get_tier_config(tier_key)
     primary_model = tier_cfg["model"]
+    final_tier = "FINAL"
+    final_model = get_tier_config(final_tier)["model"]
 
     log_event: dict = {
         "cbe_target": cbe,
@@ -677,7 +787,7 @@ async def get_similar_companies_ai(
             candidate_profile_texts_sorted=candidate_profile_texts_sorted,
             focus=focus,
             prompt_version=PROMPT_VERSION,
-            model=primary_model,
+            model=f"{primary_model}->{final_model}",
         )
         log_event["content_hash"] = content_hash
 
@@ -693,6 +803,71 @@ async def get_similar_companies_ai(
         # Always ask the LLM for up to MAX_RANKED_ITEMS so the cached ranking
         # covers both the default `limit=10` view and the expanded `limit=20`
         # "Find more" view without a second round-trip to the model.
+        shortlist_limit = max(5, min(SHORTLIST_SIZE, len(candidates)))
+        shortlist_prompt = render_shortlist_prompt(target, candidates, shortlist_limit)
+        shortlist_result = await call_rerank_llm(
+            shortlist_prompt,
+            tier_key,
+            n_candidates=len(candidates),
+            schema="rank_only",
+        )
+        _record_llm_result(log_event, shortlist_result)
+
+        shortlist_items = shortlist_result.get("items") or []
+        if shortlist_items:
+            shortlisted_candidates = _apply_ranked_shortlist(
+                candidates,
+                shortlist_items,
+                shortlist_limit,
+            )
+        else:
+            shortlisted_candidates = candidates[:shortlist_limit]
+
+        final_limit = max(5, min(MAX_RANKED_ITEMS, len(shortlisted_candidates)))
+        final_prompt = render_final_prompt(target, shortlisted_candidates, final_limit)
+        final_result = await call_rerank_llm(
+            final_prompt,
+            final_tier,
+            n_candidates=len(shortlisted_candidates),
+            schema="structured_reason",
+        )
+        _record_llm_result(log_event, final_result)
+
+        final_items = final_result.get("items")
+        if final_items is None:
+            if shortlist_items:
+                log_event["degraded"] = "final_llm_unavailable"
+                model_used = shortlist_result.get("model_used")
+                log_event["model_succeeded"] = model_used
+                log_event["llm_returned_count"] = len(shortlist_items)
+                log_event["llm_valid_count"] = len(shortlist_items)
+                full_result = _apply_llm_ranking(
+                    shortlisted_candidates,
+                    shortlist_items,
+                    MAX_RANKED_ITEMS,
+                )
+            else:
+                log_event["degraded"] = "llm_unavailable"
+                log_event["llm_returned_count"] = 0
+                log_event["llm_valid_count"] = 0
+                return [_candidate_to_result(c, None) for c in candidates[:limit]]
+        else:
+            model_used = _compose_pipeline_model_used(
+                shortlist_result.get("model_used"),
+                final_result.get("model_used"),
+            )
+            log_event["model_succeeded"] = model_used
+            log_event["llm_returned_count"] = len(final_items)
+            log_event["llm_valid_count"] = len(final_items)
+            full_result = _apply_llm_ranking(
+                shortlisted_candidates,
+                final_items,
+                MAX_RANKED_ITEMS,
+            )
+
+        _upsert_cache(cbe, focus, content_hash, model_used, full_result, candidates)
+        return full_result[:limit]
+
         prompt = render_prompt(target, candidates, MAX_RANKED_ITEMS)
         llm_result = await call_rerank_llm(prompt, tier_key, n_candidates=len(candidates))
 
@@ -885,6 +1060,18 @@ def _cache_miss_reason(cbe: str, focus: str, content_hash: str) -> str:
     return "stale"
 
 
+def _entry_reason_sections(entry: dict) -> dict[str, str] | None:
+    sections = entry.get("reason_sections")
+    if isinstance(sections, dict):
+        return sections
+    extracted = {
+        key: entry.get(key)
+        for key in _REASON_ORDER
+        if isinstance(entry.get(key), str) and entry.get(key).strip()
+    }
+    return extracted or None
+
+
 def _apply_llm_ranking(candidates: list[dict], items: list[dict], limit: int) -> list[dict]:
     """Reorder candidates by LLM ranks, then backfill from blended candidates.
 
@@ -900,7 +1087,13 @@ def _apply_llm_ranking(candidates: list[dict], items: list[dict], limit: int) ->
         if idx < 0 or idx >= len(candidates) or idx in used_indices:
             continue
         used_indices.add(idx)
-        out.append(_candidate_to_result(candidates[idx], entry["reason"]))
+        out.append(
+            _candidate_to_result(
+                candidates[idx],
+                entry.get("reason"),
+                _entry_reason_sections(entry),
+            )
+        )
         if len(out) >= limit:
             break
 
