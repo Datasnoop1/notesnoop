@@ -70,11 +70,16 @@ services:
       # I/O-bound workload: discovery, scraping and LLM calls mostly wait on
       # network. A higher in-process concurrency helps use the VPS better
       # without requiring full CPU saturation.
-      WORKER_CONCURRENCY: "6"
+      WORKER_CONCURRENCY: "4"
       WORKER_POLL_INTERVAL_S: "1"
       WORKER_IDLE_SLEEP_S: "15"
       ENRICHMENT_DAILY_BUDGET_USD: "10"
-      DDG_MIN_INTERVAL_S: "3"
+      DDG_MIN_INTERVAL_S: "8"
+      DDG_MAX_INTERVAL_S: "45"
+      DDG_RATELIMIT_COOLDOWN_S: "90"
+      DDG_RATELIMIT_MULTIPLIER: "1.8"
+      DDG_RECOVERY_STEP_S: "0.5"
+      DDG_SUCCESS_STREAK_TO_RECOVER: "5"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

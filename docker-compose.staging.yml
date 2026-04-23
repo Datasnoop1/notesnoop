@@ -81,10 +81,15 @@ services:
       # The semantic worker is mostly network-bound, so higher concurrency
       # uses the 4-core VPS more effectively than a conservative default.
       ENRICHMENT_DAILY_BUDGET_USD: "50"
-      WORKER_CONCURRENCY: "6"
+      WORKER_CONCURRENCY: "1"
       WORKER_POLL_INTERVAL_S: "1"
       WORKER_IDLE_SLEEP_S: "15"
-      DDG_MIN_INTERVAL_S: "3"
+      DDG_MIN_INTERVAL_S: "12"
+      DDG_MAX_INTERVAL_S: "60"
+      DDG_RATELIMIT_COOLDOWN_S: "120"
+      DDG_RATELIMIT_MULTIPLIER: "2.0"
+      DDG_RECOVERY_STEP_S: "0.5"
+      DDG_SUCCESS_STREAK_TO_RECOVER: "6"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

@@ -27,9 +27,14 @@ ZENROWS_BASE = "https://api.zenrows.com/v1/"
 # sequential calls from one IP. The bulk worker calls
 # `duckduckgo_search_url` twice per CBE (website + LinkedIn search), so
 # at 400k no-web CBEs we'd hit the limit in minutes without throttling.
-# 3 seconds between CALLS (not per CBE) is the Phase 0 recommendation.
+# Defaults are intentionally conservative for production quality.
 # Overridable via env for tuning / local smoke tests.
-DDG_MIN_INTERVAL_S = float(os.getenv("DDG_MIN_INTERVAL_S", "3.0"))
+DDG_MIN_INTERVAL_S = float(os.getenv("DDG_MIN_INTERVAL_S", "8.0"))
+DDG_MAX_INTERVAL_S = float(os.getenv("DDG_MAX_INTERVAL_S", "45.0"))
+DDG_RATELIMIT_COOLDOWN_S = float(os.getenv("DDG_RATELIMIT_COOLDOWN_S", "90.0"))
+DDG_RATELIMIT_MULTIPLIER = float(os.getenv("DDG_RATELIMIT_MULTIPLIER", "1.8"))
+DDG_RECOVERY_STEP_S = float(os.getenv("DDG_RECOVERY_STEP_S", "0.5"))
+DDG_SUCCESS_STREAK_TO_RECOVER = int(os.getenv("DDG_SUCCESS_STREAK_TO_RECOVER", "5"))
 BING_FALLBACK_ENABLED = os.getenv("BING_FALLBACK_ENABLED", "false").strip().lower() in {
     "1",
     "true",
@@ -39,6 +44,10 @@ BING_FALLBACK_ENABLED = os.getenv("BING_FALLBACK_ENABLED", "false").strip().lowe
 
 _ddg_lock = asyncio.Lock()
 _ddg_last_call: float = 0.0
+_ddg_dynamic_interval_s: float = max(DDG_MIN_INTERVAL_S, 0.1)
+_ddg_cooldown_until: float = 0.0
+_ddg_rate_limit_streak: int = 0
+_ddg_success_streak: int = 0
 
 
 async def _ddg_throttle() -> None:
@@ -52,10 +61,59 @@ async def _ddg_throttle() -> None:
     global _ddg_last_call
     async with _ddg_lock:
         now = _time.monotonic()
+        if now < _ddg_cooldown_until:
+            await asyncio.sleep(_ddg_cooldown_until - now)
+            now = _time.monotonic()
+        min_gap = max(DDG_MIN_INTERVAL_S, _ddg_dynamic_interval_s)
         delta = now - _ddg_last_call
-        if delta < DDG_MIN_INTERVAL_S:
-            await asyncio.sleep(DDG_MIN_INTERVAL_S - delta)
+        if delta < min_gap:
+            await asyncio.sleep(min_gap - delta)
         _ddg_last_call = _time.monotonic()
+
+
+async def _ddg_record_success() -> None:
+    """Gradually recover toward the floor interval after sustained success."""
+    global _ddg_success_streak, _ddg_rate_limit_streak, _ddg_dynamic_interval_s
+    async with _ddg_lock:
+        _ddg_rate_limit_streak = 0
+        _ddg_success_streak += 1
+        if (
+            _ddg_success_streak >= DDG_SUCCESS_STREAK_TO_RECOVER
+            and _ddg_dynamic_interval_s > DDG_MIN_INTERVAL_S
+        ):
+            _ddg_dynamic_interval_s = max(
+                DDG_MIN_INTERVAL_S,
+                _ddg_dynamic_interval_s - DDG_RECOVERY_STEP_S,
+            )
+            _ddg_success_streak = 0
+
+
+async def _ddg_record_rate_limit(status_code: int, company_name: str, query_kind: str) -> None:
+    """Escalate interval and cooldown after DDG 403/429."""
+    global _ddg_rate_limit_streak, _ddg_success_streak, _ddg_dynamic_interval_s, _ddg_cooldown_until
+    async with _ddg_lock:
+        _ddg_success_streak = 0
+        _ddg_rate_limit_streak += 1
+
+        _ddg_dynamic_interval_s = min(
+            DDG_MAX_INTERVAL_S,
+            max(
+                _ddg_dynamic_interval_s * DDG_RATELIMIT_MULTIPLIER,
+                _ddg_dynamic_interval_s + 1.0,
+            ),
+        )
+        cooldown_s = DDG_RATELIMIT_COOLDOWN_S * min(_ddg_rate_limit_streak, 4)
+        _ddg_cooldown_until = max(_ddg_cooldown_until, _time.monotonic() + cooldown_s)
+
+        logger.warning(
+            "DuckDuckGo rate-limited (%s) on %s search for %s; interval=%.1fs cooldown=%.1fs streak=%d",
+            status_code,
+            query_kind,
+            company_name,
+            _ddg_dynamic_interval_s,
+            cooldown_s,
+            _ddg_rate_limit_streak,
+        )
 
 
 # ── Aggregator skip-list (DB-backed with hardcoded fallback) ──────────
@@ -204,44 +262,42 @@ async def duckduckgo_search_url(
     linkedin_url = None
 
     # ── Search for company website ──────────────────────────────
-    website_query = f"{company_name}{location_part} {country} official website"
-    await _ddg_throttle()
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"https://html.duckduckgo.com/html/?q={_url_encode(website_query)}",
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-                follow_redirects=True,
-            )
-            if resp.status_code == 200:
-                website_url = _extract_best_website(resp.text, company_name)
-            elif resp.status_code in (403, 429):
-                logger.warning(
-                    "DuckDuckGo rate-limited (%s) on website search for %s",
-                    resp.status_code, company_name,
+    if include_website:
+        website_query = f"{company_name}{location_part} {country} official website"
+        await _ddg_throttle()
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"https://html.duckduckgo.com/html/?q={_url_encode(website_query)}",
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                    follow_redirects=True,
                 )
-    except Exception as e:
-        logger.warning("DuckDuckGo website search failed for %s: %s", company_name, e)
+                if resp.status_code == 200:
+                    await _ddg_record_success()
+                    website_url = _extract_best_website(resp.text, company_name)
+                elif resp.status_code in (403, 429):
+                    await _ddg_record_rate_limit(resp.status_code, company_name, "website")
+        except Exception as e:
+            logger.warning("DuckDuckGo website search failed for %s: %s", company_name, e)
 
     # ── Search for LinkedIn page ────────────────────────────────
-    linkedin_query = f"{company_name}{location_part} site:linkedin.com/company"
-    await _ddg_throttle()
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"https://html.duckduckgo.com/html/?q={_url_encode(linkedin_query)}",
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-                follow_redirects=True,
-            )
-            if resp.status_code == 200:
-                linkedin_url = _extract_linkedin_url(resp.text)
-            elif resp.status_code in (403, 429):
-                logger.warning(
-                    "DuckDuckGo rate-limited (%s) on LinkedIn search for %s",
-                    resp.status_code, company_name,
+    if include_linkedin:
+        linkedin_query = f"{company_name}{location_part} site:linkedin.com/company"
+        await _ddg_throttle()
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"https://html.duckduckgo.com/html/?q={_url_encode(linkedin_query)}",
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                    follow_redirects=True,
                 )
-    except Exception as e:
-        logger.warning("DuckDuckGo LinkedIn search failed for %s: %s", company_name, e)
+                if resp.status_code == 200:
+                    await _ddg_record_success()
+                    linkedin_url = _extract_linkedin_url(resp.text)
+                elif resp.status_code in (403, 429):
+                    await _ddg_record_rate_limit(resp.status_code, company_name, "linkedin")
+        except Exception as e:
+            logger.warning("DuckDuckGo LinkedIn search failed for %s: %s", company_name, e)
 
     logger.info(
         "DuckDuckGo search for '%s': website=%s, linkedin=%s",
@@ -271,13 +327,11 @@ async def duckduckgo_search_website_url(
                 follow_redirects=True,
             )
             if resp.status_code == 200:
+                await _ddg_record_success()
                 return _extract_best_website(resp.text, company_name)
             if resp.status_code in (403, 429):
                 ddg_rate_limited = True
-                logger.warning(
-                    "DuckDuckGo rate-limited (%s) on website search for %s",
-                    resp.status_code, company_name,
-                )
+                await _ddg_record_rate_limit(resp.status_code, company_name, "website")
     except Exception as e:
         logger.warning("DuckDuckGo website search failed for %s: %s", company_name, e)
     if BING_FALLBACK_ENABLED:
@@ -306,13 +360,11 @@ async def duckduckgo_search_linkedin_url(
                 follow_redirects=True,
             )
             if resp.status_code == 200:
+                await _ddg_record_success()
                 return _extract_linkedin_url(resp.text)
             if resp.status_code in (403, 429):
                 ddg_rate_limited = True
-                logger.warning(
-                    "DuckDuckGo rate-limited (%s) on LinkedIn search for %s",
-                    resp.status_code, company_name,
-                )
+                await _ddg_record_rate_limit(resp.status_code, company_name, "linkedin")
     except Exception as e:
         logger.warning("DuckDuckGo LinkedIn search failed for %s: %s", company_name, e)
     if BING_FALLBACK_ENABLED:
