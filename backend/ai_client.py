@@ -687,6 +687,58 @@ def _summarize_feedback(fetch_all, cbe: str) -> dict:
     }
 
 
+def _fetch_company_context(fetch_one, cbe: str) -> dict | None:
+    """Load the base company context without requiring a company_info row.
+
+    Some entities resolve cleanly on the profile header via `enterprise` +
+    `denomination` + `address`, but have a sparse or missing `company_info`
+    record. AI insights should still work for those companies instead of
+    surfacing a false "Company not found".
+    """
+    row = fetch_one(
+        """
+        SELECT e.enterprise_number,
+               COALESCE(ci.name, d.denomination, e.enterprise_number) AS name,
+               COALESCE(ci.city, a.municipality_nl) AS city,
+               a.zipcode,
+               a.street_nl AS street,
+               a.house_number,
+               ci.nace_code,
+               COALESCE(nl.description, ci.nace_code) AS sector,
+               fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
+        FROM enterprise e
+        LEFT JOIN company_info ci ON ci.enterprise_number = e.enterprise_number
+        LEFT JOIN denomination d
+          ON d.entity_number = e.enterprise_number
+         AND d.type_of_denomination = '001'
+         AND d.language IN ('2', '1')
+        LEFT JOIN address a
+          ON a.entity_number = e.enterprise_number
+         AND a.type_of_address = 'REGO'
+        LEFT JOIN financial_latest fl ON fl.enterprise_number = e.enterprise_number
+        LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+        WHERE e.enterprise_number = %s
+        LIMIT 1
+        """,
+        (cbe,),
+    )
+    if not row:
+        return None
+    return {
+        "name": row.get("name") or row.get("enterprise_number") or cbe,
+        "city": row.get("city") or "Belgium",
+        "zipcode": row.get("zipcode") or "",
+        "street": row.get("street") or "",
+        "house_number": row.get("house_number") or "",
+        "sector": row.get("sector") or "",
+        "revenue": row.get("revenue"),
+        "ebitda": row.get("ebitda"),
+        "fte_total": row.get("fte_total"),
+        "fiscal_year": row.get("fiscal_year"),
+        "nace_code": row.get("nace_code"),
+    }
+
+
 def _build_corporate_graph(fetch_all, cbe: str) -> dict:
     """Query shareholder, participating_interest, and administrator tables once.
 
@@ -739,14 +791,14 @@ def _build_corporate_graph(fetch_all, cbe: str) -> dict:
     administrators = []
     try:
         rows = fetch_all(
-            """SELECT DISTINCT name, role_label FROM administrator
+            """SELECT DISTINCT name, role FROM administrator
                WHERE enterprise_number = %s AND mandate_end IS NULL
                LIMIT 10""",
             (cbe,),
         )
         if rows:
             administrators = [
-                {"name": r["name"], "role_label": r.get("role_label", "")}
+                {"name": r["name"], "role_label": r.get("role", "")}
                 for r in rows if r.get("name")
             ]
     except Exception as e:
@@ -924,18 +976,7 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
     execute = conn_helpers["execute"]
 
     # ── Gather company context from DB ──────────────────────────
-    company = fetch_one("""
-        SELECT ci.name, ci.city, ci.nace_code, ci.zipcode,
-               a.street_nl AS street, a.house_number,
-               COALESCE(nl.description, ci.nace_code) AS sector,
-               fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year
-        FROM company_info ci
-        LEFT JOIN address a ON a.entity_number = ci.enterprise_number AND a.type_of_address = 'REGO'
-        LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
-        LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
-        WHERE ci.enterprise_number = %s
-    """, (cbe,))
-
+    company = _fetch_company_context(fetch_one, cbe)
     if not company or not company.get("name"):
         return {"error": "Company not found"}
 

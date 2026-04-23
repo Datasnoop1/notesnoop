@@ -28,6 +28,7 @@ interface InsightsOverlayProps {
   onClose: () => void;
   insights: AiInsights | null;
   loading: boolean;
+  error?: string | null;
   companyName: string;
   onGenerate: () => void;
   onRegenerate?: () => void;
@@ -200,6 +201,7 @@ export function InsightsOverlay({
   onClose,
   insights,
   loading,
+  error,
   companyName,
   onGenerate,
   onRegenerate,
@@ -454,6 +456,27 @@ export function InsightsOverlay({
               </div>
             )}
 
+            {error && !loading && !insights && (
+              <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-rose-700">
+                      AI insights could not be generated
+                    </p>
+                    <p className="text-xs text-rose-600">{error}</p>
+                    <button
+                      onClick={onGenerate}
+                      className="inline-flex items-center gap-2 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 transition-colors"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      Try again
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Insights display */}
             {insights && (
               <div className="space-y-3">
@@ -569,7 +592,7 @@ export function InsightsOverlay({
             )}
 
             {/* Empty state — no insights, not loading */}
-            {!insights && !loading && (
+            {!insights && !loading && !error && (
               <div className="py-8 text-center">
                 <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-indigo-50 flex items-center justify-center">
                   <Sparkles className="h-6 w-6 text-indigo-400" />

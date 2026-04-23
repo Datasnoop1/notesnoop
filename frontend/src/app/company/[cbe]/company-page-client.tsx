@@ -156,6 +156,7 @@ export function CompanyPageClient({
   /* -- AI Insights overlay state -- */
   const [aiInsights, setAiInsights] = useState<AiInsights | null>(null);
   const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
+  const [aiInsightsError, setAiInsightsError] = useState<string | null>(null);
   const [showInsightsOverlay, setShowInsightsOverlay] = useState(false);
 
   /* -- Collapsible section state -- */
@@ -652,6 +653,7 @@ export function CompanyPageClient({
   }, [cbe]);
 
   const handleGenerateInsights = useCallback(async () => {
+    setAiInsightsError(null);
     setAiInsightsLoading(true);
     setShowInsightsOverlay(true);
     try {
@@ -660,6 +662,13 @@ export function CompanyPageClient({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       console.error("AI insights generation failed:", msg);
+      if (msg.includes("404")) {
+        setAiInsightsError("AI insights are not available for this company yet. Please try again.");
+      } else if (msg.includes("503")) {
+        setAiInsightsError("AI insights are temporarily unavailable. Please try again in a moment.");
+      } else {
+        setAiInsightsError(`AI insights failed: ${msg}`);
+      }
     } finally {
       setAiInsightsLoading(false);
     }
@@ -667,6 +676,7 @@ export function CompanyPageClient({
 
   const handleRegenerateInsights = useCallback(async () => {
     setAiInsights(null);
+    setAiInsightsError(null);
     setAiInsightsLoading(true);
     try {
       const result = await generateAiInsights(cbe);
@@ -674,6 +684,13 @@ export function CompanyPageClient({
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
       console.error("AI insights regeneration failed:", msg);
+      if (msg.includes("404")) {
+        setAiInsightsError("AI insights are not available for this company yet. Please try again.");
+      } else if (msg.includes("503")) {
+        setAiInsightsError("AI insights are temporarily unavailable. Please try again in a moment.");
+      } else {
+        setAiInsightsError(`AI insights failed: ${msg}`);
+      }
     } finally {
       setAiInsightsLoading(false);
     }
@@ -908,6 +925,7 @@ export function CompanyPageClient({
         onClose={() => setShowInsightsOverlay(false)}
         insights={aiInsights}
         loading={aiInsightsLoading}
+        error={aiInsightsError}
         companyName={detail.name || fmtCbe(cbe)}
         onGenerate={handleGenerateInsights}
         onRegenerate={handleRegenerateInsights}
