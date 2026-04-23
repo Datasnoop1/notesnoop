@@ -17,9 +17,16 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from typing import Any, Iterable
 
-from db import fetch_all, fetch_one
+from db import fetch_all, fetch_one, normalize_name
+from similarity_profile import (
+    build_similarity_profile,
+    compute_activity_overlap_score,
+    describe_activity_overlap,
+)
+from utils import clean_cbe
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +47,14 @@ FALLBACK_TRIGGER = 30       # leg C runs only if A+B together yield fewer than t
 LEG_A_LIMIT = 80
 LEG_B_LIMIT = 80
 LEG_C_LIMIT = 60
+
+GROUP_CONTROL_THRESHOLD_PCT = 50.0
+ACTIVITY_DETAIL_BONUS = {
+    "activity": 0.20,
+    "size": 0.08,
+    "geography": 0.05,
+}
+WEAK_ACTIVITY_FLOOR = 0.08
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -253,6 +268,19 @@ def _nace_match_label(cand_nace: str | None, target_nace: str | None) -> str:
     return "none"
 
 
+def _normalize_entity_name(name: str | None) -> str:
+    cleaned = normalize_name(name or "")
+    cleaned = re.sub(r"[^a-z0-9]+", " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _clean_identifier_as_cbe(identifier: str | None) -> str:
+    digits = re.sub(r"\D+", "", str(identifier or ""))
+    if len(digits) not in (9, 10):
+        return ""
+    return clean_cbe(digits)
+
+
 def _hydrate_candidates(cbes: list[str]) -> dict[str, dict]:
     """Batch-load info+financials for all merged candidates.
 
@@ -285,6 +313,7 @@ def _hydrate_candidates(cbes: list[str]) -> dict[str, dict]:
                fl.ebit, fl.net_profit, fl.equity, fl.total_assets,
                fl.personnel_costs,
                COALESCE(nl.description, ci.nace_code) AS nace_desc,
+               ce.bulk_summary,
                ce.ai_insights
         FROM company_info ci
         LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
@@ -295,6 +324,125 @@ def _hydrate_candidates(cbes: list[str]) -> dict[str, dict]:
         tuple(cbes),
     )
     return {r["enterprise_number"]: dict(r) for r in rows}
+
+
+def _build_group_profiles(rows_by_cbe: dict[str, dict]) -> dict[str, dict]:
+    """Load direct parent/subsidiary signals for same-group exclusion."""
+    if not rows_by_cbe:
+        return {}
+
+    profiles = {
+        cbe: {
+            "own_name": _normalize_entity_name(row.get("name")),
+            "controlling_shareholder_ids": set(),
+            "controlling_shareholder_names": set(),
+            "subsidiary_ids": set(),
+            "subsidiary_names": set(),
+        }
+        for cbe, row in rows_by_cbe.items()
+    }
+
+    cbes = list(rows_by_cbe.keys())
+    placeholders = ",".join(["%s"] * len(cbes))
+
+    try:
+        shareholder_rows = fetch_all(
+            f"""
+            SELECT enterprise_number, identifier, name, ownership_pct, shareholder_type
+            FROM shareholder
+            WHERE enterprise_number IN ({placeholders})
+              AND COALESCE(shareholder_type, 'entity') <> 'individual'
+            """,
+            tuple(cbes),
+        )
+    except Exception:
+        logger.exception("Failed to hydrate shareholder group links")
+        shareholder_rows = []
+
+    for row in shareholder_rows:
+        profile = profiles.get(row["enterprise_number"])
+        if not profile:
+            continue
+        pct = _as_number(row.get("ownership_pct"))
+        if pct is None or pct < GROUP_CONTROL_THRESHOLD_PCT:
+            continue
+        identifier = _clean_identifier_as_cbe(row.get("identifier"))
+        name = _normalize_entity_name(row.get("name"))
+        if identifier:
+            profile["controlling_shareholder_ids"].add(identifier)
+        if name:
+            profile["controlling_shareholder_names"].add(name)
+
+    try:
+        subsidiary_rows = fetch_all(
+            f"""
+            SELECT enterprise_number, identifier, name, ownership_pct
+            FROM participating_interest
+            WHERE enterprise_number IN ({placeholders})
+            """,
+            tuple(cbes),
+        )
+    except Exception:
+        logger.exception("Failed to hydrate subsidiary group links")
+        subsidiary_rows = []
+
+    for row in subsidiary_rows:
+        profile = profiles.get(row["enterprise_number"])
+        if not profile:
+            continue
+        pct = _as_number(row.get("ownership_pct"))
+        if pct is None or pct < GROUP_CONTROL_THRESHOLD_PCT:
+            continue
+        identifier = _clean_identifier_as_cbe(row.get("identifier"))
+        name = _normalize_entity_name(row.get("name"))
+        if identifier:
+            profile["subsidiary_ids"].add(identifier)
+        if name:
+            profile["subsidiary_names"].add(name)
+
+    return profiles
+
+
+def _is_same_group(
+    target_cbe: str,
+    target_group: dict | None,
+    candidate_cbe: str,
+    candidate_group: dict | None,
+) -> bool:
+    """Return True for direct parent/subsidiary/sister-company links."""
+    target = target_group or {}
+    candidate = candidate_group or {}
+
+    if (
+        candidate_cbe in target.get("subsidiary_ids", set())
+        or target_cbe in candidate.get("subsidiary_ids", set())
+        or candidate_cbe in target.get("controlling_shareholder_ids", set())
+        or target_cbe in candidate.get("controlling_shareholder_ids", set())
+    ):
+        return True
+
+    target_name = target.get("own_name") or ""
+    candidate_name = candidate.get("own_name") or ""
+    if candidate_name and (
+        candidate_name in target.get("subsidiary_names", set())
+        or candidate_name in target.get("controlling_shareholder_names", set())
+    ):
+        return True
+    if target_name and (
+        target_name in candidate.get("subsidiary_names", set())
+        or target_name in candidate.get("controlling_shareholder_names", set())
+    ):
+        return True
+
+    if target.get("controlling_shareholder_ids", set()) & candidate.get(
+        "controlling_shareholder_ids", set(),
+    ):
+        return True
+    if target.get("controlling_shareholder_names", set()) & candidate.get(
+        "controlling_shareholder_names", set(),
+    ):
+        return True
+    return False
 
 
 def blend_candidates(
@@ -334,15 +482,29 @@ def blend_candidates(
 
     hydrated = _hydrate_candidates(list(merged.keys()))
 
+    target_cbe = str(target.get("enterprise_number") or "")
     target_nace = target.get("nace_code")
     target_rev = _as_number(target.get("revenue"))
     target_city = target.get("city")
     target_zip = target.get("zipcode")
+    target_profile = build_similarity_profile(
+        target.get("bulk_summary"),
+        target.get("ai_insights"),
+    )
+    group_profiles = _build_group_profiles(
+        {
+            target_cbe: target,
+            **hydrated,
+        },
+    )
+    target_group = group_profiles.get(target_cbe, {})
 
     scored: list[dict] = []
     for cbe, sig in merged.items():
         row = hydrated.get(cbe)
         if not row:
+            continue
+        if _is_same_group(target_cbe, target_group, cbe, group_profiles.get(cbe)):
             continue
 
         emb = float(sig.get("embedding_similarity") or 0.0)
@@ -358,6 +520,32 @@ def blend_candidates(
         geo_score, geo_label = _compute_geo_score(
             row.get("city"), row.get("zipcode"), target_city, target_zip
         )
+        candidate_profile = build_similarity_profile(
+            row.get("bulk_summary"),
+            row.get("ai_insights"),
+        )
+        activity_overlap = compute_activity_overlap_score(target_profile, candidate_profile)
+        activity_anchor = describe_activity_overlap(
+            target_profile,
+            candidate_profile,
+            candidate_nace_desc=row.get("nace_desc"),
+        )
+
+        source_set = source_tags[cbe]
+        if (
+            "size_band" in source_set
+            and nace < 0.4
+            and emb < 0.55
+            and activity_overlap < WEAK_ACTIVITY_FLOOR
+        ):
+            continue
+        if (
+            source_set == {"embedding"}
+            and nace < 0.4
+            and emb < 0.60
+            and activity_overlap < WEAK_ACTIVITY_FLOOR
+        ):
+            continue
 
         blended = (
             weights["emb"] * emb
@@ -365,6 +553,7 @@ def blend_candidates(
             + weights["rev"] * rev_score
             + weights["geo"] * geo_score
         )
+        blended = min(1.0, blended + ACTIVITY_DETAIL_BONUS.get(focus, 0.0) * activity_overlap)
         match_score = int(round(100 * blended))
         if match_score < MIN_SCORE_FLOOR:
             continue
@@ -381,11 +570,13 @@ def blend_candidates(
             "nace_score": round(nace, 4),
             "revenue_ratio_score": round(rev_score, 4),
             "geo_score": round(geo_score, 4),
+            "activity_overlap_score": round(activity_overlap, 4),
+            "activity_anchor": activity_anchor,
             "geo_label": geo_label,
             "nace_match_label": _nace_match_label(row.get("nace_code"), target_nace),
             "revenue_ratio": revenue_ratio,
-            "provenance": _derive_provenance(emb, nace, source_tags[cbe]),
-            "source_tags": sorted(source_tags[cbe]),
+            "provenance": _derive_provenance(emb, nace, source_set),
+            "source_tags": sorted(source_set),
         })
 
     scored.sort(key=lambda c: c["match_score"], reverse=True)

@@ -72,8 +72,9 @@ def ensure_similar_cache_schema() -> None:
 
 def compute_content_hash(
     target_row: dict,
-    target_insights: str | None,
+    target_profile_text: str | None,
     candidate_cbes_sorted: list[str],
+    candidate_profile_texts_sorted: list[str] | None,
     focus: str,
     prompt_version: str,
     model: str,
@@ -91,10 +92,14 @@ def compute_content_hash(
         "target_ebitda": _as_number(target_row.get("ebitda")),
         "target_fte": _as_number(target_row.get("fte_total")),
         "target_nace": target_row.get("nace_code"),
-        "target_insights_sha": hashlib.sha256(
-            (target_insights or "").encode("utf-8")
+        "target_profile_sha": hashlib.sha256(
+            (target_profile_text or "").encode("utf-8")
         ).hexdigest(),
         "candidates": candidate_cbes_sorted,
+        "candidate_profile_shas": [
+            hashlib.sha256((text or "").encode("utf-8")).hexdigest()
+            for text in (candidate_profile_texts_sorted or [])
+        ],
         "focus": focus,
         "prompt_version": prompt_version,
         "model": model,

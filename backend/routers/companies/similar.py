@@ -10,6 +10,7 @@ and ``backend/ai_routing.py`` for the moving parts.
 import json
 import logging
 import math
+import re
 import time
 from typing import Literal, Optional
 
@@ -47,7 +48,7 @@ router = APIRouter()
 
 # Bumped whenever §4.2 prompt text or §4.3 output schema changes. Any bump
 # forces cache invalidation for every CBE because the hash includes it.
-PROMPT_VERSION = "v2.0.3"
+PROMPT_VERSION = "v2.2.0"
 
 FOCUS_VALUES = ("activity", "size", "geography")
 
@@ -286,6 +287,13 @@ _RESULT_FIELDS = (
     "revenue", "ebitda", "fte_total", "fiscal_year",
     "ebit", "net_profit", "equity", "total_assets", "personnel_costs",
 )
+_REASON_ORDER = ("activity", "size", "geography")
+_REASON_LABELS = {
+    "activity": "Activity",
+    "size": "Size",
+    "geography": "Geography",
+}
+_REASON_SECTION_RE = re.compile(r"(Activity|Size|Geography):", re.IGNORECASE)
 
 
 def _sanitize_similar_result_row(row: dict) -> dict:
@@ -327,11 +335,162 @@ def _sanitize_similar_result_row(row: dict) -> dict:
     return serialized
 
 
+def _describe_nace_match(
+    label: str,
+    nace_code: str | None,
+    nace_desc: str | None,
+    activity_anchor: str | None = None,
+) -> str:
+    if activity_anchor:
+        if label == "exact":
+            return f"Exact business overlap in {activity_anchor}"
+        if label == "class":
+            return f"Same 3-digit activity class around {activity_anchor}"
+        if label == "group":
+            return f"Related 2-digit activity group around {activity_anchor}"
+        return f"Business-profile match in {activity_anchor}"
+    nace_ref = nace_desc or nace_code or "related activity"
+    if label == "exact":
+        return f"Exact NACE match in {nace_ref}"
+    if label == "class":
+        return f"Same 3-digit NACE class around {nace_ref}"
+    if label == "group":
+        return f"Same 2-digit NACE group around {nace_ref}"
+    return f"Blended business-profile match around {nace_ref}"
+
+
+def _describe_size_match(revenue_ratio: float | None, fte_total: float | int | None) -> str:
+    parts: list[str] = []
+    if isinstance(revenue_ratio, (int, float)) and revenue_ratio > 0:
+        if 0.85 <= revenue_ratio <= 1.15:
+            parts.append("Revenue is very close to the target")
+        elif 0.6 <= revenue_ratio <= 1.4:
+            parts.append("Revenue is in a comparable range")
+        elif revenue_ratio < 1:
+            parts.append(f"Revenue is smaller at about {revenue_ratio:.1f}x of target")
+        else:
+            parts.append(f"Revenue is larger at about {revenue_ratio:.1f}x of target")
+    else:
+        parts.append("Revenue comparison is limited")
+
+    if isinstance(fte_total, (int, float)) and math.isfinite(fte_total) and fte_total > 0:
+        parts.append(f"FTE around {int(round(fte_total))}")
+
+    return "; ".join(parts)
+
+
+def _describe_geo_match(label: str, city: str | None) -> str:
+    place = city or "a different location"
+    if label == "same_city":
+        return f"Same city: {place}"
+    if label == "same_province":
+        return f"Same province area: {place}"
+    return f"Different geography: {place}"
+
+
+def _structured_reason(activity: str, size: str, geography: str) -> str:
+    return f"Activity: {activity} | Size: {size} | Geography: {geography}"
+
+
+def _extract_reason_sections(reason: str | None) -> dict[str, str]:
+    if not reason:
+        return {}
+    text = " ".join(str(reason).split())
+    matches = list(_REASON_SECTION_RE.finditer(text))
+    if not matches:
+        return {}
+
+    sections: dict[str, str] = {}
+    for idx, match in enumerate(matches):
+        key = match.group(1).lower()
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        value = text[start:end].strip(" |.;:-")
+        if value:
+            sections[key] = value
+    return sections
+
+
+def _format_reason_sections(sections: dict[str, str]) -> str:
+    parts: list[str] = []
+    for key in _REASON_ORDER:
+        value = (sections.get(key) or "").strip()
+        if value:
+            parts.append(f"{_REASON_LABELS[key]}: {value}")
+    return " | ".join(parts)
+
+
+def _fallback_reason_from_candidate(candidate: dict) -> str:
+    row = candidate.get("row", {})
+    activity = _describe_nace_match(
+        candidate.get("nace_match_label") or "none",
+        row.get("nace_code"),
+        row.get("nace_desc"),
+        candidate.get("activity_anchor"),
+    )
+    size = _describe_size_match(candidate.get("revenue_ratio"), row.get("fte_total"))
+    geography = _describe_geo_match(candidate.get("geo_label") or "different", row.get("city"))
+    return _structured_reason(activity, size, geography)
+
+
+def _fallback_reason_from_payload(
+    raw_row: dict,
+    signals: dict | None,
+    provenance: str | None,
+) -> str:
+    signal_map = signals or {}
+    activity = _describe_nace_match(
+        signal_map.get("nace_match") or "none",
+        raw_row.get("nace_code"),
+        raw_row.get("nace_desc"),
+        signal_map.get("activity_anchor"),
+    )
+    if (provenance or "").startswith("embedding") and signal_map.get("nace_match") in (None, "none"):
+        activity = "Embedding/business-profile match from similar description patterns"
+    size = _describe_size_match(signal_map.get("revenue_ratio"), raw_row.get("fte_total"))
+    geography = _describe_geo_match(signal_map.get("geo_match") or "different", raw_row.get("city"))
+    return _structured_reason(activity, size, geography)
+
+
+def _normalize_reason(ai_reason: Optional[str], fallback_reason: str) -> str:
+    fallback_sections = _extract_reason_sections(fallback_reason)
+    fallback_normalized = _format_reason_sections(fallback_sections) or fallback_reason
+    if not ai_reason:
+        return fallback_normalized
+    text = ai_reason.strip()
+    if not text:
+        return fallback_normalized
+
+    ai_sections = _extract_reason_sections(text)
+    if ai_sections:
+        merged = {
+            key: ai_sections.get(key) or fallback_sections.get(key) or ""
+            for key in _REASON_ORDER
+        }
+        normalized = _format_reason_sections(merged)
+        if normalized:
+            return normalized
+
+    return _format_reason_sections({
+        "activity": text,
+        "size": (
+            fallback_sections.get("size")
+            or "Comparable scale based on retrieved financial signals"
+        ),
+        "geography": (
+            fallback_sections.get("geography")
+            or "Included as a secondary factor"
+        ),
+    })
+
+
 def _candidate_to_result(c: dict, ai_reason: Optional[str]) -> dict:
     """Shape one blended candidate into the public API response row."""
     row = c.get("row", {})
     serialized = _sanitize_similar_result_row({k: row.get(k) for k in _RESULT_FIELDS})
-    serialized["ai_reason"] = ai_reason
+    normalized_reason = _normalize_reason(ai_reason, _fallback_reason_from_candidate(c))
+    serialized["ai_reason"] = normalized_reason
+    serialized["ai_reason_sections"] = _extract_reason_sections(normalized_reason)
     serialized["match_score"] = int(c.get("match_score") or 0)
     serialized["provenance"] = c.get("provenance") or "fallback_size_band"
     serialized["signals"] = {
@@ -340,6 +499,8 @@ def _candidate_to_result(c: dict, ai_reason: Optional[str]) -> dict:
         ),
         "nace_match": c.get("nace_match_label") or "none",
         "revenue_ratio": c.get("revenue_ratio"),
+        "activity_overlap": c.get("activity_overlap_score"),
+        "activity_anchor": c.get("activity_anchor"),
         "geo_match": c.get("geo_label") or "different",
     }
     return serialized
@@ -426,6 +587,7 @@ async def get_similar_companies_ai(
                        fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
                        fl.ebit, fl.net_profit, fl.equity, fl.total_assets, fl.personnel_costs,
                        COALESCE(nl.description, ci.nace_code) AS nace_desc,
+                       ce.bulk_summary,
                        ce.ai_insights
                 FROM company_info ci
                 LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
@@ -494,10 +656,25 @@ async def get_similar_companies_ai(
 
         # ── Content hash + cache lookup ───────────────────────────
         cand_sorted = sorted(c["enterprise_number"] for c in candidates)
+        candidate_rows_by_cbe = {
+            item["enterprise_number"]: item.get("row", {})
+            for item in candidates
+        }
+        candidate_profile_texts_sorted = [
+            _raw_similarity_profile_str(
+                candidate_rows_by_cbe.get(enterprise_number, {}).get("bulk_summary"),
+                candidate_rows_by_cbe.get(enterprise_number, {}).get("ai_insights"),
+            )
+            for enterprise_number in cand_sorted
+        ]
         content_hash = compute_content_hash(
             target_row=target,
-            target_insights=_raw_insights_str(target.get("ai_insights")),
+            target_profile_text=_raw_similarity_profile_str(
+                target.get("bulk_summary"),
+                target.get("ai_insights"),
+            ),
             candidate_cbes_sorted=cand_sorted,
+            candidate_profile_texts_sorted=candidate_profile_texts_sorted,
             focus=focus,
             prompt_version=PROMPT_VERSION,
             model=primary_model,
@@ -581,6 +758,15 @@ def _raw_insights_str(ai_insights: object) -> str | None:
         return None
 
 
+def _raw_similarity_profile_str(bulk_summary: object, ai_insights: object) -> str:
+    """Canonical string for cache invalidation of similarity prompt inputs."""
+    payload = {
+        "bulk_summary": _raw_insights_str(bulk_summary),
+        "ai_insights": _raw_insights_str(ai_insights),
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+
+
 def _try_cache(cbe: str, focus: str, content_hash: str, candidates: list[dict], limit: int):
     """Return {rows, _model_used} if a fresh cache row matches, else None."""
     try:
@@ -635,10 +821,15 @@ def _try_cache(cbe: str, focus: str, content_hash: str, candidates: list[dict], 
                        )
                    ) AS name,
                    ci.city,
+                   ci.nace_code,
+                   COALESCE(nl.description, ci.nace_code) AS nace_desc,
                    fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
-                   fl.ebit, fl.net_profit, fl.equity, fl.total_assets, fl.personnel_costs
+                   fl.ebit, fl.net_profit, fl.equity, fl.total_assets, fl.personnel_costs,
+                   ce.bulk_summary
             FROM company_info ci
             LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+            LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+            LEFT JOIN company_enrichment ce ON ce.enterprise_number = ci.enterprise_number
             WHERE ci.enterprise_number IN ({placeholders})
             """,
             tuple(ranked_cbes),
@@ -654,12 +845,20 @@ def _try_cache(cbe: str, focus: str, content_hash: str, candidates: list[dict], 
         if not raw:
             continue
         serialized = _sanitize_similar_result_row({k: raw.get(k) for k in _RESULT_FIELDS})
-        serialized["ai_reason"] = reasons[i] if i < len(reasons) else None
+        stored_signals = signals[i] if i < len(signals) else None
+        stored_provenance = provenance[i] if i < len(provenance) else "fallback_size_band"
+        normalized_reason = _normalize_reason(
+            reasons[i] if i < len(reasons) else None,
+            _fallback_reason_from_payload(raw, stored_signals, stored_provenance),
+        )
+        serialized["ai_reason"] = normalized_reason
+        serialized["ai_reason_sections"] = _extract_reason_sections(normalized_reason)
         serialized["match_score"] = int(match_scores[i]) if i < len(match_scores) else None
-        serialized["provenance"] = provenance[i] if i < len(provenance) else "fallback_size_band"
-        serialized["signals"] = signals[i] if i < len(signals) else {
+        serialized["provenance"] = stored_provenance
+        serialized["signals"] = stored_signals if stored_signals else {
             "embedding_similarity": None, "nace_match": "none",
-            "revenue_ratio": None, "geo_match": "different",
+            "revenue_ratio": None, "activity_overlap": None,
+            "activity_anchor": None, "geo_match": "different",
         }
         rows.append(serialized)
 

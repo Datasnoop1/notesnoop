@@ -125,6 +125,7 @@ async def run_for_target(target_cbe: str, tier: str, focus: str = "activity", li
         SELECT ci.enterprise_number, ci.name, ci.nace_code, ci.city, ci.zipcode,
                fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
                COALESCE(nl.description, ci.nace_code) AS nace_desc,
+               ce.bulk_summary,
                ce.ai_insights
         FROM company_info ci
         LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number

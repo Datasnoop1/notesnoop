@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Sparkles, Loader2, Scale, RefreshCw, Heart, CheckSquare, Square, FolderPlus, ChevronDown } from "lucide-react";
 import { fmtEur, fmtNumber } from "@/lib/format";
-import { useTranslation } from "@/components/language-provider";
 import { useRouter } from "next/navigation";
 import { getAiSimilarCompanies } from "@/lib/api";
 
@@ -20,6 +19,11 @@ interface AiSimilarCompany {
   fte_total: number | null;
   fiscal_year: number;
   ai_reason?: string;
+  ai_reason_sections?: {
+    activity?: string;
+    size?: string;
+    geography?: string;
+  };
 }
 
 interface SimilarTabProps {
@@ -31,21 +35,51 @@ const EXPANDED_LIMIT = 30;
 
 /* ---------- Helpers ---------- */
 
-function fmtPct(v: number | null | undefined): string {
-  if (v == null || isNaN(v)) return "\u2014";
-  return `${v.toFixed(1)}%`;
-}
+const REASON_PARTS = [
+  { key: "activity", label: "Activity" },
+  { key: "size", label: "Size" },
+  { key: "geography", label: "Geography" },
+] as const;
 
-function computeMargin(ebitda: number | null, revenue: number | null): number | null {
-  if (ebitda == null || !revenue) return null;
-  return (ebitda / revenue) * 100;
+function splitReason(
+  reason?: string,
+  sections?: AiSimilarCompany["ai_reason_sections"],
+): Array<{ label: string; text: string }> {
+  const structured = REASON_PARTS.flatMap(({ key, label }) => {
+    const text = sections?.[key]?.trim();
+    return text ? [{ label, text }] : [];
+  });
+  if (structured.length > 0) return structured;
+  if (!reason) return [];
+
+  const normalized = reason.replace(/\s+/g, " ").trim();
+  const labelRegex = /(Activity|Size|Geography):/gi;
+  const matches = Array.from(normalized.matchAll(labelRegex));
+  if (matches.length === 0) {
+    return [{ label: "Why", text: normalized }];
+  }
+  return matches
+    .map((match, index) => {
+      const start = (match.index ?? 0) + match[0].length;
+      const end = index + 1 < matches.length
+        ? (matches[index + 1].index ?? normalized.length)
+        : normalized.length;
+      const text = normalized
+        .slice(start, end)
+        .replace(/^[\s|.;:-]+|[\s|.;:-]+$/g, "")
+        .trim();
+      return {
+        label: match[1][0].toUpperCase() + match[1].slice(1).toLowerCase(),
+        text,
+      };
+    })
+    .filter((part) => part.text.length > 0);
 }
 
 /* ---------- Component ---------- */
 
 export function SimilarTab({ cbe }: SimilarTabProps) {
   const router = useRouter();
-  const { t } = useTranslation();
   const [companies, setCompanies] = useState<AiSimilarCompany[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +94,11 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
 
   const toggleSelect = (ent: string) => setSelected((prev) => {
     const next = new Set(prev);
-    next.has(ent) ? next.delete(ent) : next.add(ent);
+    if (next.has(ent)) {
+      next.delete(ent);
+    } else {
+      next.add(ent);
+    }
     return next;
   });
   const toggleAll = () => setSelected((prev) =>
@@ -123,7 +161,11 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
     try {
       const data = await getAiSimilarCompanies(cbe, limit);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const mapped = data.map((d) => ({ ...d, ai_reason: (d as any).ai_reason as string | undefined }));
+      const mapped = data.map((d) => ({
+        ...d,
+        ai_reason: (d as any).ai_reason as string | undefined,
+        ai_reason_sections: (d as any).ai_reason_sections as AiSimilarCompany["ai_reason_sections"] | undefined,
+      }));
       setCompanies(mapped);
       return mapped;
     } catch (err: unknown) {
@@ -353,8 +395,25 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
                   </Link>
                   {sc.city && <div className="text-[11px] md:text-[10px] text-slate-400 mt-0.5">{sc.city}</div>}
                 </td>
-                <td className="px-3 py-2.5 text-[11px] md:text-[10px] text-slate-500 leading-relaxed max-w-[250px]">
-                  {sc.ai_reason || "\u2014"}
+                <td className="px-3 py-2.5 text-[11px] md:text-[10px] text-slate-500 leading-relaxed max-w-[320px]">
+                  {(() => {
+                    const reasonParts = splitReason(sc.ai_reason, sc.ai_reason_sections);
+                    return reasonParts.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {reasonParts.map((part) => (
+                          <div
+                            key={`${sc.enterprise_number}-${part.label}`}
+                            className="grid grid-cols-[68px_minmax(0,1fr)] gap-2 leading-snug"
+                          >
+                            <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+                              {part.label}
+                            </span>
+                            <span className="text-slate-600">{part.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : "\u2014";
+                  })()}
                 </td>
                 <td className="px-3 py-2.5 text-right text-[11px] md:text-xs font-mono text-slate-700">{fmtEur(sc.revenue)}</td>
                 <td className="px-3 py-2.5 text-right text-[11px] md:text-xs font-mono text-slate-600">{fmtEur(sc.ebitda)}</td>
