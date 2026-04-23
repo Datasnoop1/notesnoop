@@ -105,6 +105,7 @@ def _counts_query(statuses: list[str]) -> tuple[str, tuple]:
     params = tuple(statuses) + (
         FASTLANE_EBITDA_FLOOR,
         FASTLANE_EBITDA_FLOOR,
+        FASTLANE_EBITDA_FLOOR,
         PRIORITY_TEMPLATE,
     )
     return sql, params
