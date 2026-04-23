@@ -71,12 +71,14 @@
 
   var state={poll:null,results:null,voted:null,submitting:false};
 
+  function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
   function render(){
     var poll=state.poll,results=state.results,voted=state.voted;
     if(!poll) return;
     var total=results?results.total_votes:0;
-    var h='<div class="header"><div class="badge">'+poll.title+'</div>';
-    h+='<h1>'+poll.question+'</h1>';
+    var h='<div class="header"><div class="badge">'+esc(poll.title)+'</div>';
+    h+='<h1>'+esc(poll.question)+'</h1>';
     h+='<p class="sub">'+(voted?total+' vote'+(total===1?'':'s')+' so far':'Tap your favourite dog')+'</p></div>';
     h+='<div class="grid">';
     for(var i=0;i<DOGS.length;i++){
