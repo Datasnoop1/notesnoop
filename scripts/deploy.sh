@@ -68,6 +68,20 @@ echo ""
 echo "[4/4] Building and starting containers..."
 ssh $SSH_OPTS root@$SERVER_IP << 'START'
 cd /opt/leadpeek
+# Guard deploys so we never kill a running NBB backload mid-hour.
+# We wait for the shared lock and keep it held for the full deploy window.
+STATE_DIR="/opt/leadpeek/scripts/_watchdog_state"
+LOCK_FILE="$STATE_DIR/nbb_backload.lock"
+LOCK_WAIT_SEC="${NBB_DEPLOY_LOCK_WAIT_SEC:-7200}"
+mkdir -p "$STATE_DIR"
+exec 9>"$LOCK_FILE"
+echo "Waiting (up to ${LOCK_WAIT_SEC}s) for NBB backload to finish..."
+if ! flock -w "$LOCK_WAIT_SEC" 9; then
+  echo "ERROR: timed out waiting for NBB backload lock ($LOCK_FILE)"
+  echo "Aborting deploy to avoid interrupting a running backload."
+  exit 1
+fi
+echo "NBB backload lock acquired; holding it during deploy."
 # Dated backup of the env file — cheap insurance against fat-finger edits.
 # Keeps one snapshot per deploy; prune with `rm .env.production.bak-*` if needed.
 cp .env.production ".env.production.bak-$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true
