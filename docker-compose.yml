@@ -129,6 +129,7 @@ services:
         mkdir -p /var/log/staatsblad_bulk &&
         exec python -u /app/scripts/staatsblad_bulk_scrape.py
         --mode=webshare
+        --daemon
         --workers=$${STAATSBLAD_BULK_WORKERS:-10}
         --webshare-proxies-file=$${STAATSBLAD_BULK_PROXY_FILE:-/run/secrets/webshare_proxies.txt}
         >> $${STAATSBLAD_BULK_LOG_FILE:-/var/log/staatsblad_bulk/worker.log} 2>&1
