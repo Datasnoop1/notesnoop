@@ -40,7 +40,7 @@ from rerank import (
 )
 from similar_cache import compute_content_hash, ensure_similar_cache_schema
 from utils import clean_cbe
-from ._helpers import _serialize_row
+from ._helpers import _resolve_nace_label, _serialize_row
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -141,7 +141,7 @@ async def sector_benchmark(cbe: str):
         if not row or not row.get("fiscal_year"):
             return {"error": "no_financials", "benchmarks": []}
 
-        nace_label = fetch_one("SELECT description FROM nace_lookup WHERE nace_code = %s", (nace,))
+        nace_label = _resolve_nace_label(nace, "2008")
 
         def pct(below, total):
             return round((below / total) * 100, 1) if total and total > 0 else None
@@ -176,7 +176,7 @@ async def sector_benchmark(cbe: str):
 
         return {
             "nace_code": nace,
-            "nace_label": nace_label["description"] if nace_label else nace,
+            "nace_label": nace_label or nace,
             "fiscal_year": row["fiscal_year"],
             "peer_count": row.get("peer_count", 0),
             "benchmarks": benchmarks,

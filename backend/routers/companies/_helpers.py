@@ -5,7 +5,7 @@ from typing import Optional
 
 import psycopg2.extras
 
-from db import get_conn
+from db import fetch_one, get_conn
 from utils import clean_cbe
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,48 @@ def _serialize_row(row: dict) -> dict:
         else:
             out[k] = v
     return out
+
+
+def _resolve_nace_label(
+    nace_code: Optional[str],
+    preferred_version: Optional[str] = "2008",
+) -> Optional[str]:
+    """Resolve one NACE code to a display label.
+
+    Prefer the requested KBO version when we know it, then fall back to the
+    legacy static lookup so older rows still display something useful.
+    """
+    if not nace_code:
+        return None
+
+    preferred_category = f"Nace{preferred_version}" if preferred_version else None
+    row = fetch_one(
+        """
+        SELECT COALESCE(
+            preferred_nl.description,
+            preferred_fr.description,
+            preferred_en.description,
+            legacy.description,
+            q.nace_code
+        ) AS description
+        FROM (SELECT %s AS nace_code, %s AS preferred_category) q
+        LEFT JOIN code preferred_nl
+               ON preferred_nl.category = q.preferred_category
+              AND preferred_nl.code = q.nace_code
+              AND preferred_nl.language = 'NL'
+        LEFT JOIN code preferred_fr
+               ON preferred_fr.category = q.preferred_category
+              AND preferred_fr.code = q.nace_code
+              AND preferred_fr.language = 'FR'
+        LEFT JOIN code preferred_en
+               ON preferred_en.category = q.preferred_category
+              AND preferred_en.code = q.nace_code
+              AND preferred_en.language = 'EN'
+        LEFT JOIN nace_lookup legacy ON legacy.nace_code = q.nace_code
+        """,
+        (nace_code, preferred_category),
+    )
+    return row["description"] if row else nace_code
 
 
 def _fetch_connections(cbes: list) -> tuple:
