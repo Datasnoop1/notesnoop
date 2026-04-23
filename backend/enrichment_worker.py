@@ -69,6 +69,7 @@ from enrichment_queue import (  # noqa: E402
 )
 from enrichment_routing import (
     confidence_is_publishable,
+    is_fastlane_ebitda,
     is_dormant,
     should_escalate,
 )  # noqa: E402
@@ -173,7 +174,7 @@ def _load_kbo_context(cbe: str) -> dict:
         SELECT ci.name, ci.city, ci.nace_code,
                nl.description AS nace_description,
                e.juridical_situation,
-               fl.revenue, fl.fte_total,
+               fl.revenue, fl.ebitda, fl.fte_total,
                (SELECT c.value FROM contact c
                   WHERE c.entity_number = ci.enterprise_number
                     AND c.contact_type = 'WEB'
@@ -248,6 +249,7 @@ def _load_kbo_context(cbe: str) -> dict:
         "notes": "",
         "kbo_website": info.get("kbo_website"),
         "_revenue_eur": info.get("revenue"),
+        "_ebitda_eur": info.get("ebitda"),
         "_fte": info.get("fte_total"),
     }
 
@@ -420,6 +422,18 @@ async def _enrich_one(cbe: str) -> dict:
         # filters them out of default results, not out of the vector
         # store).
         await _embed_and_store(cbe, summary, kbo)
+        return out
+
+    # 1b. Explicit EBITDA fast lane -----------------------------------
+    if is_fastlane_ebitda(kbo.get("_ebitda_eur")):
+        summary = build_template_summary(kbo)
+        _write_bulk_row(cbe, summary, None, None)
+        await _embed_and_store(cbe, summary, kbo)
+        out.update(
+            ok=True,
+            path="fastlane_ebitda",
+            confidence=summary.get("confidence"),
+        )
         return out
 
     # 2. Website resolve ----------------------------------------------

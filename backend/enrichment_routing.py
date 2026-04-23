@@ -21,6 +21,7 @@ later without a deploy. For Phase 1 they are fixed.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,12 @@ PRIORITY_TEMPLATE = 5
 # Juridical-situation codes that skip the LLM entirely (dissolved / in-
 # liquidation / struck off). Source: Spike 1 §4 finding 1.
 DISSOLVED_SITUATION_CODES = frozenset({"010", "012", "013", "014"})
+
+# Latest known EBITDA below this floor goes straight to the deterministic
+# fast lane. Missing EBITDA is handled separately from this explicit rule.
+FASTLANE_EBITDA_FLOOR = float(
+    os.getenv("SEMANTIC_FASTLANE_EBITDA_FLOOR", "200000")
+)
 
 
 def classify_tier(revenue_eur: Optional[float], fte: Optional[float]) -> str:
@@ -71,6 +78,17 @@ def priority_for_tier(tier: str, has_website: bool) -> int:
     if tier == "tier3":
         return PRIORITY_TIER3_WEB if has_website else PRIORITY_TIER3_NOWEB
     return PRIORITY_TEMPLATE
+
+
+def is_fastlane_ebitda(ebitda_eur: Optional[float]) -> bool:
+    """True when a known latest EBITDA falls below the configured fast-lane floor."""
+    if ebitda_eur is None:
+        return False
+    try:
+        return float(ebitda_eur) < FASTLANE_EBITDA_FLOOR
+    except (TypeError, ValueError):
+        logger.info("invalid EBITDA value for fast-lane check: %r", ebitda_eur)
+        return False
 
 
 def is_dormant(juridical_situation: Optional[str]) -> bool:
