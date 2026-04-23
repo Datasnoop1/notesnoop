@@ -102,7 +102,7 @@ def _counts_query(statuses: list[str]) -> tuple[str, tuple]:
             )::int AS target_template_priority_jobs
         FROM recomputed
     """
-    params = tuple(statuses) + (
+    params = (FASTLANE_EBITDA_FLOOR,) + tuple(statuses) + (
         FASTLANE_EBITDA_FLOOR,
         FASTLANE_EBITDA_FLOOR,
         FASTLANE_EBITDA_FLOOR,
@@ -121,7 +121,7 @@ def _apply_query(statuses: list[str]) -> tuple[str, tuple]:
          WHERE j.enterprise_number = r.enterprise_number
            AND j.priority IS DISTINCT FROM r.new_priority
     """
-    params = tuple(statuses) + (FASTLANE_EBITDA_FLOOR,)
+    params = (FASTLANE_EBITDA_FLOOR,) + tuple(statuses)
     return sql, params
 
 
