@@ -378,8 +378,8 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
           </thead>
           <tbody>
             {companies.map((sc, idx) => (
-              <tr key={sc.enterprise_number} className={`border-t border-slate-50 hover:bg-indigo-50/30 transition-colors ${selected.has(sc.enterprise_number) ? "bg-indigo-50/40" : ""}`}>
-                <td className="px-2 py-2.5">
+              <tr key={sc.enterprise_number} className={`border-t border-slate-50 align-top hover:bg-indigo-50/30 transition-colors ${selected.has(sc.enterprise_number) ? "bg-indigo-50/40" : ""}`}>
+                <td className="px-2 py-2.5 align-top">
                   <button
                     onClick={() => toggleSelect(sc.enterprise_number)}
                     className="h-10 w-10 md:h-auto md:w-auto flex items-center justify-center text-slate-300 hover:text-indigo-600 transition-colors"
@@ -388,36 +388,36 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
                     {selected.has(sc.enterprise_number) ? <CheckSquare className="w-4 h-4 md:w-3.5 md:h-3.5 text-indigo-500" /> : <Square className="w-4 h-4 md:w-3.5 md:h-3.5" />}
                   </button>
                 </td>
-                <td className="px-3 py-2.5 text-[11px] md:text-[10px] font-mono text-slate-300 hidden sm:table-cell">{idx + 1}</td>
-                <td className="px-3 py-2.5">
+                <td className="px-3 py-2.5 align-top text-[11px] md:text-[10px] font-mono text-slate-300 hidden sm:table-cell">{idx + 1}</td>
+                <td className="px-3 py-2.5 align-top">
                   <Link href={`/company/${sc.enterprise_number}`} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline">
                     {sc.name}
                   </Link>
                   {sc.city && <div className="text-[11px] md:text-[10px] text-slate-400 mt-0.5">{sc.city}</div>}
                 </td>
-                <td className="px-3 py-2.5 text-[11px] md:text-[10px] text-slate-500 leading-relaxed max-w-[320px]">
+                <td className="px-3 py-2.5 align-top text-[11px] md:text-[10px] text-slate-500 leading-relaxed max-w-[360px]">
                   {(() => {
                     const reasonParts = splitReason(sc.ai_reason, sc.ai_reason_sections);
                     return reasonParts.length > 0 ? (
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         {reasonParts.map((part) => (
                           <div
                             key={`${sc.enterprise_number}-${part.label}`}
-                            className="grid grid-cols-[68px_minmax(0,1fr)] gap-2 leading-snug"
+                            className="grid grid-cols-[76px_minmax(0,1fr)] items-start gap-x-3 gap-y-0.5 leading-snug"
                           >
-                            <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+                            <span className="pt-0.5 text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
                               {part.label}
                             </span>
-                            <span className="text-slate-600">{part.text}</span>
+                            <span className="min-w-0 text-slate-600">{part.text}</span>
                           </div>
                         ))}
                       </div>
                     ) : "\u2014";
                   })()}
                 </td>
-                <td className="px-3 py-2.5 text-right text-[11px] md:text-xs font-mono text-slate-700">{fmtEur(sc.revenue)}</td>
-                <td className="px-3 py-2.5 text-right text-[11px] md:text-xs font-mono text-slate-600">{fmtEur(sc.ebitda)}</td>
-                <td className="px-3 py-2.5 text-right text-[11px] md:text-xs font-mono text-slate-600 hidden sm:table-cell">{sc.fte_total != null ? fmtNumber(sc.fte_total) : "\u2014"}</td>
+                <td className="px-3 py-2.5 align-top text-right text-[11px] md:text-xs font-mono text-slate-700">{fmtEur(sc.revenue)}</td>
+                <td className="px-3 py-2.5 align-top text-right text-[11px] md:text-xs font-mono text-slate-600">{fmtEur(sc.ebitda)}</td>
+                <td className="px-3 py-2.5 align-top text-right text-[11px] md:text-xs font-mono text-slate-600 hidden sm:table-cell">{sc.fte_total != null ? fmtNumber(sc.fte_total) : "\u2014"}</td>
               </tr>
             ))}
           </tbody>
