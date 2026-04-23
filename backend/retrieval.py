@@ -336,6 +336,8 @@ def _build_group_profiles(rows_by_cbe: dict[str, dict]) -> dict[str, dict]:
             "own_name": _normalize_entity_name(row.get("name")),
             "controlling_shareholder_ids": set(),
             "controlling_shareholder_names": set(),
+            "entity_shareholder_ids": set(),
+            "entity_shareholder_names": set(),
             "subsidiary_ids": set(),
             "subsidiary_names": set(),
         }
@@ -364,10 +366,14 @@ def _build_group_profiles(rows_by_cbe: dict[str, dict]) -> dict[str, dict]:
         if not profile:
             continue
         pct = _as_number(row.get("ownership_pct"))
-        if pct is None or pct < GROUP_CONTROL_THRESHOLD_PCT:
-            continue
         identifier = _clean_identifier_as_cbe(row.get("identifier"))
         name = _normalize_entity_name(row.get("name"))
+        if identifier:
+            profile["entity_shareholder_ids"].add(identifier)
+        if name:
+            profile["entity_shareholder_names"].add(name)
+        if pct is None or pct < GROUP_CONTROL_THRESHOLD_PCT:
+            continue
         if identifier:
             profile["controlling_shareholder_ids"].add(identifier)
         if name:
@@ -440,6 +446,14 @@ def _is_same_group(
         return True
     if target.get("controlling_shareholder_names", set()) & candidate.get(
         "controlling_shareholder_names", set(),
+    ):
+        return True
+    if target.get("entity_shareholder_ids", set()) & candidate.get(
+        "entity_shareholder_ids", set(),
+    ):
+        return True
+    if target.get("entity_shareholder_names", set()) & candidate.get(
+        "entity_shareholder_names", set(),
     ):
         return True
     return False

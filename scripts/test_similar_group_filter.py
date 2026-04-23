@@ -29,7 +29,7 @@ def _clean_cbe(value) -> str:
     return digits.zfill(10)
 
 
-def _load_retrieval_module():
+def _load_retrieval_module(shared_owner_pct):
     db_stub = types.ModuleType("db")
 
     def fetch_all(query, params):
@@ -89,14 +89,14 @@ def _load_retrieval_module():
                     "enterprise_number": "0000000001",
                     "identifier": "0000000010",
                     "name": "HoldCo NV",
-                    "ownership_pct": 100.0,
+                    "ownership_pct": shared_owner_pct,
                     "shareholder_type": "entity",
                 },
                 {
                     "enterprise_number": "0000000002",
                     "identifier": "0000000010",
                     "name": "HoldCo NV",
-                    "ownership_pct": 100.0,
+                    "ownership_pct": shared_owner_pct,
                     "shareholder_type": "entity",
                 },
                 {
@@ -128,8 +128,8 @@ def _load_retrieval_module():
     return module
 
 
-def test_same_group_candidates_are_removed_before_ranking():
-    retrieval = _load_retrieval_module()
+def _run_same_group_exclusion_case(shared_owner_pct):
+    retrieval = _load_retrieval_module(shared_owner_pct)
     target = {
         "enterprise_number": "0000000001",
         "name": "TargetCo NV",
@@ -163,6 +163,15 @@ def test_same_group_candidates_are_removed_before_ranking():
     assert returned == ["0000000003"]
 
 
+def test_same_group_candidates_are_removed_before_ranking():
+    _run_same_group_exclusion_case(100.0)
+
+
+def test_shared_entity_shareholder_without_pct_is_still_excluded():
+    _run_same_group_exclusion_case(None)
+
+
 if __name__ == "__main__":
     test_same_group_candidates_are_removed_before_ranking()
+    test_shared_entity_shareholder_without_pct_is_still_excluded()
     print("All similar-group-filter tests passed.")
