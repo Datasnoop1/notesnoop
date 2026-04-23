@@ -13,7 +13,6 @@ import httpx
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt, jwk
-from jose.utils import base64url_decode
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -22,12 +21,14 @@ logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
+SUPABASE_HS256_FALLBACK = os.getenv("SUPABASE_HS256_FALLBACK", "").lower() in ("1", "true", "yes")
 
 # Accepted JWT audiences: Supabase project URL + project ref (bare ID)
 _SUPABASE_AUDIENCES = [
     SUPABASE_URL,  # e.g. https://nvtopretdjlxabsmqxvk.supabase.co
     "authenticated",  # Supabase default audience claim
 ]
+_SUPABASE_AUDIENCES = [a for a in _SUPABASE_AUDIENCES if a]
 
 security = HTTPBearer(auto_error=True)
 security_optional = HTTPBearer(auto_error=False)
@@ -48,15 +49,21 @@ def _get_jwks() -> dict:
         try:
             resp = httpx.get(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json", timeout=5)
             if resp.status_code == 200:
-                _jwks_cache = resp.json()
+                data = resp.json()
+                if not isinstance(data.get("keys"), list):
+                    raise ValueError("Invalid JWKS response format: keys is not a list")
+                _jwks_cache = data
                 _jwks_fetched_at = now
                 logger.info("Fetched JWKS from Supabase: %d keys", len(_jwks_cache.get("keys", [])))
                 return _jwks_cache
         except Exception as e:
             logger.warning("Failed to fetch JWKS: %s", e)
-            # On fetch failure, keep serving stale cache if available
-            if _jwks_cache:
+            # Keep stale keys only within a bounded staleness window.
+            if _jwks_cache and (now - _jwks_fetched_at) < (_JWKS_TTL_SECONDS * 2):
                 return _jwks_cache
+            if _jwks_cache:
+                logger.warning("JWKS cache too stale after fetch failure; clearing cached keys")
+                _jwks_cache = {}
     return {}
 
 
@@ -85,8 +92,8 @@ def _decode_token(token: str) -> dict:
                 if k.get("kid") == kid:
                     key_data = k
                     break
-            if not key_data and jwks["keys"]:
-                key_data = jwks["keys"][0]  # Use first key as fallback
+            if not key_data:
+                raise JWTError(f"No matching JWKS key for kid='{kid}'")
 
             if key_data:
                 public_key = jwk.construct(key_data, algorithm=alg)
@@ -94,24 +101,31 @@ def _decode_token(token: str) -> dict:
                     token,
                     public_key,
                     algorithms=[alg],
-                    options={"verify_aud": False},
+                    audience=_SUPABASE_AUDIENCES,
+                    options={"verify_aud": True},
                 )
                 return payload
         except JWTError as e:
             logger.warning("JWKS verification failed: %s", e)
 
-    # Try 2: HS256 with secret (legacy)
-    if SUPABASE_JWT_SECRET:
+    # Try 2: HS256 with secret (legacy, explicit opt-in only)
+    if SUPABASE_HS256_FALLBACK and SUPABASE_JWT_SECRET:
         try:
             payload = jwt.decode(
                 token,
                 SUPABASE_JWT_SECRET,
                 algorithms=["HS256"],
-                options={"verify_aud": False},
+                audience=_SUPABASE_AUDIENCES,
+                options={"verify_aud": True},
             )
             return payload
         except JWTError as e:
             logger.warning("HS256 verification failed: %s", e)
+    elif SUPABASE_HS256_FALLBACK and not SUPABASE_JWT_SECRET:
+        logger.error(
+            "SUPABASE_HS256_FALLBACK enabled but SUPABASE_JWT_SECRET is empty; "
+            "HS256 fallback disabled"
+        )
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,

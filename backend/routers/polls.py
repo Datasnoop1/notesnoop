@@ -2,13 +2,13 @@
 
 import json
 import logging
-from typing import Optional, List
+from typing import List
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from db import fetch_all, fetch_one, execute
-from auth import get_current_user, optional_user
+from auth import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/polls", tags=["polls"])
@@ -16,7 +16,9 @@ router = APIRouter(prefix="/api/polls", tags=["polls"])
 
 def _require_admin(user=Depends(get_current_user)):
     """Dependency: require admin role."""
-    email = user.get("email", "")
+    email = (user.get("email") or "").strip()
+    if not email:
+        raise HTTPException(status_code=403, detail="Forbidden")
     role_row = fetch_one(
         "SELECT role FROM user_roles WHERE email = %s",
         (email,),
@@ -64,7 +66,7 @@ async def get_active_poll():
 
 
 @router.post("/{poll_id}/vote")
-async def vote(poll_id: int, body: VoteBody, user=Depends(optional_user)):
+async def vote(poll_id: int, body: VoteBody, user=Depends(get_current_user)):
     """Submit a vote for a poll."""
     poll = fetch_one("SELECT id, options, status FROM poll WHERE id = %s", (poll_id,))
     if not poll:
@@ -76,16 +78,15 @@ async def vote(poll_id: int, body: VoteBody, user=Depends(optional_user)):
     if body.choice not in options:
         raise HTTPException(status_code=400, detail=f"Invalid choice. Options: {options}")
 
-    email = user["email"] if user else None
+    email = user["email"]
 
     # Check if already voted
-    if email:
-        existing = fetch_one(
-            "SELECT id FROM poll_response WHERE poll_id = %s AND user_email = %s",
-            (poll_id, email),
-        )
-        if existing:
-            raise HTTPException(status_code=409, detail="Already voted")
+    existing = fetch_one(
+        "SELECT id FROM poll_response WHERE poll_id = %s AND user_email = %s",
+        (poll_id, email),
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Already voted")
 
     execute(
         "INSERT INTO poll_response (poll_id, choice, user_email) VALUES (%s, %s, %s)",
@@ -123,7 +124,7 @@ async def get_poll_results(poll_id: int):
 # --- Admin endpoints ---
 
 @router.get("")
-async def list_polls(user=Depends(get_current_user)):
+async def list_polls(user=Depends(_require_admin)):
     """List all polls (active + archived) with vote counts."""
     polls = fetch_all("""
         SELECT p.id, p.title, p.question, p.options, p.status, p.created_at, p.archived_at,
@@ -131,14 +132,17 @@ async def list_polls(user=Depends(get_current_user)):
         FROM poll p
         ORDER BY p.created_at DESC
     """)
+    votes_rows = fetch_all(
+        "SELECT poll_id, choice, COUNT(*) AS count FROM poll_response GROUP BY poll_id, choice"
+    )
+    votes_by_poll: dict[int, dict[str, int]] = {}
+    for row in votes_rows:
+        poll_votes = votes_by_poll.setdefault(row["poll_id"], {})
+        poll_votes[row["choice"]] = row["count"]
+
     for p in polls:
         p["options"] = p["options"] if isinstance(p["options"], list) else json.loads(p["options"])
-        # Get vote breakdown
-        votes = fetch_all(
-            "SELECT choice, COUNT(*) AS count FROM poll_response WHERE poll_id = %s GROUP BY choice",
-            (p["id"],),
-        )
-        p["votes"] = {v["choice"]: v["count"] for v in votes}
+        p["votes"] = votes_by_poll.get(p["id"], {})
     return [_serialize(p) for p in polls]
 
 

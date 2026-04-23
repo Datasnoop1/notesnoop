@@ -120,7 +120,7 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
                                 (email,),
                             )
                     except Exception:
-                        pass
+                        logger.debug("ActivityLog token decode failed")
 
                 # Log for both authenticated and anonymous users
                 # Anonymous: store a salted hash of the IP, never the raw IP (GDPR)
@@ -130,7 +130,7 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
                     (user_label, path, request.method),
                 )
             except Exception:
-                pass
+                logger.debug("ActivityLog insert failed")
         return response
 
 app.add_middleware(ActivityLogMiddleware)
@@ -193,6 +193,15 @@ def _classify_endpoint(path: str) -> str | None:
         or "/search/semantic" in path
     ):
         return "ai_enrichments_per_day"
+    if (
+        path.startswith("/api/people/search")
+        or (path.startswith("/api/people/") and path.endswith("/connections"))
+        or (path.startswith("/api/people/") and path.endswith("/enrichment"))
+        or (path.startswith("/api/companies/") and path.endswith("/structure"))
+        or (path.startswith("/api/companies/") and path.endswith("/network"))
+        or (path.startswith("/api/companies/") and path.endswith("/deep-network"))
+    ):
+        return "searches_per_day"
     if "/export" in path:
         return "export_per_day"
     return None
@@ -342,6 +351,21 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
                              AND created_at >= CURRENT_DATE""",
                         (user_label,),
                     )
+                elif limit_type == "searches_per_day":
+                    row = db_fetch_one(
+                        """SELECT COUNT(*) AS cnt FROM activity_log
+                           WHERE user_email = %s
+                             AND (
+                                  endpoint LIKE '/api/people/search%%'
+                                  OR endpoint LIKE '/api/people/%%/connections'
+                                  OR endpoint LIKE '/api/people/%%/enrichment'
+                                  OR endpoint LIKE '/api/companies/%%/structure'
+                                  OR endpoint LIKE '/api/companies/%%/network'
+                                  OR endpoint LIKE '/api/companies/%%/deep-network'
+                             )
+                             AND created_at >= CURRENT_DATE""",
+                        (user_label,),
+                    )
                 else:
                     # Unknown bucket — pass through.
                     return await call_next(request)
@@ -367,7 +391,6 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
         except Exception:
             # If counting fails, don't block the request
             logger.exception("Tier limit check failed")
-            pass
 
         return await call_next(request)
 
@@ -521,6 +544,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """Rate limiting keyed by authenticated user email or client IP."""
 
     SEARCH_PATHS = ("/api/companies/search", "/api/companies/semantic-search", "/api/people/search")
+    PII_READ_SUFFIXES = ("/connections", "/enrichment", "/structure", "/network", "/deep-network")
 
     def _get_rate_key(self, request: Request) -> str:
         """Get rate limit key: prefer auth user email, fall back to real IP."""
@@ -546,8 +570,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         key = self._get_rate_key(request)
 
         try:
-            # Search endpoints: 60/min per user
-            if any(path.startswith(p) for p in self.SEARCH_PATHS):
+            # Search/PII-heavy endpoints: 60/min per user
+            if (
+                any(path.startswith(p) for p in self.SEARCH_PATHS)
+                or (
+                    (path.startswith("/api/people/") or path.startswith("/api/companies/"))
+                    and path.endswith(self.PII_READ_SUFFIXES)
+                )
+            ):
                 limiter.check(key, max_requests=60, window_seconds=60)
             # All other API calls: 200/min per user
             else:
