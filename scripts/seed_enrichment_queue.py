@@ -55,8 +55,14 @@ for env_path in (ROOT / ".env", ROOT / ".env.production"):
 from db import fetch_all  # noqa: E402
 from enrichment_queue import bulk_enqueue, ensure_schema  # noqa: E402
 from enrichment_routing import (  # noqa: E402
+    EXCLUDED_JURIDICAL_FORMS,
     PRIORITY_TIER1, PRIORITY_TIER2, PRIORITY_TIER3_WEB, PRIORITY_TIER3_NOWEB,
     PRIORITY_TEMPLATE,
+)
+
+
+EXCLUDED_FORMS_SQL = ", ".join(
+    f"'{code}'" for code in sorted(EXCLUDED_JURIDICAL_FORMS)
 )
 
 
@@ -88,6 +94,7 @@ SCOPE_SQL = {
              WHERE e.status = 'AC'
                AND e.juridical_situation = '000'
                AND e.type_of_enterprise = '2'
+               AND TRIM(COALESCE(e.juridical_form, '')) NOT IN ({excluded_forms})
                AND ci.name IS NOT NULL
                AND TRIM(ci.name) <> ''
                AND (has_web OR COALESCE(fl.revenue, 0) > 0)
@@ -107,6 +114,7 @@ SCOPE_SQL = {
          LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
              WHERE e.status = 'AC'
                AND e.juridical_situation = '000'
+               AND TRIM(COALESCE(e.juridical_form, '')) NOT IN ({excluded_forms})
                AND ci.name IS NOT NULL
                AND TRIM(ci.name) <> ''
                AND COALESCE(fl.revenue, 0) >= 1000000
@@ -119,6 +127,7 @@ SCOPE_SQL = {
               JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
              WHERE e.status = 'AC'
                AND e.juridical_situation = '000'
+               AND TRIM(COALESCE(e.juridical_form, '')) NOT IN ({excluded_forms})
                AND ci.name IS NOT NULL
                AND TRIM(ci.name) <> ''
                AND EXISTS (
@@ -135,6 +144,7 @@ SCOPE_SQL = {
               JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
              WHERE e.status = 'AC'
                AND e.juridical_situation = '000'
+               AND TRIM(COALESCE(e.juridical_form, '')) NOT IN ({excluded_forms})
                AND ci.name IS NOT NULL
                AND TRIM(ci.name) <> ''
                AND NOT EXISTS (
@@ -147,9 +157,10 @@ SCOPE_SQL = {
     "template": """
         (
             SELECT ci.enterprise_number, {tpl} AS priority
-              FROM company_info ci
+             FROM company_info ci
               JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
-             WHERE e.status != 'AC' OR e.juridical_situation != '000'
+             WHERE (e.status != 'AC' OR e.juridical_situation != '000')
+               AND TRIM(COALESCE(e.juridical_form, '')) NOT IN ({excluded_forms})
         )
     """,
 }
@@ -160,6 +171,7 @@ def _render_scope(scope: str) -> str:
         tier1=PRIORITY_TIER1, tier2=PRIORITY_TIER2,
         t3w=PRIORITY_TIER3_WEB, t3nw=PRIORITY_TIER3_NOWEB,
         tpl=PRIORITY_TEMPLATE,
+        excluded_forms=EXCLUDED_FORMS_SQL,
     )
     return sql.strip()
 

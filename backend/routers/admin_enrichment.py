@@ -75,12 +75,14 @@ async def enrichment_overview(_: None = Depends(_require_password)):
     counts = queue_stats()
     enabled = enrichment_enabled()
     readiness = get_semantic_readiness()
-    total_jobs = sum(int(v or 0) for v in counts.values())
+    raw_total_jobs = sum(int(v or 0) for v in counts.values())
     done_jobs = int(counts.get("done", 0) or 0)
     queued_jobs = int(counts.get("queued", 0) or 0)
     claimed_jobs = int(counts.get("claimed", 0) or 0)
     failed_jobs = int(counts.get("failed", 0) or 0)
     dead_jobs = int(counts.get("dead", 0) or 0)
+    excluded_jobs = int(counts.get("excluded", 0) or 0)
+    total_jobs = max(0, raw_total_jobs - excluded_jobs)
     completed_jobs = done_jobs + dead_jobs
     completion_pct = (
         round((completed_jobs / total_jobs) * 100, 2)
@@ -236,12 +238,14 @@ async def enrichment_overview(_: None = Depends(_require_password)):
         "queue_counts": counts,
         "progress": {
             "total_jobs": total_jobs,
+            "raw_total_jobs": raw_total_jobs,
             "completed_jobs": completed_jobs,
             "done_jobs": done_jobs,
             "queued_jobs": queued_jobs,
             "claimed_jobs": claimed_jobs,
             "failed_jobs": failed_jobs,
             "dead_jobs": dead_jobs,
+            "excluded_jobs": excluded_jobs,
             "completion_pct": completion_pct,
             "first_enqueued_at": first_enqueued_at,
         },

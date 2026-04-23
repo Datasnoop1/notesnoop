@@ -225,6 +225,23 @@ def mark_done(cbe: str) -> None:
     )
 
 
+def mark_excluded(cbe: str) -> None:
+    """Move a job to `excluded` so it is outside the semantic corpus."""
+    execute(
+        """
+        UPDATE enrichment_job
+           SET status = 'excluded',
+               priority = 0,
+               attempts = 0,
+               claimed_at = NULL,
+               finished_at = NOW(),
+               last_error = NULL
+         WHERE enterprise_number = %s
+        """,
+        (cbe,),
+    )
+
+
 _SECRET_REDACT_PATTERNS = (
     ("Bearer ", "Bearer [REDACTED]"),
     ("api_key=", "api_key=[REDACTED]"),
