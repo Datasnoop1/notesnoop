@@ -36,6 +36,10 @@ interface Props {
   companyName: string;
 }
 
+function isCompanyNodeId(id: string | undefined): id is string {
+  return typeof id === "string" && /^\d{10}$/.test(id);
+}
+
 /* Depth-based color palette (darker = closer to target) */
 const DEPTH_COLORS: Record<number, string> = {
   0: "#4f46e5", // indigo-600 — target company
@@ -160,7 +164,10 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
   // "Open profile" chip next to the center badge.
   const handleNodeClick = useCallback(
     (node: { id?: string; label?: string }) => {
-      if (node.id && node.id !== centerCbe) {
+      // Only real company nodes can become the graph center. Person and
+      // synthetic subsidiary ids like `person:...` / `sub:...` do not have
+      // a company profile endpoint and previously caused a 404 + blank graph.
+      if (isCompanyNodeId(node.id) && node.id !== centerCbe) {
         setCenterCbe(node.id);
         setCenterLabel(node.label || node.id);
       }
@@ -194,7 +201,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   // Depth-based node colors (darker closer to target)
   const nodeColor = (node: { type?: string; id?: string; depth?: number }) => {
-    if (node.id === cbe) return "#4f46e5";
+    if (node.id === centerCbe) return "#4f46e5";
     if (node.depth != null) return DEPTH_COLORS[node.depth] || "#c7d2fe";
     return "#94a3b8";
   };
@@ -216,7 +223,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
       label: n.label,
       type: n.type,
       depth: n.depth,
-      val: n.id === cbe ? 3 : 1,
+      val: n.id === centerCbe ? 3 : 1,
     })),
     // Include ALL edges from the backend (inter-node connections for depth 2+)
     links: data.edges.map((e) => ({
