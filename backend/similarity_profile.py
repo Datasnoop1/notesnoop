@@ -27,11 +27,19 @@ _GENERIC_PHRASES = {
     "business services",
     "industrial services",
 }
+_GENERIC_ACTIVITY_WORDS = {
+    "activities", "activity", "business", "businesses", "client", "clients",
+    "commercial", "company", "companies", "consumer", "consumers", "corporate",
+    "customer", "customers", "general", "group", "market", "markets",
+    "operation", "operations", "professional", "service", "services",
+    "solution", "solutions", "support",
+}
 _STOPWORDS = {
     "about", "across", "among", "and", "avec", "been", "belgian", "between",
     "business", "clients", "company", "companies", "customer", "customers",
     "dans", "de", "des", "distribution", "door", "een", "een", "for", "from",
-    "group", "het", "into", "les", "met", "naar", "voor", "with",
+    "group", "het", "into", "les", "met", "naar", "over", "serving", "the",
+    "their", "through", "toward", "voor", "with",
 }
 
 
@@ -154,19 +162,46 @@ def _phrase_set(values: list[str]) -> set[str]:
         phrase = _normalize_phrase(value)
         if len(phrase) < 4 or phrase in _GENERIC_PHRASES:
             continue
+        words = [word for word in phrase.split() if word not in _STOPWORDS]
+        specific_words = [
+            word for word in words
+            if word not in _GENERIC_ACTIVITY_WORDS and not word.isdigit()
+        ]
+        if not specific_words:
+            continue
         if len(phrase.split()) > 8:
             continue
         out.add(phrase)
     return out
 
 
-def _description_token_set(text: str) -> set[str]:
-    tokens: set[str] = set()
+def _description_tokens(text: str) -> list[str]:
+    tokens: list[str] = []
     for token in _TOKEN_RE.findall(_normalize_phrase(text)):
-        if len(token) < 4 or token in _STOPWORDS or token.isdigit():
+        if len(token) < 4 or token in _STOPWORDS or token in _GENERIC_ACTIVITY_WORDS:
             continue
-        tokens.add(token)
+        if token.isdigit():
+            continue
+        tokens.append(token)
     return tokens
+
+
+def _description_token_set(text: str) -> set[str]:
+    return set(_description_tokens(text))
+
+
+def _description_phrase_set(text: str) -> set[str]:
+    tokens = _description_tokens(text)
+    phrases: set[str] = set()
+    for size in (2, 3):
+        if len(tokens) < size:
+            continue
+        for idx in range(len(tokens) - size + 1):
+            phrase = " ".join(tokens[idx: idx + size])
+            if phrase in _GENERIC_PHRASES:
+                continue
+            phrases.add(phrase)
+    return phrases
 
 
 def _jaccard(left: set[str], right: set[str]) -> float:
@@ -191,6 +226,10 @@ def compute_activity_overlap_score(target_profile: dict | None, candidate_profil
         _phrase_set(target.get("customers") or []),
         _phrase_set(candidate.get("customers") or []),
     )
+    description_phrase_score = _jaccard(
+        _description_phrase_set(_clean_text(target.get("business_description"))),
+        _description_phrase_set(_clean_text(candidate.get("business_description"))),
+    )
     description_score = _jaccard(
         _description_token_set(_clean_text(target.get("business_description"))),
         _description_token_set(_clean_text(candidate.get("business_description"))),
@@ -199,14 +238,17 @@ def compute_activity_overlap_score(target_profile: dict | None, candidate_profil
     weighted = 0.0
     weight_sum = 0.0
     if target.get("products") and candidate.get("products"):
-        weighted += 0.5 * product_score
-        weight_sum += 0.5
-    if target.get("customers") and candidate.get("customers"):
-        weighted += 0.3 * customer_score
-        weight_sum += 0.3
+        weighted += 0.45 * product_score
+        weight_sum += 0.45
     if target.get("business_description") and candidate.get("business_description"):
-        weighted += 0.2 * description_score
-        weight_sum += 0.2
+        weighted += 0.35 * description_phrase_score
+        weight_sum += 0.35
+    if target.get("customers") and candidate.get("customers"):
+        weighted += 0.05 * customer_score
+        weight_sum += 0.05
+    if target.get("business_description") and candidate.get("business_description"):
+        weighted += 0.15 * description_score
+        weight_sum += 0.15
 
     if weight_sum == 0:
         return 0.0
@@ -223,22 +265,44 @@ def describe_activity_overlap(
     target = target_profile or {}
     candidate = candidate_profile or {}
 
+    def _best_phrase(values: set[str]) -> str | None:
+        if not values:
+            return None
+        return sorted(
+            values,
+            key=lambda phrase: (-len(phrase.split()), -len(phrase), phrase),
+        )[0]
+
     target_products = _phrase_set(target.get("products") or [])
     candidate_products = _phrase_set(candidate.get("products") or [])
-    shared_products = sorted(target_products & candidate_products)
-    if shared_products:
-        return shared_products[0]
+    shared_products = target_products & candidate_products
+    best_product = _best_phrase(shared_products)
+    if best_product:
+        return best_product
+
+    target_desc_phrases = _description_phrase_set(_clean_text(target.get("business_description")))
+    candidate_desc_phrases = _description_phrase_set(_clean_text(candidate.get("business_description")))
+    shared_desc_phrases = target_desc_phrases & candidate_desc_phrases
+    best_desc = _best_phrase(shared_desc_phrases)
+    if best_desc:
+        return best_desc
 
     target_customers = _phrase_set(target.get("customers") or [])
     candidate_customers = _phrase_set(candidate.get("customers") or [])
-    shared_customers = sorted(target_customers & candidate_customers)
-    if shared_customers:
-        return shared_customers[0]
+    shared_customers = target_customers & candidate_customers
+    best_customer = _best_phrase(shared_customers)
+    if best_customer:
+        return best_customer
 
-    if candidate_products:
-        return sorted(candidate_products)[0]
-    if candidate_customers:
-        return sorted(candidate_customers)[0]
+    best_candidate_product = _best_phrase(candidate_products)
+    if best_candidate_product:
+        return best_candidate_product
+    best_candidate_desc = _best_phrase(candidate_desc_phrases)
+    if best_candidate_desc:
+        return best_candidate_desc
+    best_candidate_customer = _best_phrase(candidate_customers)
+    if best_candidate_customer:
+        return best_candidate_customer
 
     desc = _clean_text(candidate.get("business_description"))
     if desc:
@@ -247,5 +311,4 @@ def describe_activity_overlap(
             sentence = sentence[:93].rstrip() + "..."
         return sentence
 
-    nace_clean = _clean_text(candidate_nace_desc)
-    return nace_clean or None
+    return None

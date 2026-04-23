@@ -137,6 +137,7 @@ Ranking criteria in order:
 Do NOT penalise candidates for being larger or smaller. Do NOT rank by geography unless activity is identical.
 EXCLUDE companies that appear to be in the same corporate group as the target, including parent companies, subsidiaries, and sister companies under the same holding.
 Use the retrieval signals as evidence, but trust the business profile first. If the signals and profile conflict, prefer the profile.
+Treat NACE as a weak fallback only. An exact NACE match without clear business overlap should be excluded.
 
 The output MUST be structured.
 - `activity` must name the concrete business overlap: product category, customer segment, or business model.

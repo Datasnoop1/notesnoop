@@ -25,6 +25,7 @@ from similarity_profile import (
     build_similarity_profile,
     compute_activity_overlap_score,
     describe_activity_overlap,
+    has_similarity_profile,
 )
 from utils import clean_cbe
 
@@ -32,9 +33,9 @@ logger = logging.getLogger(__name__)
 
 
 FOCUS_WEIGHTS = {
-    "activity":  {"emb": 0.55, "nace": 0.25, "rev": 0.10, "geo": 0.10},
-    "size":      {"emb": 0.30, "nace": 0.15, "rev": 0.50, "geo": 0.05},
-    "geography": {"emb": 0.30, "nace": 0.15, "rev": 0.15, "geo": 0.40},
+    "activity":  {"emb": 0.32, "activity": 0.45, "nace": 0.10, "rev": 0.08, "geo": 0.05},
+    "size":      {"emb": 0.18, "activity": 0.12, "nace": 0.05, "rev": 0.60, "geo": 0.05},
+    "geography": {"emb": 0.18, "activity": 0.15, "nace": 0.05, "rev": 0.12, "geo": 0.50},
 }
 
 
@@ -50,11 +51,15 @@ LEG_C_LIMIT = 60
 
 GROUP_CONTROL_THRESHOLD_PCT = 50.0
 ACTIVITY_DETAIL_BONUS = {
-    "activity": 0.20,
-    "size": 0.08,
-    "geography": 0.05,
+    "activity": 0.04,
+    "size": 0.02,
+    "geography": 0.02,
 }
 WEAK_ACTIVITY_FLOOR = 0.08
+NACE_PROFILE_DISCOUNT_FLOOR = 0.15
+NACE_ONLY_MIN_ACTIVITY_OVERLAP = 0.12
+ACTIVITY_FOCUS_MIN_ACTIVITY_OVERLAP = 0.10
+ACTIVITY_FOCUS_MIN_EMBEDDING = 0.60
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -505,6 +510,7 @@ def blend_candidates(
         target.get("bulk_summary"),
         target.get("ai_insights"),
     )
+    target_has_profile = has_similarity_profile(target_profile)
     group_profiles = _build_group_profiles(
         {
             target_cbe: target,
@@ -538,6 +544,8 @@ def blend_candidates(
             row.get("bulk_summary"),
             row.get("ai_insights"),
         )
+        candidate_has_profile = has_similarity_profile(candidate_profile)
+        has_profile_signal = target_has_profile and candidate_has_profile
         activity_overlap = compute_activity_overlap_score(target_profile, candidate_profile)
         activity_anchor = describe_activity_overlap(
             target_profile,
@@ -560,10 +568,23 @@ def blend_candidates(
             and activity_overlap < WEAK_ACTIVITY_FLOOR
         ):
             continue
+        if has_profile_signal and source_set == {"nace"} and activity_overlap < NACE_ONLY_MIN_ACTIVITY_OVERLAP:
+            continue
+        nace_effective = nace
+        if has_profile_signal and activity_overlap < ACTIVITY_FOCUS_MIN_ACTIVITY_OVERLAP:
+            nace_effective = min(nace_effective, NACE_PROFILE_DISCOUNT_FLOOR)
+        if (
+            has_profile_signal
+            and focus == "activity"
+            and activity_overlap < ACTIVITY_FOCUS_MIN_ACTIVITY_OVERLAP
+            and emb < ACTIVITY_FOCUS_MIN_EMBEDDING
+        ):
+            continue
 
         blended = (
             weights["emb"] * emb
-            + weights["nace"] * nace
+            + weights["activity"] * activity_overlap
+            + weights["nace"] * nace_effective
             + weights["rev"] * rev_score
             + weights["geo"] * geo_score
         )
@@ -581,7 +602,7 @@ def blend_candidates(
             "row": row,
             "match_score": match_score,
             "embedding_similarity": round(emb, 4) if emb else 0.0,
-            "nace_score": round(nace, 4),
+            "nace_score": round(nace_effective, 4),
             "revenue_ratio_score": round(rev_score, 4),
             "geo_score": round(geo_score, 4),
             "activity_overlap_score": round(activity_overlap, 4),

@@ -66,7 +66,29 @@ def test_activity_overlap_uses_specific_product_and_customer_signals():
     assert describe_activity_overlap(target, candidate) == "industrial refrigeration systems"
 
 
+def test_activity_anchor_prefers_specific_business_phrase_over_generic_customer():
+    target = build_similarity_profile(
+        {
+            "business_description": "Provides temporary staffing and permanent recruitment for industrial employers.",
+            "products_services": ["temporary staffing", "permanent recruitment"],
+            "customer_segments": ["job seekers", "employers"],
+        },
+        None,
+    )
+    candidate = build_similarity_profile(
+        {
+            "business_description": "Offers temporary staffing and recruitment services for logistics and industrial employers.",
+            "products_services": ["temporary staffing", "recruitment services"],
+            "customer_segments": ["job seekers", "corporate clients"],
+        },
+        None,
+    )
+
+    assert describe_activity_overlap(target, candidate) == "temporary staffing"
+
+
 if __name__ == "__main__":
     test_bulk_summary_is_preferred_over_ai_insights()
     test_activity_overlap_uses_specific_product_and_customer_signals()
+    test_activity_anchor_prefers_specific_business_phrase_over_generic_customer()
     print("All similarity-profile tests passed.")
