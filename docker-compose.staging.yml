@@ -133,11 +133,11 @@ services:
       - -lc
       - >
         mkdir -p /var/log/staatsblad_bulk &&
-        python -u /app/scripts/staatsblad_bulk_scrape.py
+        exec python -u /app/scripts/staatsblad_bulk_scrape.py
         --mode=webshare
-        --workers=${STAATSBLAD_BULK_WORKERS}
-        --webshare-proxies-file=${STAATSBLAD_BULK_PROXY_FILE}
-        >> ${STAATSBLAD_BULK_LOG_FILE} 2>&1
+        --workers=$${STAATSBLAD_BULK_WORKERS:-10}
+        --webshare-proxies-file=$${STAATSBLAD_BULK_PROXY_FILE:-/run/secrets/webshare_proxies.txt}
+        >> $${STAATSBLAD_BULK_LOG_FILE:-/var/log/staatsblad_bulk/worker.log} 2>&1
     volumes:
       - ./scripts:/app/scripts:ro
       - ./src:/app/src:ro
