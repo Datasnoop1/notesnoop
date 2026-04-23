@@ -70,6 +70,30 @@ def _get_jwks() -> dict:
 _ALLOWED_ALGS = {"RS256", "ES256"}
 
 
+def _decode_with_audiences(token: str, key, algorithms: list[str]) -> dict:
+    """Try JWT decode against configured audiences, one-by-one.
+
+    python-jose expects `audience` to be a single string (or None), not a list.
+    """
+    audiences = _SUPABASE_AUDIENCES or ["authenticated"]
+    last_error: JWTError | None = None
+    for aud in audiences:
+        try:
+            return jwt.decode(
+                token,
+                key,
+                algorithms=algorithms,
+                audience=aud,
+                options={"verify_aud": True},
+            )
+        except JWTError as e:
+            last_error = e
+            continue
+    if last_error:
+        raise last_error
+    raise JWTError("JWT audience verification failed")
+
+
 def _decode_token(token: str) -> dict:
     """Verify and decode a Supabase JWT."""
     # Try 1: JWKS (ES256/RS256)
@@ -97,12 +121,10 @@ def _decode_token(token: str) -> dict:
 
             if key_data:
                 public_key = jwk.construct(key_data, algorithm=alg)
-                payload = jwt.decode(
+                payload = _decode_with_audiences(
                     token,
                     public_key,
                     algorithms=[alg],
-                    audience=_SUPABASE_AUDIENCES,
-                    options={"verify_aud": True},
                 )
                 return payload
         except JWTError as e:
@@ -111,12 +133,10 @@ def _decode_token(token: str) -> dict:
     # Try 2: HS256 with secret (legacy, explicit opt-in only)
     if SUPABASE_HS256_FALLBACK and SUPABASE_JWT_SECRET:
         try:
-            payload = jwt.decode(
+            payload = _decode_with_audiences(
                 token,
                 SUPABASE_JWT_SECRET,
                 algorithms=["HS256"],
-                audience=_SUPABASE_AUDIENCES,
-                options={"verify_aud": True},
             )
             return payload
         except JWTError as e:
