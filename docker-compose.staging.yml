@@ -90,6 +90,10 @@ services:
       DDG_RATELIMIT_MULTIPLIER: "2.0"
       DDG_RECOVERY_STEP_S: "0.5"
       DDG_SUCCESS_STREAK_TO_RECOVER: "6"
+      BULK_Q2_MODEL: "openai/gpt-4o-mini"
+      BULK_Q2_FALLBACK_MODEL: ""
+      BULK_HAIKU_MODEL: "anthropic/claude-haiku-4.5"
+      BULK_HAIKU_FALLBACK_MODEL: ""
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

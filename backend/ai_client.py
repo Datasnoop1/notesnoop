@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions"
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "https://ollama.com").rstrip("/")
+OLLAMA_CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
 
 # Request-scoped contextvar holding the current API endpoint path, set by
 # middleware in main.py. Threads the endpoint identifier down to `ai_complete`
@@ -25,6 +28,14 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions"
 _current_endpoint: ContextVar[str | None] = ContextVar(
     "ai_current_endpoint", default=None
 )
+
+
+def _is_ollama_model(model: str) -> bool:
+    return isinstance(model, str) and model.startswith("ollama:")
+
+
+def _ollama_model_name(model: str) -> str:
+    return model.split(":", 1)[1].strip() if ":" in model else model.strip()
 
 
 def set_current_endpoint(path: str | None):
@@ -453,6 +464,16 @@ async def ai_complete_with_meta(
     caller lets the similar-companies router log which models were attempted
     for observability (§8).
     """
+    if _is_ollama_model(model):
+        return await _ollama_complete_with_meta(
+            prompt=prompt,
+            system=system,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout_s=timeout_s,
+        )
+
     started = time.monotonic()
     meta = {
         "text": "",
@@ -532,6 +553,90 @@ async def ai_complete_with_meta(
         meta["error"] = f"exception:{type(e).__name__}"
         logger.exception("OpenRouter request failed for model %s", model)
 
+    meta["latency_ms"] = int((time.monotonic() - started) * 1000)
+    return meta
+
+
+async def _ollama_complete_with_meta(
+    prompt: str,
+    system: str = "",
+    model: str = "ollama:kimi-k2.6",
+    max_tokens: int = 500,
+    temperature: float | None = None,
+    timeout_s: float = 60.0,
+) -> dict:
+    started = time.monotonic()
+    meta = {
+        "text": "",
+        "model": model,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "ok": False,
+        "error": None,
+        "status_code": None,
+        "latency_ms": 0,
+    }
+    if not OLLAMA_API_KEY:
+        meta["error"] = "no_ollama_api_key"
+        meta["latency_ms"] = int((time.monotonic() - started) * 1000)
+        return meta
+
+    messages: list[dict] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    payload: dict = {
+        "model": _ollama_model_name(model),
+        "stream": False,
+        "messages": messages,
+    }
+    options: dict = {}
+    if temperature is not None:
+        options["temperature"] = temperature
+    if max_tokens:
+        options["num_predict"] = max_tokens
+    if options:
+        payload["options"] = options
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                OLLAMA_CHAT_URL,
+                headers={
+                    "Authorization": f"Bearer {OLLAMA_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=timeout_s,
+            )
+            meta["status_code"] = resp.status_code
+            if resp.status_code == 200:
+                data = resp.json()
+                content = ((data.get("message") or {}).get("content") or "").strip()
+                meta["text"] = content
+                meta["input_tokens"] = int(data.get("prompt_eval_count") or 0)
+                meta["output_tokens"] = int(data.get("eval_count") or 0)
+                meta["ok"] = bool(content)
+                if not meta["ok"]:
+                    meta["error"] = "empty_completion"
+                _log_llm_call(
+                    model=model,
+                    prompt_tokens=meta["input_tokens"],
+                    completion_tokens=meta["output_tokens"],
+                    cost_usd=None,
+                )
+            else:
+                meta["error"] = f"http_{resp.status_code}"
+                logger.warning(
+                    "Ollama returned %s for model %s: %s",
+                    resp.status_code, model, resp.text[:200],
+                )
+    except httpx.TimeoutException:
+        meta["error"] = "timeout"
+        logger.warning("Ollama timeout for model %s after %.1fs", model, timeout_s)
+    except Exception:
+        meta["error"] = "exception"
+        logger.exception("Ollama request failed for model %s", model)
     meta["latency_ms"] = int((time.monotonic() - started) * 1000)
     return meta
 
@@ -1563,8 +1668,25 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
 # Model choices fixed from the Spike 2 matrix (see
 # `scripts/research/v2/REPORT_v2.md`). Q2 = GPT-4o-mini with structured
 # KBO context wins on quality AND cost; Haiku 4.5 is the escalation.
-BULK_Q2_MODEL = "openai/gpt-4o-mini"
-BULK_HAIKU_MODEL = "anthropic/claude-haiku-4.5"
+_BULK_Q2_DEFAULT_MODEL = "openai/gpt-4o-mini"
+_BULK_HAIKU_DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
+BULK_Q2_MODEL = (os.getenv("BULK_Q2_MODEL", "").strip() or _BULK_Q2_DEFAULT_MODEL)
+BULK_HAIKU_MODEL = (
+    os.getenv("BULK_HAIKU_MODEL", "").strip() or _BULK_HAIKU_DEFAULT_MODEL
+)
+BULK_Q2_FALLBACK_MODEL = os.getenv("BULK_Q2_FALLBACK_MODEL", "").strip()
+BULK_HAIKU_FALLBACK_MODEL = os.getenv("BULK_HAIKU_FALLBACK_MODEL", "").strip()
+
+
+def _resolve_bulk_fallback_model(
+    primary_model: str, configured_fallback: str, default_model: str
+) -> str | None:
+    fb = (configured_fallback or "").strip()
+    if fb and fb != primary_model:
+        return fb
+    if _is_ollama_model(primary_model) and default_model != primary_model:
+        return default_model
+    return None
 
 
 def _nn(v) -> str:
@@ -1672,14 +1794,32 @@ async def call_q2(
         "and never invent financials, headcounts, or ownership percentages."
     )
 
+    primary_model = model
+    fallback_model = _resolve_bulk_fallback_model(
+        primary_model=primary_model,
+        configured_fallback=BULK_Q2_FALLBACK_MODEL,
+        default_model=_BULK_Q2_DEFAULT_MODEL,
+    )
+
     meta = await ai_complete_with_meta(
         prompt=body,
         system=system,
-        model=model,
+        model=primary_model,
         max_tokens=500,
         temperature=0.1,
         timeout_s=45.0,
     )
+    used_fallback = False
+    if (not meta.get("ok")) and fallback_model:
+        meta = await ai_complete_with_meta(
+            prompt=body,
+            system=system,
+            model=fallback_model,
+            max_tokens=500,
+            temperature=0.1,
+            timeout_s=45.0,
+        )
+        used_fallback = True
     if not meta.get("ok"):
         return {
             "summary": None,
@@ -1691,6 +1831,18 @@ async def call_q2(
 
     text = meta.get("text") or ""
     parsed = _extract_json(text)
+    if not isinstance(parsed, dict) and fallback_model and not used_fallback:
+        meta = await ai_complete_with_meta(
+            prompt=body,
+            system=system,
+            model=fallback_model,
+            max_tokens=500,
+            temperature=0.1,
+            timeout_s=45.0,
+        )
+        text = meta.get("text") or ""
+        parsed = _extract_json(text)
+
     if not isinstance(parsed, dict):
         return {
             "summary": None,
@@ -1785,14 +1937,32 @@ async def call_haiku_escalation(
         "mark confidence=low and say so in the description."
     )
 
+    primary_model = model
+    fallback_model = _resolve_bulk_fallback_model(
+        primary_model=primary_model,
+        configured_fallback=BULK_HAIKU_FALLBACK_MODEL,
+        default_model=_BULK_HAIKU_DEFAULT_MODEL,
+    )
+
     meta = await ai_complete_with_meta(
         prompt=body,
         system=system,
-        model=model,
+        model=primary_model,
         max_tokens=700,
         temperature=0.1,
         timeout_s=60.0,
     )
+    used_fallback = False
+    if (not meta.get("ok")) and fallback_model:
+        meta = await ai_complete_with_meta(
+            prompt=body,
+            system=system,
+            model=fallback_model,
+            max_tokens=700,
+            temperature=0.1,
+            timeout_s=60.0,
+        )
+        used_fallback = True
     if not meta.get("ok"):
         return {
             "summary": None,
@@ -1804,6 +1974,18 @@ async def call_haiku_escalation(
 
     text = meta.get("text") or ""
     parsed = _extract_json(text)
+    if not isinstance(parsed, dict) and fallback_model and not used_fallback:
+        meta = await ai_complete_with_meta(
+            prompt=body,
+            system=system,
+            model=fallback_model,
+            max_tokens=700,
+            temperature=0.1,
+            timeout_s=60.0,
+        )
+        text = meta.get("text") or ""
+        parsed = _extract_json(text)
+
     if not isinstance(parsed, dict):
         return {
             "summary": None,
