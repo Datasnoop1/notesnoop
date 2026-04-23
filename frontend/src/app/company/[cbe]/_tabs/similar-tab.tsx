@@ -24,6 +24,12 @@ interface AiSimilarCompany {
     size?: string;
     geography?: string;
   };
+  signals?: {
+    nace_match?: string;
+    revenue_ratio?: number | null;
+    activity_anchor?: string | null;
+    geo_match?: string;
+  };
 }
 
 interface SimilarTabProps {
@@ -74,6 +80,56 @@ function splitReason(
       };
     })
     .filter((part) => part.text.length > 0);
+}
+
+function fallbackReasonParts(company: AiSimilarCompany): Array<{ label: string; text: string }> {
+  const signals = company.signals;
+  if (!signals) return [];
+
+  const parts: Array<{ label: string; text: string }> = [];
+
+  const activityAnchor = signals.activity_anchor?.trim();
+  if (activityAnchor) {
+    parts.push({
+      label: "Activity",
+      text: `Business overlap around ${activityAnchor}`,
+    });
+  } else if (signals.nace_match && signals.nace_match !== "none") {
+    const naceLabel =
+      signals.nace_match === "exact" ? "Exact activity-code match" :
+      signals.nace_match === "class" ? "Same 3-digit activity class" :
+      signals.nace_match === "group" ? "Same 2-digit activity group" :
+      "";
+    if (naceLabel) {
+      parts.push({ label: "Activity", text: naceLabel });
+    }
+  }
+
+  const revenueRatio = signals.revenue_ratio;
+  if (typeof revenueRatio === "number" && Number.isFinite(revenueRatio) && revenueRatio > 0) {
+    const sizeText =
+      revenueRatio >= 0.85 && revenueRatio <= 1.15
+        ? "Revenue is very close to the target"
+        : revenueRatio >= 0.6 && revenueRatio <= 1.4
+          ? "Revenue is in a comparable range"
+          : revenueRatio < 1
+            ? `Revenue is smaller at about ${revenueRatio.toFixed(1)}x of target`
+            : `Revenue is larger at about ${revenueRatio.toFixed(1)}x of target`;
+    parts.push({ label: "Size", text: sizeText });
+  }
+
+  const city = company.city?.trim();
+  const geoText =
+    signals.geo_match === "same_city"
+      ? `Same city${city ? `: ${city}` : ""}`
+      : signals.geo_match === "same_province"
+        ? `Same province area${city ? `: ${city}` : ""}`
+        : city
+          ? `Different geography: ${city}`
+          : "Geography is a secondary factor";
+  parts.push({ label: "Geography", text: geoText });
+
+  return parts;
 }
 
 /* ---------- Component ---------- */
@@ -398,9 +454,10 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
                 <td className="px-3 py-2.5 align-top text-[11px] md:text-[10px] text-slate-500 leading-relaxed max-w-[360px]">
                   {(() => {
                     const reasonParts = splitReason(sc.ai_reason, sc.ai_reason_sections);
-                    return reasonParts.length > 0 ? (
+                    const displayParts = reasonParts.length > 0 ? reasonParts : fallbackReasonParts(sc);
+                    return displayParts.length > 0 ? (
                       <div className="space-y-2">
-                        {reasonParts.map((part) => (
+                        {displayParts.map((part) => (
                           <div
                             key={`${sc.enterprise_number}-${part.label}`}
                             className="grid grid-cols-[76px_minmax(0,1fr)] items-start gap-x-3 gap-y-0.5 leading-snug"
