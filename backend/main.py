@@ -656,13 +656,15 @@ async def status_metrics():
         # the filing date (NBB publishes T+~3 months). Use MAX(fiscal_year)
         # as "latest fiscal year ingested" and COUNT companies with a
         # non-null latest row as coverage.
+        # financial_data.deposit_date is stored as TEXT (NBB returns
+        # ISO-8601 strings); cast explicitly before comparing to date.
         nbb = fetch_one(
             """
             SELECT
               (SELECT MAX(deposit_date) FROM financial_data)  AS latest_deposit_date,
               (SELECT MAX(fiscal_year) FROM financial_data)   AS latest_fiscal_year,
               (SELECT COUNT(*) FROM financial_data
-                 WHERE deposit_date > CURRENT_DATE - INTERVAL '24 hours') AS rows_last_24h,
+                 WHERE deposit_date::date > CURRENT_DATE - INTERVAL '1 day') AS rows_last_24h,
               (SELECT COUNT(DISTINCT enterprise_number) FROM financial_latest) AS companies_covered
             """
         )
