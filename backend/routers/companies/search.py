@@ -135,18 +135,18 @@ async def search_companies(
     if has_location_filter:
         loc_clauses: list[str] = []
         if pc_filter:
-            loc_clauses.append("a.zipcode ILIKE %(loc_postal)s ESCAPE '\\\\'")
+            loc_clauses.append("a.zipcode ILIKE %(loc_postal)s ESCAPE '\\'")
             params["loc_postal"] = ilike_escape(pc_filter) + "%"
         if muni_filter:
             loc_clauses.append(
-                "(a.municipality_nl ILIKE %(loc_muni)s ESCAPE '\\\\'"
-                " OR a.municipality_fr ILIKE %(loc_muni)s ESCAPE '\\\\')"
+                "(a.municipality_nl ILIKE %(loc_muni)s ESCAPE '\\'"
+                " OR a.municipality_fr ILIKE %(loc_muni)s ESCAPE '\\')"
             )
             params["loc_muni"] = f"%{ilike_escape(muni_filter)}%"
         if street_filter:
             loc_clauses.append(
-                "(a.street_nl ILIKE %(loc_street)s ESCAPE '\\\\'"
-                " OR a.street_fr ILIKE %(loc_street)s ESCAPE '\\\\')"
+                "(a.street_nl ILIKE %(loc_street)s ESCAPE '\\'"
+                " OR a.street_fr ILIKE %(loc_street)s ESCAPE '\\')"
             )
             params["loc_street"] = f"%{ilike_escape(street_filter)}%"
         loc_filter_cte = (
