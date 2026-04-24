@@ -131,95 +131,98 @@ people_hits AS (
       )
 
     UNION ALL
-    -- 0.7: every typed token ILIKE-matches the normalised name (any order)
-    SELECT a.name, a.enterprise_number, 'admin', 0.7::real
-    FROM administrator a
-    WHERE a.person_type = 'natural'
-      AND a.name_normalized IS NOT NULL
-      AND %(n_tokens)s >= 1
-      AND (%(tok1)s IS NULL OR a.name_normalized ILIKE %(tok1)s ESCAPE '\\')
-      AND (%(tok2)s IS NULL OR a.name_normalized ILIKE %(tok2)s ESCAPE '\\')
-      AND (%(tok3)s IS NULL OR a.name_normalized ILIKE %(tok3)s ESCAPE '\\')
-      AND (%(tok4)s IS NULL OR a.name_normalized ILIKE %(tok4)s ESCAPE '\\')
-    LIMIT 500
+    -- 0.7: every typed token ILIKE-matches the normalised name (any order).
+    -- Each LIMIT-bearing subquery MUST be wrapped in parens when placed
+    -- between UNION ALL clauses, otherwise the LIMIT applies to the
+    -- whole union (Postgres parse error).
+    (SELECT a.name, a.enterprise_number, 'admin', 0.7::real
+     FROM administrator a
+     WHERE a.person_type = 'natural'
+       AND a.name_normalized IS NOT NULL
+       AND %(n_tokens)s >= 1
+       AND (%(tok1)s IS NULL OR a.name_normalized ILIKE %(tok1)s ESCAPE '\\')
+       AND (%(tok2)s IS NULL OR a.name_normalized ILIKE %(tok2)s ESCAPE '\\')
+       AND (%(tok3)s IS NULL OR a.name_normalized ILIKE %(tok3)s ESCAPE '\\')
+       AND (%(tok4)s IS NULL OR a.name_normalized ILIKE %(tok4)s ESCAPE '\\')
+     LIMIT 500)
     UNION ALL
-    SELECT s.name, s.enterprise_number, 'shareholder', 0.7::real
-    FROM shareholder s
-    WHERE s.shareholder_type = 'individual'
-      AND s.name_normalized IS NOT NULL
-      AND %(n_tokens)s >= 1
-      AND (%(tok1)s IS NULL OR s.name_normalized ILIKE %(tok1)s ESCAPE '\\')
-      AND (%(tok2)s IS NULL OR s.name_normalized ILIKE %(tok2)s ESCAPE '\\')
-      AND (%(tok3)s IS NULL OR s.name_normalized ILIKE %(tok3)s ESCAPE '\\')
-      AND (%(tok4)s IS NULL OR s.name_normalized ILIKE %(tok4)s ESCAPE '\\')
-    LIMIT 500
+    (SELECT s.name, s.enterprise_number, 'shareholder', 0.7::real
+     FROM shareholder s
+     WHERE s.shareholder_type = 'individual'
+       AND s.name_normalized IS NOT NULL
+       AND %(n_tokens)s >= 1
+       AND (%(tok1)s IS NULL OR s.name_normalized ILIKE %(tok1)s ESCAPE '\\')
+       AND (%(tok2)s IS NULL OR s.name_normalized ILIKE %(tok2)s ESCAPE '\\')
+       AND (%(tok3)s IS NULL OR s.name_normalized ILIKE %(tok3)s ESCAPE '\\')
+       AND (%(tok4)s IS NULL OR s.name_normalized ILIKE %(tok4)s ESCAPE '\\')
+     LIMIT 500)
     UNION ALL
-    SELECT e.person_name, e.enterprise_number, 'staatsblad', 0.7::real
-    FROM staatsblad_event e
-    WHERE e.event_type = 'admin_event'
-      AND e.person_name_normalized IS NOT NULL
-      AND %(n_tokens)s >= 1
-      AND (%(tok1)s IS NULL OR e.person_name_normalized ILIKE %(tok1)s ESCAPE '\\')
-      AND (%(tok2)s IS NULL OR e.person_name_normalized ILIKE %(tok2)s ESCAPE '\\')
-      AND (%(tok3)s IS NULL OR e.person_name_normalized ILIKE %(tok3)s ESCAPE '\\')
-      AND (%(tok4)s IS NULL OR e.person_name_normalized ILIKE %(tok4)s ESCAPE '\\')
-    LIMIT 500
+    (SELECT e.person_name, e.enterprise_number, 'staatsblad', 0.7::real
+     FROM staatsblad_event e
+     WHERE e.event_type = 'admin_event'
+       AND e.person_name_normalized IS NOT NULL
+       AND %(n_tokens)s >= 1
+       AND (%(tok1)s IS NULL OR e.person_name_normalized ILIKE %(tok1)s ESCAPE '\\')
+       AND (%(tok2)s IS NULL OR e.person_name_normalized ILIKE %(tok2)s ESCAPE '\\')
+       AND (%(tok3)s IS NULL OR e.person_name_normalized ILIKE %(tok3)s ESCAPE '\\')
+       AND (%(tok4)s IS NULL OR e.person_name_normalized ILIKE %(tok4)s ESCAPE '\\')
+     LIMIT 500)
 
     UNION ALL
     -- 0.4: trigram fuzzy for typo tolerance
-    SELECT a.name, a.enterprise_number, 'admin',
-           LEAST(0.4, similarity(a.name_normalized, %(nq)s))::real
-    FROM administrator a
-    WHERE a.person_type = 'natural'
-      AND %(nq)s IS NOT NULL
-      AND a.name_normalized %% %(nq)s
-      AND similarity(a.name_normalized, %(nq)s) > 0.3
-    LIMIT 200
+    (SELECT a.name, a.enterprise_number, 'admin',
+            LEAST(0.4, similarity(a.name_normalized, %(nq)s))::real
+     FROM administrator a
+     WHERE a.person_type = 'natural'
+       AND %(nq)s IS NOT NULL
+       AND a.name_normalized %% %(nq)s
+       AND similarity(a.name_normalized, %(nq)s) > 0.3
+     LIMIT 200)
     UNION ALL
-    SELECT s.name, s.enterprise_number, 'shareholder',
-           LEAST(0.4, similarity(s.name_normalized, %(nq)s))::real
-    FROM shareholder s
-    WHERE s.shareholder_type = 'individual'
-      AND %(nq)s IS NOT NULL
-      AND s.name_normalized %% %(nq)s
-      AND similarity(s.name_normalized, %(nq)s) > 0.3
-    LIMIT 200
+    (SELECT s.name, s.enterprise_number, 'shareholder',
+            LEAST(0.4, similarity(s.name_normalized, %(nq)s))::real
+     FROM shareholder s
+     WHERE s.shareholder_type = 'individual'
+       AND %(nq)s IS NOT NULL
+       AND s.name_normalized %% %(nq)s
+       AND similarity(s.name_normalized, %(nq)s) > 0.3
+     LIMIT 200)
 
     UNION ALL
     -- 0.3: Double Metaphone phonetic fallback (Braet ↔ Braete ↔ Brait).
     -- Exact match on the phonetic key — dmetaphone output is 1-4 chars
     -- per token so trigram similarity is degenerate here; equality is
     -- both cheaper and semantically correct.
-    SELECT a.name, a.enterprise_number, 'admin', 0.3::real
-    FROM administrator a
-    WHERE %(phon)s IS NOT NULL
-      AND a.person_type = 'natural'
-      AND a.name_phonetic = %(phon)s
-    LIMIT 200
+    (SELECT a.name, a.enterprise_number, 'admin', 0.3::real
+     FROM administrator a
+     WHERE %(phon)s IS NOT NULL
+       AND a.person_type = 'natural'
+       AND a.name_phonetic = %(phon)s
+     LIMIT 200)
     UNION ALL
-    SELECT s.name, s.enterprise_number, 'shareholder', 0.3::real
-    FROM shareholder s
-    WHERE %(phon)s IS NOT NULL
-      AND s.shareholder_type = 'individual'
-      AND s.name_phonetic = %(phon)s
-    LIMIT 200
+    (SELECT s.name, s.enterprise_number, 'shareholder', 0.3::real
+     FROM shareholder s
+     WHERE %(phon)s IS NOT NULL
+       AND s.shareholder_type = 'individual'
+       AND s.name_phonetic = %(phon)s
+     LIMIT 200)
 
     UNION ALL
     -- 0.2: address fallback
-    SELECT a.name, a.enterprise_number, 'admin', 0.2::real
-    FROM administrator a
-    JOIN address ad ON ad.entity_number = a.enterprise_number
-    WHERE a.person_type = 'natural'
-      AND ad.type_of_address = 'REGO'
-      AND %(addr_like)s IS NOT NULL
-      AND (
+    (SELECT a.name, a.enterprise_number, 'admin', 0.2::real
+     FROM administrator a
+     JOIN address ad ON ad.entity_number = a.enterprise_number
+     WHERE a.person_type = 'natural'
+       AND ad.type_of_address = 'REGO'
+       AND %(addr_like)s IS NOT NULL
+       AND (
           ad.street_nl          ILIKE %(addr_like)s ESCAPE '\\'
           OR ad.street_fr       ILIKE %(addr_like)s ESCAPE '\\'
           OR ad.municipality_nl ILIKE %(addr_like)s ESCAPE '\\'
           OR ad.municipality_fr ILIKE %(addr_like)s ESCAPE '\\'
           OR (%(zip_q)s IS NOT NULL AND ad.zipcode = %(zip_q)s)
       )
-    LIMIT 500
+     LIMIT 500)
 ),
 names_lookup AS (
     SELECT DISTINCT ON (entity_number) entity_number, denomination
