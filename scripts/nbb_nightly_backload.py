@@ -163,20 +163,38 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
           )
         ORDER BY
           CASE e.juridical_form
-            WHEN '014' THEN 1  -- NV/SA
-            WHEN '015' THEN 1  -- BVBA/SPRL (legacy)
-            WHEN '017' THEN 1  -- BV/SRL
-            WHEN '016' THEN 1  -- CV/SC (legacy)
-            WHEN '018' THEN 1  -- CV/SC
-            WHEN '019' THEN 1  -- ESV
-            WHEN '020' THEN 1  -- EEIG
-            WHEN '022' THEN 1  -- SE
-            WHEN '026' THEN 1  -- CommV/SComm
-            WHEN '029' THEN 1  -- VOF/SNC
-            WHEN '008' THEN 1
-            WHEN '006' THEN 1
-            WHEN '610' THEN 2  -- VZW/ASBL
-            WHEN '612' THEN 2  -- IVZW
+            -- Tier 1: commercial companies legally required to file
+            WHEN '610' THEN 1  -- BV (Besloten Vennootschap, new form since 2019)
+            WHEN '615' THEN 1  -- BV met sociaal oogmerk
+            WHEN '616' THEN 1  -- BV van publiek recht
+            WHEN '014' THEN 1  -- NV (Naamloze Vennootschap)
+            WHEN '114' THEN 1  -- NV van publiek recht
+            WHEN '614' THEN 1  -- NV met sociaal oogmerk
+            WHEN '015' THEN 1  -- BVBA (old BV form, legacy)
+            WHEN '010' THEN 1  -- Eenpersoons BVBA (legacy)
+            WHEN '515' THEN 1  -- BVBA met sociaal oogmerk (legacy)
+            WHEN '706' THEN 1  -- CV (Coöperatieve vennootschap, new form)
+            WHEN '716' THEN 1  -- CV van publiek recht
+            WHEN '016' THEN 1  -- CV oud statuut
+            WHEN '116' THEN 1  -- CV oud statuut van publiek recht
+            WHEN '008' THEN 1  -- CVBA
+            WHEN '108' THEN 1  -- CVBA van publiek recht
+            WHEN '508' THEN 1  -- CVBA met sociaal oogmerk
+            WHEN '006' THEN 1  -- CVOA
+            WHEN '001' THEN 1  -- Europese Coöperatieve Vennootschap
+            WHEN '011' THEN 1  -- VOF (Vennootschap onder firma)
+            WHEN '012' THEN 1  -- GewComV (Gewone commanditaire vennootschap)
+            WHEN '013' THEN 1  -- CommVA (Commanditaire vennootschap op aandelen)
+            WHEN '612' THEN 1  -- CommV (Commanditaire vennootschap, new form)
+            WHEN '060' THEN 1  -- ESV (Economisch samenwerkingsverband)
+            WHEN '065' THEN 1  -- EESV
+            WHEN '027' THEN 1  -- SE (Societas Europaea)
+            -- Tier 2: non-profits that must file only above size thresholds
+            WHEN '017' THEN 2  -- VZW (Vereniging zonder winstoogmerk)
+            WHEN '117' THEN 2  -- VZW van publiek recht
+            WHEN '125' THEN 2  -- IVZW (Internationale VZW)
+            WHEN '325' THEN 2  -- IVZW van publiek recht
+            -- Tier 3: everything else (VME, foreign entities, public bodies, etc.)
             ELSE 3
           END,
           (
