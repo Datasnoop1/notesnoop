@@ -893,13 +893,35 @@ export function CompanyPageClient({
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard.writeText(fmtCbe(cbe)).then(
-                      () => {
-                        setCopiedCbe(true);
-                        window.setTimeout(() => setCopiedCbe(false), 1500);
-                      },
-                      () => {},
-                    );
+                    const value = fmtCbe(cbe);
+                    const markCopied = () => {
+                      setCopiedCbe(true);
+                      window.setTimeout(() => setCopiedCbe(false), 1500);
+                    };
+                    const fallback = () => {
+                      // HTTP staging + older browsers don't expose the async
+                      // clipboard API; keep the button working via the old
+                      // textarea + execCommand dance.
+                      try {
+                        const ta = document.createElement("textarea");
+                        ta.value = value;
+                        ta.setAttribute("readonly", "");
+                        ta.style.position = "absolute";
+                        ta.style.left = "-9999px";
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand("copy");
+                        document.body.removeChild(ta);
+                        markCopied();
+                      } catch {
+                        /* give up silently */
+                      }
+                    };
+                    if (navigator.clipboard?.writeText) {
+                      navigator.clipboard.writeText(value).then(markCopied, fallback);
+                    } else {
+                      fallback();
+                    }
                   }}
                   aria-label={copiedCbe ? t("company.copied") : t("company.copyCbe")}
                   title={copiedCbe ? t("company.copied") : t("company.copyCbe")}
