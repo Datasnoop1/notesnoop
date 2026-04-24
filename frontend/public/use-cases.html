@@ -190,6 +190,9 @@
     padding-bottom: 80px;
   }
   @media (max-width: 960px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 961px) {
+    .grid > .card:nth-child(10):last-child { grid-column: 2 / span 1; }
+  }
   @media (max-width: 640px) {
     .grid { grid-template-columns: 1fr; }
     h1 { font-size: 38px; }
@@ -359,7 +362,7 @@
 
 <section class="container">
   <div class="section-head">
-    <h2 data-i18n="section.h2">Negen beroepen. Eén tool.</h2>
+    <h2 data-i18n="section.h2">Tien beroepen. Eén tool.</h2>
     <p data-i18n="section.sub">Kies de kaart die op jouw bureau lijkt. Herken je er twee, dan voel je je meteen thuis.</p>
   </div>
 
@@ -413,7 +416,23 @@
       <p class="tagline" data-i18n="card.bankers.tag">Het kredietdossier dat je team écht wil lezen — zonder wachten.</p>
     </article>
 
-    <!-- 4. CFOs -->
+    <!-- 4. Private bankers -->
+    <article class="card">
+      <div class="icon-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/></svg>
+      </div>
+      <h3 data-i18n-html="card.privatebankers.title">Private bankiers & vermogensbeheerders<small>Private banking · vermogensbeheer · family offices</small></h3>
+      <ul>
+        <li data-i18n-html="card.privatebankers.b1"><strong>Breng de vermogensstructuur van je cliënt in kaart</strong> — elk bedrijf, elke participatie, elke holding op één pagina.</li>
+        <li data-i18n-html="card.privatebankers.b2"><strong>Verifieer source of wealth</strong> bij onboarding — de operationele bedrijven, de exits, de bestuursmandaten.</li>
+        <li data-i18n-html="card.privatebankers.b3"><strong>Spot liquiditeitsmomenten vroeg</strong> — als een cliënt zijn bedrijf verkoopt, wil jij als eerste bij de deposito staan.</li>
+        <li data-i18n-html="card.privatebankers.b4"><strong>Vind nieuwe prospects</strong> — de ondernemer achter het bedrijf dat vandaag in de krant staat.</li>
+        <li data-i18n-html="card.privatebankers.b5"><strong>Voer KYC- en opvolgingschecks uit</strong> zonder notariële akten één voor één op te vragen.</li>
+      </ul>
+      <p class="tagline" data-i18n="card.privatebankers.tag">Het vermogen van je cliënt, zijn structuur, en de volgende liquiditeit — vóór de concurrentie het ziet.</p>
+    </article>
+
+    <!-- 5. CFOs -->
     <article class="card">
       <div class="icon-wrap">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
@@ -541,7 +560,7 @@
       "hero.meta1": "KBO-register · NBB-jaarrekeningen · 10 jaar historiek",
       "hero.meta2": "Dagelijks bijgewerkt",
       "hero.meta3": "Heel België",
-      "section.h2": "Negen beroepen. Eén tool.",
+      "section.h2": "Tien beroepen. Eén tool.",
       "section.sub": "Kies de kaart die op jouw bureau lijkt. Herken je er twee, dan voel je je meteen thuis.",
 
       "card.lawyers.title": "Advocaten & juridische diensten<small>Advocatenkantoren · juridische diensten · notarissen</small>",
@@ -567,6 +586,14 @@
       "card.bankers.b4": "<strong>Kwalificeer nieuwe kredietaanvragen</strong> tegen je underwriting-criteria in enkele minuten.",
       "card.bankers.b5": "<strong>Herken groeisignalen</strong> bij kmo-klanten — zet ze om in upsell-gesprekken.",
       "card.bankers.tag": "Het kredietdossier dat je team écht wil lezen — zonder wachten.",
+
+      "card.privatebankers.title": "Private bankiers & vermogensbeheerders<small>Private banking · vermogensbeheer · family offices</small>",
+      "card.privatebankers.b1": "<strong>Breng de vermogensstructuur van je cliënt in kaart</strong> — elk bedrijf, elke participatie, elke holding op één pagina.",
+      "card.privatebankers.b2": "<strong>Verifieer source of wealth</strong> bij onboarding — de operationele bedrijven, de exits, de bestuursmandaten.",
+      "card.privatebankers.b3": "<strong>Spot liquiditeitsmomenten vroeg</strong> — als een cliënt zijn bedrijf verkoopt, wil jij als eerste bij de deposito staan.",
+      "card.privatebankers.b4": "<strong>Vind nieuwe prospects</strong> — de ondernemer achter het bedrijf dat vandaag in de krant staat.",
+      "card.privatebankers.b5": "<strong>Voer KYC- en opvolgingschecks uit</strong> zonder notariële akten één voor één op te vragen.",
+      "card.privatebankers.tag": "Het vermogen van je cliënt, zijn structuur, en de volgende liquiditeit — vóór de concurrentie het ziet.",
 
       "card.cfos.title": "CFO's & financiële teams<small>Controllers · FP&A · creditmanagement · thesaurie</small>",
       "card.cfos.b1": "<strong>Doe een kredietcheck op nieuwe klanten</strong> vóór je hun betalingsvoorwaarden vastlegt.",
@@ -631,7 +658,7 @@
       "hero.meta1": "Registre BCE · comptes BNB · 10 ans d'historique",
       "hero.meta2": "Mis à jour quotidiennement",
       "hero.meta3": "Toute la Belgique",
-      "section.h2": "Neuf métiers. Un seul outil.",
+      "section.h2": "Dix métiers. Un seul outil.",
       "section.sub": "Choisissez la carte qui ressemble à votre bureau. Si deux d'entre elles vous parlent, vous êtes chez vous.",
 
       "card.lawyers.title": "Avocats & juristes d'entreprise<small>Cabinets d'avocats · services juridiques · notaires</small>",
@@ -657,6 +684,14 @@
       "card.bankers.b4": "<strong>Qualifiez les nouvelles demandes</strong> de crédit selon vos critères d'underwriting en quelques minutes.",
       "card.bankers.b5": "<strong>Repérez les signaux de croissance</strong> chez vos PME — transformez-les en conversations d'upsell.",
       "card.bankers.tag": "Le dossier crédit que votre équipe a vraiment envie de lire — sans attendre.",
+
+      "card.privatebankers.title": "Banquiers privés & gestionnaires de patrimoine<small>Banque privée · gestion de patrimoine · family offices</small>",
+      "card.privatebankers.b1": "<strong>Cartographiez la structure patrimoniale de votre client</strong> — chaque société, participation et holding sur une seule page.",
+      "card.privatebankers.b2": "<strong>Vérifiez la source des fonds à l'onboarding</strong> — les activités opérationnelles, les sorties, les mandats d'administrateur.",
+      "card.privatebankers.b3": "<strong>Repérez les événements de liquidité en avance</strong> — quand un client vend sa société, vous voulez être le premier sur le dépôt.",
+      "card.privatebankers.b4": "<strong>Trouvez de nouveaux prospects</strong> — l'entrepreneur derrière la société dont la presse parle ce matin.",
+      "card.privatebankers.b5": "<strong>Faites KYC et contrôles de succession</strong> sans courir après les actes notariés un par un.",
+      "card.privatebankers.tag": "Le patrimoine de votre client, sa structure, et le prochain événement de liquidité — avant la concurrence.",
 
       "card.cfos.title": "CFO & équipes financières<small>Contrôleurs · FP&A · credit management · trésorerie</small>",
       "card.cfos.b1": "<strong>Vérifiez la solvabilité</strong> des nouveaux clients avant de fixer leurs conditions de paiement.",
@@ -721,7 +756,7 @@
       "hero.meta1": "KBO registry · NBB financials · 10-year history",
       "hero.meta2": "Updated daily",
       "hero.meta3": "Belgium-wide",
-      "section.h2": "Nine professions. One tool.",
+      "section.h2": "Ten professions. One tool.",
       "section.sub": "Pick the row that looks like your desk. If you recognise even two of these, you'll feel at home.",
 
       "card.lawyers.title": "Lawyers & in-house counsel<small>Law firms · legal departments · notaries</small>",
@@ -747,6 +782,14 @@
       "card.bankers.b4": "<strong>Qualify new loan applicants</strong> against your underwriting criteria in minutes.",
       "card.bankers.b5": "<strong>Spot growth signals</strong> in SME clients — turn them into upsell conversations.",
       "card.bankers.tag": "The credit file your team actually wants to read — without the wait.",
+
+      "card.privatebankers.title": "Private bankers & wealth managers<small>Private banking · wealth management · family offices</small>",
+      "card.privatebankers.b1": "<strong>Map your client's wealth structure</strong> — every company, shareholding, and holding, on one page.",
+      "card.privatebankers.b2": "<strong>Verify source of wealth at onboarding</strong> — the operating businesses, the exits, the directorships.",
+      "card.privatebankers.b3": "<strong>Spot liquidity events early</strong> — when a client's company is sold, you want to be first to the deposit.",
+      "card.privatebankers.b4": "<strong>Find new prospects</strong> — the entrepreneur behind the company you just read about in the news.",
+      "card.privatebankers.b5": "<strong>Run KYC and succession checks</strong> without chasing notarial deeds one by one.",
+      "card.privatebankers.tag": "Your client's wealth, their structure, and the next liquidity event — before the competition sees it.",
 
       "card.cfos.title": "CFOs & finance teams<small>Controllers · FP&A · credit control · treasury</small>",
       "card.cfos.b1": "<strong>Credit-check new customers</strong> before you set their payment terms.",
