@@ -26,6 +26,13 @@ If your task touches the semantic pipeline, also read
 canonical runbook for semantic queue policy, fast-lane rules, excluded
 legal forms, ETA interpretation, and staging/prod rollout procedure.
 
+If your task touches any search surface — `/api/companies/search`,
+`/api/people/search`, `/api/search/suggest`, the header autocomplete,
+or the `/search` page — read [`docs/search.md`](docs/search.md)
+first. Covers data sources (KBO + NBB + Staatsblad), the V2
+normalisation contract, scoring arms, response shapes, known data
+gaps, and the debug-a-missing-result runbook.
+
 If your task touches NBB data loading, the backfill pipeline, or
 `financial_data`, read [`docs/nbb-loader-operations.md`](docs/nbb-loader-operations.md).
 It covers both pipelines (daily batch + historical backload), the
@@ -93,7 +100,8 @@ platform/
 │   ├── kbo-schema.md
 │   ├── nbb-api.md
 │   ├── belgian-gaap.md
-│   └── semantic-operations.md   # semantic worker runbook + handoff doc
+│   ├── semantic-operations.md   # semantic worker runbook + handoff doc
+│   └── search.md                # search V2 — data sources, scoring, runbook
 ├── .env.example
 └── .gitignore
 ```
