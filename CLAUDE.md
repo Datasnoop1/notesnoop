@@ -26,6 +26,12 @@ If your task touches the semantic pipeline, also read
 canonical runbook for semantic queue policy, fast-lane rules, excluded
 legal forms, ETA interpretation, and staging/prod rollout procedure.
 
+If your task touches NBB data loading, the backfill pipeline, or
+`financial_data`, read [`docs/nbb-loader-operations.md`](docs/nbb-loader-operations.md).
+It covers both pipelines (daily batch + historical backload), the
+candidate-selection logic, the KBO juridical-form code mapping (with known
+gotchas), coverage state, and the full change history.
+
 ## Tech Stack
 
 - **Database**: PostgreSQL (`DATABASE_URL` env var). SQLite era is over.
