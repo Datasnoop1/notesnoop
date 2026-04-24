@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/table";
 import { searchPeople, getPersonConnections } from "@/lib/api";
 import { fmtEur, fmtPct, fmtNumber } from "@/lib/format";
-import { Search, Loader2, ChevronDown, ChevronRight, User, UserSearch } from "lucide-react";
+import { Search, Loader2, ChevronDown, ChevronRight, User, UserSearch, ExternalLink } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
 
 /* ---------- types ---------- */
@@ -269,7 +269,24 @@ function PeoplePageInner() {
                         )}
                       </TableCell>
                       <TableCell className="font-medium text-slate-900">
-                        <div>{person.name}</div>
+                        <div className="flex items-center gap-2">
+                          <Link
+                            href={`/people/${encodeURIComponent(person.name)}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-indigo-600 hover:underline"
+                          >
+                            {person.name}
+                          </Link>
+                          <Link
+                            href={`/people/${encodeURIComponent(person.name)}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-slate-300 hover:text-indigo-500"
+                            aria-label="Open profile"
+                            title="Open profile"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        </div>
                         {person.top_companies && person.top_companies.length > 0 && (
                           <div className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[480px]">
                             {person.top_companies.slice(0, 3).join(" \u00b7 ")}

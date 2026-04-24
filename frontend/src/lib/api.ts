@@ -812,11 +812,50 @@ export interface PersonConnection {
   type: string;
 }
 
+// V3 person profile (#19) — richer shape for the new /people/[name]
+// profile page. Backward compat types above stay for legacy callers.
+export interface PersonAdminRole {
+  enterprise_number: string;
+  company_name: string | null;
+  role: string | null;
+  role_label: string | null;
+  mandate_start: string | null;
+  mandate_end: string | null;
+  source: "nbb" | "staatsblad" | "merged" | null;
+  as_of: string | null;
+  pub_reference?: string | null;
+  sub_type?: string | null;
+  revenue: number | null;
+  ebitda: number | null;
+  fte_total: number | null;
+  fiscal_year: number | string | null;
+}
+
+export interface PersonShareholding {
+  enterprise_number: string;
+  company_name: string | null;
+  ownership_pct: number | null;
+  shares_held: number | null;
+  revenue: number | null;
+  ebitda: number | null;
+  fte_total: number | null;
+  fiscal_year: number | string | null;
+}
+
+export interface PersonProfile {
+  name: string;
+  total_companies: number;
+  admin_count: number;
+  holding_count: number;
+  administrator_roles: PersonAdminRole[];
+  shareholdings: PersonShareholding[];
+}
+
 export const searchPeople = (q: string) =>
   apiFetch<PersonResult[]>(`/api/people/search?q=${encodeURIComponent(q)}`);
 
 export const getPersonConnections = (name: string) =>
-  apiFetch<{ admin_roles: PersonConnection[]; holdings: PersonConnection[] }>(
+  apiFetch<PersonProfile>(
     `/api/people/${encodeURIComponent(name)}/connections`
   );
 
