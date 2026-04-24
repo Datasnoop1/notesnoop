@@ -87,27 +87,30 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   const finCharges = Math.max(0, rub(rubrics, "65", fy));
   const tax = Math.max(0, rub(rubrics, "67/77", fy));
   const netProfit = rub(rubrics, "9904", fy);
-  // Gross margin (rubric 9900) — present for both model A and model B
-  // filings. Falls back to revenue - materials - services when the filing
-  // doesn't carry the headline subtotal explicitly.
+  // Gross margin — ONLY when rubric 9900 is explicitly reported. The
+  // earlier fallback (revenue - materials - services) silently lied for
+  // retailers and others where rubric 60 is cost-of-goods-sold and 61 is
+  // operating services, not both part of cost-of-sales. Better to omit
+  // the milestone than show a wrong number; the full P&L table still
+  // surfaces every rubric honestly.
   const rawGm = rub(rubrics, "9900", fy);
-  const grossMarginFallback = revenue > 0 ? revenue - materials - services : 0;
-  const grossMargin = rawGm || grossMarginFallback;
+  const hasGrossMarginMilestone = rawGm > 0;
+  const grossMargin = rawGm;
 
   // If neither revenue nor gross margin is usable, we can't anchor the
-  // bars — hide the waterfall. Before: we bailed out on missing revenue,
-  // which blanked the whole panel for abbreviated-scheme filers.
+  // bars — hide the waterfall. When revenue is missing but GM 9900 is
+  // present (abbreviated-scheme filers), anchor on GM so the rest of
+  // the bridge still renders (#9).
   const hasRevenue = revenue > 0;
-  const hasGrossMargin = grossMargin > 0;
-  if (!hasRevenue && !hasGrossMargin) return null;
+  if (!hasRevenue && !hasGrossMarginMilestone) return null;
 
-  // Anchor: prefer revenue (full waterfall); otherwise start from gross
-  // margin, skipping cost-of-sales entirely.
+  // Anchor: prefer revenue; else gross margin.
   const topValue = hasRevenue ? revenue : grossMargin;
 
   // Domain includes the anchor, the zero line, and every milestone so
   // negative EBIT/EBITDA/net profit render left of zero without clipping.
-  const domainPoints = [0, topValue, grossMargin, ebitda, ebit, netProfit];
+  const domainPoints = [0, topValue, ebitda, ebit, netProfit];
+  if (hasGrossMarginMilestone) domainPoints.push(grossMargin);
   const domainMin = Math.min(...domainPoints);
   const domainMax = Math.max(...domainPoints);
   const domainRange = Math.max(1, domainMax - domainMin);
@@ -183,74 +186,102 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
     });
   };
 
-  // === Phase 1: Revenue → Gross margin (only when revenue is disclosed) ===
-  // Abbreviated-scheme filers leave rubric 70 blank; in that case we start
-  // the whole chart at Gross margin instead.
+  // Waterfall phases — branching on whether we have a filed Gross Margin
+  // milestone. Without 9900, we revert to the original Revenue→EBITDA
+  // bridge so we never show a derived GM that might be wrong.
   let running: number;
-  if (hasRevenue) {
+  if (hasRevenue && hasGrossMarginMilestone) {
+    // === Revenue → Gross margin → EBITDA ===
     pushMilestone("Revenue", revenue, COL.revenue, COL.revenueTxt, "100.0%");
     running = revenue;
+    const totalCos = revenue - grossMargin;
+    const knownCos = materials + services;
+    const cosUnder = Math.max(0, totalCos - knownCos);
+    const cosOver = Math.max(0, knownCos - totalCos);
     const pushDed = (label: string, v: number) => {
       if (v <= 0) return;
       const before = running;
       running -= v;
       pushBar(label, before, running);
     };
-    // Cost of sales: breakdown between materials + services (plus any
-    // reconciling residual so the staircase lands precisely on the gross
-    // margin milestone).
-    const totalCos = revenue - grossMargin;
-    const knownCos = materials + services;
-    const cosUnder = Math.max(0, totalCos - knownCos);
-    const cosOver = Math.max(0, knownCos - totalCos);
     pushDed("Materials", materials);
     pushDed("Services", services);
     if (cosUnder > 0) pushDed("Other cost of sales", cosUnder);
     if (cosOver > 0) {
-      // Known breakdown sums beyond the filed gross margin — bump running
-      // back up with a reconciling "Other revenue" line so the staircase
-      // still lands on the gross margin milestone.
       const before = running;
       running += cosOver;
       pushBar("Other revenue", before, running);
     }
-  } else {
+    pushMilestone(
+      "Gross margin",
+      grossMargin,
+      COL.grossMargin,
+      COL.grossMarginTxt,
+      `${(grossMargin / revenue * 100).toFixed(1)}%`,
+    );
     running = grossMargin;
+    const totalGmToEbitda = grossMargin - ebitda;
+    const knownGmToEbitda = personnel + otherOp;
+    const gmUnder = Math.max(0, totalGmToEbitda - knownGmToEbitda);
+    const gmOver = Math.max(0, knownGmToEbitda - totalGmToEbitda);
+    const pushGmDed = (label: string, v: number) => {
+      if (v <= 0) return;
+      const before = running;
+      running -= v;
+      pushBar(label, before, running);
+    };
+    pushGmDed("Personnel", personnel);
+    pushGmDed("Other OpEx", otherOp + gmUnder);
+    if (gmOver > 0) {
+      const before = running;
+      running += gmOver;
+      pushBar("Other op income", before, running);
+    }
+  } else if (!hasRevenue && hasGrossMarginMilestone) {
+    // === Abbreviated-scheme filer (#9): anchor on Gross margin ===
+    pushMilestone("Gross margin", grossMargin, COL.grossMargin, COL.grossMarginTxt, undefined);
+    running = grossMargin;
+    const totalGmToEbitda = grossMargin - ebitda;
+    const knownGmToEbitda = personnel + otherOp;
+    const gmUnder = Math.max(0, totalGmToEbitda - knownGmToEbitda);
+    const gmOver = Math.max(0, knownGmToEbitda - totalGmToEbitda);
+    const pushGmDed = (label: string, v: number) => {
+      if (v <= 0) return;
+      const before = running;
+      running -= v;
+      pushBar(label, before, running);
+    };
+    pushGmDed("Personnel", personnel);
+    pushGmDed("Other OpEx", otherOp + gmUnder);
+    if (gmOver > 0) {
+      const before = running;
+      running += gmOver;
+      pushBar("Other op income", before, running);
+    }
+  } else {
+    // === No filed Gross margin: original Revenue → EBITDA bridge ===
+    pushMilestone("Revenue", revenue, COL.revenue, COL.revenueTxt, "100.0%");
+    running = revenue;
+    const totalOpex = revenue - ebitda;
+    const knownOpex = materials + services + personnel + otherOp;
+    const opexUnder = Math.max(0, totalOpex - knownOpex);
+    const opexOver = Math.max(0, knownOpex - totalOpex);
+    const pushDed = (label: string, v: number) => {
+      if (v <= 0) return;
+      const before = running;
+      running -= v;
+      pushBar(label, before, running);
+    };
+    pushDed("Materials", materials);
+    pushDed("Services", services);
+    pushDed("Personnel", personnel);
+    pushDed("Other OpEx", otherOp + opexUnder);
+    if (opexOver > 0) {
+      const before = running;
+      running += opexOver;
+      pushBar("Other op income", before, running);
+    }
   }
-
-  // Gross margin milestone — always shown (this is the whole point of
-  // #7 and #9 in the backlog). Percent label relative to revenue when we
-  // have it; otherwise absolute-only.
-  pushMilestone(
-    "Gross margin",
-    grossMargin,
-    COL.grossMargin,
-    COL.grossMarginTxt,
-    hasRevenue ? `${(grossMargin / revenue * 100).toFixed(1)}%` : undefined,
-  );
-
-  // === Phase 2: Gross margin → EBITDA ===
-  const totalGmToEbitda = grossMargin - ebitda;
-  const knownGmToEbitda = personnel + otherOp;
-  const gmUnder = Math.max(0, totalGmToEbitda - knownGmToEbitda);
-  const gmOver = Math.max(0, knownGmToEbitda - totalGmToEbitda);
-
-  running = grossMargin;
-  const pushGmDed = (label: string, v: number) => {
-    if (v <= 0) return;
-    const before = running;
-    running -= v;
-    pushBar(label, before, running);
-  };
-  const pushGmAdd = (label: string, v: number) => {
-    if (v <= 0) return;
-    const before = running;
-    running += v;
-    pushBar(label, before, running);
-  };
-  pushGmDed("Personnel",  personnel);
-  pushGmDed("Other OpEx", otherOp + gmUnder);
-  if (gmOver > 0) pushGmAdd("Other op income", gmOver);
 
   pushMilestone("EBITDA", ebitda, COL.milestone, COL.milestoneTxt,
                 hasRevenue ? `${(ebitda / revenue * 100).toFixed(1)}%` : undefined);

@@ -18,7 +18,25 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from db import fetch_all, fetch_one, normalize_name
+import psycopg2.extras
+from db import fetch_all, fetch_one, get_conn, normalize_name
+
+
+def _search_with_trgm_threshold(sql: str, params: dict, threshold: float) -> list[dict]:
+    """Run the main search SQL on a single connection, after setting
+    pg_trgm's similarity threshold for this cursor only.
+
+    `fetch_all` would otherwise re-acquire a (potentially different)
+    pool connection for each call, losing the `SET` that has to share
+    the session with the search query.
+    """
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT set_limit(%s::real)", (threshold,))
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+        conn.commit()
+        return rows
 from search_normalization import (
     detect_query_type,
     extract_cbe_digits,
@@ -166,7 +184,15 @@ async def search_companies(
     sql = sql.replace("__LOC_FILTER_JOIN__", loc_filter_join)
 
     try:
-        rows = fetch_all(sql, params)
+        # Force pg_trgm.similarity_threshold to 0.5 for THIS cursor.
+        # Without it, short common queries like "dela" return 80k+
+        # bitmap candidates (default threshold 0.3) and the recheck
+        # eats ~1-2 s even though the final similarity > 0.35 filter
+        # discards most of them. ALTER DATABASE sets this at DB-level
+        # too; this guard keeps search fast if that ever gets RESET
+        # by maintenance. Runs on the same cursor as the main query
+        # so the session setting is guaranteed in effect.
+        rows = _search_with_trgm_threshold(sql, params, 0.5)
     except Exception:
         logger.exception("company search V2 failed for q=%r", raw[:80])
         raise HTTPException(500, "search_failed")

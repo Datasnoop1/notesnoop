@@ -45,14 +45,15 @@ function isPersonNodeId(id: string | undefined): id is string {
 }
 
 /* Depth-based color palette (darker = closer to target).
- * Depths 3 and 4 used to fade into the white canvas (#a5b4fc / #c7d2fe); the
- * saturated variants below keep peripheral nodes readable. */
+ * Softer end of the scale for depths 3/4 — still readable against white
+ * but less saturated than the violet gradient an earlier iteration used.
+ * Operator found that version too loud. */
 const DEPTH_COLORS: Record<number, string> = {
   0: "#4f46e5", // indigo-600 — target company
   1: "#6366f1", // indigo-500 — direct
   2: "#818cf8", // indigo-400 — 2nd degree
-  3: "#8b5cf6", // violet-500 — 3rd degree
-  4: "#a78bfa", // violet-400 — 4th degree
+  3: "#94a3b8", // slate-400 — 3rd degree
+  4: "#cbd5e1", // slate-300 — 4th degree
 };
 
 type Layer = "shareholders" | "directors" | "subsidiaries";
@@ -174,11 +175,13 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [isFullscreen]);
 
-  // Configure force spacing + refit on data/mode change
+  // Configure force spacing + refit on data/mode change.
+  // Lower charge + shorter link = quicker settling; stronger velocity decay
+  // keeps the simulation from swinging for long after a filter toggle.
   useEffect(() => {
     if (graphRef.current) {
-      graphRef.current.d3Force("charge")?.strength(-200);
-      graphRef.current.d3Force("link")?.distance(120);
+      graphRef.current.d3Force("charge")?.strength(-140);
+      graphRef.current.d3Force("link")?.distance(110);
       setTimeout(() => graphRef.current?.zoomToFit(400), 100);
     }
   }, [depth, isFullscreen, graphWidth]);
@@ -291,7 +294,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
       type: n.type,
       depth: n.depth,
       indeg: inDegree[n.id] || 0,
-      val: n.id === centerNodeId ? 3 : 1 + Math.min(inDegree[n.id] || 0, 6) * 0.25,
+      val: n.id === centerNodeId ? 3 : 1 + Math.min(inDegree[n.id] || 0, 4) * 0.15,
     })),
     links: visibleEdges.map((e) => ({
       source: e.source,
@@ -465,9 +468,10 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
               nodeColor={nodeColor}
               nodeLabel={(node: { label?: string }) => node.label || ""}
               nodeRelSize={6}
-              d3VelocityDecay={0.3}
-              d3AlphaDecay={0.02}
-              cooldownTicks={100}
+              d3VelocityDecay={0.5}
+              d3AlphaDecay={0.04}
+              cooldownTicks={80}
+              warmupTicks={20}
               linkDirectionalArrowLength={4}
               linkDirectionalArrowRelPos={1}
               linkLabel={(link: { label?: string; is_active?: boolean; mandate_end?: string | null }) =>
@@ -537,9 +541,10 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                 const y = node.y || 0;
                 const isCenter = node.id === cbe;
                 // Base radius from depth, plus a small bump for hubs (many incoming
-                // edges) so shareholding anchors stand out even at peripheral depth.
+                // edges) so shareholding anchors stand out — kept modest so the
+                // graph doesn't look chaotic when a few nodes blow up in size.
                 const baseR = isCenter ? 12 : (node.depth != null ? Math.max(4, 8 - node.depth) : 5);
-                const r = isCenter ? baseR : baseR + Math.min(node.indeg ?? 0, 8) * 0.5;
+                const r = isCenter ? baseR : baseR + Math.min(node.indeg ?? 0, 6) * 0.25;
                 const color = nodeColor(node);
 
                 // Circle -- central company is bigger with bold border

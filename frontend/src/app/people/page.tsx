@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -17,9 +16,9 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
-import { searchPeople, getPersonConnections } from "@/lib/api";
-import { fmtEur, fmtPct, fmtNumber } from "@/lib/format";
-import { Search, Loader2, ChevronDown, ChevronRight, User, UserSearch, ExternalLink } from "lucide-react";
+import { searchPeople } from "@/lib/api";
+import { fmtNumber } from "@/lib/format";
+import { Search, Loader2, ChevronRight, User, UserSearch } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
 
 /* ---------- types ---------- */
@@ -30,41 +29,12 @@ interface PersonRow {
   companies?: number;
   roles?: number;
   holdings?: number;
-  top_companies?: string[];
+  top_companies?: (string | { name: string; cbe: string })[];
 }
 
-interface AdminRole {
-  enterprise_number: string;
-  company_name: string;
-  role: string | null;
-  role_label: string | null;
-  mandate_start: string | null;
-  mandate_end: string | null;
-  revenue: number | null;
-  ebitda: number | null;
-  fte_total: number | null;
-  // Stage 3c: provenance/freshness
-  source?: "nbb" | "staatsblad" | "merged" | null;
-  as_of?: string | null;
-}
-
-interface Holding {
-  enterprise_number: string;
-  company_name: string;
-  ownership_pct: number | null;
-  revenue: number | null;
-  ebitda: number | null;
-  fte_total: number | null;
-}
-
-interface ConnectionData {
-  name: string;
-  total_companies: number;
-  admin_count: number;
-  holding_count: number;
-  administrator_roles: AdminRole[];
-  shareholdings: Holding[];
-}
+/* AdminRole / Holding / ConnectionData types were consumed by the
+ * inline-expand UI; rows now navigate to the full profile page at
+ * /people/[name] so those types live there instead. */
 
 /* ---------- skeleton ---------- */
 
@@ -102,12 +72,10 @@ function PeoplePageInner() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
   const [query, setQuery] = useState("");
+  const router = useRouter();
   const [results, setResults] = useState<PersonRow[]>([]);
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [expandedName, setExpandedName] = useState<string | null>(null);
-  const [connections, setConnections] = useState<ConnectionData | null>(null);
-  const [loadingConnections, setLoadingConnections] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initialLoadRef = useRef(false);
 
@@ -153,30 +121,7 @@ function PeoplePageInner() {
 
   function handleQueryChange(value: string) {
     setQuery(value);
-    setExpandedName(null);
-    setConnections(null);
     doSearch(value);
-  }
-
-  /* expand a person row */
-  async function toggleExpand(name: string) {
-    if (expandedName === name) {
-      setExpandedName(null);
-      setConnections(null);
-      return;
-    }
-    setExpandedName(name);
-    setConnections(null);
-    setLoadingConnections(true);
-    try {
-      const data = await getPersonConnections(name);
-      setConnections(data as unknown as ConnectionData);
-    } catch (err) {
-      console.error("Failed loading connections:", err);
-      setConnections(null);
-    } finally {
-      setLoadingConnections(false);
-    }
   }
 
   return (
@@ -255,212 +200,30 @@ function PeoplePageInner() {
               </TableHeader>
               <TableBody>
                 {results.map((person) => (
-                  <>
-                    <TableRow
-                      key={person.name}
-                      className="cursor-pointer hover:bg-indigo-50/40"
-                      onClick={() => toggleExpand(person.name)}
-                    >
-                      <TableCell className="w-8">
-                        {expandedName === person.name ? (
-                          <ChevronDown className="h-4 w-4 text-indigo-600" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 text-slate-400" />
-                        )}
-                      </TableCell>
-                      <TableCell className="font-medium text-slate-900">
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/people/${encodeURIComponent(person.name)}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-indigo-600 hover:underline"
-                          >
-                            {person.name}
-                          </Link>
-                          <Link
-                            href={`/people/${encodeURIComponent(person.name)}`}
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-slate-300 hover:text-indigo-500"
-                            aria-label="Open profile"
-                            title="Open profile"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                          </Link>
+                  <TableRow
+                    key={person.name}
+                    className="cursor-pointer hover:bg-indigo-50/40"
+                    onClick={() => router.push(`/people/${encodeURIComponent(person.name)}`)}
+                  >
+                    <TableCell className="w-8">
+                      <ChevronRight className="h-4 w-4 text-slate-400" />
+                    </TableCell>
+                    <TableCell className="font-medium text-slate-900">
+                      <div className="flex items-center gap-2">
+                        <span className="text-indigo-600">
+                          {person.name}
+                        </span>
+                      </div>
+                      {person.top_companies && person.top_companies.length > 0 && (
+                        <div className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[480px]">
+                          {person.top_companies.slice(0, 3).map((c) => typeof c === "string" ? c : c.name).join(" \u00b7 ")}
                         </div>
-                        {person.top_companies && person.top_companies.length > 0 && (
-                          <div className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[480px]">
-                            {person.top_companies.slice(0, 3).join(" \u00b7 ")}
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-sm">
-                        {fmtNumber(person.company_count)}
-                      </TableCell>
-                    </TableRow>
-
-                    {/* Expanded connections */}
-                    {expandedName === person.name && (
-                      <TableRow key={`${person.name}-detail`}>
-                        <TableCell colSpan={3} className="bg-slate-50/80 p-0">
-                          <div className="px-4 py-3 space-y-3">
-                            {loadingConnections && (
-                              <div className="flex items-center gap-2 text-sm text-slate-500">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Loading connections...
-                              </div>
-                            )}
-
-                            {!loadingConnections && connections && (
-                              <>
-                                {/* Summary badges */}
-                                <div className="flex flex-wrap gap-2">
-                                  <Badge variant="secondary" className="bg-indigo-50 text-indigo-700 border-indigo-200">
-                                    {connections.admin_count} admin {connections.admin_count === 1 ? "role" : "roles"}
-                                  </Badge>
-                                  <Badge variant="secondary" className="bg-indigo-50 text-indigo-700 border-indigo-200">
-                                    {connections.holding_count} {connections.holding_count === 1 ? "holding" : "holdings"}
-                                  </Badge>
-                                  <Badge variant="secondary" className="bg-slate-100 text-slate-600">
-                                    {connections.total_companies} unique {connections.total_companies === 1 ? "company" : "companies"}
-                                  </Badge>
-                                </div>
-
-                                {/* Admin roles */}
-                                {connections.administrator_roles.length > 0 && (
-                                  <div>
-                                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                      Administrator Roles
-                                    </h4>
-                                    <div className="rounded-lg border bg-white overflow-x-auto">
-                                      <Table className="md:min-w-[640px]">
-                                        <TableHeader>
-                                          <TableRow>
-                                            <TableHead>Company</TableHead>
-                                            <TableHead>Role</TableHead>
-                                            <TableHead className="hidden md:table-cell text-right">Revenue</TableHead>
-                                            <TableHead className="hidden md:table-cell text-right">EBITDA</TableHead>
-                                            <TableHead className="hidden md:table-cell text-right">FTE</TableHead>
-                                          </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                          {connections.administrator_roles.map((role, idx) => {
-                                            const src = role.source ?? "nbb";
-                                            const srcLabel =
-                                              src === "staatsblad" ? "Staatsblad" :
-                                              src === "merged" ? "Updated" : null;
-                                            const srcCls =
-                                              src === "staatsblad"
-                                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                                : src === "merged"
-                                                ? "bg-amber-50 text-amber-700 border-amber-200"
-                                                : "";
-                                            return (
-                                              <TableRow key={`${role.enterprise_number}-${idx}`}>
-                                                <TableCell>
-                                                  <Link
-                                                    href={`/company/${role.enterprise_number}`}
-                                                    className="text-indigo-600 hover:text-indigo-800 hover:underline font-medium"
-                                                  >
-                                                    {role.company_name}
-                                                  </Link>
-                                                  {role.as_of && (
-                                                    <span className="ml-2 text-[10px] text-slate-400">
-                                                      as of {role.as_of}
-                                                    </span>
-                                                  )}
-                                                </TableCell>
-                                                <TableCell className="text-slate-600 text-sm">
-                                                  <div className="flex items-center gap-2">
-                                                    <span>{role.role_label || role.role || "\u2014"}</span>
-                                                    {srcLabel && (
-                                                      <Badge
-                                                        variant="secondary"
-                                                        className={`text-[10px] ${srcCls}`}
-                                                      >
-                                                        {srcLabel}
-                                                      </Badge>
-                                                    )}
-                                                  </div>
-                                                </TableCell>
-                                                <TableCell className="hidden md:table-cell text-right font-mono text-sm">
-                                                  {fmtEur(role.revenue)}
-                                                </TableCell>
-                                                <TableCell className="hidden md:table-cell text-right font-mono text-sm">
-                                                  {fmtEur(role.ebitda)}
-                                                </TableCell>
-                                                <TableCell className="hidden md:table-cell text-right font-mono text-sm">
-                                                  {fmtNumber(role.fte_total)}
-                                                </TableCell>
-                                              </TableRow>
-                                            );
-                                          })}
-                                        </TableBody>
-                                      </Table>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {/* Holdings */}
-                                {connections.shareholdings.length > 0 && (
-                                  <div>
-                                    <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-2">
-                                      Holdings
-                                    </h4>
-                                    <div className="rounded-lg border bg-white overflow-x-auto">
-                                      <Table className="md:min-w-[640px]">
-                                        <TableHeader>
-                                          <TableRow>
-                                            <TableHead>Company</TableHead>
-                                            <TableHead className="text-right">Ownership %</TableHead>
-                                            <TableHead className="hidden md:table-cell text-right">Revenue</TableHead>
-                                            <TableHead className="hidden md:table-cell text-right">EBITDA</TableHead>
-                                            <TableHead className="hidden md:table-cell text-right">FTE</TableHead>
-                                          </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                          {connections.shareholdings.map((h, idx) => (
-                                            <TableRow key={`${h.enterprise_number}-${idx}`}>
-                                              <TableCell>
-                                                <Link
-                                                  href={`/company/${h.enterprise_number}`}
-                                                  className="text-indigo-600 hover:text-indigo-800 hover:underline font-medium"
-                                                >
-                                                  {h.company_name}
-                                                </Link>
-                                              </TableCell>
-                                              <TableCell className="text-right font-mono text-sm">
-                                                {fmtPct(h.ownership_pct)}
-                                              </TableCell>
-                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
-                                                {fmtEur(h.revenue)}
-                                              </TableCell>
-                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
-                                                {fmtEur(h.ebitda)}
-                                              </TableCell>
-                                              <TableCell className="hidden md:table-cell text-right font-mono text-sm">
-                                                {fmtNumber(h.fte_total)}
-                                              </TableCell>
-                                            </TableRow>
-                                          ))}
-                                        </TableBody>
-                                      </Table>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {connections.administrator_roles.length === 0 &&
-                                  connections.shareholdings.length === 0 && (
-                                    <p className="text-sm text-slate-400">
-                                      No connections found for this person
-                                    </p>
-                                  )}
-                              </>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-sm">
+                      {fmtNumber(person.company_count)}
+                    </TableCell>
+                  </TableRow>
                 ))}
               </TableBody>
             </Table>

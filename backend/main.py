@@ -100,7 +100,7 @@ class EndpointContextMiddleware(BaseHTTPMiddleware):
 # ---------------------------------------------------------------------------
 
 class ActivityLogMiddleware(BaseHTTPMiddleware):
-    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard")
+    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/status/")
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -229,7 +229,7 @@ def _invalidate_tier_cache(user_label: str) -> None:
 class TierLimitMiddleware(BaseHTTPMiddleware):
     """Enforce daily usage limits per user tier (guest / registered / premium)."""
 
-    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/site-config")
+    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/site-config", "/api/status/")
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -527,7 +527,7 @@ class BotFilterMiddleware(BaseHTTPMiddleware):
         "httpclient", "libwww", "lwp-trivial", "slimerjs",
         "phantomjs", "headlesschrome", "selenium",
     )
-    SKIP_PATHS = ("/api/health", "/api/sitemap/")
+    SKIP_PATHS = ("/api/health", "/api/sitemap/", "/api/status/")
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -632,6 +632,89 @@ app.include_router(admin_enrichment.router)
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok", "service": "datasnoop-api"}
+
+
+@app.get("/api/status/metrics")
+async def status_metrics():
+    """Public operator-visible pipeline metrics for the /status page.
+
+    Three services:
+      - NBB financials loader (financial_data + financial_latest)
+      - Staatsblad event loader (staatsblad_event)
+      - Semantic enrichment worker (enrichment_job queue)
+
+    Queries are lightweight (approximate counts via pg_class,
+    date-bucketed totals, and a tiny aggregate on enrichment_job).
+    No auth required — everything here is aggregate, no PII.
+    """
+    from db import fetch_one, fetch_all
+
+    out: dict = {"nbb": None, "staatsblad": None, "semantic": None}
+
+    try:
+        # financial_data has no insert timestamp — the deposit_date is
+        # the filing date (NBB publishes T+~3 months). Use MAX(fiscal_year)
+        # as "latest fiscal year ingested" and COUNT companies with a
+        # non-null latest row as coverage.
+        nbb = fetch_one(
+            """
+            SELECT
+              (SELECT MAX(deposit_date) FROM financial_data)  AS latest_deposit_date,
+              (SELECT MAX(fiscal_year) FROM financial_data)   AS latest_fiscal_year,
+              (SELECT COUNT(*) FROM financial_data
+                 WHERE deposit_date > CURRENT_DATE - INTERVAL '24 hours') AS rows_last_24h,
+              (SELECT COUNT(DISTINCT enterprise_number) FROM financial_latest) AS companies_covered
+            """
+        )
+        out["nbb"] = {
+            "latest_deposit_date": str(nbb["latest_deposit_date"]) if nbb and nbb.get("latest_deposit_date") else None,
+            "latest_fiscal_year": int(nbb["latest_fiscal_year"]) if nbb and nbb.get("latest_fiscal_year") else None,
+            "rows_last_24h": int(nbb["rows_last_24h"] or 0) if nbb else 0,
+            "companies_covered": int(nbb["companies_covered"] or 0) if nbb else 0,
+        }
+    except Exception:
+        logger.exception("status_metrics: nbb query failed")
+
+    try:
+        sb = fetch_one(
+            """
+            SELECT
+              (SELECT MAX(pub_date) FROM staatsblad_event) AS last_event_pub,
+              (SELECT MAX(extracted_at) FROM staatsblad_event) AS last_extracted_at,
+              (SELECT COUNT(*) FROM staatsblad_event
+                 WHERE extracted_at > NOW() - INTERVAL '24 hours') AS events_extracted_24h,
+              (SELECT COUNT(DISTINCT enterprise_number) FROM staatsblad_event) AS companies_covered
+            """
+        )
+        out["staatsblad"] = {
+            "last_event_pub": str(sb["last_event_pub"]) if sb and sb.get("last_event_pub") else None,
+            "last_extracted_at": str(sb["last_extracted_at"]) if sb and sb.get("last_extracted_at") else None,
+            "events_extracted_24h": int(sb["events_extracted_24h"] or 0) if sb else 0,
+            "companies_covered": int(sb["companies_covered"] or 0) if sb else 0,
+        }
+    except Exception:
+        logger.exception("status_metrics: staatsblad query failed")
+
+    try:
+        sem_rows = fetch_all(
+            "SELECT status, COUNT(*)::bigint AS n FROM enrichment_job GROUP BY status"
+        )
+        by_status: dict[str, int] = {str(r["status"]): int(r["n"]) for r in sem_rows}
+        last_done = fetch_one(
+            "SELECT MAX(finished_at) AS last_done FROM enrichment_job WHERE status = 'done'"
+        )
+        out["semantic"] = {
+            "queue": by_status,
+            "last_done_at": str(last_done["last_done"]) if last_done and last_done.get("last_done") else None,
+            "pending": int(by_status.get("pending", 0)),
+            "running": int(by_status.get("running", 0)) + int(by_status.get("in_progress", 0)),
+            "done": int(by_status.get("done", 0)),
+            "error": int(by_status.get("error", 0)) + int(by_status.get("failed", 0)),
+        }
+    except Exception:
+        logger.exception("status_metrics: semantic query failed")
+
+    return out
 
 
 @app.get("/api/site-config")

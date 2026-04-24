@@ -81,35 +81,52 @@ export function EbitdaDrilldown({
   const opexTotal = grossMargin != null && ebitda != null ? grossMargin - ebitda : null;
   const opexRecon = opexTotal != null ? opexTotal - opexKnown : 0;
 
+  const hasGrossMargin = grossMargin != null && grossMargin > 0;
+
   const rows: Row[] = [];
   if (hasRevenue) {
     rows.push({ label: "Revenue", value: revenue, kind: "header", pctOfRevenue: "100.0%" });
-    if (materials) rows.push({ label: "Materials", value: materials, kind: "deduction", indent: true, pctOfRevenue: pct(materials) });
-    if (services) rows.push({ label: "Services", value: services, kind: "deduction", indent: true, pctOfRevenue: pct(services) });
-    if (Math.abs(cosRecon) > 0.5) {
+    if (hasGrossMargin) {
+      // Only break out cost-of-sales against a filed gross margin. Without
+      // it, rubrics 60 + 61 aren't a reliable CoS proxy (retailers book
+      // services separately from goods), so we show the flat Revenue →
+      // EBITDA tree instead.
+      if (materials) rows.push({ label: "Materials", value: materials, kind: "deduction", indent: true, pctOfRevenue: pct(materials) });
+      if (services) rows.push({ label: "Services", value: services, kind: "deduction", indent: true, pctOfRevenue: pct(services) });
+      if (Math.abs(cosRecon) > 0.5) {
+        rows.push({
+          label: cosRecon > 0 ? "Other cost of sales" : "Other revenue",
+          value: Math.abs(cosRecon),
+          kind: "deduction",
+          indent: true,
+        });
+      }
+    }
+  }
+  if (hasGrossMargin) {
+    rows.push({
+      label: "Gross margin",
+      value: grossMargin,
+      kind: "subtotal",
+      pctOfRevenue: pct(grossMargin),
+    });
+    if (personnel) rows.push({ label: "Personnel", value: personnel, kind: "deduction", indent: true, pctOfRevenue: pct(personnel) });
+    if (otherOpex) rows.push({ label: "Other operating costs", value: otherOpex, kind: "deduction", indent: true, pctOfRevenue: pct(otherOpex) });
+    if (Math.abs(opexRecon) > 0.5) {
       rows.push({
-        label: cosRecon > 0 ? "Other cost of sales" : "Other revenue",
-        value: Math.abs(cosRecon),
+        label: opexRecon > 0 ? "Other op. costs (residual)" : "Other op. income",
+        value: Math.abs(opexRecon),
         kind: "deduction",
         indent: true,
       });
     }
-  }
-  rows.push({
-    label: "Gross margin",
-    value: grossMargin,
-    kind: "subtotal",
-    pctOfRevenue: pct(grossMargin),
-  });
-  if (personnel) rows.push({ label: "Personnel", value: personnel, kind: "deduction", indent: true, pctOfRevenue: pct(personnel) });
-  if (otherOpex) rows.push({ label: "Other operating costs", value: otherOpex, kind: "deduction", indent: true, pctOfRevenue: pct(otherOpex) });
-  if (Math.abs(opexRecon) > 0.5) {
-    rows.push({
-      label: opexRecon > 0 ? "Other op. costs (residual)" : "Other op. income",
-      value: Math.abs(opexRecon),
-      kind: "deduction",
-      indent: true,
-    });
+  } else if (hasRevenue) {
+    // Gross margin not in this filing — deduct all op costs from revenue
+    // directly.
+    if (materials) rows.push({ label: "Materials", value: materials, kind: "deduction", indent: true, pctOfRevenue: pct(materials) });
+    if (services) rows.push({ label: "Services", value: services, kind: "deduction", indent: true, pctOfRevenue: pct(services) });
+    if (personnel) rows.push({ label: "Personnel", value: personnel, kind: "deduction", indent: true, pctOfRevenue: pct(personnel) });
+    if (otherOpex) rows.push({ label: "Other operating costs", value: otherOpex, kind: "deduction", indent: true, pctOfRevenue: pct(otherOpex) });
   }
   rows.push({
     label: "EBITDA",

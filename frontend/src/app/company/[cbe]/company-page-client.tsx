@@ -232,100 +232,85 @@ export function CompanyPageClient({
     return () => { cancelled = true; };
   }, [cbe]);
 
-  /* -- Check for existing AI enrichment on load.
+  /* -- AI enrichment load. Runs in PARALLEL with the main profile
+     fetches (detail / financials / structure) instead of waiting for
+     first paint via requestIdleCallback — operator-requested (#12)
+     so the insights panel populates while the profile's loading too.
      Re-runs when `locale` changes so cached AI gets re-fetched
      translated to the user's new site language. */
   useEffect(() => {
     let cancelled = false;
-    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
-    let idleId: number | null = null;
 
-    const run = () => {
-      getEnrichment(cbe)
-        .then((data) => {
-          if (cancelled) return;
-          if (data && data.summary) setAiSummary(data.summary);
-          // Restore existing website enrichment
-          if (data && data.website_summary) {
-            try {
-              const parsed = typeof data.website_summary === "string"
-                ? JSON.parse(data.website_summary)
-                : data.website_summary;
-              if (parsed && typeof parsed === "object") {
-                setWebsiteScrape({
-                  summary: parsed.summary || "",
-                  products: parsed.products || "",
-                  employees: parsed.employees || "",
-                  key_people: parsed.key_people || "",
-                  website_url: data.website_url || "",
-                });
-              }
-            } catch {
-              // website_summary wasn't valid JSON -- skip
-            }
-          }
-          // Restore existing LinkedIn enrichment
-          if (data && data.linkedin_summary) {
-            try {
-              const parsed = typeof data.linkedin_summary === "string"
-                ? JSON.parse(data.linkedin_summary)
-                : data.linkedin_summary;
-              if (parsed && typeof parsed === "object") {
-                setLinkedinScrape({
-                  summary: parsed.summary || "",
-                  employee_count: parsed.employee_count || "",
-                  industry: parsed.industry || "",
-                  specialties: parsed.specialties || "",
-                  linkedin_url: parsed.linkedin_url || "",
-                });
-              }
-            } catch {
-              // linkedin_summary wasn't valid JSON -- skip
-            }
-          }
-          // Restore existing AI insights
-          if (data && data.ai_insights) {
-            try {
-              const parsed = typeof data.ai_insights === "string"
-                ? JSON.parse(data.ai_insights)
-                : data.ai_insights;
-              if (parsed && typeof parsed === "object") {
-                setAiInsights(parsed as AiInsights);
-              }
-            } catch {
-              // ai_insights wasn't valid JSON -- skip
-            }
-          } else if (!aiPreloadTriggered.current) {
-            // No cached insights — pre-generate in background after the
-            // main profile content has had a chance to render.
-            aiPreloadTriggered.current = true;
-            setAiInsightsLoading(true);
-            generateAiInsights(cbe)
-              .then((result) => {
-                if (!cancelled) setAiInsights(result);
-              })
-              .catch(() => {}) // fails silently for unauthenticated users
-              .finally(() => {
-                if (!cancelled) setAiInsightsLoading(false);
-              });
-          }
+    // Kick off the cache fetch AND the generation request in parallel.
+    // On cache hit we discard the generation result (generator backend
+    // de-duplicates requests for the same CBE anyway). On cache miss
+    // the generation result populates the panel without a second
+    // round-trip.
+    const enrichP = getEnrichment(cbe).catch(() => null);
+    if (!aiPreloadTriggered.current) {
+      aiPreloadTriggered.current = true;
+      setAiInsightsLoading(true);
+      generateAiInsights(cbe)
+        .then((result) => {
+          if (!cancelled) setAiInsights(result);
         })
-        .catch(() => {});
-    };
-
-    // Defer enrichment work slightly so the first profile paint wins.
-    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
-      idleId = window.requestIdleCallback(run, { timeout: 1200 });
-    } else {
-      timeoutId = globalThis.setTimeout(run, 250);
+        .catch(() => {}) // fails silently for unauthenticated users
+        .finally(() => {
+          if (!cancelled) setAiInsightsLoading(false);
+        });
     }
+
+    enrichP.then((data) => {
+      if (cancelled || !data) return;
+      if (data.summary) setAiSummary(data.summary);
+      if (data.website_summary) {
+        try {
+          const parsed = typeof data.website_summary === "string"
+            ? JSON.parse(data.website_summary)
+            : data.website_summary;
+          if (parsed && typeof parsed === "object") {
+            setWebsiteScrape({
+              summary: parsed.summary || "",
+              products: parsed.products || "",
+              employees: parsed.employees || "",
+              key_people: parsed.key_people || "",
+              website_url: data.website_url || "",
+            });
+          }
+        } catch {}
+      }
+      if (data.linkedin_summary) {
+        try {
+          const parsed = typeof data.linkedin_summary === "string"
+            ? JSON.parse(data.linkedin_summary)
+            : data.linkedin_summary;
+          if (parsed && typeof parsed === "object") {
+            setLinkedinScrape({
+              summary: parsed.summary || "",
+              employee_count: parsed.employee_count || "",
+              industry: parsed.industry || "",
+              specialties: parsed.specialties || "",
+              linkedin_url: parsed.linkedin_url || "",
+            });
+          }
+        } catch {}
+      }
+      // Cached insights: apply immediately — the parallel generation
+      // will finish later and overwrite with the freshest version.
+      if (data.ai_insights) {
+        try {
+          const parsed = typeof data.ai_insights === "string"
+            ? JSON.parse(data.ai_insights)
+            : data.ai_insights;
+          if (parsed && typeof parsed === "object") {
+            setAiInsights(parsed as AiInsights);
+          }
+        } catch {}
+      }
+    });
 
     return () => {
       cancelled = true;
-      if (timeoutId !== null) globalThis.clearTimeout(timeoutId);
-      if (idleId !== null && typeof window !== "undefined" && "cancelIdleCallback" in window) {
-        window.cancelIdleCallback(idleId);
-      }
     };
   }, [cbe, locale]);
 
