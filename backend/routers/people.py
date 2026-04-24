@@ -92,7 +92,14 @@ async def search_people(q: str = Query(..., min_length=2, max_length=200)):
             "company_count": int(r["company_count"]) if r.get("company_count") is not None else 0,
             "top_companies": _coerce_top(r.get("top_companies")),
             "score": float(r["score"]) if r.get("score") is not None else 0.0,
+            # `dominant_city` and `dominant_postcode` come from the
+            # Staatsblad `person_domicile_*` columns when available.
+            # Fall back to the highest-revenue company's city as a
+            # proxy so common names still get some disambiguation
+            # while the staatsblad re-extraction is still running.
             "dominant_city": r.get("dominant_city"),
+            "dominant_postcode": r.get("dominant_postcode"),
+            "has_domicile": bool(r.get("has_domicile")),
         }
         for r in rows
     ]
@@ -235,19 +242,22 @@ grouped AS (
            h.enterprise_number,
            COALESCE(nl.denomination, h.enterprise_number) AS company_name,
            COALESCE(fl.revenue, 0) AS revenue,
-           -- City of the connected company (for the operator's
-           -- "common name disambiguation" need — KBO does not expose
-           -- home addresses for individuals, so the dominant company
-           -- city is the best proxy for grouping / differentiation).
            ci.city AS company_city,
+           -- Structured person-domicile from staatsblad, extracted by
+           -- the prompt_v3 OCR pipeline. Populated progressively as
+           -- the re-extraction cron processes historical rows; NULL
+           -- when unavailable. This lets us distinguish two
+           -- different "Jan De Clerck"s registered at different
+           -- addresses, which KBO data alone can't do.
+           sbd.person_domicile_city     AS person_city,
+           sbd.person_domicile_postcode AS person_postcode,
            -- Strip punctuation before INITCAP so "BRAET, TIM" displays
            -- as "Braet Tim" rather than "Braet, Tim".
            MIN(INITCAP(REGEXP_REPLACE(h.name, '[^[:alpha:][:space:]]', '', 'g'))) AS display_name
     FROM people_hits h
     -- LATERAL denomination lookup: only fetches the best name per
     -- enterprise_number we actually hit (~500 rows) rather than
-    -- scanning the full 3.3M-row denomination table in a CTE. This
-    -- change alone cuts people/search latency from ~2s to ~300ms.
+    -- scanning the full 3.3M-row denomination table in a CTE.
     LEFT JOIN LATERAL (
         SELECT denomination
         FROM denomination d
@@ -256,34 +266,65 @@ grouped AS (
         ORDER BY CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 ELSE 3 END
         LIMIT 1
     ) nl ON TRUE
+    -- LATERAL: most-recent staatsblad admin event with a populated
+    -- domicile for THIS (person, company) combo. We use the event
+    -- with the highest person_domicile_confidence and most-recent
+    -- extraction timestamp so progressive backfill keeps improving
+    -- the signal without breaking older fallback results.
+    LEFT JOIN LATERAL (
+        SELECT person_domicile_city,
+               person_domicile_postcode
+        FROM staatsblad_event e
+        WHERE e.enterprise_number = h.enterprise_number
+          AND e.event_type = 'admin_event'
+          AND LOWER(COALESCE(e.person_name, '')) = LOWER(h.name)
+          AND e.person_domicile_city IS NOT NULL
+        ORDER BY COALESCE(e.person_domicile_confidence, 0) DESC,
+                 e.person_domicile_extracted_at DESC NULLS LAST,
+                 e.pub_date DESC
+        LIMIT 1
+    ) sbd ON TRUE
     LEFT JOIN financial_latest fl ON fl.enterprise_number = h.enterprise_number
     LEFT JOIN company_info ci     ON ci.enterprise_number = h.enterprise_number
-    GROUP BY LOWER(h.name), h.enterprise_number, nl.denomination, fl.revenue, ci.city
+    GROUP BY LOWER(h.name), h.enterprise_number, nl.denomination, fl.revenue,
+             ci.city, sbd.person_domicile_city, sbd.person_domicile_postcode
 ),
 aggregated AS (
+    -- Group key includes the inferred person_city + person_postcode:
+    -- two "Jan De Clerck"s whose staatsblad rows disagree on city
+    -- become two distinct result rows. When staatsblad has no
+    -- domicile (still being backfilled), COALESCE('') lets them
+    -- collapse into one row — same as before.
     SELECT name_key,
+           COALESCE(person_city, '')     AS group_city,
+           COALESCE(person_postcode, '') AS group_postcode,
            MIN(display_name) AS name,
            MAX(best_base)    AS score,
            COUNT(DISTINCT enterprise_number) AS company_count,
-           -- Dominant-company city — picks the city of the highest-
-           -- revenue connected company. Used as a soft disambiguator
-           -- for common names (e.g. separate "Jan De Clerck" in
-           -- Antwerpen from one in Brussel visually in the UI).
-           (ARRAY_AGG(company_city ORDER BY revenue DESC NULLS LAST) FILTER (WHERE company_city IS NOT NULL))[1] AS dominant_city,
-           -- Emit {name, cbe} pairs so the frontend can render each
-           -- entry as a clickable link to /company/{cbe}. Ordered by
-           -- revenue desc so flagship companies surface first.
+           -- Prefer structured person_city over the company-city proxy
+           -- so UI disambiguator tags are accurate once staatsblad
+           -- backfill catches up.
+           COALESCE(
+             MAX(person_city),
+             (ARRAY_AGG(company_city ORDER BY revenue DESC NULLS LAST) FILTER (WHERE company_city IS NOT NULL))[1]
+           ) AS dominant_city,
+           MAX(person_postcode) AS dominant_postcode,
+           -- Was the disambiguator derived from a real staatsblad
+           -- domicile row? Frontend can render differently
+           -- ("Antwerpen" vs "Antwerpen  ·  via Staatsblad").
+           BOOL_OR(person_city IS NOT NULL) AS has_domicile,
            JSONB_AGG(
              JSONB_BUILD_OBJECT('name', company_name, 'cbe', enterprise_number)
              ORDER BY revenue DESC NULLS LAST, company_name
            ) AS company_list
     FROM grouped
-    GROUP BY name_key
+    GROUP BY name_key, COALESCE(person_city, ''), COALESCE(person_postcode, '')
 )
 -- First 20 kept inline so the frontend can expand without another
 -- round-trip. Heavier people (50+ companies) are rare; the
 -- /people/{name}/connections endpoint already covers that tail.
-SELECT name, company_count, score, dominant_city,
+SELECT name, company_count, score,
+       dominant_city, dominant_postcode, has_domicile,
        (
          SELECT JSONB_AGG(elem)
          FROM (

@@ -218,8 +218,13 @@ function PersonCard({
       </div>
       <div className="min-w-0 flex-1">
         {/* Row 1: name (+ dominant-city hint so common names can be
-            visually differentiated — KBO doesn't expose home addresses
-            so we use the person's flagship company's city as a proxy). */}
+            visually differentiated). Priority:
+              1. Staatsblad person_domicile_city + postcode (authoritative,
+                 populated progressively by the re-extraction cron)
+              2. Highest-revenue company's city (legacy proxy, falls back
+                 when staatsblad hasn't processed this person yet).
+            `has_domicile=true` marks the authoritative case — a small
+            badge makes it obvious which rows are confident. */}
         <div className="flex items-baseline gap-2 min-w-0">
           <Link
             href={`/people?q=${encodeURIComponent(person.name)}`}
@@ -227,11 +232,30 @@ function PersonCard({
           >
             {person.name}
           </Link>
-          {(person as PersonResult & { dominant_city?: string | null }).dominant_city && (
-            <span className="text-[10px] text-slate-400 shrink-0 truncate">
-              · {(person as PersonResult & { dominant_city?: string | null }).dominant_city}
-            </span>
-          )}
+          {(() => {
+            const p = person as PersonResult & {
+              dominant_city?: string | null;
+              dominant_postcode?: string | null;
+              has_domicile?: boolean;
+            };
+            if (!p.dominant_city) return null;
+            const location = p.dominant_postcode
+              ? `${p.dominant_postcode} ${p.dominant_city}`
+              : p.dominant_city;
+            const tooltip = p.has_domicile
+              ? "Domicile from Staatsblad publication"
+              : "Inferred from the person's main company (KBO does not expose private home addresses)";
+            return (
+              <span
+                className={`text-[10px] shrink-0 truncate ${
+                  p.has_domicile ? "text-emerald-600" : "text-slate-400"
+                }`}
+                title={tooltip}
+              >
+                · {location}
+              </span>
+            );
+          })()}
         </div>
         {/* Row 2: companies (clickable pills + expand toggle) */}
         <div className="text-[11px] text-slate-400 mt-0.5 flex flex-wrap gap-x-1.5 gap-y-1 items-center">

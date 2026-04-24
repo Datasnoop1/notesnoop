@@ -292,8 +292,8 @@ addresses AS (
     JOIN address ad ON ad.entity_number = ci.enterprise_number
                     AND ad.type_of_address = 'REGO'
     WHERE %(nq_pfx)s IS NOT NULL
-      AND length(%(nq_pfx)s) >= 4  -- gate to ≥3-char queries (+ '%') — a
-                                   -- single letter fans out to tens of
+      AND length(%(nq_pfx)s) >= 4  -- gate to >=3-char queries (+ wildcard)
+                                   -- a single letter fans out to tens of
                                    -- millions of rows via the ILIKE.
       AND (
           ad.street_nl          ILIKE %(nq_pfx)s
