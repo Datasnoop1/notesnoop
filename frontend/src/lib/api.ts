@@ -774,13 +774,22 @@ export const getOutperformersBreakdown = (
   );
 
 // ── People ─────────────────────────────────────────────────
+// V2: top_companies is an array of {name, cbe} objects so each entry
+// can render as a clickable /company/{cbe} link. The bare-string form
+// is kept in the union for backward compatibility during rolling
+// deploys (older servers still return string[]).
+export interface PersonTopCompany {
+  name: string;
+  cbe: string;
+}
 export interface PersonResult {
   name: string;
-  roles: number;
-  companies: number;
-  holdings: number;
+  roles?: number;
+  companies?: number;
+  holdings?: number;
   company_count: number;
-  top_companies?: string[];
+  top_companies?: (PersonTopCompany | string)[];
+  score?: number;
 }
 
 export interface PersonConnection {

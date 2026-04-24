@@ -23,8 +23,24 @@ import { useTranslation } from "@/components/language-provider";
 import type {
   CompanySearchResultV2,
   PersonResult,
+  PersonTopCompany,
   StaatsbladEvent,
 } from "@/lib/api";
+
+// top_companies can be legacy strings or V2 {name, cbe} objects during
+// rolling deploys. This normaliser returns the structured form or null.
+function asTopCompanies(
+  list: PersonResult["top_companies"] | undefined
+): PersonTopCompany[] {
+  if (!list) return [];
+  return list
+    .map((item) =>
+      typeof item === "string"
+        ? ({ name: item, cbe: "" } satisfies PersonTopCompany)
+        : item
+    )
+    .filter((c) => c.name);
+}
 
 // ---------------------------------------------------------------------------
 // Shared card primitives
@@ -116,25 +132,86 @@ function PersonCard({
     (person as PersonResult & { company_count?: number }).company_count ??
     (person as PersonResult & { companies?: number }).companies ??
     0;
-  const tops = person.top_companies || [];
+  const tops = asTopCompanies(person.top_companies);
+  const [expanded, setExpanded] = useState(false);
+  const INLINE_LIMIT = 2;
+  const visible = expanded ? tops : tops.slice(0, INLINE_LIMIT);
+  const hiddenCount = Math.max(tops.length - INLINE_LIMIT, 0);
+
+  // Per-company pill — renders a clickable /company/{cbe} link.
+  // stopPropagation prevents the outer card's click handler from
+  // firing when the user clicks a specific company.
+  const CompanyPill = ({ c }: { c: PersonTopCompany }) => {
+    if (!c.cbe) {
+      return <span className="text-slate-500">{c.name}</span>;
+    }
+    return (
+      <Link
+        href={`/company/${c.cbe}`}
+        onClick={(e) => e.stopPropagation()}
+        className="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-indigo-100 hover:text-indigo-700 transition-colors"
+      >
+        {c.name}
+      </Link>
+    );
+  };
+
   return (
-    <Link
-      href={`/people?q=${encodeURIComponent(person.name)}`}
-      className="flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-xl bg-white border border-slate-200 hover:border-emerald-200 hover:shadow-md transition-all group"
+    <div
+      className="flex items-start gap-3 px-4 py-3 rounded-xl bg-white border border-slate-200 hover:border-emerald-200 hover:shadow-md transition-all group"
     >
       <div className="p-2 rounded-lg bg-emerald-50 text-emerald-500 shrink-0">
         <Users className="w-4 h-4" />
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold text-slate-800 group-hover:text-emerald-600 truncate">
-          {person.name}
+        {/* Row 1: name (+ dominant-city hint so common names can be
+            visually differentiated — KBO doesn't expose home addresses
+            so we use the person's flagship company's city as a proxy). */}
+        <div className="flex items-baseline gap-2 min-w-0">
+          <Link
+            href={`/people?q=${encodeURIComponent(person.name)}`}
+            className="text-sm font-semibold text-slate-800 hover:text-emerald-600 truncate"
+          >
+            {person.name}
+          </Link>
+          {(person as PersonResult & { dominant_city?: string | null }).dominant_city && (
+            <span className="text-[10px] text-slate-400 shrink-0 truncate">
+              · {(person as PersonResult & { dominant_city?: string | null }).dominant_city}
+            </span>
+          )}
         </div>
-        <div className="text-[11px] text-slate-400 truncate">
+        {/* Row 2: companies (clickable pills + expand toggle) */}
+        <div className="text-[11px] text-slate-400 mt-0.5 flex flex-wrap gap-x-1.5 gap-y-1 items-center">
           {tops.length > 0 ? (
             <>
-              <span className="text-slate-500">{tops.slice(0, 2).join(" \u00b7 ")}</span>
-              {count > tops.length && (
-                <span className="text-slate-400"> +{count - tops.length} more</span>
+              {visible.map((c, i) => (
+                <span key={`${c.cbe}-${i}`} className="inline-flex items-center gap-1">
+                  <CompanyPill c={c} />
+                  {i < visible.length - 1 && <span className="text-slate-300">·</span>}
+                </span>
+              ))}
+              {!expanded && hiddenCount > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
+                  className="text-slate-500 hover:text-emerald-600 underline decoration-dotted"
+                  aria-expanded={false}
+                >
+                  +{hiddenCount} more
+                </button>
+              )}
+              {expanded && hiddenCount > 0 && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setExpanded(false); }}
+                  className="text-slate-500 hover:text-emerald-600 underline decoration-dotted"
+                  aria-expanded={true}
+                >
+                  show less
+                </button>
+              )}
+              {count > tops.length && !expanded && (
+                <span className="text-slate-400">(+{count - tops.length} not shown)</span>
               )}
             </>
           ) : (
@@ -146,7 +223,7 @@ function PersonCard({
           )}
         </div>
       </div>
-      <Badge variant="secondary" className="text-[10px] shrink-0">
+      <Badge variant="secondary" className="text-[10px] shrink-0 mt-1">
         {count} {count === 1 ? "co." : "cos."}
       </Badge>
       <button

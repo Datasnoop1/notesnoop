@@ -82,12 +82,17 @@ async def search_people(q: str = Query(..., min_length=2, max_length=200)):
         logger.exception("people search V2 failed for q=%r", raw[:80])
         raise HTTPException(status_code=500, detail="search_failed")
 
+    def _coerce_top(v):
+        """JSONB column returns as list[dict] directly; handle None."""
+        return v if isinstance(v, list) else []
+
     return [
         {
             "name": r["name"],
             "company_count": int(r["company_count"]) if r.get("company_count") is not None else 0,
-            "top_companies": r.get("top_companies") or [],
+            "top_companies": _coerce_top(r.get("top_companies")),
             "score": float(r["score"]) if r.get("score") is not None else 0.0,
+            "dominant_city": r.get("dominant_city"),
         }
         for r in rows
     ]
@@ -237,25 +242,52 @@ grouped AS (
            h.enterprise_number,
            COALESCE(nl.denomination, h.enterprise_number) AS company_name,
            COALESCE(fl.revenue, 0) AS revenue,
+           -- City of the connected company (for the operator's
+           -- "common name disambiguation" need — KBO does not expose
+           -- home addresses for individuals, so the dominant company
+           -- city is the best proxy for grouping / differentiation).
+           ci.city AS company_city,
            -- Strip punctuation before INITCAP so "BRAET, TIM" displays
            -- as "Braet Tim" rather than "Braet, Tim".
            MIN(INITCAP(REGEXP_REPLACE(h.name, '[^[:alpha:][:space:]]', '', 'g'))) AS display_name
     FROM people_hits h
     LEFT JOIN names_lookup nl     ON nl.entity_number = h.enterprise_number
     LEFT JOIN financial_latest fl ON fl.enterprise_number = h.enterprise_number
-    GROUP BY LOWER(h.name), h.enterprise_number, nl.denomination, fl.revenue
+    LEFT JOIN company_info ci     ON ci.enterprise_number = h.enterprise_number
+    GROUP BY LOWER(h.name), h.enterprise_number, nl.denomination, fl.revenue, ci.city
 ),
 aggregated AS (
     SELECT name_key,
            MIN(display_name) AS name,
            MAX(best_base)    AS score,
            COUNT(DISTINCT enterprise_number) AS company_count,
-           ARRAY_AGG(company_name ORDER BY revenue DESC NULLS LAST, company_name) AS company_names
+           -- Dominant-company city — picks the city of the highest-
+           -- revenue connected company. Used as a soft disambiguator
+           -- for common names (e.g. separate "Jan De Clerck" in
+           -- Antwerpen from one in Brussel visually in the UI).
+           (ARRAY_AGG(company_city ORDER BY revenue DESC NULLS LAST) FILTER (WHERE company_city IS NOT NULL))[1] AS dominant_city,
+           -- Emit {name, cbe} pairs so the frontend can render each
+           -- entry as a clickable link to /company/{cbe}. Ordered by
+           -- revenue desc so flagship companies surface first.
+           JSONB_AGG(
+             JSONB_BUILD_OBJECT('name', company_name, 'cbe', enterprise_number)
+             ORDER BY revenue DESC NULLS LAST, company_name
+           ) AS company_list
     FROM grouped
     GROUP BY name_key
 )
-SELECT name, company_count, score,
-       company_names[1:3] AS top_companies
+-- First 20 kept inline so the frontend can expand without another
+-- round-trip. Heavier people (50+ companies) are rare; the
+-- /people/{name}/connections endpoint already covers that tail.
+SELECT name, company_count, score, dominant_city,
+       (
+         SELECT JSONB_AGG(elem)
+         FROM (
+           SELECT elem
+           FROM jsonb_array_elements(company_list) WITH ORDINALITY AS x(elem, n)
+           WHERE n <= 20
+         ) sub
+       ) AS top_companies
 FROM aggregated
 ORDER BY score DESC, company_count DESC, name ASC
 LIMIT 50

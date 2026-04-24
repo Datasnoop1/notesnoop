@@ -255,6 +255,9 @@ people_raw AS (
     WHERE a.person_type = 'natural'
       AND a.name_normalized IS NOT NULL
       AND %(nq_pfx)s IS NOT NULL
+      AND length(%(nq_pfx)s) >= 4  -- ≥3-char prefix; 2-char prefix
+                                   -- on 1M admin rows is ~3s even
+                                   -- with trigram index.
       AND (
           a.name_normalized LIKE %(nq_pfx)s
           OR (%(rev)s IS NOT NULL AND a.name_reversed = %(rev)s)
@@ -289,11 +292,14 @@ addresses AS (
     JOIN address ad ON ad.entity_number = ci.enterprise_number
                     AND ad.type_of_address = 'REGO'
     WHERE %(nq_pfx)s IS NOT NULL
+      AND length(%(nq_pfx)s) >= 4  -- gate to ≥3-char queries (+ '%') — a
+                                   -- single letter fans out to tens of
+                                   -- millions of rows via the ILIKE.
       AND (
-          LOWER(ad.street_nl)        LIKE LOWER(%(nq_pfx)s)
-          OR LOWER(ad.street_fr)     LIKE LOWER(%(nq_pfx)s)
-          OR LOWER(ad.municipality_nl) LIKE LOWER(%(nq_pfx)s)
-          OR LOWER(ad.municipality_fr) LIKE LOWER(%(nq_pfx)s)
+          ad.street_nl          ILIKE %(nq_pfx)s
+          OR ad.street_fr       ILIKE %(nq_pfx)s
+          OR ad.municipality_nl ILIKE %(nq_pfx)s
+          OR ad.municipality_fr ILIKE %(nq_pfx)s
       )
     LIMIT 3
 )
