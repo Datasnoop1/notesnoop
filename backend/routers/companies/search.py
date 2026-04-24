@@ -14,7 +14,7 @@ lookup before any text search fires.
 """
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -41,15 +41,30 @@ router = APIRouter()
 async def search_companies(
     q: str = Query(..., min_length=1, max_length=200),
     limit: int = Query(20, ge=1, le=50),
+    postal_code: Optional[str] = Query(None, max_length=10),
+    municipality: Optional[str] = Query(None, max_length=100),
+    street: Optional[str] = Query(None, max_length=200),
 ):
     """Unified company search returning `{commercial, nonprofit_or_public}`.
 
     Short-circuits on CBE / VAT inputs. Otherwise runs a single scored
     SQL query and buckets by juridical_form_category.
+
+    Optional location filters (postal_code / municipality / street) narrow
+    the result set to companies whose registered address matches ALL
+    provided filters. They are independent of the main `q` search term —
+    operator can search by name AND restrict to Antwerp, for instance.
     """
     raw = (q or "").strip()
     if not raw:
         return _empty_response(raw)
+
+    # Normalise location-filter inputs up front. Empty strings reduce to
+    # None so they don't turn into `%%` wildcards that match every row.
+    pc_filter = (postal_code or "").strip() or None
+    muni_filter = (municipality or "").strip() or None
+    street_filter = (street or "").strip() or None
+    has_location_filter = bool(pc_filter or muni_filter or street_filter)
 
     qtype = detect_query_type(raw)
 
@@ -98,7 +113,7 @@ async def search_companies(
     )
     zip_q = raw if qtype == "zipcode" else None
 
-    params = {
+    params: dict[str, Any] = {
         "nq": nq,
         "nq_prefix": (nq + "%") if nq else None,
         "tok1": tok1,
@@ -111,8 +126,47 @@ async def search_companies(
         "limit": max(limit, 20),
     }
 
+    # Assemble the optional location-filter CTE. Kept out of the baseline
+    # SQL so the common no-filter path runs exactly the same plan. All
+    # user values go through %(name)s bindings — the only interpolation
+    # is the AND-joined list of safe column-level clauses.
+    loc_filter_cte = ""
+    loc_filter_join = ""
+    if has_location_filter:
+        loc_clauses: list[str] = []
+        if pc_filter:
+            loc_clauses.append("a.zipcode ILIKE %(loc_postal)s ESCAPE '\\\\'")
+            params["loc_postal"] = ilike_escape(pc_filter) + "%"
+        if muni_filter:
+            loc_clauses.append(
+                "(a.municipality_nl ILIKE %(loc_muni)s ESCAPE '\\\\'"
+                " OR a.municipality_fr ILIKE %(loc_muni)s ESCAPE '\\\\')"
+            )
+            params["loc_muni"] = f"%{ilike_escape(muni_filter)}%"
+        if street_filter:
+            loc_clauses.append(
+                "(a.street_nl ILIKE %(loc_street)s ESCAPE '\\\\'"
+                " OR a.street_fr ILIKE %(loc_street)s ESCAPE '\\\\')"
+            )
+            params["loc_street"] = f"%{ilike_escape(street_filter)}%"
+        loc_filter_cte = (
+            ", loc_filter AS (\n"
+            "    SELECT DISTINCT a.entity_number AS enterprise_number\n"
+            "    FROM address a\n"
+            "    WHERE a.type_of_address = 'REGO'\n"
+            "      AND " + "\n      AND ".join(loc_clauses) + "\n"
+            "    LIMIT 5000\n"
+            ")\n"
+        )
+        loc_filter_join = (
+            "JOIN loc_filter lf ON lf.enterprise_number = h.enterprise_number"
+        )
+
+    sql = _SEARCH_SQL.replace("__LOC_FILTER_CTE__", loc_filter_cte)
+    sql = sql.replace("__LOC_FILTER_JOIN__", loc_filter_join)
+
     try:
-        rows = fetch_all(_SEARCH_SQL, params)
+        rows = fetch_all(sql, params)
     except Exception:
         logger.exception("company search V2 failed for q=%r", raw[:80])
         raise HTTPException(500, "search_failed")
@@ -291,6 +345,7 @@ all_hits AS (
     ) u
     GROUP BY enterprise_number
 )
+__LOC_FILTER_CTE__
 SELECT
     h.enterprise_number,
     COALESCE(ci.name, d.denomination, h.enterprise_number) AS name,
@@ -312,6 +367,7 @@ SELECT
         * (1 + 0.10 * LEAST(1.0, COALESCE(cp.click_count, 0) / 50.0))
     )::real AS score
 FROM all_hits h
+__LOC_FILTER_JOIN__
 JOIN enterprise e                     ON e.enterprise_number = h.enterprise_number
 LEFT JOIN company_info ci             ON ci.enterprise_number = h.enterprise_number
 LEFT JOIN LATERAL (

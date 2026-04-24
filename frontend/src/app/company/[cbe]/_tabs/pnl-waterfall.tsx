@@ -5,18 +5,20 @@ import { ChevronRight, ChevronDown } from "lucide-react";
 import { fmtEur } from "@/lib/format";
 
 /* True floating horizontal waterfall.
- *   - Milestones (Revenue / EBITDA / EBIT / Net profit) render as full bars
- *     anchored to 0, width = milestone value as % of revenue.
- *   - Deductions (Materials / Services / Personnel / OpEx / D&A / Fin /
- *     Tax) render as FLOATING bars: each sits at the running balance,
- *     reflecting exactly what was subtracted between two milestones.
+ *   - Milestones (Revenue / Gross margin / EBITDA / EBIT / Net profit) render
+ *     as full bars anchored to 0, width = milestone value as % of the domain.
+ *   - Deductions render as FLOATING bars between milestones: each sits at
+ *     the running balance, showing exactly what was subtracted.
  *
- * Year picker + softer palette; expanded by default (per operator).
+ * When Revenue is missing (abbreviated-scheme filings), the waterfall
+ * anchors on Gross margin instead of hiding entirely — otherwise companies
+ * that can't legally disclose turnover show an empty panel.
  *
  * Belgian GAAP rubrics (match backend whitelist in companies/financials.py):
  *   70    Revenue
  *   60    Materials
  *   61    Services
+ *   9900  Gross margin
  *   62    Personnel
  *   640/8 Other operating costs
  *   630   D&A
@@ -70,13 +72,11 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
 
   if (!years.length || fy == null) return null;
 
-  const revenue = rub(rubrics, "70", fy);
-  if (revenue <= 0) return null;
-
   // Read milestones first — we need them to compute the domain below,
   // since any can go negative (EBITDA / EBIT / net profit for distressed
   // companies) and should render left of the zero line.
 
+  const revenue = rub(rubrics, "70", fy);
   const materials = Math.max(0, rub(rubrics, "60", fy));
   const services = Math.max(0, rub(rubrics, "61", fy));
   const personnel = Math.max(0, rub(rubrics, "62", fy));
@@ -87,11 +87,27 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   const finCharges = Math.max(0, rub(rubrics, "65", fy));
   const tax = Math.max(0, rub(rubrics, "67/77", fy));
   const netProfit = rub(rubrics, "9904", fy);
+  // Gross margin (rubric 9900) — present for both model A and model B
+  // filings. Falls back to revenue - materials - services when the filing
+  // doesn't carry the headline subtotal explicitly.
+  const rawGm = rub(rubrics, "9900", fy);
+  const grossMarginFallback = revenue > 0 ? revenue - materials - services : 0;
+  const grossMargin = rawGm || grossMarginFallback;
 
-  // Domain includes 0 (zero line), revenue (ceiling), and all milestone
-  // values so negative EBITDA / EBIT / net profit render left of zero
-  // without clipping.
-  const domainPoints = [0, revenue, ebitda, ebit, netProfit];
+  // If neither revenue nor gross margin is usable, we can't anchor the
+  // bars — hide the waterfall. Before: we bailed out on missing revenue,
+  // which blanked the whole panel for abbreviated-scheme filers.
+  const hasRevenue = revenue > 0;
+  const hasGrossMargin = grossMargin > 0;
+  if (!hasRevenue && !hasGrossMargin) return null;
+
+  // Anchor: prefer revenue (full waterfall); otherwise start from gross
+  // margin, skipping cost-of-sales entirely.
+  const topValue = hasRevenue ? revenue : grossMargin;
+
+  // Domain includes the anchor, the zero line, and every milestone so
+  // negative EBIT/EBITDA/net profit render left of zero without clipping.
+  const domainPoints = [0, topValue, grossMargin, ebitda, ebit, netProfit];
   const domainMin = Math.min(...domainPoints);
   const domainMax = Math.max(...domainPoints);
   const domainRange = Math.max(1, domainMax - domainMin);
@@ -105,6 +121,10 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
   const COL = {
     revenue:    "bg-slate-300",
     revenueTxt: "text-slate-700",
+    // Gross margin sits between the revenue band and EBITDA: slightly darker
+    // than revenue so it reads as a distinct waypoint.
+    grossMargin: "bg-slate-400",
+    grossMarginTxt: "text-slate-800",
     milestone:  "bg-slate-300",
     milestoneTxt: "text-slate-700",
     milestoneStrong: "bg-slate-400",
@@ -163,39 +183,77 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
     });
   };
 
-  pushMilestone("Revenue", revenue, COL.revenue, COL.revenueTxt, "100.0%");
+  // === Phase 1: Revenue → Gross margin (only when revenue is disclosed) ===
+  // Abbreviated-scheme filers leave rubric 70 blank; in that case we start
+  // the whole chart at Gross margin instead.
+  let running: number;
+  if (hasRevenue) {
+    pushMilestone("Revenue", revenue, COL.revenue, COL.revenueTxt, "100.0%");
+    running = revenue;
+    const pushDed = (label: string, v: number) => {
+      if (v <= 0) return;
+      const before = running;
+      running -= v;
+      pushBar(label, before, running);
+    };
+    // Cost of sales: breakdown between materials + services (plus any
+    // reconciling residual so the staircase lands precisely on the gross
+    // margin milestone).
+    const totalCos = revenue - grossMargin;
+    const knownCos = materials + services;
+    const cosUnder = Math.max(0, totalCos - knownCos);
+    const cosOver = Math.max(0, knownCos - totalCos);
+    pushDed("Materials", materials);
+    pushDed("Services", services);
+    if (cosUnder > 0) pushDed("Other cost of sales", cosUnder);
+    if (cosOver > 0) {
+      // Known breakdown sums beyond the filed gross margin — bump running
+      // back up with a reconciling "Other revenue" line so the staircase
+      // still lands on the gross margin milestone.
+      const before = running;
+      running += cosOver;
+      pushBar("Other revenue", before, running);
+    }
+  } else {
+    running = grossMargin;
+  }
 
-  // Between Revenue and EBITDA: total gap = revenue − ebitda. The rubric
-  // sum can be BELOW the gap (add "Other OpEx" residual) or ABOVE it
-  // (add "Other op income" that lifts running back up to EBITDA). Either
-  // way, the staircase always ends exactly at the EBITDA milestone —
-  // even when EBITDA is negative (the staircase then crosses zero).
-  const totalOpex = revenue - ebitda;
-  const knownOpex = materials + services + personnel + otherOp;
-  const opexUnder = Math.max(0, totalOpex - knownOpex);
-  const opexOver  = Math.max(0, knownOpex - totalOpex);
+  // Gross margin milestone — always shown (this is the whole point of
+  // #7 and #9 in the backlog). Percent label relative to revenue when we
+  // have it; otherwise absolute-only.
+  pushMilestone(
+    "Gross margin",
+    grossMargin,
+    COL.grossMargin,
+    COL.grossMarginTxt,
+    hasRevenue ? `${(grossMargin / revenue * 100).toFixed(1)}%` : undefined,
+  );
 
-  let running = revenue;
-  const pushDed = (label: string, v: number) => {
+  // === Phase 2: Gross margin → EBITDA ===
+  const totalGmToEbitda = grossMargin - ebitda;
+  const knownGmToEbitda = personnel + otherOp;
+  const gmUnder = Math.max(0, totalGmToEbitda - knownGmToEbitda);
+  const gmOver = Math.max(0, knownGmToEbitda - totalGmToEbitda);
+
+  running = grossMargin;
+  const pushGmDed = (label: string, v: number) => {
     if (v <= 0) return;
     const before = running;
     running -= v;
     pushBar(label, before, running);
   };
-  const pushAdd = (label: string, v: number) => {
+  const pushGmAdd = (label: string, v: number) => {
     if (v <= 0) return;
     const before = running;
     running += v;
     pushBar(label, before, running);
   };
-  pushDed("Materials",  materials);
-  pushDed("Services",   services);
-  pushDed("Personnel",  personnel);
-  pushDed("Other OpEx", otherOp + opexUnder);
-  if (opexOver > 0) pushAdd("Other op income", opexOver);
+  pushGmDed("Personnel",  personnel);
+  pushGmDed("Other OpEx", otherOp + gmUnder);
+  if (gmOver > 0) pushGmAdd("Other op income", gmOver);
 
   pushMilestone("EBITDA", ebitda, COL.milestone, COL.milestoneTxt,
-                revenue > 0 ? `${(ebitda / revenue * 100).toFixed(1)}%` : undefined);
+                hasRevenue ? `${(ebitda / revenue * 100).toFixed(1)}%` : undefined);
 
   // D&A bridges EBITDA → EBIT (positive D&A only; skip if zero/negative).
   if (Math.abs(ebitda - ebit) > 0.01) pushBar("D&A", ebitda, ebit);

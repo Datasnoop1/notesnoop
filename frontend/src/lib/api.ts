@@ -372,11 +372,24 @@ export interface CompanyNetwork {
 }
 
 // V2 bucketed response — used by `/search` page which renders commercial
-// and non-profit sections separately.
-export const searchCompaniesBucketed = (q: string) =>
-  apiFetch<CompanySearchResponseV2>(
-    `/api/companies/search?q=${encodeURIComponent(q)}`,
+// and non-profit sections separately. Optional location filters (postal
+// code / municipality / street) narrow results to companies whose
+// registered address matches all provided fields.
+export interface LocationFilter {
+  postalCode?: string;
+  municipality?: string;
+  street?: string;
+}
+
+export const searchCompaniesBucketed = (q: string, loc?: LocationFilter) => {
+  const params = new URLSearchParams({ q });
+  if (loc?.postalCode?.trim()) params.set("postal_code", loc.postalCode.trim());
+  if (loc?.municipality?.trim()) params.set("municipality", loc.municipality.trim());
+  if (loc?.street?.trim()) params.set("street", loc.street.trim());
+  return apiFetch<CompanySearchResponseV2>(
+    `/api/companies/search?${params.toString()}`,
   );
+};
 
 // Legacy-compatible flat list. Most callers (aggregate page, compare,
 // favourites picker, company picker, valuation tab) just want a flat

@@ -1,5 +1,14 @@
 import type { MetadataRoute } from "next";
 
+// Force per-request rendering. At build time the backend container isn't
+// reachable from the still-building frontend image, so SSG would cache an
+// empty company list and starve Google of ~170k company URLs. With
+// force-dynamic, Next.js evaluates `sitemap()` on every request and my
+// console.error logs make failures visible. The fetch itself still
+// revalidates hourly via `next: { revalidate: 3600 }` below so repeated
+// crawler hits don't thrash the DB.
+export const dynamic = "force-dynamic";
+
 const BASE = "https://datasnoop.be";
 // Sitemap runs server-side during SSR, so prefer the in-cluster API URL
 // (API_URL_INTERNAL=http://backend:8000 inside Docker) and only fall back to
@@ -30,7 +39,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   } else {
     try {
       const res = await fetch(`${API_BASE}/api/sitemap/companies`, {
-        next: { revalidate: 86400 },
+        next: { revalidate: 3600 },
       });
       if (!res.ok) {
         console.error(`[sitemap] ${API_BASE}/api/sitemap/companies returned ${res.status}`);

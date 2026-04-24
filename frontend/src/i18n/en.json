@@ -299,6 +299,7 @@
       "grossMargin": "Gross Margin",
       "ebitPct": "EBIT %",
       "ebitdaPct": "EBITDA %",
+      "clickEbitdaDrilldown": "Click to see the metric tree that explains how EBITDA is built",
       "sectionRevenue": "REVENUE",
       "sectionOpCosts": "OPERATING COSTS",
       "sectionFinancial": "FINANCIAL",

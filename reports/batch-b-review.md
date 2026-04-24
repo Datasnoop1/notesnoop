@@ -1,0 +1,10 @@
+**No material findings from provided context.**  
+
+- **React correctness (hooks order, dependencies, effect cleanup)** – The diff shows no new hooks or effects; the existing `useState` for `ebitdaDrilldownOpen` is correctly placed at the top of the component body. No effect cleanup issues introduced.  
+- **Type safety of financial computations** – Null handling for `rubric_data` lookups uses `?? null` and the waterfall guards against missing revenue/gross margin with `hasRevenue`/`hasGrossMargin` checks. The `rawGm || grossMarginFallback` fallback is safe because both sides are numbers.  
+- **Keyboard accessibility of the clickable EBITDA card** – The `onKeyDown` handler correctly checks `Enter` and `Space`, calls `preventDefault`, and invokes the click handler. The `role="button"` and `tabIndex={0}` are present.  
+- **Gross Margin milestone consistency with negative EBITDA/revenue** – The domain includes `grossMargin` in `domainPoints`, so negative EBITDA/EBIT/net profit will still render left of zero. The waterfall bails out only when *both* revenue and gross margin are missing.  
+- **Regression risk in existing P&L waterfall or table** – The waterfall logic is additive (new milestone, new cost-of-sales reconciliation); the existing milestone/deduction rendering path is unchanged. The KPI card grid now uses `key` instead of array index, which is a safe improvement.  
+- **Sitemap: force-dynamic + inner fetch revalidate of 3600** – `force-dynamic` makes the route render per request (no SSG), and the inner `fetch` with `next: { revalidate: 3600 }` is the correct Next.js 16 pattern for per-request rendering with a 1-hour data cache. No issue.  
+
+All five review areas pass without material defects. The only minor observation is that the truncated diff prevents full verification of the waterfall’s `pushMilestone`/`pushBar` calls for the remaining milestones (EBITDA, EBIT, net profit), but the visible logic is consistent and the pattern is unchanged from the original.

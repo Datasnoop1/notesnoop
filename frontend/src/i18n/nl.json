@@ -299,6 +299,7 @@
       "grossMargin": "Brutomarge",
       "ebitPct": "EBIT %",
       "ebitdaPct": "EBITDA %",
+      "clickEbitdaDrilldown": "Klik om de metriekenboom te zien die EBITDA opbouwt",
       "sectionRevenue": "OMZET",
       "sectionOpCosts": "BEDRIJFSKOSTEN",
       "sectionFinancial": "FINANCIEEL",

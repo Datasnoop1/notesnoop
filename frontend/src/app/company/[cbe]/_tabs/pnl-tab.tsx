@@ -30,6 +30,7 @@ import {
 } from "recharts";
 import { getCompanyFinancials, loadCompanyNBB } from "@/lib/api";
 import { PnlWaterfall } from "./pnl-waterfall";
+import { EbitdaDrilldown } from "./ebitda-drilldown";
 
 /* ---------- Chart tooltip (local) ---------- */
 
@@ -87,6 +88,7 @@ export function PnlTab({
   chartData,
 }: PnlTabProps) {
   const { t } = useTranslation();
+  const [ebitdaDrilldownOpen, setEbitdaDrilldownOpen] = React.useState(false);
 
   if (!financials || financials.summary.length === 0) {
     const isPdfOnly = financials?.pdf_only === true || nbbResult === "pdf-only";
@@ -327,15 +329,25 @@ export function PnlTab({
       {latestPnl && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
           {[
-            { label: t("company.pnl.revenue"), value: fmtEur(latestPnl.revenue), sub: growthPill(revGrowth), icon: <DollarSign className="h-3 w-3" /> },
-            { label: t("company.pnl.grossMargin"), value: marginPill(grossMarginPct), sub: null, icon: <Percent className="h-3 w-3" /> },
-            { label: t("company.pnl.ebitda"), value: fmtEur(latestPnl.ebitda), sub: growthPill(ebitdaGrowth), icon: <BarChart3 className="h-3 w-3" /> },
-            { label: t("company.pnl.ebitdaPct"), value: marginPill(ebitdaPct), sub: null, icon: <Percent className="h-3 w-3" /> },
-            { label: t("company.ebit"), value: fmtEur(latestPnl.ebit), sub: growthPill(ebitGrowth), icon: <Activity className="h-3 w-3" /> },
-            { label: t("company.pnl.ebitPct"), value: marginPill(ebitPct), sub: null, icon: <Percent className="h-3 w-3" /> },
-            { label: t("company.pnl.netProfit"), value: fmtEur(latestPnl.netProfit), sub: null, icon: <DollarSign className="h-3 w-3" /> },
-          ].map((m, i) => (
-            <div key={i} className="rounded-lg border border-slate-100 bg-white p-2.5 text-center">
+            { key: "revenue",     label: t("company.pnl.revenue"), value: fmtEur(latestPnl.revenue), sub: growthPill(revGrowth), icon: <DollarSign className="h-3 w-3" />, onClick: undefined },
+            { key: "grossMargin", label: t("company.pnl.grossMargin"), value: marginPill(grossMarginPct), sub: null, icon: <Percent className="h-3 w-3" />, onClick: undefined },
+            { key: "ebitda",      label: t("company.pnl.ebitda"), value: fmtEur(latestPnl.ebitda), sub: growthPill(ebitdaGrowth), icon: <BarChart3 className="h-3 w-3" />, onClick: () => setEbitdaDrilldownOpen(true) },
+            { key: "ebitdaPct",   label: t("company.pnl.ebitdaPct"), value: marginPill(ebitdaPct), sub: null, icon: <Percent className="h-3 w-3" />, onClick: undefined },
+            { key: "ebit",        label: t("company.ebit"), value: fmtEur(latestPnl.ebit), sub: growthPill(ebitGrowth), icon: <Activity className="h-3 w-3" />, onClick: undefined },
+            { key: "ebitPct",     label: t("company.pnl.ebitPct"), value: marginPill(ebitPct), sub: null, icon: <Percent className="h-3 w-3" />, onClick: undefined },
+            { key: "netProfit",   label: t("company.pnl.netProfit"), value: fmtEur(latestPnl.netProfit), sub: null, icon: <DollarSign className="h-3 w-3" />, onClick: undefined },
+          ].map((m) => (
+            <div
+              key={m.key}
+              role={m.onClick ? "button" : undefined}
+              tabIndex={m.onClick ? 0 : undefined}
+              onClick={m.onClick}
+              onKeyDown={m.onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); m.onClick!(); } } : undefined}
+              title={m.onClick ? t("company.pnl.clickEbitdaDrilldown") : undefined}
+              className={`rounded-lg border border-slate-100 bg-white p-2.5 text-center ${
+                m.onClick ? "cursor-pointer hover:border-indigo-200 hover:bg-indigo-50/40 transition-colors" : ""
+              }`}
+            >
               <div className="flex items-center justify-center gap-1 text-[10px] text-slate-400 uppercase tracking-wider mb-1">
                 {m.icon} {m.label}
               </div>
@@ -344,6 +356,21 @@ export function PnlTab({
             </div>
           ))}
         </div>
+      )}
+      {/* EBITDA drill-down dialog — opened by the EBITDA KPI card above. */}
+      {latestPnl && financials?.rubric_data && (
+        <EbitdaDrilldown
+          open={ebitdaDrilldownOpen}
+          onClose={() => setEbitdaDrilldownOpen(false)}
+          fiscalYear={latestPnl.fiscal_year}
+          revenue={latestPnl.revenue}
+          grossMargin={latestPnl.grossMargin}
+          materials={(financials.rubric_data["60"]?.[String(latestPnl.fiscal_year)] as number | null) ?? null}
+          services={(financials.rubric_data["61"]?.[String(latestPnl.fiscal_year)] as number | null) ?? null}
+          personnel={(financials.rubric_data["62"]?.[String(latestPnl.fiscal_year)] as number | null) ?? null}
+          otherOpex={(financials.rubric_data["640/8"]?.[String(latestPnl.fiscal_year)] as number | null) ?? null}
+          ebitda={latestPnl.ebitda}
+        />
       )}
 
       {/* P&L waterfall — under the KPI cards, expanded by default (per

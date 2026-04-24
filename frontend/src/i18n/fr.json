@@ -299,6 +299,7 @@
       "grossMargin": "Marge brute",
       "ebitPct": "EBIT %",
       "ebitdaPct": "EBITDA %",
+      "clickEbitdaDrilldown": "Cliquer pour voir l'arbre de m\u00e9triques expliquant la composition de l'EBITDA",
       "sectionRevenue": "CHIFFRE D'AFFAIRES",
       "sectionOpCosts": "CHARGES D'EXPLOITATION",
       "sectionFinancial": "FINANCIER",

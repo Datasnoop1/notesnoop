@@ -1,0 +1,505 @@
+diff --git a/frontend/src/app/company/[cbe]/_tabs/pnl-tab.tsx b/frontend/src/app/company/[cbe]/_tabs/pnl-tab.tsx
+index 72f1fe7..9ae4a3f 100644
+--- a/frontend/src/app/company/[cbe]/_tabs/pnl-tab.tsx
++++ b/frontend/src/app/company/[cbe]/_tabs/pnl-tab.tsx
+@@ -30,6 +30,7 @@ import {
+ } from "recharts";
+ import { getCompanyFinancials, loadCompanyNBB } from "@/lib/api";
+ import { PnlWaterfall } from "./pnl-waterfall";
++import { EbitdaDrilldown } from "./ebitda-drilldown";
+ 
+ /* ---------- Chart tooltip (local) ---------- */
+ 
+@@ -87,6 +88,7 @@ export function PnlTab({
+   chartData,
+ }: PnlTabProps) {
+   const { t } = useTranslation();
++  const [ebitdaDrilldownOpen, setEbitdaDrilldownOpen] = React.useState(false);
+ 
+   if (!financials || financials.summary.length === 0) {
+     const isPdfOnly = financials?.pdf_only === true || nbbResult === "pdf-only";
+@@ -327,15 +329,25 @@ export function PnlTab({
+       {latestPnl && (
+         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
+           {[
+-            { label: t("company.pnl.revenue"), value: fmtEur(latestPnl.revenue), sub: growthPill(revGrowth), icon: <DollarSign className="h-3 w-3" /> },
+-            { label: t("company.pnl.grossMargin"), value: marginPill(grossMarginPct), sub: null, icon: <Percent className="h-3 w-3" /> },
+-            { label: t("company.pnl.ebitda"), value: fmtEur(latestPnl.ebitda), sub: growthPill(ebitdaGrowth), icon: <BarChart3 className="h-3 w-3" /> },
+-            { label: t("company.pnl.ebitdaPct"), value: marginPill(ebitdaPct), sub: null, icon: <Percent className="h-3 w-3" /> },
+-            { label: t("company.ebit"), value: fmtEur(latestPnl.ebit), sub: growthPill(ebitGrowth), icon: <Activity className="h-3 w-3" /> },
+-            { label: t("company.pnl.ebitPct"), value: marginPill(ebitPct), sub: null, icon: <Percent className="h-3 w-3" /> },
+-            { label: t("company.pnl.netProfit"), value: fmtEur(latestPnl.netProfit), sub: null, icon: <DollarSign className="h-3 w-3" /> },
+-          ].map((m, i) => (
+-            <div key={i} className="rounded-lg border border-slate-100 bg-white p-2.5 text-center">
++            { key: "revenue",     label: t("company.pnl.revenue"), value: fmtEur(latestPnl.revenue), sub: growthPill(revGrowth), icon: <DollarSign className="h-3 w-3" />, onClick: undefined },
++            { key: "grossMargin", label: t("company.pnl.grossMargin"), value: marginPill(grossMarginPct), sub: null, icon: <Percent className="h-3 w-3" />, onClick: undefined },
++            { key: "ebitda",      label: t("company.pnl.ebitda"), value: fmtEur(latestPnl.ebitda), sub: growthPill(ebitdaGrowth), icon: <BarChart3 className="h-3 w-3" />, onClick: () => setEbitdaDrilldownOpen(true) },
++            { key: "ebitdaPct",   label: t("company.pnl.ebitdaPct"), value: marginPill(ebitdaPct), sub: null, icon: <Percent className="h-3 w-3" />, onClick: undefined },
++            { key: "ebit",        label: t("company.ebit"), value: fmtEur(latestPnl.ebit), sub: growthPill(ebitGrowth), icon: <Activity className="h-3 w-3" />, onClick: undefined },
++            { key: "ebitPct",     label: t("company.pnl.ebitPct"), value: marginPill(ebitPct), sub: null, icon: <Percent className="h-3 w-3" />, onClick: undefined },
++            { key: "netProfit",   label: t("company.pnl.netProfit"), value: fmtEur(latestPnl.netProfit), sub: null, icon: <DollarSign className="h-3 w-3" />, onClick: undefined },
++          ].map((m) => (
++            <div
++              key={m.key}
++              role={m.onClick ? "button" : undefined}
++              tabIndex={m.onClick ? 0 : undefined}
++              onClick={m.onClick}
++              onKeyDown={m.onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); m.onClick!(); } } : undefined}
++              title={m.onClick ? t("company.pnl.clickEbitdaDrilldown") : undefined}
++              className={`rounded-lg border border-slate-100 bg-white p-2.5 text-center ${
++                m.onClick ? "cursor-pointer hover:border-indigo-200 hover:bg-indigo-50/40 transition-colors" : ""
++              }`}
++            >
+               <div className="flex items-center justify-center gap-1 text-[10px] text-slate-400 uppercase tracking-wider mb-1">
+                 {m.icon} {m.label}
+               </div>
+@@ -345,6 +357,21 @@ export function PnlTab({
+           ))}
+         </div>
+       )}
++      {/* EBITDA drill-down dialog — opened by the EBITDA KPI card above. */}
++      {latestPnl && financials?.rubric_data && (
++        <EbitdaDrilldown
++          open={ebitdaDrilldownOpen}
++          onClose={() => setEbitdaDrilldownOpen(false)}
++          fiscalYear={latestPnl.fiscal_year}
++          revenue={latestPnl.revenue}
++          grossMargin={latestPnl.grossMargin}
++          materials={(financials.rubric_data["60"]?.[String(latestPnl.fiscal_year)] as number | null) ?? null}
++          services={(financials.rubric_data["61"]?.[String(latestPnl.fiscal_year)] as number | null) ?? null}
++          personnel={(financials.rubric_data["62"]?.[String(latestPnl.fiscal_year)] as number | null) ?? null}
++          otherOpex={(financials.rubric_data["640/8"]?.[String(latestPnl.fiscal_year)] as number | null) ?? null}
++          ebitda={latestPnl.ebitda}
++        />
++      )}
+ 
+       {/* P&L waterfall — under the KPI cards, expanded by default (per
+           operator), year picker so they can switch fiscal year in-place. */}
+diff --git a/frontend/src/app/company/[cbe]/_tabs/pnl-waterfall.tsx b/frontend/src/app/company/[cbe]/_tabs/pnl-waterfall.tsx
+index c6b9633..f40c14f 100644
+--- a/frontend/src/app/company/[cbe]/_tabs/pnl-waterfall.tsx
++++ b/frontend/src/app/company/[cbe]/_tabs/pnl-waterfall.tsx
+@@ -5,18 +5,20 @@ import { ChevronRight, ChevronDown } from "lucide-react";
+ import { fmtEur } from "@/lib/format";
+ 
+ /* True floating horizontal waterfall.
+- *   - Milestones (Revenue / EBITDA / EBIT / Net profit) render as full bars
+- *     anchored to 0, width = milestone value as % of revenue.
+- *   - Deductions (Materials / Services / Personnel / OpEx / D&A / Fin /
+- *     Tax) render as FLOATING bars: each sits at the running balance,
+- *     reflecting exactly what was subtracted between two milestones.
++ *   - Milestones (Revenue / Gross margin / EBITDA / EBIT / Net profit) render
++ *     as full bars anchored to 0, width = milestone value as % of the domain.
++ *   - Deductions render as FLOATING bars between milestones: each sits at
++ *     the running balance, showing exactly what was subtracted.
+  *
+- * Year picker + softer palette; expanded by default (per operator).
++ * When Revenue is missing (abbreviated-scheme filings), the waterfall
++ * anchors on Gross margin instead of hiding entirely — otherwise companies
++ * that can't legally disclose turnover show an empty panel.
+  *
+  * Belgian GAAP rubrics (match backend whitelist in companies/financials.py):
+  *   70    Revenue
+  *   60    Materials
+  *   61    Services
++ *   9900  Gross margin
+  *   62    Personnel
+  *   640/8 Other operating costs
+  *   630   D&A
+@@ -70,13 +72,11 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
+ 
+   if (!years.length || fy == null) return null;
+ 
+-  const revenue = rub(rubrics, "70", fy);
+-  if (revenue <= 0) return null;
+-
+   // Read milestones first — we need them to compute the domain below,
+   // since any can go negative (EBITDA / EBIT / net profit for distressed
+   // companies) and should render left of the zero line.
+ 
++  const revenue = rub(rubrics, "70", fy);
+   const materials = Math.max(0, rub(rubrics, "60", fy));
+   const services = Math.max(0, rub(rubrics, "61", fy));
+   const personnel = Math.max(0, rub(rubrics, "62", fy));
+@@ -87,11 +87,27 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
+   const finCharges = Math.max(0, rub(rubrics, "65", fy));
+   const tax = Math.max(0, rub(rubrics, "67/77", fy));
+   const netProfit = rub(rubrics, "9904", fy);
++  // Gross margin (rubric 9900) — present for both model A and model B
++  // filings. Falls back to revenue - materials - services when the filing
++  // doesn't carry the headline subtotal explicitly.
++  const rawGm = rub(rubrics, "9900", fy);
++  const grossMarginFallback = revenue > 0 ? revenue - materials - services : 0;
++  const grossMargin = rawGm || grossMarginFallback;
++
++  // If neither revenue nor gross margin is usable, we can't anchor the
++  // bars — hide the waterfall. Before: we bailed out on missing revenue,
++  // which blanked the whole panel for abbreviated-scheme filers.
++  const hasRevenue = revenue > 0;
++  const hasGrossMargin = grossMargin > 0;
++  if (!hasRevenue && !hasGrossMargin) return null;
+ 
+-  // Domain includes 0 (zero line), revenue (ceiling), and all milestone
+-  // values so negative EBITDA / EBIT / net profit render left of zero
+-  // without clipping.
+-  const domainPoints = [0, revenue, ebitda, ebit, netProfit];
++  // Anchor: prefer revenue (full waterfall); otherwise start from gross
++  // margin, skipping cost-of-sales entirely.
++  const topValue = hasRevenue ? revenue : grossMargin;
++
++  // Domain includes the anchor, the zero line, and every milestone so
++  // negative EBIT/EBITDA/net profit render left of zero without clipping.
++  const domainPoints = [0, topValue, grossMargin, ebitda, ebit, netProfit];
+   const domainMin = Math.min(...domainPoints);
+   const domainMax = Math.max(...domainPoints);
+   const domainRange = Math.max(1, domainMax - domainMin);
+@@ -105,6 +121,10 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
+   const COL = {
+     revenue:    "bg-slate-300",
+     revenueTxt: "text-slate-700",
++    // Gross margin sits between the revenue band and EBITDA: slightly darker
++    // than revenue so it reads as a distinct waypoint.
++    grossMargin: "bg-slate-400",
++    grossMarginTxt: "text-slate-800",
+     milestone:  "bg-slate-300",
+     milestoneTxt: "text-slate-700",
+     milestoneStrong: "bg-slate-400",
+@@ -163,39 +183,77 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
+     });
+   };
+ 
+-  pushMilestone("Revenue", revenue, COL.revenue, COL.revenueTxt, "100.0%");
++  // === Phase 1: Revenue → Gross margin (only when revenue is disclosed) ===
++  // Abbreviated-scheme filers leave rubric 70 blank; in that case we start
++  // the whole chart at Gross margin instead.
++  let running: number;
++  if (hasRevenue) {
++    pushMilestone("Revenue", revenue, COL.revenue, COL.revenueTxt, "100.0%");
++    running = revenue;
++    const pushDed = (label: string, v: number) => {
++      if (v <= 0) return;
++      const before = running;
++      running -= v;
++      pushBar(label, before, running);
++    };
++    // Cost of sales: breakdown between materials + services (plus any
++    // reconciling residual so the staircase lands precisely on the gross
++    // margin milestone).
++    const totalCos = revenue - grossMargin;
++    const knownCos = materials + services;
++    const cosUnder = Math.max(0, totalCos - knownCos);
++    const cosOver = Math.max(0, knownCos - totalCos);
++    pushDed("Materials", materials);
++    pushDed("Services", services);
++    if (cosUnder > 0) pushDed("Other cost of sales", cosUnder);
++    if (cosOver > 0) {
++      // Known breakdown sums beyond the filed gross margin — bump running
++      // back up with a reconciling "Other revenue" line so the staircase
++      // still lands on the gross margin milestone.
++      const before = running;
++      running += cosOver;
++      pushBar("Other revenue", before, running);
++    }
++  } else {
++    running = grossMargin;
++  }
++
++  // Gross margin milestone — always shown (this is the whole point of
++  // #7 and #9 in the backlog). Percent label relative to revenue when we
++  // have it; otherwise absolute-only.
++  pushMilestone(
++    "Gross margin",
++    grossMargin,
++    COL.grossMargin,
++    COL.grossMarginTxt,
++    hasRevenue ? `${(grossMargin / revenue * 100).toFixed(1)}%` : undefined,
++  );
+ 
+-  // Between Revenue and EBITDA: total gap = revenue − ebitda. The rubric
+-  // sum can be BELOW the gap (add "Other OpEx" residual) or ABOVE it
+-  // (add "Other op income" that lifts running back up to EBITDA). Either
+-  // way, the staircase always ends exactly at the EBITDA milestone —
+-  // even when EBITDA is negative (the staircase then crosses zero).
+-  const totalOpex = revenue - ebitda;
+-  const knownOpex = materials + services + personnel + otherOp;
+-  const opexUnder = Math.max(0, totalOpex - knownOpex);
+-  const opexOver  = Math.max(0, knownOpex - totalOpex);
++  // === Phase 2: Gross margin → EBITDA ===
++  const totalGmToEbitda = grossMargin - ebitda;
++  const knownGmToEbitda = personnel + otherOp;
++  const gmUnder = Math.max(0, totalGmToEbitda - knownGmToEbitda);
++  const gmOver = Math.max(0, knownGmToEbitda - totalGmToEbitda);
+ 
+-  let running = revenue;
+-  const pushDed = (label: string, v: number) => {
++  running = grossMargin;
++  const pushGmDed = (label: string, v: number) => {
+     if (v <= 0) return;
+     const before = running;
+     running -= v;
+     pushBar(label, before, running);
+   };
+-  const pushAdd = (label: string, v: number) => {
++  const pushGmAdd = (label: string, v: number) => {
+     if (v <= 0) return;
+     const before = running;
+     running += v;
+     pushBar(label, before, running);
+   };
+-  pushDed("Materials",  materials);
+-  pushDed("Services",   services);
+-  pushDed("Personnel",  personnel);
+-  pushDed("Other OpEx", otherOp + opexUnder);
+-  if (opexOver > 0) pushAdd("Other op income", opexOver);
++  pushGmDed("Personnel",  personnel);
++  pushGmDed("Other OpEx", otherOp + gmUnder);
++  if (gmOver > 0) pushGmAdd("Other op income", gmOver);
+ 
+   pushMilestone("EBITDA", ebitda, COL.milestone, COL.milestoneTxt,
+-                revenue > 0 ? `${(ebitda / revenue * 100).toFixed(1)}%` : undefined);
++                hasRevenue ? `${(ebitda / revenue * 100).toFixed(1)}%` : undefined);
+ 
+   // D&A bridges EBITDA → EBIT (positive D&A only; skip if zero/negative).
+   if (Math.abs(ebitda - ebit) > 0.01) pushBar("D&A", ebitda, ebit);
+diff --git a/frontend/src/app/sitemap.ts b/frontend/src/app/sitemap.ts
+index 7a47aed..30c34a7 100644
+--- a/frontend/src/app/sitemap.ts
++++ b/frontend/src/app/sitemap.ts
+@@ -1,5 +1,14 @@
+ import type { MetadataRoute } from "next";
+ 
++// Force per-request rendering. At build time the backend container isn't
++// reachable from the still-building frontend image, so SSG would cache an
++// empty company list and starve Google of ~170k company URLs. With
++// force-dynamic, Next.js evaluates `sitemap()` on every request and my
++// console.error logs make failures visible. The fetch itself still
++// revalidates hourly via `next: { revalidate: 3600 }` below so repeated
++// crawler hits don't thrash the DB.
++export const dynamic = "force-dynamic";
++
+ const BASE = "https://datasnoop.be";
+ // Sitemap runs server-side during SSR, so prefer the in-cluster API URL
+ // (API_URL_INTERNAL=http://backend:8000 inside Docker) and only fall back to
+@@ -30,7 +39,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+   } else {
+     try {
+       const res = await fetch(`${API_BASE}/api/sitemap/companies`, {
+-        next: { revalidate: 86400 },
++        next: { revalidate: 3600 },
+       });
+       if (!res.ok) {
+         console.error(`[sitemap] ${API_BASE}/api/sitemap/companies returned ${res.status}`);
+diff --git a/frontend/src/i18n/en.json b/frontend/src/i18n/en.json
+index 550fd66..142aedf 100644
+--- a/frontend/src/i18n/en.json
++++ b/frontend/src/i18n/en.json
+@@ -299,6 +299,7 @@
+       "grossMargin": "Gross Margin",
+       "ebitPct": "EBIT %",
+       "ebitdaPct": "EBITDA %",
++      "clickEbitdaDrilldown": "Click to see the metric tree that explains how EBITDA is built",
+       "sectionRevenue": "REVENUE",
+       "sectionOpCosts": "OPERATING COSTS",
+       "sectionFinancial": "FINANCIAL",
+diff --git a/frontend/src/i18n/fr.json b/frontend/src/i18n/fr.json
+index 1cc49a9..9b19805 100644
+--- a/frontend/src/i18n/fr.json
++++ b/frontend/src/i18n/fr.json
+@@ -299,6 +299,7 @@
+       "grossMargin": "Marge brute",
+       "ebitPct": "EBIT %",
+       "ebitdaPct": "EBITDA %",
++      "clickEbitdaDrilldown": "Cliquer pour voir l'arbre de m\u00e9triques expliquant la composition de l'EBITDA",
+       "sectionRevenue": "CHIFFRE D'AFFAIRES",
+       "sectionOpCosts": "CHARGES D'EXPLOITATION",
+       "sectionFinancial": "FINANCIER",
+diff --git a/frontend/src/i18n/nl.json b/frontend/src/i18n/nl.json
+index 7d8f9d4..b9b3aba 100644
+--- a/frontend/src/i18n/nl.json
++++ b/frontend/src/i18n/nl.json
+@@ -299,6 +299,7 @@
+       "grossMargin": "Brutomarge",
+       "ebitPct": "EBIT %",
+       "ebitdaPct": "EBITDA %",
++      "clickEbitdaDrilldown": "Klik om de metriekenboom te zien die EBITDA opbouwt",
+       "sectionRevenue": "OMZET",
+       "sectionOpCosts": "BEDRIJFSKOSTEN",
+       "sectionFinancial": "FINANCIEEL",
+"use client";
+
+import React from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { fmtEur } from "@/lib/format";
+import { ChevronRight } from "lucide-react";
+
+/* EBITDA metric tree — operator-requested drill-down (#11).
+ *
+ * Shows how EBITDA for a given fiscal year is composed:
+ *
+ *   Revenue
+ *     − Materials
+ *     − Services
+ *     = Gross margin  (% of revenue)
+ *     − Personnel
+ *     − Other OpEx
+ *     = EBITDA        (% of revenue)
+ *
+ * Each row has a label, a signed value, and optional percent-of-revenue.
+ * When revenue is missing (abbreviated-scheme filers), we start from gross
+ * margin — matching the waterfall's fallback.
+ */
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  fiscalYear: number;
+  revenue: number | null;
+  grossMargin: number | null;
+  materials: number | null;
+  services: number | null;
+  personnel: number | null;
+  otherOpex: number | null;
+  ebitda: number | null;
+}
+
+type Kind = "header" | "deduction" | "subtotal";
+
+interface Row {
+  label: string;
+  value: number | null;
+  kind: Kind;
+  pctOfRevenue?: string;
+  indent?: boolean;
+}
+
+const signedEur = (v: number | null, kind: Kind): string => {
+  if (v == null) return "—";
+  if (kind === "deduction") return `\u2212${fmtEur(Math.abs(v))}`;
+  return fmtEur(v);
+};
+
+export function EbitdaDrilldown({
+  open,
+  onClose,
+  fiscalYear,
+  revenue,
+  grossMargin,
+  materials,
+  services,
+  personnel,
+  otherOpex,
+  ebitda,
+}: Props) {
+  const hasRevenue = revenue != null && revenue > 0;
+  const pct = (v: number | null): string | undefined => {
+    if (!hasRevenue || v == null) return undefined;
+    return `${(v / (revenue as number) * 100).toFixed(1)}%`;
+  };
+
+  // Reconciling residuals so the tree sums exactly to the shown EBITDA,
+  // even if the sum of raw rubrics diverges slightly from the filed
+  // subtotal. "Other cost of sales" lands below Revenue→GM, "Other op
+  // costs" lands below GM→EBITDA.
+  const cosKnown = (materials ?? 0) + (services ?? 0);
+  const cosTotal = hasRevenue && grossMargin != null ? (revenue as number) - grossMargin : null;
+  const cosRecon = cosTotal != null ? cosTotal - cosKnown : 0;
+
+  const opexKnown = (personnel ?? 0) + (otherOpex ?? 0);
+  const opexTotal = grossMargin != null && ebitda != null ? grossMargin - ebitda : null;
+  const opexRecon = opexTotal != null ? opexTotal - opexKnown : 0;
+
+  const rows: Row[] = [];
+  if (hasRevenue) {
+    rows.push({ label: "Revenue", value: revenue, kind: "header", pctOfRevenue: "100.0%" });
+    if (materials) rows.push({ label: "Materials", value: materials, kind: "deduction", indent: true, pctOfRevenue: pct(materials) });
+    if (services) rows.push({ label: "Services", value: services, kind: "deduction", indent: true, pctOfRevenue: pct(services) });
+    if (Math.abs(cosRecon) > 0.5) {
+      rows.push({
+        label: cosRecon > 0 ? "Other cost of sales" : "Other revenue",
+        value: Math.abs(cosRecon),
+        kind: "deduction",
+        indent: true,
+      });
+    }
+  }
+  rows.push({
+    label: "Gross margin",
+    value: grossMargin,
+    kind: "subtotal",
+    pctOfRevenue: pct(grossMargin),
+  });
+  if (personnel) rows.push({ label: "Personnel", value: personnel, kind: "deduction", indent: true, pctOfRevenue: pct(personnel) });
+  if (otherOpex) rows.push({ label: "Other operating costs", value: otherOpex, kind: "deduction", indent: true, pctOfRevenue: pct(otherOpex) });
+  if (Math.abs(opexRecon) > 0.5) {
+    rows.push({
+      label: opexRecon > 0 ? "Other op. costs (residual)" : "Other op. income",
+      value: Math.abs(opexRecon),
+      kind: "deduction",
+      indent: true,
+    });
+  }
+  rows.push({
+    label: "EBITDA",
+    value: ebitda,
+    kind: "subtotal",
+    pctOfRevenue: pct(ebitda),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
+      <DialogContent className="sm:max-w-md p-0 overflow-hidden">
+        <DialogHeader className="px-4 py-3 border-b border-slate-100">
+          <DialogTitle className="text-sm font-semibold text-slate-800">
+            EBITDA drill-down
+            <span className="ml-2 text-[11px] font-normal text-slate-400">FY{fiscalYear}</span>
+          </DialogTitle>
+        </DialogHeader>
+        <div className="px-4 py-3">
+          <table className="w-full text-[12px]">
+            <tbody>
+              {rows.map((r, i) => {
+                const isSubtotal = r.kind === "subtotal";
+                const isDed = r.kind === "deduction";
+                return (
+                  <tr
+                    key={`${r.label}-${i}`}
+                    className={isSubtotal ? "border-t border-slate-200" : ""}
+                  >
+                    <td
+                      className={`py-1.5 ${r.indent ? "pl-5 text-slate-500" : "pl-0"} ${
+                        isSubtotal ? "font-semibold text-slate-800" : ""
+                      }`}
+                    >
+                      {r.indent && <ChevronRight className="inline h-3 w-3 text-slate-300 -mt-0.5 mr-1" />}
+                      {isDed ? "− " : isSubtotal ? "= " : ""}
+                      {r.label}
+                    </td>
+                    <td
+                      className={`py-1.5 text-right font-mono whitespace-nowrap ${
+                        isSubtotal ? "font-semibold text-slate-900" : isDed ? "text-slate-500" : "text-slate-800"
+                      }`}
+                    >
+                      {signedEur(r.value, r.kind)}
+                    </td>
+                    <td
+                      className={`py-1.5 pl-3 text-right font-mono w-[60px] ${
+                        isSubtotal ? "text-slate-600 font-semibold" : "text-slate-400"
+                      }`}
+                    >
+                      {r.pctOfRevenue ?? ""}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="mt-3 text-[10px] text-slate-400 italic">
+            {hasRevenue
+              ? "Tree reconciles to the filed EBITDA (rubric 9901 + 630). Any gap between raw rubrics and the filed subtotal lands in \u201Cother\u201D so the sum ties out."
+              : "Revenue not disclosed (abbreviated-scheme filing). Tree starts at gross margin."}
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
