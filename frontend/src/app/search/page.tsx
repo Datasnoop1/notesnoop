@@ -130,27 +130,43 @@ function UnifiedSearchPageInner() {
       return;
     }
 
-    debounceRef.current = setTimeout(async () => {
+    // 100ms debounce — feels like instant-search-as-you-type. Each
+    // keystroke aborts the previous in-flight requests via
+    // AbortController, so even if the user types fast we only pay for
+    // the last batch. Zero debounce would cost ~8 requests per word;
+    // 100ms collapses typical typing bursts into 2-3 requests.
+    debounceRef.current = setTimeout(() => {
       const ac = new AbortController();
       abortRef.current = ac;
       setLoading(true);
       setSearched(true);
-      try {
-        const [c, p, evRes] = await Promise.all([
-          searchCompaniesBucketed(q.trim()).catch(() => null),
-          searchPeople(q.trim()).catch(() => [] as PersonResult[]),
-          searchEvents(q.trim(), { limit: 10 }).catch(
-            () => ({ query: q, results: [] as StaatsbladEvent[], count: 0 })
-          ),
-        ]);
-        if (ac.signal.aborted) return;
-        setCompanies(c);
-        setPeople(p);
-        setEvents(evRes.results || []);
-      } finally {
-        if (!ac.signal.aborted) setLoading(false);
-      }
-    }, 300);
+
+      // Fire the three calls independently and render each as it
+      // returns. Previously we `await Promise.all([...])`, so the
+      // slowest call (usually searchEvents, which does a pgvector
+      // embedding lookup and can hit OpenRouter on cache miss) blocked
+      // companies + people from painting. Now commercial + people
+      // typically appear within ~200ms and events fill in later.
+      let remaining = 3;
+      const done = () => {
+        if (--remaining === 0 && !ac.signal.aborted) setLoading(false);
+      };
+
+      searchCompaniesBucketed(q.trim())
+        .then((c) => { if (!ac.signal.aborted) setCompanies(c); })
+        .catch(() => {})
+        .finally(done);
+
+      searchPeople(q.trim())
+        .then((p) => { if (!ac.signal.aborted) setPeople(p); })
+        .catch(() => {})
+        .finally(done);
+
+      searchEvents(q.trim(), { limit: 10 })
+        .then((ev) => { if (!ac.signal.aborted) setEvents(ev.results || []); })
+        .catch(() => { if (!ac.signal.aborted) setEvents([]); })
+        .finally(done);
+    }, 200);
   }, []);
 
   useEffect(() => {

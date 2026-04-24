@@ -224,9 +224,13 @@ token_and AS (
     LIMIT 200
 ),
 denom_match AS (
+    -- Denomination fallback — expensive on 3.3M rows. Gated to ≥4
+    -- chars so short prefixes don't fan out. Exact/prefix/token-AND
+    -- arms on company_info already cover short queries well.
     SELECT d.entity_number AS enterprise_number, 0.45::real AS base
     FROM denomination d
     WHERE %(nq)s IS NOT NULL
+      AND length(%(nq)s) >= 4
       AND d.type_of_denomination = '001'
       AND d.language IN ('2', '1')
       AND d.denomination_normalized IS NOT NULL
@@ -237,12 +241,16 @@ denom_match AS (
     LIMIT 200
 ),
 trigram_match AS (
+    -- Trigram fuzzy fallback. Gated to ≥4 chars + stricter threshold
+    -- (0.35, up from 0.3) so short queries like "Ann" don't fan out
+    -- to every "Anna/Ann/Anne/Annie" in a 170K-row table.
     SELECT ci.enterprise_number,
            LEAST(0.4, similarity(ci.name_normalized, %(nq)s))::real AS base
     FROM company_info ci
     WHERE %(nq)s IS NOT NULL
+      AND length(%(nq)s) >= 4
       AND ci.name_normalized %% %(nq)s
-      AND similarity(ci.name_normalized, %(nq)s) > 0.3
+      AND similarity(ci.name_normalized, %(nq)s) > 0.35
     LIMIT 200
 ),
 addr_match AS (
