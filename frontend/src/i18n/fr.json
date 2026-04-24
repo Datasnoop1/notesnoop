@@ -235,6 +235,8 @@
     "notFound": "Entreprise introuvable",
     "couldNotLoad": "n'a pas pu être chargée",
     "backToSearch": "Retour à la recherche",
+    "copyCbe": "Copier le num\u00e9ro BCE / TVA",
+    "copied": "Copi\u00e9",
     "findSimilar": "Trouver similaire",
     "compare": "Comparer",
     "exportExcel": "Exporter vers Excel",
@@ -436,7 +438,11 @@
       "nodesConnections": "{nodes} noeuds, {connections} connexions",
       "depthReached": "Profondeur atteinte : {depth}",
       "pressEsc": "Appuyez Echap pour quitter le plein ecran",
-      "endedMandate": "Mandat termin\u00e9"
+      "endedMandate": "Mandat termin\u00e9",
+      "layers": "Couches :",
+      "layer_shareholders": "Actionnaires",
+      "layer_directors": "Administrateurs",
+      "layer_subsidiaries": "Filiales"
     }
   },
 

@@ -32,6 +32,7 @@ interface Segment {
   label: string;
   value: number;
   color: string;     // bg-xxx class
+  text?: string;     // tailwind text class; default slate-700 for light bgs
 }
 
 interface Props {
@@ -63,14 +64,15 @@ export function BalanceSheetBridge({ bsRows, defaultCollapsed = false }: Props) 
   const cash = Math.max((row.cash ?? 0) + (row.currentInvestments ?? 0), 0);
   const otherA = Math.max(target - fa - inv - rec - cash, 0);
 
-  // Same gray palette as the P&L and cash-flow waterfalls — milestones
-  // (Fixed assets / Cash / Equity) use slate-400, mid categories slate-300,
-  // residuals slate-100. Keeps the whole financials suite visually quiet.
+  // Expanded gray scale so neighbouring segments are visually distinguishable.
+  // Asset side: fixed assets (anchor) darkest; liquidity (cash) also dark; mid
+  // working-capital items split between slate-300 and slate-200; residual
+  // slate-100. Gives five distinct tones across the bar.
   const assetSegs: Segment[] = [
-    { label: "Fixed assets",  value: fa,     color: "bg-slate-400" },
+    { label: "Fixed assets",  value: fa,     color: "bg-slate-500", text: "text-white" },
     { label: "Inventories",   value: inv,    color: "bg-slate-300" },
-    { label: "Receivables",   value: rec,    color: "bg-slate-300" },
-    { label: "Cash",          value: cash,   color: "bg-slate-400" },
+    { label: "Receivables",   value: rec,    color: "bg-slate-200" },
+    { label: "Cash",          value: cash,   color: "bg-slate-400", text: "text-white" },
     { label: "Other",         value: otherA, color: "bg-slate-100" },
   ];
 
@@ -83,11 +85,14 @@ export function BalanceSheetBridge({ bsRows, defaultCollapsed = false }: Props) 
   const tp = Math.max(row.tradePayables ?? 0, 0);
   const otherL = Math.max(target - eq - ltd - std - tp, 0);
 
+  // Liability side: equity (anchor) darkest; LT debt next; ST debt and trade
+  // payables mid tones; residual lightest. Each bucket has its own shade so
+  // the bar reads left-to-right as a continuous gradient.
   const liabSegs: Segment[] = [
-    { label: "Equity",           value: eq,     color: "bg-slate-500" },
-    { label: "LT debt",          value: ltd,    color: "bg-slate-300" },
+    { label: "Equity",           value: eq,     color: "bg-slate-600", text: "text-white" },
+    { label: "LT debt",          value: ltd,    color: "bg-slate-400", text: "text-white" },
     { label: "ST fin. debt",     value: std,    color: "bg-slate-300" },
-    { label: "Trade payables",   value: tp,     color: "bg-slate-300" },
+    { label: "Trade payables",   value: tp,     color: "bg-slate-200" },
     { label: "Other",            value: otherL, color: "bg-slate-100" },
   ];
 
@@ -103,7 +108,7 @@ export function BalanceSheetBridge({ bsRows, defaultCollapsed = false }: Props) 
           return (
             <div
               key={s.label}
-              className={`${s.color} h-full flex items-center justify-center text-[10px] text-slate-700 font-medium overflow-hidden transition-all`}
+              className={`${s.color} h-full flex items-center justify-center text-[10px] ${s.text ?? "text-slate-700"} font-medium overflow-hidden transition-all`}
               style={{ width: `${pct}%` }}
               title={`${s.label}: ${fmtEur(s.value)} (${pct.toFixed(1)}%)`}
             >

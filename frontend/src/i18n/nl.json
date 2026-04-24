@@ -235,6 +235,8 @@
     "notFound": "Bedrijf niet gevonden",
     "couldNotLoad": "kon niet worden geladen",
     "backToSearch": "Terug naar zoeken",
+    "copyCbe": "KBO / BTW-nummer kopi\u00ebren",
+    "copied": "Gekopieerd",
     "findSimilar": "Vergelijkbaar zoeken",
     "compare": "Vergelijken",
     "exportExcel": "Exporteren naar Excel",
@@ -436,7 +438,11 @@
       "nodesConnections": "{nodes} knooppunten, {connections} verbindingen",
       "depthReached": "Bereikte diepte: {depth}",
       "pressEsc": "Druk Esc om volledig scherm te sluiten",
-      "endedMandate": "Be\u00ebindigd mandaat"
+      "endedMandate": "Be\u00ebindigd mandaat",
+      "layers": "Lagen:",
+      "layer_shareholders": "Aandeelhouders",
+      "layer_directors": "Bestuurders",
+      "layer_subsidiaries": "Dochters"
     }
   },
 

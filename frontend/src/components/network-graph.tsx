@@ -44,14 +44,44 @@ function isPersonNodeId(id: string | undefined): id is string {
   return typeof id === "string" && id.startsWith("person:");
 }
 
-/* Depth-based color palette (darker = closer to target) */
+/* Depth-based color palette (darker = closer to target).
+ * Depths 3 and 4 used to fade into the white canvas (#a5b4fc / #c7d2fe); the
+ * saturated variants below keep peripheral nodes readable. */
 const DEPTH_COLORS: Record<number, string> = {
   0: "#4f46e5", // indigo-600 — target company
   1: "#6366f1", // indigo-500 — direct
   2: "#818cf8", // indigo-400 — 2nd degree
-  3: "#a5b4fc", // indigo-300 — 3rd degree
-  4: "#c7d2fe", // indigo-200 — 4th degree
+  3: "#8b5cf6", // violet-500 — 3rd degree
+  4: "#a78bfa", // violet-400 — 4th degree
 };
+
+type Layer = "shareholders" | "directors" | "subsidiaries";
+
+/* Map an edge's relation string (lowercased) to a visibility-toggle bucket.
+ * Returns null for "other" so toggles never remove structural edges that
+ * aren't clearly one of the three roles. */
+function classifyRelation(rel: string | undefined): Layer | null {
+  if (!rel) return null;
+  const r = rel.toLowerCase();
+  if (r.includes("shareholder") || r.includes("aandeelhouder") || r.includes("actionnaire")) return "shareholders";
+  if (
+    r.includes("subsidiary") ||
+    r.includes("participating") ||
+    r.includes("deelneming") ||
+    r.includes("filiale") ||
+    r.includes("participation")
+  ) return "subsidiaries";
+  if (
+    r.includes("administrator") ||
+    r.includes("director") ||
+    r.includes("bestuurder") ||
+    r.includes("manager") ||
+    r.includes("administrateur") ||
+    r.includes("gérant") ||
+    r.includes("zaakvoerder")
+  ) return "directors";
+  return null;
+}
 
 export default function NetworkGraph({ cbe, companyName }: Props) {
   const { t } = useTranslation();
@@ -75,6 +105,18 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
   // the operator jump back to the original.
   const [centerNodeId, setCenterNodeId] = useState<string>(cbe);
   const [centerLabel, setCenterLabel] = useState<string>(companyName);
+  // Role-based layer visibility. Each toggle hides edges of that role; nodes
+  // that are only reachable via hidden edges are removed in a second pass so
+  // the graph stays visually consistent. Center stays anchored regardless.
+  const [hiddenLayers, setHiddenLayers] = useState<Set<Layer>>(new Set());
+  const toggleLayer = useCallback((layer: Layer) => {
+    setHiddenLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(layer)) next.delete(layer);
+      else next.add(layer);
+      return next;
+    });
+  }, []);
   // Reset to the profile's CBE whenever the parent route changes.
   useEffect(() => {
     setCenterNodeId(cbe);
@@ -217,16 +259,41 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
     return "#94a3b8";
   };
 
+  // Drop edges whose role category is currently hidden. "Other" edges
+  // (unclassified relations) always stay so we don't accidentally prune
+  // structural links.
+  const visibleEdges = data.edges.filter((e) => {
+    const cat = classifyRelation(e.relation);
+    return cat == null || !hiddenLayers.has(cat);
+  });
+
+  // After filtering edges, drop nodes that have no surviving edges — except
+  // the current centre node, which stays anchored so the graph never empties.
+  const connectedIds = new Set<string>([centerNodeId]);
+  for (const e of visibleEdges) {
+    connectedIds.add(e.source);
+    connectedIds.add(e.target);
+  }
+  const visibleNodes = data.nodes.filter((n) => connectedIds.has(n.id));
+
+  // Per-node in-degree — used to bump the radius of nodes many edges point at
+  // so shareholding hubs / parent companies are visually prominent even at
+  // depth 3–4 where colour cues are subtle.
+  const inDegree: Record<string, number> = {};
+  for (const e of visibleEdges) {
+    inDegree[e.target] = (inDegree[e.target] || 0) + 1;
+  }
+
   const graphData = {
-    nodes: data.nodes.map((n) => ({
+    nodes: visibleNodes.map((n) => ({
       id: n.id,
       label: n.label,
       type: n.type,
       depth: n.depth,
-      val: n.id === centerNodeId ? 3 : 1,
+      indeg: inDegree[n.id] || 0,
+      val: n.id === centerNodeId ? 3 : 1 + Math.min(inDegree[n.id] || 0, 6) * 0.25,
     })),
-    // Include ALL edges from the backend (inter-node connections for depth 2+)
-    links: data.edges.map((e) => ({
+    links: visibleEdges.map((e) => ({
       source: e.source,
       target: e.target,
       label: e.pct ? `${e.pct}%` : e.relation,
@@ -329,6 +396,39 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                 {t(`company.networkTab.degree${d}`)}
               </button>
             ))}
+            <span className="ml-3 text-xs text-slate-500 font-medium">
+              {t("company.networkTab.layers")}
+            </span>
+            {(["shareholders", "directors", "subsidiaries"] as Layer[]).map((layer) => {
+              const shown = !hiddenLayers.has(layer);
+              const label = t(`company.networkTab.layer_${layer}`);
+              return (
+                <button
+                  key={layer}
+                  onClick={() => toggleLayer(layer)}
+                  aria-pressed={shown}
+                  title={shown ? `Hide ${label}` : `Show ${label}`}
+                  className={`px-3 py-2 md:px-2.5 md:py-1 text-xs rounded-md font-medium transition-colors inline-flex items-center gap-1 ${
+                    shown
+                      ? "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                      : "bg-white text-slate-400 border border-slate-200 line-through hover:bg-slate-50"
+                  }`}
+                >
+                  <span
+                    className={`inline-block w-2 h-2 rounded-full ${
+                      shown
+                        ? layer === "shareholders"
+                          ? "bg-emerald-500"
+                          : layer === "subsidiaries"
+                            ? "bg-amber-500"
+                            : "bg-slate-400"
+                        : "bg-slate-200"
+                    }`}
+                  />
+                  {label}
+                </button>
+              );
+            })}
             <div className="ml-auto flex items-center gap-2">
               <button
                 onClick={() => {
@@ -429,14 +529,17 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                 ctx.fillText(link.label, mx, my);
               }}
               nodeCanvasObject={(
-                node: { x?: number; y?: number; id?: string; label?: string; type?: string; depth?: number },
+                node: { x?: number; y?: number; id?: string; label?: string; type?: string; depth?: number; indeg?: number },
                 ctx: CanvasRenderingContext2D,
                 globalScale: number
               ) => {
                 const x = node.x || 0;
                 const y = node.y || 0;
                 const isCenter = node.id === cbe;
-                const r = isCenter ? 12 : (node.depth != null ? Math.max(4, 8 - node.depth) : 5);
+                // Base radius from depth, plus a small bump for hubs (many incoming
+                // edges) so shareholding anchors stand out even at peripheral depth.
+                const baseR = isCenter ? 12 : (node.depth != null ? Math.max(4, 8 - node.depth) : 5);
+                const r = isCenter ? baseR : baseR + Math.min(node.indeg ?? 0, 8) * 0.5;
                 const color = nodeColor(node);
 
                 // Circle -- central company is bigger with bold border
@@ -457,12 +560,13 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                   ctx.stroke();
                 }
 
-                // Label
+                // Label — floor font size a touch higher so peripheral nodes stay
+                // legible when the canvas zooms out on dense graphs.
                 if (globalScale > 0.5) {
                   const label = (node.label || "").substring(0, 30);
                   const fontSize = isCenter
-                    ? Math.min(14 / globalScale, 16)
-                    : Math.min(11 / globalScale, 13);
+                    ? Math.min(14 / globalScale, 18)
+                    : Math.min(11 / globalScale, 14);
                   ctx.font = `${isCenter ? "bold " : ""}${fontSize}px Inter, sans-serif`;
                   ctx.textAlign = "center";
                   ctx.textBaseline = "top";

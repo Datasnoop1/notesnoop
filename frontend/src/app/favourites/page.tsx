@@ -18,6 +18,12 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   getFavourites,
   removeFavourite,
   getFavouriteProjects,
@@ -161,137 +167,138 @@ function ProjectCard({
             </Badge>
           </button>
           <div className="flex items-center gap-1 shrink-0 ml-2">
-            <div className="relative">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-10 md:h-7 px-3 md:px-2 text-xs text-indigo-600 hover:text-indigo-800"
-                onClick={() => setShowAddMenu((prev) => !prev)}
-              >
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                {t("favourites.add")}
-              </Button>
-              {showAddMenu && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => { setShowAddMenu(false); setAddSearch(""); setAddMode("search"); }}
-                  />
-                  <div className="absolute right-0 top-full mt-1 z-50 w-[calc(100vw-2rem)] sm:w-[28rem] max-w-[28rem] bg-white border border-slate-200 rounded-lg shadow-xl">
-                    {/* Tab toggle: Search / From Favourites */}
-                    <div className="flex border-b border-slate-100">
-                      <button
-                        onClick={() => setAddMode("search")}
-                        className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
-                          addMode === "search"
-                            ? "border-indigo-500 text-indigo-600"
-                            : "border-transparent text-slate-400 hover:text-slate-600"
-                        }`}
-                      >
-                        <Search className="h-3 w-3" /> {t("favourites.searchTab")}
-                      </button>
-                      <button
-                        onClick={() => setAddMode("favourites")}
-                        className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
-                          addMode === "favourites"
-                            ? "border-indigo-500 text-indigo-600"
-                            : "border-transparent text-slate-400 hover:text-slate-600"
-                        }`}
-                      >
-                        <Star className="h-3 w-3" /> {t("favourites.fromFavouritesTab")}
-                      </button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-10 md:h-7 px-3 md:px-2 text-xs text-indigo-600 hover:text-indigo-800"
+              onClick={() => setShowAddMenu(true)}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              {t("favourites.add")}
+            </Button>
+            <Dialog
+              open={showAddMenu}
+              onOpenChange={(v) => {
+                setShowAddMenu(v);
+                if (!v) {
+                  setAddSearch("");
+                  setAddMode("search");
+                }
+              }}
+            >
+              <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
+                <DialogHeader className="px-4 py-3 border-b border-slate-100">
+                  <DialogTitle className="text-sm font-semibold text-slate-800 truncate">
+                    {t("common.addToProject")} <span className="text-slate-400 font-normal">— {project.name}</span>
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="flex border-b border-slate-100">
+                  <button
+                    onClick={() => setAddMode("search")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 ${
+                      addMode === "search"
+                        ? "border-indigo-500 text-indigo-600"
+                        : "border-transparent text-slate-400 hover:text-slate-600"
+                    }`}
+                  >
+                    <Search className="h-3.5 w-3.5" /> {t("favourites.searchTab")}
+                  </button>
+                  <button
+                    onClick={() => setAddMode("favourites")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 ${
+                      addMode === "favourites"
+                        ? "border-indigo-500 text-indigo-600"
+                        : "border-transparent text-slate-400 hover:text-slate-600"
+                    }`}
+                  >
+                    <Star className="h-3.5 w-3.5" /> {t("favourites.fromFavouritesTab")}
+                  </button>
+                </div>
+                {addMode === "search" && (
+                  <>
+                    <div className="p-3 border-b border-slate-100">
+                      <Input
+                        placeholder={t("favourites.searchCompanyPlaceholder")}
+                        value={addSearch}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddSearch(e.target.value)}
+                        className="h-10 text-base md:text-sm"
+                        autoFocus
+                      />
                     </div>
-
-                    {/* Search mode */}
-                    {addMode === "search" && (
-                      <>
-                        <div className="p-2 border-b border-slate-100">
-                          <Input
-                            placeholder={t("favourites.searchCompanyPlaceholder")}
-                            value={addSearch}
-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddSearch(e.target.value)}
-                            className="h-10 md:h-8 text-base md:text-sm"
-                            autoFocus
-                          />
+                    <div className="max-h-[55vh] overflow-y-auto">
+                      {addSearch.length < 2 ? (
+                        <p className="text-xs text-slate-400 p-6 text-center">
+                          {t("favourites.typeMinChars")}
+                        </p>
+                      ) : addSearching ? (
+                        <div className="flex items-center justify-center gap-2 py-6">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                          <span className="text-xs text-slate-400">{t("favourites.searching")}</span>
                         </div>
-                        <div className="max-h-80 overflow-y-auto">
-                          {addSearch.length < 2 ? (
-                            <p className="text-xs text-slate-400 p-4 text-center">
-                              {t("favourites.typeMinChars")}
-                            </p>
-                          ) : addSearching ? (
-                            <div className="flex items-center justify-center gap-2 py-4">
-                              <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
-                              <span className="text-xs text-slate-400">{t("favourites.searching")}</span>
+                      ) : addResults.length === 0 ? (
+                        <p className="text-xs text-slate-400 p-6 text-center">
+                          {t("favourites.noCompaniesFound")}
+                        </p>
+                      ) : (
+                        addResults.map((r) => (
+                          <button
+                            key={r.enterprise_number}
+                            onClick={() => {
+                              onAddMember(project.id, r.enterprise_number);
+                              setAddSearch("");
+                              setShowAddMenu(false);
+                            }}
+                            className="w-full text-left px-4 py-3 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0">
+                              <span className="text-sm font-medium text-slate-800 truncate block">
+                                {r.name || fmtCbe(r.enterprise_number)}
+                              </span>
+                              <span className="text-[11px] text-slate-400">
+                                {fmtCbe(r.enterprise_number)} · {r.city || "—"}
+                              </span>
                             </div>
-                          ) : addResults.length === 0 ? (
-                            <p className="text-xs text-slate-400 p-4 text-center">
-                              {t("favourites.noCompaniesFound")}
-                            </p>
-                          ) : (
-                            addResults.map((r) => (
-                              <button
-                                key={r.enterprise_number}
-                                onClick={() => {
-                                  onAddMember(project.id, r.enterprise_number);
-                                  setAddSearch("");
-                                  setShowAddMenu(false);
-                                }}
-                                className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
-                              >
-                                <div className="min-w-0">
-                                  <span className="text-sm font-medium text-slate-800 truncate block">
-                                    {r.name || fmtCbe(r.enterprise_number)}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400">
-                                    {fmtCbe(r.enterprise_number)} · {r.city || "—"}
-                                  </span>
-                                </div>
-                                <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
-                              </button>
-                            ))
-                          )}
-                        </div>
-                      </>
-                    )}
-
-                    {/* From Favourites mode */}
-                    {addMode === "favourites" && (
-                      <div className="max-h-80 overflow-y-auto">
-                        {availableFavourites.length === 0 ? (
-                          <p className="text-xs text-slate-400 p-4 text-center">
-                            {favourites.length === 0
-                              ? t("favourites.noFavouritesYet")
-                              : t("favourites.allFavsInProject")}
-                          </p>
-                        ) : (
-                          availableFavourites.map((f) => (
-                            <button
-                              key={f.enterprise_number}
-                              onClick={() => {
-                                onAddMember(project.id, f.enterprise_number);
-                                setShowAddMenu(false);
-                              }}
-                              className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
-                            >
-                              <div className="min-w-0">
-                                <span className="text-sm font-medium text-slate-800 truncate block">
-                                  {f.name || fmtCbe(f.enterprise_number)}
-                                </span>
-                                <span className="text-[10px] text-slate-400">
-                                  {fmtCbe(f.enterprise_number)} · {f.city || "—"}
-                                </span>
-                              </div>
-                              <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
-                            </button>
-                          ))
-                        )}
-                      </div>
+                            <Plus className="h-4 w-4 text-indigo-500 shrink-0" />
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+                {addMode === "favourites" && (
+                  <div className="max-h-[55vh] overflow-y-auto">
+                    {availableFavourites.length === 0 ? (
+                      <p className="text-xs text-slate-400 p-6 text-center">
+                        {favourites.length === 0
+                          ? t("favourites.noFavouritesYet")
+                          : t("favourites.allFavsInProject")}
+                      </p>
+                    ) : (
+                      availableFavourites.map((f) => (
+                        <button
+                          key={f.enterprise_number}
+                          onClick={() => {
+                            onAddMember(project.id, f.enterprise_number);
+                            setShowAddMenu(false);
+                          }}
+                          className="w-full text-left px-4 py-3 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <span className="text-sm font-medium text-slate-800 truncate block">
+                              {f.name || fmtCbe(f.enterprise_number)}
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              {fmtCbe(f.enterprise_number)} · {f.city || "—"}
+                            </span>
+                          </div>
+                          <Plus className="h-4 w-4 text-indigo-500 shrink-0" />
+                        </button>
+                      ))
                     )}
                   </div>
-                </>
-              )}
-            </div>
+                )}
+              </DialogContent>
+            </Dialog>
             <Button
               variant="ghost"
               size="sm"

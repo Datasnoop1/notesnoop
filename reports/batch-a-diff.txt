@@ -1,0 +1,405 @@
+diff --git a/frontend/src/app/company/[cbe]/_tabs/bs-bridge.tsx b/frontend/src/app/company/[cbe]/_tabs/bs-bridge.tsx
+index dd828fd..d93a9f3 100644
+--- a/frontend/src/app/company/[cbe]/_tabs/bs-bridge.tsx
++++ b/frontend/src/app/company/[cbe]/_tabs/bs-bridge.tsx
+@@ -32,6 +32,7 @@ interface Segment {
+   label: string;
+   value: number;
+   color: string;     // bg-xxx class
++  text?: string;     // tailwind text class; default slate-700 for light bgs
+ }
+ 
+ interface Props {
+@@ -63,14 +64,15 @@ export function BalanceSheetBridge({ bsRows, defaultCollapsed = false }: Props)
+   const cash = Math.max((row.cash ?? 0) + (row.currentInvestments ?? 0), 0);
+   const otherA = Math.max(target - fa - inv - rec - cash, 0);
+ 
+-  // Same gray palette as the P&L and cash-flow waterfalls — milestones
+-  // (Fixed assets / Cash / Equity) use slate-400, mid categories slate-300,
+-  // residuals slate-100. Keeps the whole financials suite visually quiet.
++  // Expanded gray scale so neighbouring segments are visually distinguishable.
++  // Asset side: fixed assets (anchor) darkest; liquidity (cash) also dark; mid
++  // working-capital items split between slate-300 and slate-200; residual
++  // slate-100. Gives five distinct tones across the bar.
+   const assetSegs: Segment[] = [
+-    { label: "Fixed assets",  value: fa,     color: "bg-slate-400" },
++    { label: "Fixed assets",  value: fa,     color: "bg-slate-500", text: "text-white" },
+     { label: "Inventories",   value: inv,    color: "bg-slate-300" },
+-    { label: "Receivables",   value: rec,    color: "bg-slate-300" },
+-    { label: "Cash",          value: cash,   color: "bg-slate-400" },
++    { label: "Receivables",   value: rec,    color: "bg-slate-200" },
++    { label: "Cash",          value: cash,   color: "bg-slate-400", text: "text-white" },
+     { label: "Other",         value: otherA, color: "bg-slate-100" },
+   ];
+ 
+@@ -83,11 +85,14 @@ export function BalanceSheetBridge({ bsRows, defaultCollapsed = false }: Props)
+   const tp = Math.max(row.tradePayables ?? 0, 0);
+   const otherL = Math.max(target - eq - ltd - std - tp, 0);
+ 
++  // Liability side: equity (anchor) darkest; LT debt next; ST debt and trade
++  // payables mid tones; residual lightest. Each bucket has its own shade so
++  // the bar reads left-to-right as a continuous gradient.
+   const liabSegs: Segment[] = [
+-    { label: "Equity",           value: eq,     color: "bg-slate-500" },
+-    { label: "LT debt",          value: ltd,    color: "bg-slate-300" },
++    { label: "Equity",           value: eq,     color: "bg-slate-600", text: "text-white" },
++    { label: "LT debt",          value: ltd,    color: "bg-slate-400", text: "text-white" },
+     { label: "ST fin. debt",     value: std,    color: "bg-slate-300" },
+-    { label: "Trade payables",   value: tp,     color: "bg-slate-300" },
++    { label: "Trade payables",   value: tp,     color: "bg-slate-200" },
+     { label: "Other",            value: otherL, color: "bg-slate-100" },
+   ];
+ 
+@@ -103,7 +108,7 @@ export function BalanceSheetBridge({ bsRows, defaultCollapsed = false }: Props)
+           return (
+             <div
+               key={s.label}
+-              className={`${s.color} h-full flex items-center justify-center text-[10px] text-slate-700 font-medium overflow-hidden transition-all`}
++              className={`${s.color} h-full flex items-center justify-center text-[10px] ${s.text ?? "text-slate-700"} font-medium overflow-hidden transition-all`}
+               style={{ width: `${pct}%` }}
+               title={`${s.label}: ${fmtEur(s.value)} (${pct.toFixed(1)}%)`}
+             >
+diff --git a/frontend/src/app/company/[cbe]/company-page-client.tsx b/frontend/src/app/company/[cbe]/company-page-client.tsx
+index 6251e8b..5305aed 100644
+--- a/frontend/src/app/company/[cbe]/company-page-client.tsx
++++ b/frontend/src/app/company/[cbe]/company-page-client.tsx
+@@ -46,6 +46,8 @@ import {
+   XCircle,
+   Sparkles,
+   BarChart3,
++  Copy,
++  Check,
+ } from "lucide-react";
+ import { useTranslation } from "@/components/language-provider";
+ import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
+@@ -159,6 +161,9 @@ export function CompanyPageClient({
+   const [aiInsightsError, setAiInsightsError] = useState<string | null>(null);
+   const [showInsightsOverlay, setShowInsightsOverlay] = useState(false);
+ 
++  /* -- Copy-CBE feedback -- */
++  const [copiedCbe, setCopiedCbe] = useState(false);
++
+   /* -- Collapsible section state -- */
+   // Groups default-collapsed on load so the tabs feel lighter. User can
+   // expand any group via its chip. P&L op-cost breakdown in particular
+@@ -881,9 +886,35 @@ export function CompanyPageClient({
+                 {detail.name || fmtCbe(cbe)}
+               </SearchableText>
+             </h1>
+-            <div className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-slate-400">
+-              <span className={`inline-block h-1.5 w-1.5 rounded-full ${detail.status === "AC" ? "bg-emerald-500" : "bg-red-400"}`} />
+-              <span className="font-mono">CBE {fmtCbe(cbe)}</span>
++            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
++              <span className="inline-flex items-center gap-1.5">
++                <span className={`inline-block h-1.5 w-1.5 rounded-full ${detail.status === "AC" ? "bg-emerald-500" : "bg-red-400"}`} />
++                <span className="font-mono">CBE {fmtCbe(cbe)}</span>
++                <button
++                  type="button"
++                  onClick={() => {
++                    navigator.clipboard.writeText(fmtCbe(cbe)).then(
++                      () => {
++                        setCopiedCbe(true);
++                        window.setTimeout(() => setCopiedCbe(false), 1500);
++                      },
++                      () => {},
++                    );
++                  }}
++                  aria-label={copiedCbe ? "Copied" : "Copy CBE / BTW number"}
++                  title={copiedCbe ? "Copied" : "Copy CBE / BTW number"}
++                  className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
++                >
++                  {copiedCbe ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
++                </button>
++              </span>
++              {detail.jf_label && (
++                <span className="inline-flex items-center gap-1 before:content-['\u00B7'] before:text-slate-300 before:mr-1">
++                  <span className="uppercase tracking-wide text-[10px] font-semibold text-slate-500">
++                    {detail.jf_label}
++                  </span>
++                </span>
++              )}
+             </div>
+           </div>
+ 
+diff --git a/frontend/src/app/favourites/page.tsx b/frontend/src/app/favourites/page.tsx
+index db76948..5b170bb 100644
+--- a/frontend/src/app/favourites/page.tsx
++++ b/frontend/src/app/favourites/page.tsx
+@@ -17,6 +17,12 @@ import {
+   TableRow,
+   TableCell,
+ } from "@/components/ui/table";
++import {
++  Dialog,
++  DialogContent,
++  DialogHeader,
++  DialogTitle,
++} from "@/components/ui/dialog";
+ import {
+   getFavourites,
+   removeFavourite,
+@@ -161,137 +167,138 @@ function ProjectCard({
+             </Badge>
+           </button>
+           <div className="flex items-center gap-1 shrink-0 ml-2">
+-            <div className="relative">
+-              <Button
+-                variant="ghost"
+-                size="sm"
+-                className="h-10 md:h-7 px-3 md:px-2 text-xs text-indigo-600 hover:text-indigo-800"
+-                onClick={() => setShowAddMenu((prev) => !prev)}
+-              >
+-                <Plus className="h-3.5 w-3.5 mr-1" />
+-                {t("favourites.add")}
+-              </Button>
+-              {showAddMenu && (
+-                <>
+-                  <div
+-                    className="fixed inset-0 z-40"
+-                    onClick={() => { setShowAddMenu(false); setAddSearch(""); setAddMode("search"); }}
+-                  />
+-                  <div className="absolute right-0 top-full mt-1 z-50 w-[calc(100vw-2rem)] sm:w-[28rem] max-w-[28rem] bg-white border border-slate-200 rounded-lg shadow-xl">
+-                    {/* Tab toggle: Search / From Favourites */}
+-                    <div className="flex border-b border-slate-100">
+-                      <button
+-                        onClick={() => setAddMode("search")}
+-                        className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+-                          addMode === "search"
+-                            ? "border-indigo-500 text-indigo-600"
+-                            : "border-transparent text-slate-400 hover:text-slate-600"
+-                        }`}
+-                      >
+-                        <Search className="h-3 w-3" /> {t("favourites.searchTab")}
+-                      </button>
+-                      <button
+-                        onClick={() => setAddMode("favourites")}
+-                        className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors border-b-2 ${
+-                          addMode === "favourites"
+-                            ? "border-indigo-500 text-indigo-600"
+-                            : "border-transparent text-slate-400 hover:text-slate-600"
+-                        }`}
+-                      >
+-                        <Star className="h-3 w-3" /> {t("favourites.fromFavouritesTab")}
+-                      </button>
++            <Button
++              variant="ghost"
++              size="sm"
++              className="h-10 md:h-7 px-3 md:px-2 text-xs text-indigo-600 hover:text-indigo-800"
++              onClick={() => setShowAddMenu(true)}
++            >
++              <Plus className="h-3.5 w-3.5 mr-1" />
++              {t("favourites.add")}
++            </Button>
++            <Dialog
++              open={showAddMenu}
++              onOpenChange={(v) => {
++                setShowAddMenu(v);
++                if (!v) {
++                  setAddSearch("");
++                  setAddMode("search");
++                }
++              }}
++            >
++              <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
++                <DialogHeader className="px-4 py-3 border-b border-slate-100">
++                  <DialogTitle className="text-sm font-semibold text-slate-800 truncate">
++                    {t("common.addToProject")} <span className="text-slate-400 font-normal">— {project.name}</span>
++                  </DialogTitle>
++                </DialogHeader>
++                <div className="flex border-b border-slate-100">
++                  <button
++                    onClick={() => setAddMode("search")}
++                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 ${
++                      addMode === "search"
++                        ? "border-indigo-500 text-indigo-600"
++                        : "border-transparent text-slate-400 hover:text-slate-600"
++                    }`}
++                  >
++                    <Search className="h-3.5 w-3.5" /> {t("favourites.searchTab")}
++                  </button>
++                  <button
++                    onClick={() => setAddMode("favourites")}
++                    className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 ${
++                      addMode === "favourites"
++                        ? "border-indigo-500 text-indigo-600"
++                        : "border-transparent text-slate-400 hover:text-slate-600"
++                    }`}
++                  >
++                    <Star className="h-3.5 w-3.5" /> {t("favourites.fromFavouritesTab")}
++                  </button>
++                </div>
++                {addMode === "search" && (
++                  <>
++                    <div className="p-3 border-b border-slate-100">
++                      <Input
++                        placeholder={t("favourites.searchCompanyPlaceholder")}
++                        value={addSearch}
++                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddSearch(e.target.value)}
++                        className="h-10 text-base md:text-sm"
++                        autoFocus
++                      />
+                     </div>
+-
+-                    {/* Search mode */}
+-                    {addMode === "search" && (
+-                      <>
+-                        <div className="p-2 border-b border-slate-100">
+-                          <Input
+-                            placeholder={t("favourites.searchCompanyPlaceholder")}
+-                            value={addSearch}
+-                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddSearch(e.target.value)}
+-                            className="h-10 md:h-8 text-base md:text-sm"
+-                            autoFocus
+-                          />
++                    <div className="max-h-[55vh] overflow-y-auto">
++                      {addSearch.length < 2 ? (
++                        <p className="text-xs text-slate-400 p-6 text-center">
++                          {t("favourites.typeMinChars")}
++                        </p>
++                      ) : addSearching ? (
++                        <div className="flex items-center justify-center gap-2 py-6">
++                          <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
++                          <span className="text-xs text-slate-400">{t("favourites.searching")}</span>
+                         </div>
+-                        <div className="max-h-80 overflow-y-auto">
+-                          {addSearch.length < 2 ? (
+-                            <p className="text-xs text-slate-400 p-4 text-center">
+-                              {t("favourites.typeMinChars")}
+-                            </p>
+-                          ) : addSearching ? (
+-                            <div className="flex items-center justify-center gap-2 py-4">
+-                              <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+-                              <span className="text-xs text-slate-400">{t("favourites.searching")}</span>
++                      ) : addResults.length === 0 ? (
++                        <p className="text-xs text-slate-400 p-6 text-center">
++                          {t("favourites.noCompaniesFound")}
++                        </p>
++                      ) : (
++                        addResults.map((r) => (
++                          <button
++                            key={r.enterprise_number}
++                            onClick={() => {
++                              onAddMember(project.id, r.enterprise_number);
++                              setAddSearch("");
++                              setShowAddMenu(false);
++                            }}
++                            className="w-full text-left px-4 py-3 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
++                          >
++                            <div className="min-w-0">
++                              <span className="text-sm font-medium text-slate-800 truncate block">
++                                {r.name || fmtCbe(r.enterprise_number)}
++                              </span>
++                              <span className="text-[11px] text-slate-400">
++                                {fmtCbe(r.enterprise_number)} · {r.city || "—"}
++                              </span>
+                             </div>
+-                          ) : addResults.length === 0 ? (
+-                            <p className="text-xs text-slate-400 p-4 text-center">
+-                              {t("favourites.noCompaniesFound")}
+-                            </p>
+-                          ) : (
+-                            addResults.map((r) => (
+-                              <button
+-                                key={r.enterprise_number}
+-                                onClick={() => {
+-                                  onAddMember(project.id, r.enterprise_number);
+-                                  setAddSearch("");
+-                                  setShowAddMenu(false);
+-                                }}
+-                                className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+-                              >
+-                                <div className="min-w-0">
+-                                  <span className="text-sm font-medium text-slate-800 truncate block">
+-                                    {r.name || fmtCbe(r.enterprise_number)}
+-                                  </span>
+-                                  <span className="text-[10px] text-slate-400">
+-                                    {fmtCbe(r.enterprise_number)} · {r.city || "—"}
+-                                  </span>
+-                                </div>
+-                                <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+-                              </button>
+-                            ))
+-                          )}
+-                        </div>
+-                      </>
+-                    )}
+-
+-                    {/* From Favourites mode */}
+-                    {addMode === "favourites" && (
+-                      <div className="max-h-80 overflow-y-auto">
+-                        {availableFavourites.length === 0 ? (
+-                          <p className="text-xs text-slate-400 p-4 text-center">
+-                            {favourites.length === 0
+-                              ? t("favourites.noFavouritesYet")
+-                              : t("favourites.allFavsInProject")}
+-                          </p>
+-                        ) : (
+-                          availableFavourites.map((f) => (
+-                            <button
+-                              key={f.enterprise_number}
+-                              onClick={() => {
+-                                onAddMember(project.id, f.enterprise_number);
+-                                setShowAddMenu(false);
+-                              }}
+-                              className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+-                            >
+-                              <div className="min-w-0">
+-                                <span className="text-sm font-medium text-slate-800 truncate block">
+-                                  {f.name || fmtCbe(f.enterprise_number)}
+-                                </span>
+-                                <span className="text-[10px] text-slate-400">
+-                                  {fmtCbe(f.enterprise_number)} · {f.city || "—"}
+-                                </span>
+-                              </div>
+-                              <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+-                            </button>
+-                          ))
+-                        )}
+-                      </div>
++                            <Plus className="h-4 w-4 text-indigo-500 shrink-0" />
++                          </button>
++                        ))
++                      )}
++                    </div>
++                  </>
++                )}
++                {addMode === "favourites" && (
++                  <div className="max-h-[55vh] overflow-y-auto">
++                    {availableFavourites.length === 0 ? (
++                      <p className="text-xs text-slate-400 p-6 text-center">
++                        {favourites.length === 0
++                          ? t("favourites.noFavouritesYet")
++                          : t("favourites.allFavsInProject")}
++                      </p>
++                    ) : (
++                      availableFavourites.map((f) => (
++                        <button
++                          key={f.enterprise_number}
++                          onClick={() => {
++                            onAddMember(project.id, f.enterprise_number);
++                            setShowAddMenu(false);
++                          }}
++                          className="w-full text-left px-4 py-3 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
++                        >
++                          <div className="min-w-0">
++                            <span className="text-sm font-medium text-slate-800 truncate block">
++                              {f.name || fmtCbe(f.enterprise_number)}
++                            </span>
++                            <span className="text-[11px] text-slate-400">
++                              {fmtCbe(f.enterprise_number)} · {f.city || "—"}
++                            </span>
++                          </div>
++                          <Plus className="h-4 w-4 text-indigo-500 shrink-0" />
++                        </button>
++                      ))
+                     )}
+                   </div>
+-                </>
+-              )}
+-            </div>
++                )}
++              </DialogContent>
++            </Dialog>
+             <Button
+               variant="ghost"
+               size="sm"

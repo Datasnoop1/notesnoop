@@ -46,6 +46,8 @@ import {
   XCircle,
   Sparkles,
   BarChart3,
+  Copy,
+  Check,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
@@ -158,6 +160,9 @@ export function CompanyPageClient({
   const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
   const [aiInsightsError, setAiInsightsError] = useState<string | null>(null);
   const [showInsightsOverlay, setShowInsightsOverlay] = useState(false);
+
+  /* -- Copy-CBE feedback -- */
+  const [copiedCbe, setCopiedCbe] = useState(false);
 
   /* -- Collapsible section state -- */
   // Groups default-collapsed on load so the tabs feel lighter. User can
@@ -881,9 +886,35 @@ export function CompanyPageClient({
                 {detail.name || fmtCbe(cbe)}
               </SearchableText>
             </h1>
-            <div className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-slate-400">
-              <span className={`inline-block h-1.5 w-1.5 rounded-full ${detail.status === "AC" ? "bg-emerald-500" : "bg-red-400"}`} />
-              <span className="font-mono">CBE {fmtCbe(cbe)}</span>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
+              <span className="inline-flex items-center gap-1.5">
+                <span className={`inline-block h-1.5 w-1.5 rounded-full ${detail.status === "AC" ? "bg-emerald-500" : "bg-red-400"}`} />
+                <span className="font-mono">CBE {fmtCbe(cbe)}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(fmtCbe(cbe)).then(
+                      () => {
+                        setCopiedCbe(true);
+                        window.setTimeout(() => setCopiedCbe(false), 1500);
+                      },
+                      () => {},
+                    );
+                  }}
+                  aria-label={copiedCbe ? t("company.copied") : t("company.copyCbe")}
+                  title={copiedCbe ? t("company.copied") : t("company.copyCbe")}
+                  className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
+                >
+                  {copiedCbe ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                </button>
+              </span>
+              {detail.jf_label && (
+                <span className="inline-flex items-center gap-1 before:content-['\u00B7'] before:text-slate-300 before:mr-1">
+                  <span className="uppercase tracking-wide text-[10px] font-semibold text-slate-500">
+                    {detail.jf_label}
+                  </span>
+                </span>
+              )}
             </div>
           </div>
 

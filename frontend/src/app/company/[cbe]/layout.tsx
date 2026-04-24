@@ -29,12 +29,18 @@ export async function generateMetadata({
     // Fallback to CBE-only title
   }
 
+  // Canonical URL uses the bare 10-digit CBE so Google doesn't treat the
+  // dotted variant (0400.378.485) as a duplicate of the undotted one.
   return {
     title: `${name} (${fmtCbe})`,
     description,
+    alternates: {
+      canonical: `https://datasnoop.be/company/${cleanCbe}`,
+    },
     openGraph: {
       title: `${name} — Company Profile | DataSnoop`,
       description,
+      url: `https://datasnoop.be/company/${cleanCbe}`,
     },
   };
 }
