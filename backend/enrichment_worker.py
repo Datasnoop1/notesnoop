@@ -95,6 +95,16 @@ STALE_RELEASE_EVERY_N_POLLS = int(os.getenv("WORKER_STALE_RELEASE_EVERY", "60"))
 ENDPOINT_LABEL_PREFIX = "/bulk-enrichment/"
 
 
+class BudgetGuardUnavailable(Exception):
+    """Raised when `daily_spend_usd` can't read the spend log.
+
+    Signals the worker to pause this poll cycle rather than silently
+    fall back to "spent $0" and blow through the daily cap during a DB
+    outage.
+    """
+    pass
+
+
 def _today_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -112,19 +122,28 @@ def daily_spend_usd() -> float:
             (ENDPOINT_LABEL_PREFIX + "%",),
         )
         return float(row["total"] or 0.0) if row else 0.0
-    except Exception:
-        logger.exception("daily spend query failed; treating spend as 0")
-        return 0.0
+    except Exception as e:
+        logger.exception("daily spend query failed; pausing this cycle")
+        # Sanitised message — raw DB error stays in logger.exception output, not in
+        # the exception arg that may surface via admin dead-letter views.
+        raise BudgetGuardUnavailable("daily spend query failed") from e
 
 
 def daily_budget_usd() -> float:
-    """Admin-configurable daily spend cap. Defaults to $10 per plan."""
-    raw = (
-        meta_flag("enrichment_daily_budget")
-        or os.getenv("ENRICHMENT_DAILY_BUDGET_USD", "10")
-    )
+    """Admin-configurable daily spend cap. Defaults to $10 per plan.
+
+    Budget ceiling is less critical than actual spend: a DB hiccup reading the
+    meta flag should fall back to env/default rather than crash the worker.
+    """
     try:
-        return float(raw)
+        raw = meta_flag("enrichment_daily_budget")
+        if raw is not None:
+            return float(raw)
+    except Exception:
+        logger.exception("meta_flag enrichment_daily_budget failed; using env/default")
+
+    try:
+        return float(os.getenv("ENRICHMENT_DAILY_BUDGET_USD", "10"))
     except Exception:
         return 10.0
 
@@ -680,7 +699,13 @@ class Worker:
                 await asyncio.sleep(IDLE_SLEEP_S)
                 continue
 
-            spend = daily_spend_usd()
+            try:
+                spend = daily_spend_usd()
+            except BudgetGuardUnavailable:
+                logger.warning("budget guard unavailable, pausing this cycle")
+                record_worker_heartbeat("paused", "budget_guard_unavailable")
+                await asyncio.sleep(IDLE_SLEEP_S)
+                continue
             budget = daily_budget_usd()
             if spend >= budget:
                 logger.info(

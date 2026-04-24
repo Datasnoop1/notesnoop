@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment
+from auth import ensure_jwks_bootstrapped
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup
 
@@ -657,6 +658,18 @@ async def startup_rate_limiter():
     assert_single_worker_or_redis()
     backend = "redis" if isinstance(limiter, RedisRateLimiter) else "in-memory"
     logger.info("Rate limiter backend: %s", backend)
+
+
+@app.on_event("startup")
+async def startup_jwks_bootstrap():
+    """Fail fast at startup if the Supabase JWKS cannot be fetched.
+
+    Without JWKS we cannot verify production JWTs; refusing to start surfaces
+    the config error at boot instead of flooding /api/* with 401s at runtime.
+    The helper is HS256-aware: in HS256-only dev/legacy envs it logs a warning
+    and lets startup proceed.
+    """
+    ensure_jwks_bootstrapped()
 
 
 @app.on_event("startup")
