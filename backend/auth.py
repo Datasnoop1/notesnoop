@@ -30,6 +30,21 @@ _SUPABASE_AUDIENCES = [
 ]
 _SUPABASE_AUDIENCES = [a for a in _SUPABASE_AUDIENCES if a]
 
+# Expected JWT issuer (Supabase's auth signing service). When set, decode must
+# enforce `iss` verification to prevent tokens minted by any other Supabase
+# project with a matching audience from passing verification.
+_SUPABASE_ISSUER = f"{SUPABASE_URL.rstrip('/')}/auth/v1" if SUPABASE_URL else ""
+_issuer_warning_emitted = False
+
+# Fail-closed behavior: if SUPABASE_URL is empty and HS256 fallback is NOT
+# enabled, we cannot verify tokens at all. Raise at import time.
+if not SUPABASE_URL and not SUPABASE_HS256_FALLBACK:
+    raise RuntimeError(
+        "SUPABASE_URL is empty and SUPABASE_HS256_FALLBACK is disabled. "
+        "No token verification path available."
+    )
+
+
 security = HTTPBearer(auto_error=True)
 security_optional = HTTPBearer(auto_error=False)
 
@@ -59,12 +74,41 @@ def _get_jwks() -> dict:
         except Exception as e:
             logger.warning("Failed to fetch JWKS: %s", e)
             # Keep stale keys only within a bounded staleness window.
-            if _jwks_cache and (now - _jwks_fetched_at) < (_JWKS_TTL_SECONDS * 2):
+            # 1.25× TTL caps blast radius on key rotations where Supabase is
+            # briefly unreachable during the rotation window (~75 min with 1h TTL).
+            if _jwks_cache and (now - _jwks_fetched_at) < (_JWKS_TTL_SECONDS * 1.25):
                 return _jwks_cache
             if _jwks_cache:
                 logger.warning("JWKS cache too stale after fetch failure; clearing cached keys")
                 _jwks_cache = {}
     return {}
+
+
+def ensure_jwks_bootstrapped() -> None:
+    """Fail fast at startup if Supabase JWKS cannot be fetched at least once.
+
+    NOTE: `backend/main.py`'s startup hook should call this so the backend
+    refuses to start when it cannot verify JWTs. Not wired here to keep this
+    patch confined to `backend/auth.py`.
+    """
+    jwks = _get_jwks()
+    if not jwks.get("keys") and SUPABASE_URL:
+        # SEC-HIGH: Handle HS256-only dev/legacy environments gracefully.
+        # Skip the raise when SUPABASE_HS256_FALLBACK is enabled AND
+        # SUPABASE_JWT_SECRET is present AND SUPABASE_URL is empty.
+        if SUPABASE_HS256_FALLBACK and SUPABASE_JWT_SECRET:
+            logger.warning(
+                "JWKS bootstrap failed but SUPABASE_HS256_FALLBACK + SUPABASE_JWT_SECRET present; "
+                "proceeding with HS256-only verification"
+            )
+            return
+        # CORR-HIGH: If SUPABASE_URL is empty AND HS256 fallback is NOT enabled,
+        # we have no way to verify tokens at all.
+        elif not SUPABASE_HS256_FALLBACK:
+            raise RuntimeError(
+                "JWKS bootstrap failed: cannot verify JWTs without Supabase JWKS "
+                "and HS256 fallback is disabled"
+            )
 
 
 _ALLOWED_ALGS = {"RS256", "ES256"}
@@ -75,7 +119,25 @@ def _decode_with_audiences(token: str, key, algorithms: list[str]) -> dict:
 
     python-jose expects `audience` to be a single string (or None), not a list.
     """
+    global _issuer_warning_emitted
     audiences = _SUPABASE_AUDIENCES or ["authenticated"]
+    decode_options = {"verify_aud": True}
+    decode_kwargs: dict = {}
+    if _SUPABASE_ISSUER:
+        decode_options["verify_iss"] = True
+        decode_kwargs["issuer"] = _SUPABASE_ISSUER
+    elif SUPABASE_URL:
+        # Only warn when SUPABASE_URL was expected but empty
+        if not _issuer_warning_emitted:
+            logger.warning(
+                "SUPABASE_URL not set; JWT `iss` claim will not be verified"
+            )
+            _issuer_warning_emitted = True
+    else:
+        # SEC-HIGH: Fail closed when _SUPABASE_ISSUER is empty and HS256 fallback is NOT enabled
+        if not SUPABASE_HS256_FALLBACK:
+            raise JWTError("Cannot verify issuer: SUPABASE_URL is empty and HS256 fallback not enabled")
+        _issuer_warning_emitted = True
     last_error: JWTError | None = None
     for aud in audiences:
         try:
@@ -84,7 +146,8 @@ def _decode_with_audiences(token: str, key, algorithms: list[str]) -> dict:
                 key,
                 algorithms=algorithms,
                 audience=aud,
-                options={"verify_aud": True},
+                options=decode_options,
+                **decode_kwargs,
             )
         except JWTError as e:
             last_error = e
