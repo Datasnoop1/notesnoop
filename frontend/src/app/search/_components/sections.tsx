@@ -51,13 +51,16 @@ function CompanyCard({
   isFav,
   onToggleFav,
   tone,
+  topMatch = false,
 }: {
   company: CompanySearchResultV2;
   isFav: boolean;
   onToggleFav: (cbe: string, e: React.MouseEvent) => void;
   tone: "primary" | "muted";
+  topMatch?: boolean;
 }) {
   // Primary tone = indigo, muted tone = slate (for nonprofit/public section).
+  // Top match = subtle ring + bolder border so the best result is obvious.
   const iconBg =
     tone === "primary" ? "bg-indigo-50 text-indigo-500" : "bg-slate-100 text-slate-500";
   const hoverBorder =
@@ -66,10 +69,17 @@ function CompanyCard({
     tone === "primary" ? "group-hover:text-indigo-600" : "group-hover:text-slate-700";
   const Icon = tone === "primary" ? Building : Landmark;
 
+  const topRing =
+    topMatch && tone === "primary"
+      ? "border-indigo-300 ring-1 ring-indigo-100 shadow-sm"
+      : topMatch && tone === "muted"
+        ? "border-slate-300 ring-1 ring-slate-100 shadow-sm"
+        : "border-slate-200";
+
   return (
     <Link
       href={`/company/${company.enterprise_number}`}
-      className={`flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-xl bg-white border border-slate-200 ${hoverBorder} hover:shadow-md transition-all group`}
+      className={`flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-xl bg-white border ${topRing} ${hoverBorder} hover:shadow-md transition-all group`}
     >
       <div className={`p-2 rounded-lg ${iconBg} shrink-0`}>
         <Icon className="w-4 h-4" />
@@ -123,10 +133,12 @@ function PersonCard({
   person,
   isFav,
   onToggleFav,
+  topMatch = false,
 }: {
   person: PersonResult;
   isFav: boolean;
   onToggleFav: (name: string, e: React.MouseEvent) => void;
+  topMatch?: boolean;
 }) {
   const count =
     (person as PersonResult & { company_count?: number }).company_count ??
@@ -156,9 +168,13 @@ function PersonCard({
     );
   };
 
+  const topRing = topMatch
+    ? "border-emerald-300 ring-1 ring-emerald-100 shadow-sm"
+    : "border-slate-200";
+
   return (
     <div
-      className="flex items-start gap-3 px-4 py-3 rounded-xl bg-white border border-slate-200 hover:border-emerald-200 hover:shadow-md transition-all group"
+      className={`flex items-start gap-3 px-4 py-3 rounded-xl bg-white border ${topRing} hover:border-emerald-200 hover:shadow-md transition-all group`}
     >
       <div className="p-2 rounded-lg bg-emerald-50 text-emerald-500 shrink-0">
         <Users className="w-4 h-4" />
@@ -300,14 +316,16 @@ export function CommercialSection({
         <p className="text-[12px] text-slate-400 px-1">{t("search.noResultsBucket.commercial")}</p>
       ) : (
         <div className="space-y-2">
-          {companies.map((c) => (
-            <CompanyCard
-              key={c.enterprise_number}
-              company={c}
-              isFav={favCompanies.has(c.enterprise_number)}
-              onToggleFav={onToggleFav}
-              tone="primary"
-            />
+          {companies.map((c, i) => (
+            <div key={c.enterprise_number} className={i === 0 && companies.length > 1 ? "mb-2" : ""}>
+              <CompanyCard
+                company={c}
+                isFav={favCompanies.has(c.enterprise_number)}
+                onToggleFav={onToggleFav}
+                tone="primary"
+                topMatch={i === 0}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -337,12 +355,14 @@ export function PeopleSection({
       ) : (
         <div className="space-y-2">
           {people.slice(0, 20).map((p, i) => (
-            <PersonCard
-              key={`person-${i}-${p.name}`}
-              person={p}
-              isFav={favPeople.has(p.name)}
-              onToggleFav={onToggleFav}
-            />
+            <div key={`person-${i}-${p.name}`} className={i === 0 && people.length > 1 ? "mb-2" : ""}>
+              <PersonCard
+                person={p}
+                isFav={favPeople.has(p.name)}
+                onToggleFav={onToggleFav}
+                topMatch={i === 0}
+              />
+            </div>
           ))}
         </div>
       )}
@@ -411,14 +431,16 @@ export function NonprofitSection({
       </button>
       {expanded && (
         <div className="space-y-2 mt-3">
-          {companies.map((c) => (
-            <CompanyCard
-              key={c.enterprise_number}
-              company={c}
-              isFav={favCompanies.has(c.enterprise_number)}
-              onToggleFav={onToggleFav}
-              tone="muted"
-            />
+          {companies.map((c, i) => (
+            <div key={c.enterprise_number} className={i === 0 && companies.length > 1 ? "mb-2" : ""}>
+              <CompanyCard
+                company={c}
+                isFav={favCompanies.has(c.enterprise_number)}
+                onToggleFav={onToggleFav}
+                tone="muted"
+                topMatch={i === 0}
+              />
+            </div>
           ))}
         </div>
       )}
