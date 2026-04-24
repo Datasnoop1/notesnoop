@@ -48,6 +48,7 @@ import {
   BarChart3,
   Copy,
   Check,
+  Share2,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
 import { SearchableText, GoogleSearchLink } from "@/components/google-search-link";
@@ -1214,6 +1215,18 @@ export function CompanyPageClient({
                       <DropdownMenuItem onClick={handleExportPdf} className="text-xs cursor-pointer">
                         <FileText className="w-4 h-4 mr-2 text-rose-500" />
                         {t("company.exportPdf")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => {
+                          // Navigate to the public no-auth share card. Users can
+                          // then copy the URL (big Copy-link button on that page)
+                          // or paste the page itself into email / Slack.
+                          window.open(`/s/${cbe}`, "_blank", "noopener,noreferrer");
+                        }}
+                        className="text-xs cursor-pointer"
+                      >
+                        <Share2 className="w-4 h-4 mr-2 text-indigo-500" />
+                        Share card (public link)
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
