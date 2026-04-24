@@ -133,16 +133,21 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
     before we confirmed NBB's fiscalYear param is a no-op) also exclude
     via the LIKE match, so we never re-probe those CBEs either.
 
-    Ordered by total_assets DESC so the biggest targets land first — they
-    carry the most deal-sourcing value per API call. Falls back on CBE
-    alphabetical when total_assets is unknown.
+    Priority ordering (within each tier, largest assets first):
+      Tier 1 — commercial companies legally required to file annual accounts
+               (NV/SA, BV/SRL, BVBA/SPRL, CV/SC, CommV, VOF, SE, ESV, ...)
+      Tier 2 — non-profits that must file only above size thresholds (VZW, IVZW)
+      Tier 3 — everything else (foundations, public entities, foreign forms, ...)
+
+    type_of_enterprise = '2' selects legal persons only; '1' is natural
+    persons / sole traders who never file with NBB.
     """
     rows = fetch_all(
         """
         SELECT e.enterprise_number
         FROM enterprise e
         WHERE e.status = 'AC'
-          AND e.type_of_enterprise = '1'
+          AND e.type_of_enterprise = '2'
           AND NOT EXISTS (
               SELECT 1
               FROM financial_by_year fby
@@ -156,11 +161,30 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
                 AND (ll.deposit_key LIKE 'NO_FILINGS%%'
                      OR ll.deposit_key = 'PDF_ONLY')
           )
-        ORDER BY (
+        ORDER BY
+          CASE e.juridical_form
+            WHEN '014' THEN 1  -- NV/SA
+            WHEN '015' THEN 1  -- BVBA/SPRL (legacy)
+            WHEN '017' THEN 1  -- BV/SRL
+            WHEN '016' THEN 1  -- CV/SC (legacy)
+            WHEN '018' THEN 1  -- CV/SC
+            WHEN '019' THEN 1  -- ESV
+            WHEN '020' THEN 1  -- EEIG
+            WHEN '022' THEN 1  -- SE
+            WHEN '026' THEN 1  -- CommV/SComm
+            WHEN '029' THEN 1  -- VOF/SNC
+            WHEN '008' THEN 1
+            WHEN '006' THEN 1
+            WHEN '610' THEN 2  -- VZW/ASBL
+            WHEN '612' THEN 2  -- IVZW
+            ELSE 3
+          END,
+          (
             SELECT fl.total_assets
             FROM financial_latest fl
             WHERE fl.enterprise_number = e.enterprise_number
-        ) DESC NULLS LAST, e.enterprise_number
+          ) DESC NULLS LAST,
+          e.enterprise_number
         LIMIT %s
         """,
         (fiscal_year, limit),
