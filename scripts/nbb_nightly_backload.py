@@ -133,21 +133,43 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
     before we confirmed NBB's fiscalYear param is a no-op) also exclude
     via the LIKE match, so we never re-probe those CBEs either.
 
-    Priority ordering (within each tier, largest assets first):
-      Tier 1 — commercial companies legally required to file annual accounts
-               (NV/SA, BV/SRL, BVBA/SPRL, CV/SC, CommV, VOF, SE, ESV, ...)
-      Tier 2 — non-profits that must file only above size thresholds (VZW, IVZW)
-      Tier 3 — everything else (foundations, public entities, foreign forms, ...)
+    Restricted to commercial companies legally required to file annual accounts.
+    VZW, VME, foreign entities, public bodies etc. are excluded — they either
+    never file with NBB or file so rarely it is not worth burning API quota on
+    them during the primary backfill pass.
 
-    type_of_enterprise = '2' selects legal persons only; '1' is natural
-    persons / sole traders who never file with NBB.
+    Within the required-filer set, largest companies by assets first so each
+    API call has maximum deal-sourcing value.
+
+    type_of_enterprise = '2' selects legal persons; '1' is natural persons
+    (sole traders) who never file with NBB.
     """
+    # Juridical forms that are legally required to file annual accounts with NBB.
+    # Excludes VZW (017), VME (070), foreign entities (030/230/235),
+    # public bodies, foundations, and other non-filing forms.
+    REQUIRED_FILER_FORMS = (
+        '610', '615', '616',        # BV / BV met sociaal oogmerk / BV van publiek recht
+        '014', '114', '614',        # NV / NV van publiek recht / NV met sociaal oogmerk
+        '015', '010', '515',        # BVBA (legacy) / Eenpersoons BVBA / BVBA met SO
+        '706', '716',               # CV (new) / CV van publiek recht
+        '016', '116',               # CV oud statuut / CV oud statuut van publiek recht
+        '008', '108', '508',        # CVBA / CVBA van publiek recht / CVBA met SO
+        '006',                      # CVOA
+        '001',                      # Europese Coöperatieve Vennootschap
+        '011',                      # VOF (Vennootschap onder firma)
+        '012',                      # GewComV (Gewone commanditaire vennootschap)
+        '013',                      # CommVA (Commanditaire vennootschap op aandelen)
+        '612',                      # CommV (new form)
+        '060', '065',               # ESV / EESV
+        '027',                      # SE (Societas Europaea)
+    )
     rows = fetch_all(
         """
         SELECT e.enterprise_number
         FROM enterprise e
         WHERE e.status = 'AC'
           AND e.type_of_enterprise = '2'
+          AND e.juridical_form = ANY(%s)
           AND NOT EXISTS (
               SELECT 1
               FROM financial_by_year fby
@@ -161,51 +183,14 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
                 AND (ll.deposit_key LIKE 'NO_FILINGS%%'
                      OR ll.deposit_key = 'PDF_ONLY')
           )
-        ORDER BY
-          CASE e.juridical_form
-            -- Tier 1: commercial companies legally required to file
-            WHEN '610' THEN 1  -- BV (Besloten Vennootschap, new form since 2019)
-            WHEN '615' THEN 1  -- BV met sociaal oogmerk
-            WHEN '616' THEN 1  -- BV van publiek recht
-            WHEN '014' THEN 1  -- NV (Naamloze Vennootschap)
-            WHEN '114' THEN 1  -- NV van publiek recht
-            WHEN '614' THEN 1  -- NV met sociaal oogmerk
-            WHEN '015' THEN 1  -- BVBA (old BV form, legacy)
-            WHEN '010' THEN 1  -- Eenpersoons BVBA (legacy)
-            WHEN '515' THEN 1  -- BVBA met sociaal oogmerk (legacy)
-            WHEN '706' THEN 1  -- CV (Coöperatieve vennootschap, new form)
-            WHEN '716' THEN 1  -- CV van publiek recht
-            WHEN '016' THEN 1  -- CV oud statuut
-            WHEN '116' THEN 1  -- CV oud statuut van publiek recht
-            WHEN '008' THEN 1  -- CVBA
-            WHEN '108' THEN 1  -- CVBA van publiek recht
-            WHEN '508' THEN 1  -- CVBA met sociaal oogmerk
-            WHEN '006' THEN 1  -- CVOA
-            WHEN '001' THEN 1  -- Europese Coöperatieve Vennootschap
-            WHEN '011' THEN 1  -- VOF (Vennootschap onder firma)
-            WHEN '012' THEN 1  -- GewComV (Gewone commanditaire vennootschap)
-            WHEN '013' THEN 1  -- CommVA (Commanditaire vennootschap op aandelen)
-            WHEN '612' THEN 1  -- CommV (Commanditaire vennootschap, new form)
-            WHEN '060' THEN 1  -- ESV (Economisch samenwerkingsverband)
-            WHEN '065' THEN 1  -- EESV
-            WHEN '027' THEN 1  -- SE (Societas Europaea)
-            -- Tier 2: non-profits that must file only above size thresholds
-            WHEN '017' THEN 2  -- VZW (Vereniging zonder winstoogmerk)
-            WHEN '117' THEN 2  -- VZW van publiek recht
-            WHEN '125' THEN 2  -- IVZW (Internationale VZW)
-            WHEN '325' THEN 2  -- IVZW van publiek recht
-            -- Tier 3: everything else (VME, foreign entities, public bodies, etc.)
-            ELSE 3
-          END,
-          (
+        ORDER BY (
             SELECT fl.total_assets
             FROM financial_latest fl
             WHERE fl.enterprise_number = e.enterprise_number
-          ) DESC NULLS LAST,
-          e.enterprise_number
+        ) DESC NULLS LAST, e.enterprise_number
         LIMIT %s
         """,
-        (fiscal_year, limit),
+        (list(REQUIRED_FILER_FORMS), fiscal_year, limit),
     )
     return [r["enterprise_number"] for r in rows]
 
