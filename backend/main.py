@@ -544,7 +544,14 @@ app.add_middleware(BotFilterMiddleware)
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Rate limiting keyed by authenticated user email or client IP."""
 
-    SEARCH_PATHS = ("/api/companies/search", "/api/companies/semantic-search", "/api/people/search")
+    SEARCH_PATHS = (
+        "/api/companies/search",
+        "/api/companies/semantic-search",
+        "/api/people/search",
+        # V2 autocomplete — one DB round-trip per keystroke. Keep it in
+        # the tighter per-IP bucket so the anonymous path is bounded.
+        "/api/search/suggest",
+    )
     PII_READ_SUFFIXES = ("/connections", "/enrichment", "/structure", "/network", "/deep-network")
 
     def _get_rate_key(self, request: Request) -> str:
@@ -686,6 +693,25 @@ async def startup_phase1_migrations():
         ensure_queue()
     except Exception:
         logger.exception("enrichment_job migration failed (non-fatal)")
+
+
+@app.on_event("startup")
+async def startup_search_v2_cache():
+    """Load search V2 synonym cache from `legal_form_synonyms`.
+
+    The table is populated by migrations/2026-04-24_search_v2.sql. If
+    that migration hasn't run yet, we silently degrade — search still
+    works, just without legal-form alias expansion.
+    """
+    try:
+        from db import fetch_all
+        from search_normalization import set_synonyms_cache
+        rows = fetch_all("SELECT form, canonical FROM legal_form_synonyms")
+        set_synonyms_cache({r["form"]: r["canonical"] for r in rows})
+        logger.info("search V2 synonym cache loaded: %d entries", len(rows))
+    except Exception:
+        # Migration not applied yet or table missing — non-fatal.
+        logger.info("search V2 synonym cache not available (migration not applied?)")
 
     try:
         from embeddings import _ensure_query_embedding_cache

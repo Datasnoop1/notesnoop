@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useState, useEffect } from "react";
-import { Menu, LogOut, User, Bell, Search } from "lucide-react";
+import { Menu, LogOut, User, Bell } from "lucide-react";
+import HeaderSearch from "@/components/header-search";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -96,15 +97,6 @@ export default function Nav() {
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? "?";
   const isLanding = pathname === "/";
   const hideHeaderSearch = isLanding || pathname === "/search";
-  const [headerQuery, setHeaderQuery] = useState("");
-
-  function handleHeaderSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const q = headerQuery.trim();
-    if (q.length < 2) return;
-    router.push(`/search?q=${encodeURIComponent(q)}`);
-    setHeaderQuery("");
-  }
 
   return (
     <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80">
@@ -123,25 +115,10 @@ export default function Nav() {
             </Link>
           )}
 
-          {/* Inline search — hidden on landing and on /search (each owns its own input) */}
-          {!hideHeaderSearch && (
-            <form onSubmit={handleHeaderSearch} className="flex-1 mx-3 sm:mx-4 md:mx-6 max-w-md">
-              <div className="group relative flex items-center rounded-full border border-gray-200 bg-white hover:border-gray-300 focus-within:border-gray-400 focus-within:shadow-[0_1px_6px_rgba(32,33,36,0.1)] transition-all">
-                <Search className="absolute left-3 w-3.5 h-3.5 text-gray-400 pointer-events-none" aria-hidden />
-                <input
-                  type="text"
-                  value={headerQuery}
-                  onChange={(e) => setHeaderQuery(e.target.value)}
-                  placeholder="Search"
-                  aria-label="Search companies or persons"
-                  className="w-full h-11 md:h-9 pl-9 pr-3 text-base md:text-[13px] rounded-full bg-transparent focus:outline-none placeholder:text-gray-400 text-gray-900"
-                  enterKeyHint="search"
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                />
-              </div>
-            </form>
-          )}
+          {/* Inline search with grouped autocomplete — hidden on landing
+              (brand + hero own the input) and on /search (the page owns
+              its own big input). */}
+          {!hideHeaderSearch && <HeaderSearch />}
 
           {/* Desktop nav — Screener / Favourites / Compare / Aggregate.
               Shown on landing AND non-landing so the primary actions are

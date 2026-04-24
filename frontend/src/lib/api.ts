@@ -188,6 +188,64 @@ export interface SearchResult {
   fiscal_year: number | null;
 }
 
+// ── Search V2 — bucketed company search ──────────────────────────────────
+// Backend returns `{commercial, nonprofit_or_public, total}` so the frontend
+// can render separate sections. Each result carries its juridical-form
+// category and an internal relevance score (score is exposed only for
+// future ranking adjustments; the array order is already correct).
+export interface CompanySearchResultV2 {
+  enterprise_number: string;
+  name: string;
+  status: string | null;
+  juridical_form: string | null;
+  form_category: "commercial" | "nonprofit" | "public" | "other";
+  city: string | null;
+  sector: string | null;
+  start_date: string | null;
+  revenue: number | null;
+  ebitda: number | null;
+  ebitda_margin_pct: number | null;
+  fte_total: number | null;
+  fiscal_year: number | null;
+  score: number;
+}
+
+export interface CompanySearchResponseV2 {
+  q: string;
+  commercial: CompanySearchResultV2[];
+  nonprofit_or_public: CompanySearchResultV2[];
+  total: { commercial: number; nonprofit_or_public: number };
+}
+
+// ── Search V2 — autocomplete payload ─────────────────────────────────────
+export interface SuggestCompany {
+  cbe: string;
+  name: string;
+  city: string | null;
+  category: "commercial" | "nonprofit" | "public" | "other";
+}
+export interface SuggestPerson {
+  name: string;
+  company_count: number;
+}
+export interface SuggestCbeMatch {
+  cbe: string;
+  name: string;
+}
+export interface SuggestAddress {
+  street: string | null;
+  city: string | null;
+  zipcode: string | null;
+  cbe: string;
+}
+export interface SuggestResponse {
+  q?: string;
+  companies: SuggestCompany[];
+  people: SuggestPerson[];
+  cbe_match: SuggestCbeMatch | null;
+  addresses: SuggestAddress[];
+}
+
 export interface CompanyDetail {
   enterprise_number: string;
   status: string;
@@ -313,11 +371,51 @@ export interface CompanyNetwork {
   edges: NetworkEdge[];
 }
 
-export const searchCompanies = (q: string) =>
-  apiFetch<SearchResult[]>(`/api/companies/search?q=${encodeURIComponent(q)}`);
+// V2 bucketed response — used by `/search` page which renders commercial
+// and non-profit sections separately.
+export const searchCompaniesBucketed = (q: string) =>
+  apiFetch<CompanySearchResponseV2>(
+    `/api/companies/search?q=${encodeURIComponent(q)}`,
+  );
+
+// Legacy-compatible flat list. Most callers (aggregate page, compare,
+// favourites picker, company picker, valuation tab) just want a flat
+// ranked list to power a name-picker. We flatten commercial +
+// nonprofit_or_public here and map the V2 fields back onto the old
+// `SearchResult` shape so those callers don't need to change.
+export const searchCompanies = async (q: string): Promise<SearchResult[]> => {
+  const res = await apiFetch<CompanySearchResponseV2>(
+    `/api/companies/search?q=${encodeURIComponent(q)}`,
+  );
+  const all = [...(res.commercial ?? []), ...(res.nonprofit_or_public ?? [])];
+  return all.map((r) => ({
+    enterprise_number: r.enterprise_number,
+    name: r.name,
+    status: r.status ?? "",
+    // V1 callers read `jf_label` as the juridical-form code string.
+    jf_label: r.juridical_form ?? null,
+    city: r.city,
+    sector: r.sector,
+    start_date: r.start_date,
+    revenue: r.revenue,
+    ebitda: r.ebitda,
+    ebitda_margin_pct: r.ebitda_margin_pct,
+    fte_total: r.fte_total,
+    fiscal_year: r.fiscal_year,
+  }));
+};
 
 export const semanticSearch = (q: string) =>
   apiFetch<SearchResult[]>(`/api/companies/semantic-search?q=${encodeURIComponent(q)}`);
+
+// V2: grouped autocomplete for the header combobox. Safe to call
+// on every keystroke (debounced 150ms client-side). Supports
+// AbortSignal so stale requests get cancelled.
+export const suggestSearch = (q: string, signal?: AbortSignal) =>
+  apiFetch<SuggestResponse>(
+    `/api/search/suggest?q=${encodeURIComponent(q)}&limit=5`,
+    { signal },
+  );
 
 // ── Stage 3e: Staatsblad structured-event search ──
 export interface StaatsbladEvent {
@@ -676,13 +774,22 @@ export const getOutperformersBreakdown = (
   );
 
 // ── People ─────────────────────────────────────────────────
+// V2: top_companies is an array of {name, cbe} objects so each entry
+// can render as a clickable /company/{cbe} link. The bare-string form
+// is kept in the union for backward compatibility during rolling
+// deploys (older servers still return string[]).
+export interface PersonTopCompany {
+  name: string;
+  cbe: string;
+}
 export interface PersonResult {
   name: string;
-  roles: number;
-  companies: number;
-  holdings: number;
+  roles?: number;
+  companies?: number;
+  holdings?: number;
   company_count: number;
-  top_companies?: string[];
+  top_companies?: (PersonTopCompany | string)[];
+  score?: number;
 }
 
 export interface PersonConnection {

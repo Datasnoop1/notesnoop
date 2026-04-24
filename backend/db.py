@@ -200,10 +200,17 @@ _trgm_migrated = False
 
 
 def ensure_trgm_setup():
-    """Enable pg_trgm, add name_normalized column, populate it, and create GIN index.
+    """Enable pg_trgm and ensure name_normalized is populated.
 
     Safe to call on every startup — all statements use IF NOT EXISTS / are idempotent.
     Runs once per process (guarded by _trgm_migrated flag).
+
+    Search V2 supersedes this with a GENERATED column on company_info
+    (via migrations/2026-04-24_search_v2.sql). We detect the V2 migration
+    by the presence of `f_unaccent()` and skip the legacy backfill in
+    that case — the V2 migration owns both the column shape AND the
+    index. The legacy branch stays as a safety net for environments
+    where the operator hasn't applied the migration yet.
     """
     global _trgm_migrated
     if _trgm_migrated:
@@ -215,6 +222,26 @@ def ensure_trgm_setup():
 
         # 1. Enable the pg_trgm extension
         cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
+
+        # 1b. Detect search V2 migration. If the IMMUTABLE f_unaccent()
+        #     wrapper exists, the V2 migration has been applied and
+        #     company_info.name_normalized is a GENERATED STORED column.
+        #     In that case we skip the legacy ADD COLUMN / UPDATE path —
+        #     those would either no-op (IF NOT EXISTS) or fail (can't
+        #     UPDATE a generated column).
+        cur.execute(
+            "SELECT 1 FROM pg_proc WHERE proname = 'f_unaccent' LIMIT 1"
+        )
+        v2_applied = cur.fetchone() is not None
+        if v2_applied:
+            logger.info("search V2 migration detected — skipping legacy name_normalized backfill")
+            # Still ensure the people-side GIN indexes exist (they are
+            # created by the V2 migration too, but IF NOT EXISTS makes
+            # this belt-and-suspenders safe).
+            conn.commit()
+            cur.close()
+            _trgm_migrated = True
+            return
 
         # 2. Add name_normalized column if it doesn't exist
         cur.execute(
@@ -460,10 +487,26 @@ def normalize_name(name: str) -> str:
 
 
 def refresh_all_normalized_names() -> int:
-    """Re-run normalization on all company_info rows. Returns count of rows updated."""
+    """Re-run normalization on all company_info rows. Returns count of rows updated.
+
+    Post-search-V2 migration `company_info.name_normalized` is a
+    GENERATED STORED column — Postgres rejects any UPDATE that targets
+    it. We detect that situation via `f_unaccent()` and short-circuit
+    with a no-op return so admin callers don't see a 500.
+    """
     conn = get_connection()
     try:
         cur = conn.cursor()
+        # V2 migration guard — generated columns are self-maintained.
+        cur.execute("SELECT 1 FROM pg_proc WHERE proname = 'f_unaccent' LIMIT 1")
+        if cur.fetchone() is not None:
+            cur.close()
+            logger.info(
+                "refresh_all_normalized_names: search V2 detected — "
+                "name_normalized is a generated column, no-op"
+            )
+            return 0
+
         cur.execute(f"""
             UPDATE company_info
             SET name_normalized = TRIM(REGEXP_REPLACE(

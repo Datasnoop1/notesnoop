@@ -31,6 +31,12 @@ from fastapi import APIRouter, HTTPException, Query
 
 from db import fetch_all, fetch_one
 from embeddings import embed_query
+from search_normalization import (
+    detect_query_type,
+    extract_cbe_digits,
+    normalize_name as _v2_normalize_name,
+    reversed_key as _v2_reversed_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -160,3 +166,159 @@ async def semantic_search(
         "count": len(results),
         "results": results,
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/search/suggest?q=...&limit=5
+# Grouped autocomplete for the header search dropdown.
+# p95 target <150 ms. Single round-trip via json_build_object.
+# ---------------------------------------------------------------------------
+
+SUGGEST_MAX_LIMIT = 10
+SUGGEST_DEFAULT_LIMIT = 5
+
+
+@router.get("/suggest")
+async def suggest(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(SUGGEST_DEFAULT_LIMIT, ge=1, le=SUGGEST_MAX_LIMIT),
+):
+    """Grouped autocomplete: companies, people, CBE exact, addresses.
+
+    Fires on every keystroke once the query hits 2 chars (frontend
+    debounces to 150 ms). Uses prefix matching (indexed) not trigram
+    similarity so the hot path stays fast.
+    """
+    raw = (q or "").strip()
+    if len(raw) < 2:
+        return _empty_suggest(raw)
+
+    qtype = detect_query_type(raw)
+    cbe_digits = extract_cbe_digits(raw) if qtype == "cbe" else None
+    nq = _v2_normalize_name(raw)
+    rev = _v2_reversed_key(raw)
+
+    params = {
+        "nq": nq or None,
+        "nq_pfx": (nq + "%") if nq else None,
+        "rev": rev or None,
+        "cbe_pfx": (cbe_digits + "%") if cbe_digits else None,
+        "limit": int(limit),
+    }
+    try:
+        row = fetch_one(_SUGGEST_SQL, params)
+    except Exception:
+        logger.exception("suggest failed for q=%r", raw[:80])
+        return _empty_suggest(raw)
+    if not row or not row.get("payload"):
+        return _empty_suggest(raw)
+    payload = row["payload"]
+    # psycopg2 returns JSON columns as parsed dicts when using the
+    # default JSON decoder; wrap defensively.
+    if isinstance(payload, str):
+        import json
+        payload = json.loads(payload)
+    payload.setdefault("q", raw)
+    return payload
+
+
+def _empty_suggest(q: str) -> dict:
+    return {
+        "q": q,
+        "companies": [],
+        "people": [],
+        "cbe_match": None,
+        "addresses": [],
+    }
+
+
+_SUGGEST_SQL = """
+WITH
+companies AS (
+    SELECT ci.enterprise_number AS cbe,
+           ci.name,
+           ci.city,
+           COALESCE(jfc.category, 'commercial') AS category,
+           (ci.name_normalized = %(nq)s)::int AS exact_match,
+           CASE WHEN COALESCE(jfc.category, 'commercial') = 'commercial' THEN 0 ELSE 1 END AS cat_order
+    FROM company_info ci
+    JOIN enterprise e ON e.enterprise_number = ci.enterprise_number
+    LEFT JOIN juridical_form_category jfc ON jfc.code = e.juridical_form
+    WHERE %(nq_pfx)s IS NOT NULL
+      AND (ci.name_normalized LIKE %(nq_pfx)s OR ci.name_normalized = %(nq)s)
+    ORDER BY exact_match DESC, cat_order, ci.name
+    LIMIT %(limit)s
+),
+people_raw AS (
+    SELECT a.name, a.enterprise_number
+    FROM administrator a
+    WHERE a.person_type = 'natural'
+      AND a.name_normalized IS NOT NULL
+      AND %(nq_pfx)s IS NOT NULL
+      AND length(%(nq_pfx)s) >= 4  -- ≥3-char prefix; 2-char prefix
+                                   -- on 1M admin rows is ~3s even
+                                   -- with trigram index.
+      AND (
+          a.name_normalized LIKE %(nq_pfx)s
+          OR (%(rev)s IS NOT NULL AND a.name_reversed = %(rev)s)
+      )
+    LIMIT 200
+),
+people AS (
+    SELECT INITCAP(MIN(p.name)) AS name,
+           COUNT(DISTINCT p.enterprise_number)::int AS company_count
+    FROM people_raw p
+    GROUP BY LOWER(p.name)
+    ORDER BY company_count DESC, 1
+    LIMIT %(limit)s
+),
+cbe_match AS (
+    SELECT e.enterprise_number AS cbe,
+           COALESCE(ci.name, e.enterprise_number) AS name
+    FROM enterprise e
+    LEFT JOIN company_info ci ON ci.enterprise_number = e.enterprise_number
+    WHERE %(cbe_pfx)s IS NOT NULL
+      AND e.enterprise_number LIKE %(cbe_pfx)s
+    ORDER BY e.enterprise_number
+    LIMIT 1
+),
+addresses AS (
+    SELECT DISTINCT ON (COALESCE(ad.street_nl, ad.street_fr, ''), ci.city)
+           COALESCE(ad.street_nl, ad.street_fr) AS street,
+           ci.city,
+           ad.zipcode,
+           ci.enterprise_number AS cbe
+    FROM company_info ci
+    JOIN address ad ON ad.entity_number = ci.enterprise_number
+                    AND ad.type_of_address = 'REGO'
+    WHERE %(nq_pfx)s IS NOT NULL
+      AND length(%(nq_pfx)s) >= 4  -- gate to >=3-char queries (+ wildcard)
+                                   -- a single letter fans out to tens of
+                                   -- millions of rows via the ILIKE.
+      AND (
+          ad.street_nl          ILIKE %(nq_pfx)s
+          OR ad.street_fr       ILIKE %(nq_pfx)s
+          OR ad.municipality_nl ILIKE %(nq_pfx)s
+          OR ad.municipality_fr ILIKE %(nq_pfx)s
+      )
+    LIMIT 3
+)
+SELECT json_build_object(
+  -- Preserve CTE ORDER BY inside the aggregate (per the Postgres
+  -- spec, plain json_agg doesn't promise order — only the aggregate's
+  -- own ORDER BY does).
+  'companies',  COALESCE((SELECT json_agg(
+                    json_build_object(
+                        'cbe', c.cbe, 'name', c.name,
+                        'city', c.city, 'category', c.category
+                    )
+                    ORDER BY c.exact_match DESC, c.cat_order, c.name
+                 ) FROM companies c),  '[]'::json),
+  'people',     COALESCE((SELECT json_agg(
+                    json_build_object('name', p.name, 'company_count', p.company_count)
+                    ORDER BY p.company_count DESC, p.name
+                 ) FROM people p),     '[]'::json),
+  'cbe_match',  (SELECT row_to_json(cm) FROM cbe_match cm LIMIT 1),
+  'addresses',  COALESCE((SELECT json_agg(row_to_json(a)) FROM addresses a),  '[]'::json)
+) AS payload
+"""

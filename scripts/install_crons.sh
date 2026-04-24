@@ -71,6 +71,9 @@ NEW_BLOCK=$(cat <<'EOF'
 # Nightly automated-process health report — emails t.braet@gmail.com at 06:00 UTC
 # with a per-job GREEN/RED status + Claude-ready prompts for any red items.
 0 6 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/nightly_health_report.py --send >> /opt/leadpeek/scripts/_watchdog_state/health_report.log 2>&1
+# Search V2 popularity refresh — click-count ranking signal from activity_log.
+# Runs at 03:15 UTC (off-peak, after daily KBO updates finish).
+15 3 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/refresh_popularity.py --lookback-days 28 >> /opt/leadpeek/scripts/_watchdog_state/refresh_popularity.log 2>&1
 # DATASNOOP-MANAGED-END
 EOF
 )
