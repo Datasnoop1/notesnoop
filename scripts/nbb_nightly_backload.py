@@ -111,8 +111,10 @@ log = logging.getLogger("nbb_backload")
 NBB_BASE_URL = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
 NBB_KEY = os.getenv("NBB_AUTHENTIC_KEY", "")
 USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence)"
-# Rate limit — matches the live /api/companies/{cbe}/load policy.
-REQUEST_DELAY = 1.5
+# Rate limit. 1.25s keeps us well under NBB quota while being ~20% faster
+# than the original 1.5s. If NBB returns 429, the run stops and the watchdog
+# handles key rotation — so this is safe to tune.
+REQUEST_DELAY = 1.25
 
 
 def _headers() -> dict:
@@ -187,7 +189,7 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
             SELECT fl.total_assets
             FROM financial_latest fl
             WHERE fl.enterprise_number = e.enterprise_number
-        ) DESC NULLS LAST, e.enterprise_number
+        ) DESC NULLS FIRST, e.enterprise_number
         LIMIT %s
         """,
         (list(REQUIRED_FILER_FORMS), fiscal_year, limit),
@@ -348,7 +350,7 @@ def is_pdf_only(refs: list[dict]) -> bool:
     return False
 
 
-def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> None:
+def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_rebuild: bool = False) -> None:
     if not NBB_KEY:
         log.error("NBB_AUTHENTIC_KEY not set — aborting")
         sys.exit(2)
@@ -478,21 +480,21 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int) -> No
                     log.info("progress FY%d: %d loaded, %d rubrics, %d calls",
                              fy, loaded, rubrics_total, calls)
 
-        # Refresh financial_latest + financial_by_year. These views are
-        # used by the screener / profile / radar endpoints — stale data
-        # will miss newly-loaded filings in UI queries.
-        log.info("refreshing materialized tables...")
-        cur = conn.cursor()
-        try:
-            # financial_latest + financial_by_year are "tables" (not MVs)
-            # in this schema, rebuilt by nbb_batch_pipeline.rebuild_materialized_tables.
-            # Safest: call the same function.
-            nbb_batch_pipeline = _load_backend_module("nbb_batch_pipeline")
-            nbb_batch_pipeline.rebuild_materialized_tables()
-        except Exception as e:
-            log.warning("refresh failed (non-fatal): %s", e)
-        finally:
-            cur.close()
+        # Refresh financial_latest + financial_by_year. Skipped for daytime
+        # runs (skip_rebuild=True) to avoid blocking the next run — the
+        # nightly 02:00 run always rebuilds so screener data is fresh by morning.
+        if skip_rebuild:
+            log.info("skipping materialized table rebuild (skip_rebuild=True)")
+        else:
+            log.info("refreshing materialized tables...")
+            cur = conn.cursor()
+            try:
+                nbb_batch_pipeline = _load_backend_module("nbb_batch_pipeline")
+                nbb_batch_pipeline.rebuild_materialized_tables()
+            except Exception as e:
+                log.warning("refresh failed (non-fatal): %s", e)
+            finally:
+                cur.close()
 
     finally:
         put_connection(conn)
@@ -527,6 +529,8 @@ if __name__ == "__main__":
                     help="Oldest fiscal year to backfill (default 2022)")
     ap.add_argument("--per-year-cap", type=int, default=3000,
                     help="Max candidates per fiscal year before rolling to the next (default 3000)")
+    ap.add_argument("--skip-rebuild", action="store_true", default=False,
+                    help="Skip materialized table rebuild at end of run (use for daytime runs)")
     args = ap.parse_args()
 
-    run(args.max_calls, args.start_year, args.end_year, args.per_year_cap)
+    run(args.max_calls, args.start_year, args.end_year, args.per_year_cap, args.skip_rebuild)
