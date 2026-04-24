@@ -237,7 +237,7 @@ function PersonCard({
           }`}
         />
       </button>
-    </Link>
+    </div>
   );
 }
 
