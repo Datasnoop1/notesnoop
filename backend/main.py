@@ -705,12 +705,15 @@ async def status_metrics():
         last_done = fetch_one(
             "SELECT MAX(finished_at) AS last_done FROM enrichment_job WHERE status = 'done'"
         )
+        # Actual enrichment_job statuses: 'queued', 'claimed', 'done',
+        # 'excluded', 'error'. Map them onto the operator-facing labels.
         out["semantic"] = {
             "queue": by_status,
             "last_done_at": str(last_done["last_done"]) if last_done and last_done.get("last_done") else None,
-            "pending": int(by_status.get("pending", 0)),
-            "running": int(by_status.get("running", 0)) + int(by_status.get("in_progress", 0)),
+            "pending": int(by_status.get("queued", 0)) + int(by_status.get("pending", 0)),
+            "running": int(by_status.get("claimed", 0)) + int(by_status.get("running", 0)) + int(by_status.get("in_progress", 0)),
             "done": int(by_status.get("done", 0)),
+            "excluded": int(by_status.get("excluded", 0)),
             "error": int(by_status.get("error", 0)) + int(by_status.get("failed", 0)),
         }
     except Exception:

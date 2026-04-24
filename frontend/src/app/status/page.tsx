@@ -99,6 +99,7 @@ interface PipelineMetrics {
     pending: number;
     running: number;
     done: number;
+    excluded?: number;
     error: number;
   } | null;
 }
@@ -286,9 +287,10 @@ export default function StatusPage() {
           icon={Sparkles}
           title="Semantic enrichment"
           metrics={metrics?.semantic ? [
-            { label: "Pending in queue", value: metrics.semantic.pending.toLocaleString() },
+            { label: "Queued", value: metrics.semantic.pending.toLocaleString() },
             { label: "Running", value: metrics.semantic.running.toLocaleString() },
             { label: "Done", value: metrics.semantic.done.toLocaleString() },
+            { label: "Excluded", value: (metrics.semantic.excluded ?? 0).toLocaleString() },
             { label: "Errors", value: metrics.semantic.error.toLocaleString(), kind: metrics.semantic.error > 0 ? "warn" : undefined },
             { label: "Last done", value: formatRelative(metrics.semantic.last_done_at) },
           ] : null}
