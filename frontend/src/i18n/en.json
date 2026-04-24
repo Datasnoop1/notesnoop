@@ -108,7 +108,21 @@
     "browsePeopleDesc": "Find administrators & shareholders",
     "roles": "{count} roles",
     "holdings": "{count} holdings",
-    "companies": "{count} cos."
+    "companies": "{count} cos.",
+    "sections": {
+      "commercial": "Commercial companies",
+      "people": "People",
+      "nonprofitPublic": "Non-profits & public entities",
+      "events": "Events"
+    },
+    "noResultsBucket": {
+      "commercial": "No commercial companies match your search.",
+      "people": "No people match your search.",
+      "nonprofit": "No non-profits or public entities match.",
+      "events": "No events match."
+    },
+    "showHidden": "{n} hidden — click to show",
+    "hideHidden": "Hide"
   },
 
   "screener": {

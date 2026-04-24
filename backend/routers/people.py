@@ -8,6 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from db import fetch_all, fetch_one, execute, get_conn
 from auth import get_current_user, optional_user
 from ai_client import ai_complete
+from search_normalization import (
+    ilike_escape as _v2_ilike_escape,
+    normalize_name as _v2_normalize_name,
+    phonetic_key as _v2_phonetic_key,
+    reversed_key as _v2_reversed_key,
+    tokenize as _v2_tokenize,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/people", tags=["people"])
@@ -33,172 +40,223 @@ def _serialize_row(row: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/search")
-async def search_people(q: str = Query(..., min_length=2)):
-    """Search administrators and shareholders by name OR address.
+async def search_people(q: str = Query(..., min_length=2, max_length=200)):
+    """Search admins/shareholders/staatsblad-events by name — V2.
 
-    Returns each distinct name with:
-      - ``company_count``: distinct companies the person touches (UNION of
-        admin + shareholder roles, deduped — a person who is BOTH admin
-        and shareholder of "Acme NV" only counts as 1).
-      - ``top_companies``: up to 3 connected company names, ordered by
-        latest filing revenue (so users see flagship companies first,
-        not alphabetically-first shell SPRLs).
-
-    Input is space-tolerant (extra/trailing whitespace, double spaces) and
-    escapes ILIKE wildcards so a literal ``%`` in a name doesn't blow up
-    matching. ``min_length=2`` guards against a single-character query
-    fanning out to millions of rows.
-
-    Address-based path: if the query matches a street, municipality, or
-    zipcode, we also surface persons connected (admin or shareholder) to
-    companies registered at that address. Useful when the user knows the
-    location but not the name.
+    Handles accent-insensitivity, name-order reversal, legal-suffix
+    stripping, trigram fuzzy, and Double-Metaphone phonetic fallback.
+    Each name returned includes company_count, up to 3 top_companies
+    ordered by revenue, and the internal relevance score.
     """
-    # Tolerate user sloppiness: trim, collapse internal whitespace, escape
-    # ILIKE wildcards so a literal `%` in a name doesn't blow up matching.
-    cleaned = " ".join(q.split())
-    if len(cleaned) < 2:
+    raw = (q or "").strip()
+    if len(raw) < 2:
         return []
-    safe = cleaned.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    query = f"%{safe}%"
-    # Detect Belgian-style 4-digit zip; address-pattern matches more
-    # broadly (street / municipality / zipcode prefix).
-    zip_q = cleaned if cleaned.isdigit() and len(cleaned) == 4 else None
-    # Gate the address path to ≥4 chars to keep `addr_match` from doing a
-    # multi-million-row ILIKE on noise like "ab". Streets like "Rue" still
-    # qualify ("Rue " = 4 chars after we collapse whitespace).
-    addr_q = query if (len(cleaned) >= 4 or zip_q) else None
+
+    nq = _v2_normalize_name(raw)
+    tokens = _v2_tokenize(raw)
+    rev = _v2_reversed_key(raw)
+    phon = _v2_phonetic_key(raw) or None
+
+    # Wildcard-escape tokens to neutralise user-supplied %/_/\\.
+    tok1 = f"%{_v2_ilike_escape(tokens[0])}%" if len(tokens) >= 1 else None
+    tok2 = f"%{_v2_ilike_escape(tokens[1])}%" if len(tokens) >= 2 else None
+    tok3 = f"%{_v2_ilike_escape(tokens[2])}%" if len(tokens) >= 3 else None
+    tok4 = f"%{_v2_ilike_escape(tokens[3])}%" if len(tokens) >= 4 else None
+    # Person address fallback kept at ≥4 (street names like "Rue " qualify).
+    addr_like = f"%{_v2_ilike_escape(raw)}%" if len(raw) >= 4 else None
+    zip_q = raw if raw.isdigit() and len(raw) == 4 else None
+
+    params = {
+        "nq": nq or None,
+        "rev": rev or None,
+        "phon": phon,
+        "tok1": tok1, "tok2": tok2, "tok3": tok3, "tok4": tok4,
+        "addr_like": addr_like,
+        "zip_q": zip_q,
+        "n_tokens": len(tokens),
+    }
 
     try:
-        with get_conn() as conn:
-            import psycopg2.extras
-            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            # Plan:
-            # 1. `hits`: union of (a) admin and shareholder rows whose own
-            #    name matches the pattern, (b) admin/shareholder rows whose
-            #    company's registered address matches the pattern. Capped
-            #    per-source so q="a" can't OOM.
-            # 2. `per_person`: aggregate distinct (name, enterprise) pairs
-            #    so a person counted as both admin AND shareholder of the
-            #    same company doesn't get double-counted.
-            # 3. Join `denomination` (DISTINCT ON to pick one name per CBE,
-            #    NL preferred) and `financial_latest` (for revenue sort).
-            # 4. Final aggregate: pick the 3 highest-revenue company names.
-            cur.execute("""
-                WITH addr_match AS (
-                    -- Skip the entire scan when neither addr_q nor zip_q
-                    -- are set; the leading IS-NOT-NULL pair short-circuits
-                    -- the WHERE so the planner returns zero rows cheaply.
-                    SELECT DISTINCT entity_number
-                    FROM address
-                    WHERE type_of_address = 'REGO'
-                      AND (%s IS NOT NULL OR %s IS NOT NULL)
-                      AND (
-                          (%s IS NOT NULL AND street_nl ILIKE %s ESCAPE '\\')
-                          OR (%s IS NOT NULL AND street_fr ILIKE %s ESCAPE '\\')
-                          OR (%s IS NOT NULL AND municipality_nl ILIKE %s ESCAPE '\\')
-                          OR (%s IS NOT NULL AND municipality_fr ILIKE %s ESCAPE '\\')
-                          OR (%s IS NOT NULL AND zipcode = %s)
-                      )
-                    LIMIT 2000
-                ),
-                hits AS (
-                    (SELECT a.name, a.enterprise_number
-                     FROM administrator a
-                     WHERE a.name ILIKE %s ESCAPE '\\'
-                       AND a.person_type = 'natural'
-                     LIMIT 5000)
-                    UNION
-                    (SELECT s.name, s.enterprise_number
-                     FROM shareholder s
-                     WHERE s.name ILIKE %s ESCAPE '\\'
-                       AND s.shareholder_type = 'individual'
-                     LIMIT 5000)
-                    UNION
-                    (SELECT a.name, a.enterprise_number
-                     FROM administrator a
-                     JOIN addr_match m ON m.entity_number = a.enterprise_number
-                     WHERE a.person_type = 'natural'
-                     LIMIT 5000)
-                    UNION
-                    (SELECT s.name, s.enterprise_number
-                     FROM shareholder s
-                     JOIN addr_match m ON m.entity_number = s.enterprise_number
-                     WHERE s.shareholder_type = 'individual'
-                     LIMIT 5000)
-                    UNION
-                    -- Stage 3: Staatsblad admin-event person_name hits.
-                    (SELECT e.person_name AS name, e.enterprise_number
-                     FROM staatsblad_event e
-                     WHERE e.event_type = 'admin_event'
-                       AND e.person_name IS NOT NULL
-                       AND e.person_name ILIKE %s ESCAPE '\\'
-                     LIMIT 5000)
-                ),
-                names AS (
-                    SELECT DISTINCT ON (entity_number) entity_number, denomination
-                    FROM denomination
-                    WHERE type_of_denomination = '001'
-                    ORDER BY entity_number,
-                             CASE language WHEN '2' THEN 1 WHEN '1' THEN 2 ELSE 3 END
-                ),
-                per_company AS (
-                    SELECT
-                        LOWER(h.name) AS name_key,
-                        INITCAP(MIN(h.name)) AS display_name,
-                        h.enterprise_number,
-                        COALESCE(n.denomination, h.enterprise_number) AS company_name,
-                        COALESCE(fl.revenue, 0) AS revenue
-                    FROM hits h
-                    LEFT JOIN names n ON n.entity_number = h.enterprise_number
-                    LEFT JOIN financial_latest fl ON fl.enterprise_number = h.enterprise_number
-                    GROUP BY LOWER(h.name), h.enterprise_number, n.denomination, fl.revenue
-                ),
-                ranked AS (
-                    SELECT name_key, MIN(display_name) AS display_name, enterprise_number,
-                           MIN(company_name) AS company_name, MAX(revenue) AS revenue
-                    FROM per_company
-                    GROUP BY name_key, enterprise_number
-                ),
-                aggregated AS (
-                    SELECT name_key,
-                           MIN(display_name) AS name,
-                           COUNT(*) AS company_count,
-                           ARRAY_AGG(company_name ORDER BY revenue DESC NULLS LAST, company_name) AS company_names
-                    FROM ranked
-                    GROUP BY name_key
-                )
-                SELECT name, company_count, company_names[1:3] AS top_companies
-                FROM aggregated
-                ORDER BY company_count DESC, name
-                LIMIT 50
-            """, (
-                # addr_match guards (2 short-circuit + 4 ILIKE pairs + 2 zip equality)
-                addr_q, zip_q,
-                addr_q, addr_q,
-                addr_q, addr_q,
-                addr_q, addr_q,
-                addr_q, addr_q,
-                zip_q, zip_q,
-                # name-arm placeholders (admin + shareholder + staatsblad)
-                query, query, query,
-            ))
-            rows = [dict(r) for r in cur.fetchall()]
-            cur.close()
-            conn.commit()
+        rows = fetch_all(_PEOPLE_V2_SQL, params)
+    except Exception:
+        logger.exception("people search V2 failed for q=%r", raw[:80])
+        raise HTTPException(status_code=500, detail="search_failed")
 
-        return [
-            {
-                "name": r["name"],
-                "company_count": int(r["company_count"]) if r["company_count"] is not None else 0,
-                "top_companies": r.get("top_companies") or [],
-            }
-            for r in rows
-        ]
+    return [
+        {
+            "name": r["name"],
+            "company_count": int(r["company_count"]) if r.get("company_count") is not None else 0,
+            "top_companies": r.get("top_companies") or [],
+            "score": float(r["score"]) if r.get("score") is not None else 0.0,
+        }
+        for r in rows
+    ]
 
-    except Exception as e:
-        logger.exception("People search failed")
-        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Scored CTE. The UNION arms below each emit `(name, enterprise_number,
+# src, base_score)` rows. `grouped` reduces to one row per (lowercase
+# name, company) so a person who is both admin + shareholder of the
+# same entity counts once. `aggregated` is one row per name with the
+# top-3 highest-revenue companies.
+_PEOPLE_V2_SQL = """
+WITH
+people_hits AS (
+    -- 1.0: exact normalised match OR exact reversed (order-agnostic)
+    SELECT a.name, a.enterprise_number, 'admin' AS src, 1.0::real AS base
+    FROM administrator a
+    WHERE a.person_type = 'natural'
+      AND a.name_normalized IS NOT NULL
+      AND (
+          (%(nq)s IS NOT NULL AND a.name_normalized = %(nq)s)
+          OR (%(rev)s IS NOT NULL AND a.name_reversed = %(rev)s)
+      )
+    UNION ALL
+    SELECT s.name, s.enterprise_number, 'shareholder', 1.0::real
+    FROM shareholder s
+    WHERE s.shareholder_type = 'individual'
+      AND s.name_normalized IS NOT NULL
+      AND (
+          (%(nq)s IS NOT NULL AND s.name_normalized = %(nq)s)
+          OR (%(rev)s IS NOT NULL AND s.name_reversed = %(rev)s)
+      )
+    UNION ALL
+    SELECT e.person_name AS name, e.enterprise_number, 'staatsblad', 1.0::real
+    FROM staatsblad_event e
+    WHERE e.event_type = 'admin_event'
+      AND e.person_name IS NOT NULL
+      AND e.person_name_normalized IS NOT NULL
+      AND (
+          (%(nq)s IS NOT NULL AND e.person_name_normalized = %(nq)s)
+          OR (%(rev)s IS NOT NULL AND e.person_name_reversed = %(rev)s)
+      )
+
+    UNION ALL
+    -- 0.7: every typed token ILIKE-matches the normalised name (any order)
+    SELECT a.name, a.enterprise_number, 'admin', 0.7::real
+    FROM administrator a
+    WHERE a.person_type = 'natural'
+      AND a.name_normalized IS NOT NULL
+      AND %(n_tokens)s >= 1
+      AND (%(tok1)s IS NULL OR a.name_normalized ILIKE %(tok1)s ESCAPE '\\')
+      AND (%(tok2)s IS NULL OR a.name_normalized ILIKE %(tok2)s ESCAPE '\\')
+      AND (%(tok3)s IS NULL OR a.name_normalized ILIKE %(tok3)s ESCAPE '\\')
+      AND (%(tok4)s IS NULL OR a.name_normalized ILIKE %(tok4)s ESCAPE '\\')
+    LIMIT 500
+    UNION ALL
+    SELECT s.name, s.enterprise_number, 'shareholder', 0.7::real
+    FROM shareholder s
+    WHERE s.shareholder_type = 'individual'
+      AND s.name_normalized IS NOT NULL
+      AND %(n_tokens)s >= 1
+      AND (%(tok1)s IS NULL OR s.name_normalized ILIKE %(tok1)s ESCAPE '\\')
+      AND (%(tok2)s IS NULL OR s.name_normalized ILIKE %(tok2)s ESCAPE '\\')
+      AND (%(tok3)s IS NULL OR s.name_normalized ILIKE %(tok3)s ESCAPE '\\')
+      AND (%(tok4)s IS NULL OR s.name_normalized ILIKE %(tok4)s ESCAPE '\\')
+    LIMIT 500
+    UNION ALL
+    SELECT e.person_name, e.enterprise_number, 'staatsblad', 0.7::real
+    FROM staatsblad_event e
+    WHERE e.event_type = 'admin_event'
+      AND e.person_name_normalized IS NOT NULL
+      AND %(n_tokens)s >= 1
+      AND (%(tok1)s IS NULL OR e.person_name_normalized ILIKE %(tok1)s ESCAPE '\\')
+      AND (%(tok2)s IS NULL OR e.person_name_normalized ILIKE %(tok2)s ESCAPE '\\')
+      AND (%(tok3)s IS NULL OR e.person_name_normalized ILIKE %(tok3)s ESCAPE '\\')
+      AND (%(tok4)s IS NULL OR e.person_name_normalized ILIKE %(tok4)s ESCAPE '\\')
+    LIMIT 500
+
+    UNION ALL
+    -- 0.4: trigram fuzzy for typo tolerance
+    SELECT a.name, a.enterprise_number, 'admin',
+           LEAST(0.4, similarity(a.name_normalized, %(nq)s))::real
+    FROM administrator a
+    WHERE a.person_type = 'natural'
+      AND %(nq)s IS NOT NULL
+      AND a.name_normalized %% %(nq)s
+      AND similarity(a.name_normalized, %(nq)s) > 0.3
+    LIMIT 200
+    UNION ALL
+    SELECT s.name, s.enterprise_number, 'shareholder',
+           LEAST(0.4, similarity(s.name_normalized, %(nq)s))::real
+    FROM shareholder s
+    WHERE s.shareholder_type = 'individual'
+      AND %(nq)s IS NOT NULL
+      AND s.name_normalized %% %(nq)s
+      AND similarity(s.name_normalized, %(nq)s) > 0.3
+    LIMIT 200
+
+    UNION ALL
+    -- 0.3: Double Metaphone phonetic fallback (Braet ↔ Braete ↔ Brait).
+    -- Exact match on the phonetic key — dmetaphone output is 1-4 chars
+    -- per token so trigram similarity is degenerate here; equality is
+    -- both cheaper and semantically correct.
+    SELECT a.name, a.enterprise_number, 'admin', 0.3::real
+    FROM administrator a
+    WHERE %(phon)s IS NOT NULL
+      AND a.person_type = 'natural'
+      AND a.name_phonetic = %(phon)s
+    LIMIT 200
+    UNION ALL
+    SELECT s.name, s.enterprise_number, 'shareholder', 0.3::real
+    FROM shareholder s
+    WHERE %(phon)s IS NOT NULL
+      AND s.shareholder_type = 'individual'
+      AND s.name_phonetic = %(phon)s
+    LIMIT 200
+
+    UNION ALL
+    -- 0.2: address fallback
+    SELECT a.name, a.enterprise_number, 'admin', 0.2::real
+    FROM administrator a
+    JOIN address ad ON ad.entity_number = a.enterprise_number
+    WHERE a.person_type = 'natural'
+      AND ad.type_of_address = 'REGO'
+      AND %(addr_like)s IS NOT NULL
+      AND (
+          ad.street_nl          ILIKE %(addr_like)s ESCAPE '\\'
+          OR ad.street_fr       ILIKE %(addr_like)s ESCAPE '\\'
+          OR ad.municipality_nl ILIKE %(addr_like)s ESCAPE '\\'
+          OR ad.municipality_fr ILIKE %(addr_like)s ESCAPE '\\'
+          OR (%(zip_q)s IS NOT NULL AND ad.zipcode = %(zip_q)s)
+      )
+    LIMIT 500
+),
+names_lookup AS (
+    SELECT DISTINCT ON (entity_number) entity_number, denomination
+    FROM denomination
+    WHERE type_of_denomination = '001'
+    ORDER BY entity_number,
+             CASE language WHEN '2' THEN 1 WHEN '1' THEN 2 ELSE 3 END
+),
+grouped AS (
+    SELECT LOWER(h.name) AS name_key,
+           MAX(h.base)   AS best_base,
+           h.enterprise_number,
+           COALESCE(nl.denomination, h.enterprise_number) AS company_name,
+           COALESCE(fl.revenue, 0) AS revenue,
+           -- Strip punctuation before INITCAP so "BRAET, TIM" displays
+           -- as "Braet Tim" rather than "Braet, Tim".
+           MIN(INITCAP(REGEXP_REPLACE(h.name, '[^[:alpha:][:space:]]', '', 'g'))) AS display_name
+    FROM people_hits h
+    LEFT JOIN names_lookup nl     ON nl.entity_number = h.enterprise_number
+    LEFT JOIN financial_latest fl ON fl.enterprise_number = h.enterprise_number
+    GROUP BY LOWER(h.name), h.enterprise_number, nl.denomination, fl.revenue
+),
+aggregated AS (
+    SELECT name_key,
+           MIN(display_name) AS name,
+           MAX(best_base)    AS score,
+           COUNT(DISTINCT enterprise_number) AS company_count,
+           ARRAY_AGG(company_name ORDER BY revenue DESC NULLS LAST, company_name) AS company_names
+    FROM grouped
+    GROUP BY name_key
+)
+SELECT name, company_count, score,
+       company_names[1:3] AS top_companies
+FROM aggregated
+ORDER BY score DESC, company_count DESC, name ASC
+LIMIT 50
+"""
 
 
 # ---------------------------------------------------------------------------

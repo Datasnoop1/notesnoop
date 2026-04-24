@@ -1,12 +1,10 @@
 "use client";
 
 import { Suspense, useState, useCallback, useRef, useEffect } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
-  searchCompanies,
+  searchCompaniesBucketed,
   searchPeople,
   searchEvents,
   getFavourites,
@@ -16,14 +14,26 @@ import {
   addPeopleFavourite,
   removePeopleFavourite,
 } from "@/lib/api";
-import type { SearchResult, PersonResult, StaatsbladEvent } from "@/lib/api";
-import { fmtEur, fmtCbe, fmtPct } from "@/lib/format";
+import type {
+  CompanySearchResponseV2,
+  PersonResult,
+  StaatsbladEvent,
+} from "@/lib/api";
 import { useTranslation } from "@/components/language-provider";
-import { Search, Building, Users, Loader2, Star, Calendar } from "lucide-react";
+import { Search, Building, Users, Loader2, Landmark } from "lucide-react";
+import {
+  CommercialSection,
+  PeopleSection,
+  NonprofitSection,
+  EventsSection,
+  SectionSkeleton,
+} from "./_components/sections";
 
 export default function UnifiedSearchPage() {
   return (
-    <Suspense fallback={<div className="py-8 text-center text-sm text-slate-400">Loading...</div>}>
+    <Suspense
+      fallback={<div className="py-8 text-center text-sm text-slate-400">Loading...</div>}
+    >
       <UnifiedSearchPageInner />
     </Suspense>
   );
@@ -34,14 +44,18 @@ function UnifiedSearchPageInner() {
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q") ?? "";
   const [query, setQuery] = useState(initialQ);
-  const [companies, setCompanies] = useState<SearchResult[]>([]);
+
+  // New bucketed response: { commercial, nonprofit_or_public, total }.
+  const [companies, setCompanies] = useState<CompanySearchResponseV2 | null>(null);
   const [people, setPeople] = useState<PersonResult[]>([]);
   const [events, setEvents] = useState<StaatsbladEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Favourite state
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Favourite state — loaded once, mutated optimistically.
   const [favCompanies, setFavCompanies] = useState<Set<string>>(new Set());
   const [favPeople, setFavPeople] = useState<Set<string>>(new Set());
 
@@ -60,14 +74,16 @@ function UnifiedSearchPageInner() {
     const isFav = favCompanies.has(cbe);
     setFavCompanies((prev) => {
       const next = new Set(prev);
-      if (isFav) next.delete(cbe); else next.add(cbe);
+      if (isFav) next.delete(cbe);
+      else next.add(cbe);
       return next;
     });
     (isFav ? removeFavourite(cbe) : addFavourite(cbe)).catch(() => {
-      // rollback on failure
+      // Rollback on failure.
       setFavCompanies((prev) => {
         const next = new Set(prev);
-        if (isFav) next.add(cbe); else next.delete(cbe);
+        if (isFav) next.add(cbe);
+        else next.delete(cbe);
         return next;
       });
     });
@@ -79,13 +95,15 @@ function UnifiedSearchPageInner() {
     const isFav = favPeople.has(name);
     setFavPeople((prev) => {
       const next = new Set(prev);
-      if (isFav) next.delete(name); else next.add(name);
+      if (isFav) next.delete(name);
+      else next.add(name);
       return next;
     });
     (isFav ? removePeopleFavourite(name) : addPeopleFavourite(name)).catch(() => {
       setFavPeople((prev) => {
         const next = new Set(prev);
-        if (isFav) next.add(name); else next.delete(name);
+        if (isFav) next.add(name);
+        else next.delete(name);
         return next;
       });
     });
@@ -93,31 +111,44 @@ function UnifiedSearchPageInner() {
 
   const doSearch = useCallback((q: string) => {
     setQuery(q);
+    // URL sync without triggering a navigation — smooth back button.
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      if (q.trim()) sp.set("q", q.trim());
+      else sp.delete("q");
+      window.history.replaceState({}, "", `/search${sp.toString() ? "?" + sp.toString() : ""}`);
+    }
+
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
 
     if (q.trim().length < 2) {
-      setCompanies([]);
+      setCompanies(null);
       setPeople([]);
+      setEvents([]);
       setSearched(false);
       return;
     }
 
     debounceRef.current = setTimeout(async () => {
+      const ac = new AbortController();
+      abortRef.current = ac;
       setLoading(true);
       setSearched(true);
       try {
         const [c, p, evRes] = await Promise.all([
-          searchCompanies(q.trim()).catch(() => []),
-          searchPeople(q.trim()).catch(() => []),
+          searchCompaniesBucketed(q.trim()).catch(() => null),
+          searchPeople(q.trim()).catch(() => [] as PersonResult[]),
           searchEvents(q.trim(), { limit: 10 }).catch(
             () => ({ query: q, results: [] as StaatsbladEvent[], count: 0 })
           ),
         ]);
+        if (ac.signal.aborted) return;
         setCompanies(c);
         setPeople(p);
         setEvents(evRes.results || []);
       } finally {
-        setLoading(false);
+        if (!ac.signal.aborted) setLoading(false);
       }
     }, 300);
   }, []);
@@ -126,6 +157,19 @@ function UnifiedSearchPageInner() {
     if (initialQ.trim().length >= 2) doSearch(initialQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const commercialList = companies?.commercial ?? [];
+  const nonprofitList = companies?.nonprofit_or_public ?? [];
+  const commercialTotal = companies?.total?.commercial ?? commercialList.length;
+  const nonprofitTotal = companies?.total?.nonprofit_or_public ?? nonprofitList.length;
+
+  const isSearchingEmpty =
+    searched &&
+    !loading &&
+    commercialList.length === 0 &&
+    nonprofitList.length === 0 &&
+    people.length === 0 &&
+    events.length === 0;
 
   return (
     <div className="space-y-6">
@@ -137,261 +181,67 @@ function UnifiedSearchPageInner() {
             placeholder={t("search.placeholder")}
             value={query}
             onChange={(e) => doSearch(e.target.value)}
-            className="pl-12 h-12 text-base rounded-xl border-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-200"
+            // text-[16px] avoids iOS Safari's auto-zoom on focus.
+            className="pl-12 h-12 text-[16px] rounded-xl border-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-200"
             autoFocus
+            aria-label={t("search.placeholder")}
           />
           {loading && (
             <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-indigo-400 animate-spin" />
           )}
         </div>
         {!searched && (
-          <p className="text-center text-xs text-slate-400 mt-3">
-            {t("search.hint")}
-          </p>
+          <p className="text-center text-xs text-slate-400 mt-3">{t("search.hint")}</p>
         )}
       </div>
 
       {/* Results */}
       {searched && (
         <div className="space-y-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {loading && companies === null ? (
+              <SectionSkeleton
+                icon={Building}
+                label={t("search.sections.commercial")}
+                accent="indigo"
+                rows={5}
+              />
+            ) : (
+              <CommercialSection
+                companies={commercialList}
+                total={commercialTotal}
+                favCompanies={favCompanies}
+                onToggleFav={toggleCompanyFav}
+              />
+            )}
+            {loading && people.length === 0 ? (
+              <SectionSkeleton
+                icon={Users}
+                label={t("search.sections.people")}
+                accent="emerald"
+                rows={5}
+              />
+            ) : (
+              <PeopleSection
+                people={people}
+                favPeople={favPeople}
+                onToggleFav={togglePersonFav}
+              />
+            )}
+          </div>
 
-          {/* Top Results — best matches from both */}
-          {(companies.length > 0 || people.length > 0) && (
-            <div>
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2 mb-3">
-                {t("search.topResults")}
-              </h2>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {/* Top companies */}
-                {companies.slice(0, 5).map((c) => (
-                  <Link
-                    key={`top-${c.enterprise_number}`}
-                    href={`/company/${c.enterprise_number}`}
-                    className="flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-xl bg-white border border-slate-200 hover:border-indigo-200 hover:shadow-md transition-all group"
-                  >
-                    <div className="p-2 rounded-lg bg-indigo-50 text-indigo-500 shrink-0">
-                      <Building className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 truncate">
-                        {c.name || fmtCbe(c.enterprise_number)}
-                      </div>
-                      <div className="text-[11px] text-slate-400 truncate">
-                        {fmtCbe(c.enterprise_number)}
-                        {c.city && <span> · {c.city}</span>}
-                      </div>
-                    </div>
-                    {c.revenue != null && (
-                      <div className="text-right shrink-0">
-                        <div className="text-xs font-mono text-slate-600">{fmtEur(c.revenue)}</div>
-                        {c.ebitda_margin_pct != null && (
-                          <div className={`text-[11px] font-mono ${c.ebitda_margin_pct >= 15 ? "text-emerald-500" : c.ebitda_margin_pct >= 5 ? "text-amber-500" : "text-rose-400"}`}>
-                            {fmtPct(c.ebitda_margin_pct)}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <button
-                      onClick={(e) => toggleCompanyFav(c.enterprise_number, e)}
-                      className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 transition-colors shrink-0"
-                    >
-                      <Star className={`w-4 h-4 ${favCompanies.has(c.enterprise_number) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
-                    </button>
-                  </Link>
-                ))}
-                {/* Top people */}
-                {people.slice(0, 5).map((p, i) => (
-                  <Link
-                    key={`top-p-${i}`}
-                    href={`/people?q=${encodeURIComponent(p.name)}`}
-                    className="flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-xl bg-white border border-slate-200 hover:border-emerald-200 hover:shadow-md transition-all group"
-                  >
-                    <div className="p-2 rounded-lg bg-emerald-50 text-emerald-500 shrink-0">
-                      <Users className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-semibold text-slate-800 group-hover:text-emerald-600 truncate">
-                        {p.name}
-                      </div>
-                      <div className="text-[11px] text-slate-400 truncate">
-                        {p.top_companies && p.top_companies.length > 0 ? (
-                          <>
-                            <span className="text-slate-500">{p.top_companies.slice(0, 2).join(" \u00b7 ")}</span>
-                            {(p.company_count || p.companies) > p.top_companies.length && (
-                              <span className="text-slate-400"> +{(p.company_count || p.companies) - p.top_companies.length} more</span>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            {p.roles > 0 && <span>{p.roles} roles</span>}
-                            {p.roles > 0 && p.holdings > 0 && <span> \u00b7 </span>}
-                            {p.holdings > 0 && <span>{p.holdings} holdings</span>}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <Badge variant="secondary" className="text-[10px] shrink-0">
-                      {p.company_count || p.companies} {(p.company_count || p.companies) === 1 ? "co." : "cos."}
-                    </Badge>
-                    <button
-                      onClick={(e) => togglePersonFav(p.name, e)}
-                      className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 transition-colors shrink-0"
-                    >
-                      <Star className={`w-4 h-4 ${favPeople.has(p.name) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
-                    </button>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Non-profits & public — demoted, collapsed */}
+          <NonprofitSection
+            companies={nonprofitList}
+            total={nonprofitTotal}
+            favCompanies={favCompanies}
+            onToggleFav={toggleCompanyFav}
+          />
 
-          {/* Full Companies list */}
-          {companies.length > 5 && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Building className="w-4 h-4 text-indigo-500" />
-                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  {t("search.allCompanies")}
-                </h2>
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                  {companies.length}
-                </Badge>
-              </div>
-              <div className="space-y-0.5">
-                {companies.slice(5).map((c) => (
-                  <Link
-                    key={c.enterprise_number}
-                    href={`/company/${c.enterprise_number}`}
-                    className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all group"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-slate-800 group-hover:text-indigo-600 truncate">
-                        {c.name || fmtCbe(c.enterprise_number)}
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5 truncate">
-                        {fmtCbe(c.enterprise_number)}
-                        {c.city && <span> · {c.city}</span>}
-                        {c.sector && <span> · {c.sector}</span>}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0 ml-3">
-                      {c.revenue != null && (
-                        <div className="text-xs font-mono text-slate-600">{fmtEur(c.revenue)}</div>
-                      )}
-                    </div>
-                    <button
-                      onClick={(e) => toggleCompanyFav(c.enterprise_number, e)}
-                      className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 transition-colors shrink-0"
-                    >
-                      <Star className={`w-4 h-4 ${favCompanies.has(c.enterprise_number) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
-                    </button>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Events — smallest, at the bottom */}
+          <EventsSection events={events} />
 
-          {/* Full People list */}
-          {people.length > 5 && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Users className="w-4 h-4 text-emerald-500" />
-                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  {t("search.allPeople")}
-                </h2>
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                  {people.length}
-                </Badge>
-              </div>
-              <div className="space-y-0.5">
-                {people.slice(5).map((p, i) => (
-                  <Link
-                    key={`all-p-${i}`}
-                    href={`/people?q=${encodeURIComponent(p.name)}`}
-                    className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-white hover:shadow-sm border border-transparent hover:border-slate-200 transition-all group"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-slate-800 group-hover:text-emerald-600 truncate">
-                        {p.name}
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5 truncate">
-                        {p.top_companies && p.top_companies.length > 0 ? (
-                          <>
-                            <span className="text-slate-500">{p.top_companies.slice(0, 2).join(" \u00b7 ")}</span>
-                            {(p.company_count || p.companies) > p.top_companies.length && (
-                              <span className="text-slate-400"> +{(p.company_count || p.companies) - p.top_companies.length}</span>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            {p.roles > 0 && <span>{p.roles} roles</span>}
-                            {p.roles > 0 && p.holdings > 0 && <span> \u00b7 </span>}
-                            {p.holdings > 0 && <span>{p.holdings} holdings</span>}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <Badge variant="secondary" className="text-[10px] shrink-0">
-                      {p.company_count || p.companies} cos.
-                    </Badge>
-                    <button
-                      onClick={(e) => togglePersonFav(p.name, e)}
-                      className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 transition-colors shrink-0"
-                    >
-                      <Star className={`w-4 h-4 ${favPeople.has(p.name) ? "fill-amber-400 text-amber-400" : "text-slate-300 hover:text-slate-400"}`} />
-                    </button>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Events */}
-          {events.length > 0 && (
-            <div>
-              <h2 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-emerald-400 pl-2">
-                <Calendar className="w-3.5 h-3.5" />
-                Events ({events.length})
-              </h2>
-              <div className="space-y-1">
-                {events.map((ev) => {
-                  const who = ev.person_name || ev.entity_name || "";
-                  const tLabel = (ev.event_type || "").replace(/_/g, " ");
-                  return (
-                    <Link
-                      key={ev.id}
-                      href={`/company/${ev.enterprise_number}`}
-                      className="flex items-center gap-3 px-3 py-2 min-h-[44px] rounded-lg bg-white border border-slate-200 hover:border-emerald-300 hover:shadow-sm transition-all"
-                    >
-                      <span className="font-mono text-[11px] text-slate-500 w-24 shrink-0">
-                        {ev.event_date || ev.pub_date}
-                      </span>
-                      <Badge variant="secondary" className="text-[10px] capitalize bg-emerald-50 text-emerald-700 border-emerald-200 shrink-0">
-                        {tLabel}
-                      </Badge>
-                      <span className="text-sm font-medium text-slate-700 truncate">
-                        {ev.company_name || fmtCbe(ev.enterprise_number)}
-                      </span>
-                      {who && (
-                        <span className="text-xs text-slate-500 truncate hidden md:inline">
-                          — {who}
-                        </span>
-                      )}
-                      <span
-                        className="ml-auto text-xs text-slate-400 truncate hidden md:inline max-w-[40%]"
-                        title={ev.summary || undefined}
-                      >
-                        {ev.summary}
-                      </span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* No results */}
-          {companies.length === 0 && people.length === 0 && events.length === 0 && !loading && (
+          {isSearchingEmpty && (
             <div className="rounded-lg border border-dashed border-slate-200 p-8 text-center">
               <p className="text-sm text-slate-400">{t("search.noResults", { query })}</p>
             </div>
@@ -399,23 +249,31 @@ function UnifiedSearchPageInner() {
         </div>
       )}
 
-      {/* Empty state */}
+      {/* Empty-state shortcuts — unchanged from V1 */}
       {!searched && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto mt-4">
-          <Link href="/company">
+          <a href="/company" className="block">
             <div className="rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group text-center">
               <Building className="w-8 h-8 text-indigo-400 mx-auto mb-2 group-hover:text-indigo-600 transition-colors" />
-              <h3 className="text-sm font-semibold text-slate-700">{t("search.browseCompanies")}</h3>
-              <p className="text-[11px] text-slate-400 mt-1">{t("search.browseCompaniesDesc")}</p>
+              <h3 className="text-sm font-semibold text-slate-700">
+                {t("search.browseCompanies")}
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {t("search.browseCompaniesDesc")}
+              </p>
             </div>
-          </Link>
-          <Link href="/people">
+          </a>
+          <a href="/people" className="block">
             <div className="rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-emerald-200 transition-all cursor-pointer group text-center">
               <Users className="w-8 h-8 text-emerald-400 mx-auto mb-2 group-hover:text-emerald-600 transition-colors" />
-              <h3 className="text-sm font-semibold text-slate-700">{t("search.browsePeople")}</h3>
-              <p className="text-[11px] text-slate-400 mt-1">{t("search.browsePeopleDesc")}</p>
+              <h3 className="text-sm font-semibold text-slate-700">
+                {t("search.browsePeople")}
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {t("search.browsePeopleDesc")}
+              </p>
             </div>
-          </Link>
+          </a>
         </div>
       )}
     </div>

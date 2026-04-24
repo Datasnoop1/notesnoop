@@ -108,7 +108,21 @@
     "browsePeopleDesc": "Recherchez administrateurs & actionnaires",
     "roles": "{count} fonctions",
     "holdings": "{count} participations",
-    "companies": "{count} entr."
+    "companies": "{count} entr.",
+    "sections": {
+      "commercial": "Entreprises commerciales",
+      "people": "Personnes",
+      "nonprofitPublic": "ASBL & secteur public",
+      "events": "Publications"
+    },
+    "noResultsBucket": {
+      "commercial": "Aucune entreprise commerciale trouvée.",
+      "people": "Aucune personne trouvée.",
+      "nonprofit": "Aucune ASBL ou entité publique trouvée.",
+      "events": "Aucune publication trouvée."
+    },
+    "showHidden": "{n} masqué(s) — cliquez pour afficher",
+    "hideHidden": "Masquer"
   },
 
   "screener": {

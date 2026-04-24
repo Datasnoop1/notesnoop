@@ -108,7 +108,21 @@
     "browsePeopleDesc": "Zoek bestuurders & aandeelhouders",
     "roles": "{count} functies",
     "holdings": "{count} belangen",
-    "companies": "{count} bedr."
+    "companies": "{count} bedr.",
+    "sections": {
+      "commercial": "Commerciële bedrijven",
+      "people": "Personen",
+      "nonprofitPublic": "Non-profits & overheid",
+      "events": "Publicaties"
+    },
+    "noResultsBucket": {
+      "commercial": "Geen commerciële bedrijven gevonden.",
+      "people": "Geen personen gevonden.",
+      "nonprofit": "Geen non-profits of overheidsentiteiten gevonden.",
+      "events": "Geen publicaties gevonden."
+    },
+    "showHidden": "{n} verborgen — klik om te tonen",
+    "hideHidden": "Verbergen"
   },
 
   "screener": {
