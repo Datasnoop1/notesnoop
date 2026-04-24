@@ -223,22 +223,34 @@ token_and AS (
       AND (%(tok4)s IS NULL OR ci.name_normalized ILIKE %(tok4)s ESCAPE '\\')
     LIMIT 200
 ),
-denom_match AS (
-    -- Denomination fallback — expensive on 3.3M rows. Gated to ≥4
-    -- chars so short prefixes don't fan out. Exact/prefix/token-AND
-    -- arms on company_info already cover short queries well.
-    SELECT d.entity_number AS enterprise_number, 0.45::real AS base
+denom_exact AS (
+    -- Exact-equality match on a trade name (denomination). This is
+    -- what surfaces e.g. "Viconco" when the user types "viconco" but
+    -- the canonical company_info.name is blank or different. Scored
+    -- high (0.85) — above prefix-on-name (0.7) — because a full-name
+    -- match on the trade-name register is a near-certain hit.
+    SELECT d.entity_number AS enterprise_number, 0.85::real AS base
+    FROM denomination d
+    WHERE %(nq)s IS NOT NULL
+      AND length(%(nq)s) >= 3
+      AND d.type_of_denomination IN ('001', '002', '003')
+      AND d.denomination_normalized = %(nq)s
+    LIMIT 50
+),
+denom_fuzzy AS (
+    -- Fuzzy trigram fallback on denomination — gated to ≥4 chars and
+    -- only fires when the exact arm above doesn't already have the
+    -- name. Scored 0.4 so it sits below the company_info fuzzy arm.
+    SELECT d.entity_number AS enterprise_number, 0.4::real AS base
     FROM denomination d
     WHERE %(nq)s IS NOT NULL
       AND length(%(nq)s) >= 4
       AND d.type_of_denomination = '001'
       AND d.language IN ('2', '1')
       AND d.denomination_normalized IS NOT NULL
-      AND (
-          d.denomination_normalized = %(nq)s
-          OR d.denomination_normalized %% %(nq)s
-      )
-    LIMIT 200
+      AND d.denomination_normalized %% %(nq)s
+      AND similarity(d.denomination_normalized, %(nq)s) > 0.45
+    LIMIT 100
 ),
 trigram_match AS (
     -- Trigram fuzzy fallback. Gated to ≥4 chars + stricter threshold
@@ -272,7 +284,8 @@ all_hits AS (
         SELECT * FROM exact_match
         UNION ALL SELECT * FROM prefix_match
         UNION ALL SELECT * FROM token_and
-        UNION ALL SELECT * FROM denom_match
+        UNION ALL SELECT * FROM denom_exact
+        UNION ALL SELECT * FROM denom_fuzzy
         UNION ALL SELECT * FROM trigram_match
         UNION ALL SELECT * FROM addr_match
     ) u

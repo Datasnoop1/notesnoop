@@ -42,6 +42,43 @@ function asTopCompanies(
     .filter((c) => c.name);
 }
 
+// Normalise a query or name for the exact-match check: lowercase,
+// accent-fold, drop punctuation, collapse whitespace. Matches the
+// backend's search_normalize roughly enough for UI purposes.
+function normForMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Is the top result a genuine match for what the user typed?
+ *
+ * Only three cases qualify as "highlight-worthy":
+ *   1. Equal after normalisation — "Colruyt NV" query vs "Colruyt NV".
+ *   2. Whole-word prefix — "Colruyt" query vs "Colruyt Group".
+ *   3. Same tokens in a different order — "Tim Braet" vs "Braet Tim".
+ *
+ * Everything else (partial surname match like "vic huys" → "alex huys",
+ * trigram fuzzy, phonetic) does NOT highlight. The ring should be a
+ * confidence signal, not just "first in list".
+ */
+function isExactEnoughMatch(query: string, name: string): boolean {
+  const nq = normForMatch(query);
+  const nn = normForMatch(name);
+  if (!nq || !nn) return false;
+  if (nq === nn) return true;
+  if (nn.startsWith(nq + " ")) return true;
+  const qTokens = nq.split(" ").filter(Boolean).sort().join(" ");
+  const nTokens = nn.split(" ").filter(Boolean).sort().join(" ");
+  if (qTokens && qTokens === nTokens) return true;
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Shared card primitives
 // ---------------------------------------------------------------------------
@@ -302,11 +339,13 @@ export function CommercialSection({
   total,
   favCompanies,
   onToggleFav,
+  query,
 }: {
   companies: CompanySearchResultV2[];
   total: number;
   favCompanies: Set<string>;
   onToggleFav: (cbe: string, e: React.MouseEvent) => void;
+  query: string;
 }) {
   const { t } = useTranslation();
   return (
@@ -316,17 +355,20 @@ export function CommercialSection({
         <p className="text-[12px] text-slate-400 px-1">{t("search.noResultsBucket.commercial")}</p>
       ) : (
         <div className="space-y-2">
-          {companies.map((c, i) => (
-            <div key={c.enterprise_number} className={i === 0 && companies.length > 1 ? "mb-2" : ""}>
-              <CompanyCard
-                company={c}
-                isFav={favCompanies.has(c.enterprise_number)}
-                onToggleFav={onToggleFav}
-                tone="primary"
-                topMatch={i === 0}
-              />
-            </div>
-          ))}
+          {companies.map((c, i) => {
+            const top = i === 0 && isExactEnoughMatch(query, c.name);
+            return (
+              <div key={c.enterprise_number} className={top && companies.length > 1 ? "mb-2" : ""}>
+                <CompanyCard
+                  company={c}
+                  isFav={favCompanies.has(c.enterprise_number)}
+                  onToggleFav={onToggleFav}
+                  tone="primary"
+                  topMatch={top}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -341,10 +383,12 @@ export function PeopleSection({
   people,
   favPeople,
   onToggleFav,
+  query,
 }: {
   people: PersonResult[];
   favPeople: Set<string>;
   onToggleFav: (name: string, e: React.MouseEvent) => void;
+  query: string;
 }) {
   const { t } = useTranslation();
   return (
@@ -354,16 +398,19 @@ export function PeopleSection({
         <p className="text-[12px] text-slate-400 px-1">{t("search.noResultsBucket.people")}</p>
       ) : (
         <div className="space-y-2">
-          {people.slice(0, 20).map((p, i) => (
-            <div key={`person-${i}-${p.name}`} className={i === 0 && people.length > 1 ? "mb-2" : ""}>
-              <PersonCard
-                person={p}
-                isFav={favPeople.has(p.name)}
-                onToggleFav={onToggleFav}
-                topMatch={i === 0}
-              />
-            </div>
-          ))}
+          {people.slice(0, 20).map((p, i) => {
+            const top = i === 0 && isExactEnoughMatch(query, p.name);
+            return (
+              <div key={`person-${i}-${p.name}`} className={top && people.length > 1 ? "mb-2" : ""}>
+                <PersonCard
+                  person={p}
+                  isFav={favPeople.has(p.name)}
+                  onToggleFav={onToggleFav}
+                  topMatch={top}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -379,11 +426,13 @@ export function NonprofitSection({
   total,
   favCompanies,
   onToggleFav,
+  query,
 }: {
   companies: CompanySearchResultV2[];
   total: number;
   favCompanies: Set<string>;
   onToggleFav: (cbe: string, e: React.MouseEvent) => void;
+  query: string;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -431,17 +480,20 @@ export function NonprofitSection({
       </button>
       {expanded && (
         <div className="space-y-2 mt-3">
-          {companies.map((c, i) => (
-            <div key={c.enterprise_number} className={i === 0 && companies.length > 1 ? "mb-2" : ""}>
-              <CompanyCard
-                company={c}
-                isFav={favCompanies.has(c.enterprise_number)}
-                onToggleFav={onToggleFav}
-                tone="muted"
-                topMatch={i === 0}
-              />
-            </div>
-          ))}
+          {companies.map((c, i) => {
+            const top = i === 0 && isExactEnoughMatch(query, c.name);
+            return (
+              <div key={c.enterprise_number} className={top && companies.length > 1 ? "mb-2" : ""}>
+                <CompanyCard
+                  company={c}
+                  isFav={favCompanies.has(c.enterprise_number)}
+                  onToggleFav={onToggleFav}
+                  tone="muted"
+                  topMatch={top}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

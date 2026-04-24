@@ -228,6 +228,7 @@ function UnifiedSearchPageInner() {
                 total={commercialTotal}
                 favCompanies={favCompanies}
                 onToggleFav={toggleCompanyFav}
+                query={query}
               />
             )}
             {loading && people.length === 0 ? (
@@ -242,6 +243,7 @@ function UnifiedSearchPageInner() {
                 people={people}
                 favPeople={favPeople}
                 onToggleFav={togglePersonFav}
+                query={query}
               />
             )}
           </div>
@@ -252,6 +254,7 @@ function UnifiedSearchPageInner() {
             total={nonprofitTotal}
             favCompanies={favCompanies}
             onToggleFav={toggleCompanyFav}
+            query={query}
           />
 
           {/* Events — smallest, at the bottom */}
