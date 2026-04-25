@@ -92,12 +92,22 @@ export interface StaatsbladPub {
   pdf_url: string | null;
 }
 
+export interface CompanyAffiliation {
+  person_name: string;
+  via_enterprise_number: string | null;
+  via_company_name: string | null;
+  fiscal_year: string | null;
+  affiliation_type: string | null;
+  last_seen_at: string | null;
+}
+
 export interface StructureData {
   administrators: Administrator[];
   administrator_events?: AdministratorEvent[];
   participating_interests: ParticipatingInterest[];
   shareholders: Shareholder[];
   staatsblad_publications: StaatsbladPub[];
+  affiliations?: CompanyAffiliation[];
 }
 
 export interface FinancialsData {

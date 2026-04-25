@@ -7,7 +7,7 @@ from time import time as _time
 import httpx
 from fastapi import APIRouter, HTTPException
 
-from db import fetch_all, fetch_one, get_connection, put_connection
+from db import fetch_all, fetch_one, get_conn, get_connection, put_connection
 from utils import clean_cbe
 from ._helpers import (
     _serialize_row,
@@ -28,6 +28,12 @@ router = APIRouter()
 _ADMIN_EXTRACT_CACHE: "OrderedDict[str, tuple[float, int]]" = OrderedDict()
 _ADMIN_EXTRACT_CACHE_TTL = 1800  # 30 min — re-try later in case Staatsblad gains a pub
 _ADMIN_EXTRACT_CACHE_MAX = 10_000
+
+# Cache the affiliation-table presence probe at module scope. The table
+# either exists (post-migration) or doesn't, and it doesn't appear and
+# disappear within a single backend process lifetime, so a single probe
+# is enough — saves an extra round-trip on every /structure call.
+_AFFILIATION_TABLE_PRESENT: bool | None = None
 
 
 def _admin_extract_cache_skip(cbe: str) -> bool:
@@ -144,12 +150,56 @@ async def get_company_structure(cbe: str):
             (cbe,),
         )
 
+        # Affiliations — natural people who represent a corporate director
+        # of THIS company. Probe-then-query: the table doesn't exist on
+        # environments that haven't applied the affiliation migration yet;
+        # treat that as an empty list rather than a 500. Probe result is
+        # cached at module scope so we only pay the round-trip once per
+        # process.
+        global _AFFILIATION_TABLE_PRESENT
+        affiliation_rows: list[dict] = []
+        if _AFFILIATION_TABLE_PRESENT is None:
+            with get_conn() as _probe_conn:
+                with _probe_conn.cursor() as _probe_cur:
+                    _probe_cur.execute(
+                        "SELECT to_regclass('public.affiliation') IS NOT NULL"
+                    )
+                    _AFFILIATION_TABLE_PRESENT = bool(_probe_cur.fetchone()[0])
+        if _AFFILIATION_TABLE_PRESENT:
+            affiliation_rows = fetch_all("""
+                SELECT
+                    af.person_name,
+                    af.via_enterprise_number,
+                    COALESCE(via_d.denomination, af.via_enterprise_number) AS via_company_name,
+                    af.fiscal_year,
+                    af.affiliation_type,
+                    af.last_seen_at
+                FROM affiliation af
+                LEFT JOIN denomination via_d
+                    ON via_d.entity_number = af.via_enterprise_number
+                    AND via_d.type_of_denomination = '001' AND via_d.language IN ('2','1')
+                WHERE af.enterprise_number = %s
+                ORDER BY af.last_seen_at DESC NULLS LAST, af.person_name
+            """, (cbe,))
+
+        # Dedupe by (person, via_company): one filing per row in the
+        # source table, but the UI cares about the relationship.
+        affiliations_dedup: dict[tuple[str, str], dict] = {}
+        for row in affiliation_rows:
+            key = (
+                (row.get("person_name") or "").lower(),
+                row.get("via_enterprise_number") or "",
+            )
+            if key not in affiliations_dedup:
+                affiliations_dedup[key] = row
+
         return {
             "administrators": [_serialize_row(r) for r in admins_merged],
             "administrator_events": [_serialize_row(r) for r in admin_timeline],
             "participating_interests": [_serialize_row(r) for r in pis],
             "shareholders": [_serialize_row(r) for r in shareholders],
             "staatsblad_publications": [_serialize_row(r) for r in sb_pubs],
+            "affiliations": [_serialize_row(r) for r in affiliations_dedup.values()],
         }
     except Exception as e:
         logger.exception("Company structure query failed")

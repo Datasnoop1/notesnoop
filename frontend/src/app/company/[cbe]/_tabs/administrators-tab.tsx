@@ -14,6 +14,7 @@ import {
   Sparkles,
   Loader2,
   ChevronDown,
+  Link2,
 } from "lucide-react";
 import { GoogleSearchLink } from "@/components/google-search-link";
 import type { Administrator, CompanyDetail, StructureData } from "../types";
@@ -49,8 +50,9 @@ export function AdministratorsTab({
   );
 
   const adminEvents = structure?.administrator_events ?? [];
+  const affiliations = structure?.affiliations ?? [];
 
-  if (currentAdmins.length === 0 && pastAdmins.length === 0 && adminEvents.length === 0) {
+  if (currentAdmins.length === 0 && pastAdmins.length === 0 && adminEvents.length === 0 && affiliations.length === 0) {
     return (
       <p className="py-8 text-center text-sm text-slate-500">
         No administrator data available for this company.
@@ -270,6 +272,67 @@ export function AdministratorsTab({
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Affiliations — natural people who represent a corporate director
+          of this company. Surfaced from the `affiliation` table populated
+          by the NBB filing parser. */}
+      {affiliations.length > 0 && (
+        <div>
+          <h3 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-slate-400 pl-2">
+            <Link2 className="h-3.5 w-3.5 text-slate-400" />
+            Affiliations ({affiliations.length})
+            <span className="text-[10px] font-normal normal-case tracking-normal text-slate-400">
+              via corporate-director representation
+            </span>
+          </h3>
+          <div className="rounded-lg border border-slate-100 bg-white">
+            {affiliations.map((af, i) => {
+              const viaCbe = cleanCbe(af.via_enterprise_number);
+              return (
+                <div
+                  key={`aff-${af.person_name}-${af.via_enterprise_number}-${i}`}
+                  className="px-3 py-2 border-b border-slate-50 last:border-0 flex items-center gap-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      href={`/people?q=${encodeURIComponent(af.person_name)}`}
+                      className="text-sm font-medium text-brand hover:underline truncate block"
+                    >
+                      {af.person_name}
+                    </Link>
+                    <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+                      <span className="text-slate-500">represents</span>
+                      {viaCbe ? (
+                        <Link
+                          href={`/company/${viaCbe}`}
+                          className="hover:text-brand hover:underline truncate"
+                        >
+                          {af.via_company_name || fmtCbe(viaCbe)}
+                        </Link>
+                      ) : (
+                        <span className="truncate">{af.via_company_name || "—"}</span>
+                      )}
+                      {af.fiscal_year && (
+                        <>
+                          <span>•</span>
+                          <span className="font-mono">FY{af.fiscal_year}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] bg-slate-50 text-slate-500 border-slate-200"
+                    title="Affiliated — this person represents a corporate director here"
+                  >
+                    via rep
+                  </Badge>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
