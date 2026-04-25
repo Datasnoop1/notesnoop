@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useState, useEffect } from "react";
-import { Menu, LogOut, User, Bell, ChevronDown } from "lucide-react";
+import { Menu, LogOut, User, Bell } from "lucide-react";
 import HeaderSearch from "@/components/header-search";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,17 +40,10 @@ export default function Nav() {
   const [logoPath, setLogoPath] = useState("/logos/dog-telescope-clean.jpeg");
 
   const NAV_LINKS = [
-    { label: "Search", href: "/search" },
-    { label: t("nav.screener"), href: "/screener" },
-    { label: t("nav.compare"), href: "/compare" },
-    { label: "Insights", href: "/stats" },
-    { label: "Publications", href: "/outperformers" },
-  ];
-
-  const MORE_LINKS = [
     { label: t("nav.favourites"), href: "/favourites" },
+    { label: t("nav.compare"), href: "/compare" },
     { label: t("nav.aggregate"), href: "/aggregate" },
-    { label: "Outperformers", href: "/outperformers" },
+    { label: t("nav.screener"), href: "/screener" },
   ];
 
   useEffect(() => {
@@ -107,15 +100,19 @@ export default function Nav() {
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6">
         <div className="flex items-center h-[60px] gap-6">
 
-          {/* Brand */}
-          <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
-            <div className="w-8 h-8 rounded-lg bg-[#0B5CFF] flex items-center justify-center text-white font-bold text-sm shrink-0 group-hover:bg-[#084ED8] transition-colors">
-              D
-            </div>
-            <span className="text-[15px] font-semibold text-[#07142F] tracking-tight hidden sm:block">
-              DataSnoop
-            </span>
-          </Link>
+          {/* Brand — hidden on landing (brand lives in the hero there) */}
+          {isLanding ? (
+            <span aria-hidden className="w-0" />
+          ) : (
+            <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
+              <img src={logoPath} alt="Datasnoop" width={36} height={36} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/95" />
+              <span className="text-[15px] font-semibold tracking-tight">
+                <span className="text-[#07142F]">data</span>
+                <span className="text-[#0B5CFF]">snoop</span>
+              </span>
+              <span className="text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
+            </Link>
+          )}
 
           {/* Center: inline search (non-landing, non-search pages) */}
           {!hideHeaderSearch && (
@@ -142,20 +139,6 @@ export default function Nav() {
                 )}
               </Link>
             ))}
-
-            {/* More dropdown for secondary links */}
-            <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-0.5 px-3 py-1.5 text-[13.5px] font-medium text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF] rounded-lg transition-colors">
-                More <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-44 border-[#E3EAF4]">
-                {MORE_LINKS.map((item) => (
-                  <DropdownMenuItem key={item.href} onClick={() => router.push(item.href)} className="cursor-pointer text-[13px] text-[#07142F]">
-                    {item.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
           </nav>
 
           {/* Right side */}
@@ -239,18 +222,11 @@ export default function Nav() {
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <div className="hidden md:flex items-center gap-2">
-                <Link href="/login">
-                  <Button variant="ghost" size="sm" className="text-[13px] h-8 px-3 text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF]">
-                    {t("nav.signIn")}
-                  </Button>
-                </Link>
-                <Link href="/login">
-                  <Button size="sm" className="text-[13px] h-8 px-4 bg-[#0B5CFF] hover:bg-[#084ED8] text-white rounded-lg shadow-none">
-                    Start trial
-                  </Button>
-                </Link>
-              </div>
+              <Link href="/login">
+                <Button variant="outline" size="sm" className="inline-flex text-[12px] md:text-[13px] h-8 md:h-9 px-2.5 md:px-3 border-[#E3EAF4] text-[#07142F] hover:bg-[#F3F7FF]">
+                  {t("nav.signIn")}
+                </Button>
+              </Link>
             )}
 
             {/* Mobile hamburger */}
@@ -261,12 +237,12 @@ export default function Nav() {
                 </span>
               </SheetTrigger>
               <SheetContent side="left" className="w-72 border-[#E3EAF4]">
-                <SheetTitle className="flex items-center gap-2.5 text-[15px] font-semibold text-[#07142F]">
-                  <div className="w-7 h-7 rounded-lg bg-[#0B5CFF] flex items-center justify-center text-white font-bold text-sm">D</div>
-                  DataSnoop
+                <SheetTitle className="flex items-center gap-2 text-[15px] font-semibold">
+                  <img src={logoPath} alt="Datasnoop" width={32} height={32} className="rounded-md bg-white/95" />
+                  <span><span className="text-[#07142F]">data</span><span className="text-[#0B5CFF]">snoop</span></span>
                 </SheetTitle>
                 <div className="mt-6 flex flex-col gap-1">
-                  {[...NAV_LINKS, ...MORE_LINKS].map((item) => (
+                  {NAV_LINKS.map((item) => (
                     <Link
                       key={item.href}
                       href={item.href}
@@ -308,12 +284,9 @@ export default function Nav() {
                   )}
 
                   {!user && (
-                    <div className="border-t border-[#E3EAF4] mt-3 pt-3 px-3 flex flex-col gap-2">
+                    <div className="border-t border-[#E3EAF4] mt-3 pt-3 px-3">
                       <Link href="/login" onClick={() => setOpen(false)}>
                         <Button variant="outline" className="w-full text-[13px] border-[#E3EAF4]">{t("nav.signIn")}</Button>
-                      </Link>
-                      <Link href="/login" onClick={() => setOpen(false)}>
-                        <Button className="w-full text-[13px] bg-[#0B5CFF] hover:bg-[#084ED8] text-white">Start trial</Button>
                       </Link>
                     </div>
                   )}
