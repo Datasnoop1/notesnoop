@@ -121,37 +121,37 @@ export default function Home() {
                 Belgian Company Intelligence
               </div>
 
-              {/* Headline — serif-flavoured weight, bigger on desktop */}
-              <h1 className="text-[34px] sm:text-[44px] lg:text-[52px] font-bold text-[#07142F] leading-[1.08] tracking-tight mb-5">
+              {/* Headline — serif-flavoured weight, refined on desktop */}
+              <h1 className="text-[30px] sm:text-[38px] lg:text-[44px] font-bold text-[#07142F] leading-[1.1] tracking-tight mb-4">
                 Find, screen and<br />
                 understand companies faster.
               </h1>
 
               {/* Subtitle */}
-              <p className="text-[15px] sm:text-[16.5px] text-[#5F6B85] leading-relaxed mb-7 max-w-[520px]">
+              <p className="text-[14.5px] sm:text-[15.5px] text-[#5F6B85] leading-relaxed mb-6 max-w-[480px]">
                 A cleaner workspace for company discovery, financial benchmarking,
                 publications and AI-assisted deal signals.
               </p>
 
               {/* Search bar */}
-              <form onSubmit={handleSubmit} className="w-full max-w-[560px] mb-5">
-                <div className="relative flex items-center rounded-2xl border border-[#E3EAF4] bg-white shadow-[0_2px_12px_rgba(15,23,42,0.04)] hover:shadow-[0_4px_20px_rgba(11,92,255,0.08)] focus-within:border-[#0B5CFF] focus-within:shadow-[0_4px_20px_rgba(11,92,255,0.12)] transition-all duration-200">
-                  <Search className="absolute left-5 w-[18px] h-[18px] text-[#7B8498] pointer-events-none" aria-hidden />
+              <form onSubmit={handleSubmit} className="w-full max-w-[460px] mb-5">
+                <div className="relative flex items-center rounded-xl border border-[#E3EAF4] bg-white shadow-[0_1px_8px_rgba(15,23,42,0.03)] hover:shadow-[0_3px_14px_rgba(11,92,255,0.06)] focus-within:border-[#0B5CFF] focus-within:shadow-[0_3px_14px_rgba(11,92,255,0.1)] transition-all duration-200">
+                  <Search className="absolute left-4 w-[16px] h-[16px] text-[#7B8498] pointer-events-none" aria-hidden />
                   <input
                     ref={inputRef}
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search company, sector, VAT number or publication"
+                    placeholder="Search company, sector, VAT or publication"
                     aria-label="Search companies"
-                    className="w-full h-[52px] pl-[48px] pr-[100px] text-[14.5px] rounded-2xl bg-transparent focus:outline-none placeholder:text-[#7B8498] text-[#07142F]"
+                    className="w-full h-[44px] pl-[40px] pr-[88px] text-[14px] rounded-xl bg-transparent focus:outline-none placeholder:text-[#7B8498] text-[#07142F]"
                     enterKeyHint="search"
                     autoCapitalize="off"
                     autoCorrect="off"
                   />
                   <button
                     type="submit"
-                    className="absolute right-1.5 h-[42px] px-5 rounded-xl bg-[#0B5CFF] hover:bg-[#084ED8] text-white text-[13.5px] font-semibold transition-colors"
+                    className="absolute right-1.5 h-[36px] px-4 rounded-lg bg-[#0B5CFF] hover:bg-[#084ED8] text-white text-[13px] font-semibold transition-colors"
                   >
                     Search
                   </button>
