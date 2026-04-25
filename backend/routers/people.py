@@ -235,11 +235,63 @@ people_hits AS (
           OR (%(zip_q)s IS NOT NULL AND ad.zipcode = %(zip_q)s)
       )
      LIMIT 500)
+
+    -- ===================================================================
+    -- Affiliation arms: a softer link than admin/shareholder. Person X
+    -- represents a corporate director (Company A) of Company B, so X is
+    -- "affiliated" with Company A even though the name may never appear
+    -- in Company A's own filings. Scores are uniformly ~0.55x of the
+    -- admin counterparts so a direct admin/shareholder hit always beats
+    -- a same-arm affiliation hit at the MAX(base) dedup step downstream.
+    -- ===================================================================
+    UNION ALL
+    -- 0.55: exact normalised match OR exact reversed
+    (SELECT af.person_name AS name, af.enterprise_number, 'affiliation' AS src,
+            0.55::real AS base
+     FROM affiliation af
+     WHERE af.name_normalized IS NOT NULL
+       AND (
+           (%(nq)s IS NOT NULL AND af.name_normalized = %(nq)s)
+           OR (%(rev)s IS NOT NULL AND af.name_reversed = %(rev)s)
+       )
+     LIMIT 500)
+    UNION ALL
+    -- 0.4: token-AND
+    (SELECT af.person_name, af.enterprise_number, 'affiliation', 0.4::real
+     FROM affiliation af
+     WHERE af.name_normalized IS NOT NULL
+       AND %(n_tokens)s >= 1
+       AND (%(tok1)s IS NULL OR af.name_normalized ILIKE %(tok1)s ESCAPE '\\')
+       AND (%(tok2)s IS NULL OR af.name_normalized ILIKE %(tok2)s ESCAPE '\\')
+       AND (%(tok3)s IS NULL OR af.name_normalized ILIKE %(tok3)s ESCAPE '\\')
+       AND (%(tok4)s IS NULL OR af.name_normalized ILIKE %(tok4)s ESCAPE '\\')
+     LIMIT 500)
+    UNION ALL
+    -- 0.25: trigram fuzzy
+    (SELECT af.person_name, af.enterprise_number, 'affiliation',
+            LEAST(0.25, similarity(af.name_normalized, %(nq)s))::real
+     FROM affiliation af
+     WHERE %(nq)s IS NOT NULL
+       AND af.name_normalized %% %(nq)s
+       AND similarity(af.name_normalized, %(nq)s) > 0.3
+     LIMIT 200)
+    UNION ALL
+    -- 0.2: phonetic
+    (SELECT af.person_name, af.enterprise_number, 'affiliation', 0.2::real
+     FROM affiliation af
+     WHERE %(phon)s IS NOT NULL
+       AND af.name_phonetic = %(phon)s
+     LIMIT 200)
 ),
 grouped AS (
     SELECT LOWER(h.name) AS name_key,
            MAX(h.base)   AS best_base,
            h.enterprise_number,
+           -- True iff every hit for this (name, company) pair is an
+           -- affiliation row. False as soon as a single admin /
+           -- shareholder / staatsblad hit appears, so direct
+           -- relationships always win the visual ranking downstream.
+           BOOL_AND(h.src = 'affiliation') AS affiliation_only,
            COALESCE(nl.denomination, h.enterprise_number) AS company_name,
            COALESCE(fl.revenue, 0) AS revenue,
            ci.city AS company_city,
@@ -314,8 +366,15 @@ aggregated AS (
            -- ("Antwerpen" vs "Antwerpen  ·  via Staatsblad").
            BOOL_OR(person_city IS NOT NULL) AS has_domicile,
            JSONB_AGG(
-             JSONB_BUILD_OBJECT('name', company_name, 'cbe', enterprise_number)
-             ORDER BY revenue DESC NULLS LAST, company_name
+             JSONB_BUILD_OBJECT(
+               'name', company_name,
+               'cbe', enterprise_number,
+               -- Frontend renders affiliation-only entries with a
+               -- softer pill + tooltip ("represents a corporate
+               -- director — not a direct mandate").
+               'affiliation_only', affiliation_only
+             )
+             ORDER BY affiliation_only ASC, revenue DESC NULLS LAST, company_name
            ) AS company_list
     FROM grouped
     GROUP BY name_key, COALESCE(person_city, ''), COALESCE(person_postcode, '')
@@ -411,6 +470,48 @@ async def get_person_connections(name: str):
             ORDER BY ev.pub_date DESC
         """, (name,))
 
+        # Affiliations: weak link via corporate-director representation.
+        # Surface ALL filings that introduced the link (one row per
+        # via_enterprise_number) so the frontend can render breadcrumbs.
+        # Probe-then-query: the table may not exist on environments that
+        # haven't applied the affiliation migration yet — return empty
+        # rather than 500.
+        affiliation_rows: list[dict] = []
+        with get_conn() as _probe_conn:
+            with _probe_conn.cursor() as _probe_cur:
+                _probe_cur.execute(
+                    "SELECT to_regclass('public.affiliation') IS NOT NULL"
+                )
+                affiliation_table_present = bool(_probe_cur.fetchone()[0])
+        if affiliation_table_present:
+            affiliation_rows = fetch_all("""
+                SELECT
+                    af.enterprise_number,
+                    COALESCE(d.denomination, af.enterprise_number) AS company_name,
+                    af.via_enterprise_number,
+                    COALESCE(via_d.denomination, af.via_enterprise_number) AS via_company_name,
+                    af.via_deposit_key,
+                    af.fiscal_year,
+                    af.affiliation_type,
+                    af.first_seen_at,
+                    af.last_seen_at,
+                    fl.revenue,
+                    fl.ebitda,
+                    fl.fte_total,
+                    fl.fiscal_year AS fl_fiscal_year
+                FROM affiliation af
+                LEFT JOIN denomination d
+                    ON d.entity_number = af.enterprise_number
+                    AND d.type_of_denomination = '001' AND d.language IN ('2','1')
+                LEFT JOIN denomination via_d
+                    ON via_d.entity_number = af.via_enterprise_number
+                    AND via_d.type_of_denomination = '001' AND via_d.language IN ('2','1')
+                LEFT JOIN financial_latest fl
+                    ON fl.enterprise_number = af.enterprise_number
+                WHERE LOWER(af.person_name) = LOWER(%s)
+                ORDER BY af.last_seen_at DESC, af.enterprise_number
+            """, (name,))
+
         # Shareholdings — unchanged (no shareholder events yet from
         # the extractor; that's a Phase 4+ idea).
         holding_rows = fetch_all("""
@@ -496,12 +597,45 @@ async def get_person_connections(name: str):
                 seen_hold.add(key)
                 unique_holdings.append(row)
 
-        # Count distinct companies (union across both sources).
+        # Affiliations dedup by enterprise_number — multiple filings can
+        # observe the same (person, company) link; collapse to one card
+        # but keep the list of source filings for provenance breadcrumbs.
+        affiliations_by_ent: dict[str, dict] = {}
+        for row in affiliation_rows:
+            cbe_key = row.get("enterprise_number") or ""
+            if not cbe_key:
+                continue
+            existing = affiliations_by_ent.get(cbe_key)
+            if existing is None:
+                row_copy = dict(row)
+                row_copy["sources"] = [
+                    {
+                        "via_enterprise_number": row.get("via_enterprise_number"),
+                        "via_company_name": row.get("via_company_name"),
+                        "via_deposit_key": row.get("via_deposit_key"),
+                        "fiscal_year": row.get("fiscal_year"),
+                    }
+                ]
+                affiliations_by_ent[cbe_key] = row_copy
+            else:
+                existing["sources"].append(
+                    {
+                        "via_enterprise_number": row.get("via_enterprise_number"),
+                        "via_company_name": row.get("via_company_name"),
+                        "via_deposit_key": row.get("via_deposit_key"),
+                        "fiscal_year": row.get("fiscal_year"),
+                    }
+                )
+        unique_affiliations = list(affiliations_by_ent.values())
+
+        # Count distinct companies (union across all sources).
         all_cbes = set()
         for row in unique_admins:
             all_cbes.add(row.get("enterprise_number") or "")
         for row in holding_rows:
             all_cbes.add(row["enterprise_number"])
+        for row in unique_affiliations:
+            all_cbes.add(row.get("enterprise_number") or "")
         all_cbes.discard("")
 
         return {
@@ -509,8 +643,10 @@ async def get_person_connections(name: str):
             "total_companies": len(all_cbes),
             "admin_count": len(seen_admin),
             "holding_count": len(seen_hold),
+            "affiliation_count": len(unique_affiliations),
             "administrator_roles": [_serialize_row(r) for r in unique_admins],
             "shareholdings": [_serialize_row(r) for r in unique_holdings],
+            "affiliations": [_serialize_row(r) for r in unique_affiliations],
         }
 
     except Exception as e:

@@ -372,7 +372,8 @@ export function CompanyPageClient({
       const data = await loadCompanyNBB(cbe);
       const governanceLoaded = (data.governance_loaded?.administrators ?? 0)
         + (data.governance_loaded?.shareholders ?? 0)
-        + (data.governance_loaded?.participating_interests ?? 0);
+        + (data.governance_loaded?.participating_interests ?? 0)
+        + (data.governance_loaded?.affiliations ?? 0);
       const shouldRefreshNbbData = data.rubrics_loaded > 0
         || data.filings_loaded > 0
         || governanceLoaded > 0

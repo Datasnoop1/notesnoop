@@ -8,6 +8,7 @@ import {
   type PersonProfile,
   type PersonAdminRole,
   type PersonShareholding,
+  type PersonAffiliation,
 } from "@/lib/api";
 import { fmtCbe, fmtEur } from "@/lib/format";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +21,7 @@ import {
   Users,
   Calendar,
   ExternalLink,
+  Link2,
 } from "lucide-react";
 
 /* Person profile page (#19) — roles, companies involved in, timeline of
@@ -98,6 +100,68 @@ function AdminRoleRow({ role }: { role: PersonAdminRole }) {
         </span>
         {sourceBadge(role.source)}
       </div>
+    </div>
+  );
+}
+
+function AffiliationRow({ a }: { a: PersonAffiliation }) {
+  // Show up to 2 source filings inline; if more, collapse the rest
+  // behind a "+N more" hint so the row stays scannable.
+  const inlineSources = a.sources.slice(0, 2);
+  const extraSources = Math.max(a.sources.length - inlineSources.length, 0);
+  return (
+    <div className="px-3 py-2 border-b border-slate-50 last:border-0">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <Link
+            href={`/company/${a.enterprise_number}`}
+            className="text-sm font-medium text-slate-700 italic hover:text-brand hover:underline truncate block"
+          >
+            {a.company_name || fmtCbe(a.enterprise_number)}
+          </Link>
+          <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
+            <span className="font-mono">{fmtCbe(a.enterprise_number)}</span>
+            <span>•</span>
+            <span className="text-slate-500">affiliation</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {a.revenue != null && (
+            <span className="text-[11px] font-mono text-slate-500 w-24 text-right">
+              {fmtEur(a.revenue)}
+            </span>
+          )}
+          <span
+            title="Affiliated — this person represents a corporate director here, not a direct mandate"
+            className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-100"
+          >
+            via rep
+          </span>
+        </div>
+      </div>
+      {inlineSources.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-slate-400 pl-1">
+          {inlineSources.map((s, i) => (
+            <span key={`${s.via_enterprise_number}-${i}`} className="inline-flex items-center gap-1">
+              <Link2 className="h-3 w-3 text-slate-300" />
+              {s.via_enterprise_number ? (
+                <Link
+                  href={`/company/${s.via_enterprise_number}`}
+                  className="hover:text-brand hover:underline truncate max-w-[200px]"
+                >
+                  {s.via_company_name || fmtCbe(s.via_enterprise_number)}
+                </Link>
+              ) : (
+                <span>{s.via_company_name || "—"}</span>
+              )}
+              {s.fiscal_year && <span className="text-slate-300">FY{s.fiscal_year}</span>}
+            </span>
+          ))}
+          {extraSources > 0 && (
+            <span className="text-slate-400">+{extraSources} more</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -202,6 +266,14 @@ export default function PersonProfilePage() {
             <span className="inline-flex items-center gap-1">
               <Users className="h-3.5 w-3.5" /> {profile.holding_count} {profile.holding_count === 1 ? "shareholding" : "shareholdings"}
             </span>
+            {(profile.affiliation_count ?? 0) > 0 && (
+              <span
+                className="inline-flex items-center gap-1 italic"
+                title="Affiliations: this person represents a corporate director at these companies"
+              >
+                <Link2 className="h-3.5 w-3.5" /> {profile.affiliation_count} {profile.affiliation_count === 1 ? "affiliation" : "affiliations"}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -259,6 +331,27 @@ export default function PersonProfilePage() {
             <div className="rounded-lg border border-slate-100 bg-white">
               {profile.shareholdings.map((h, i) => (
                 <HoldingRow key={`${h.enterprise_number}-${i}`} h={h} />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!loading && profile && (profile.affiliations?.length ?? 0) > 0 && (
+        <Card className="mb-4">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Link2 className="h-4 w-4 text-slate-400" />
+              <h2 className="text-sm font-semibold text-slate-700">
+                Affiliated companies ({profile.affiliations!.length})
+              </h2>
+              <span className="text-[11px] text-slate-400">
+                via corporate-director representation
+              </span>
+            </div>
+            <div className="rounded-lg border border-slate-100 bg-white">
+              {profile.affiliations!.map((a, i) => (
+                <AffiliationRow key={`${a.enterprise_number}-${i}`} a={a} />
               ))}
             </div>
           </CardContent>

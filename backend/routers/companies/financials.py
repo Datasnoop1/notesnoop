@@ -69,6 +69,7 @@ def _empty_governance_counts() -> dict[str, int]:
         "administrators": 0,
         "shareholders": 0,
         "participating_interests": 0,
+        "affiliations": 0,
     }
 
 

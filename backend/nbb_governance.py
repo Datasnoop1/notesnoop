@@ -43,6 +43,30 @@ _PI_COLUMNS = (
     "net_result",
 )
 
+_AFFILIATION_COLUMNS = (
+    "person_name",
+    "enterprise_number",        # Company 2: the company Person X represents
+    "via_enterprise_number",    # Company 1: where the link was observed
+    "via_deposit_key",
+    "fiscal_year",
+    "affiliation_type",
+    "person_identifier",
+)
+
+
+def _clean_cbe(raw: Any) -> str | None:
+    """NBB returns CBEs sometimes as '0123.456.789'; canonicalise to 10 digits.
+
+    Returns None for empty/missing values so we never insert a placeholder
+    enterprise_number that would silently widen the search graph.
+    """
+    if raw in (None, ""):
+        return None
+    digits = "".join(ch for ch in str(raw) if ch.isdigit())
+    if len(digits) != 10:
+        return None
+    return digits
+
 
 def _pick(d: dict[str, Any] | None, *keys: str) -> Any:
     if not isinstance(d, dict):
@@ -100,12 +124,19 @@ def extract_governance_snapshot(
 ) -> dict[str, list[tuple]]:
     """Return governance rows parsed from one NBB filing."""
     if not deposit_key or not isinstance(filing_json, dict):
-        return {"administrators": [], "shareholders": [], "participating_interests": []}
+        return {
+            "administrators": [],
+            "shareholders": [],
+            "participating_interests": [],
+            "affiliations": [],
+        }
 
     fiscal_year_text = str(fiscal_year) if fiscal_year not in (None, "") else None
+    cbe_clean = _clean_cbe(cbe)
     admin_rows: list[tuple] = []
     shareholder_rows: list[tuple] = []
     pi_rows: list[tuple] = []
+    affiliation_rows: list[tuple] = []
 
     admins = filing_json.get("Administrators") or filing_json.get("administrators") or {}
 
@@ -137,6 +168,27 @@ def extract_governance_snapshot(
         name = _pick(entity, "Name", "name") or ""
         if not name:
             continue
+        legal_identifier_raw = _pick(entity, "Identifier", "identifier")
+        affiliated_cbe = _clean_cbe(legal_identifier_raw)
+        # Representatives: the natural person(s) standing in for the corporate
+        # director. We capture all of them, not just the first, since one
+        # legal-person admin may name several permanent reps.
+        representatives = (
+            legal_person.get("Representatives")
+            or legal_person.get("representatives")
+            or []
+        )
+        rep_names: list[str] = []
+        for rep in representatives:
+            if not isinstance(rep, dict):
+                continue
+            rep_name = _person_name(rep)
+            if rep_name:
+                rep_names.append(rep_name)
+        # First rep keeps the legacy `representative_name` slot for
+        # backward compatibility with any caller still reading that
+        # column. The full list lands in `affiliation_rows`.
+        legacy_rep_name = rep_names[0] if rep_names else None
         mandates = legal_person.get("Mandates") or legal_person.get("mandates") or []
         for mandate in mandates:
             dates = mandate.get("MandateDates") or mandate.get("mandateDates") or {}
@@ -147,11 +199,36 @@ def extract_governance_snapshot(
                 "legal",
                 name,
                 _pick(mandate, "FunctionMandate", "functionMandate") or "",
-                _pick(entity, "Identifier", "identifier"),
+                legal_identifier_raw,
                 _pick(dates, "StartDate", "startDate"),
                 _pick(dates, "EndDate", "endDate"),
-                None,
+                legacy_rep_name,
             ))
+        # Affiliation rows are independent of the per-mandate fan-out:
+        # one rep × one corporate-director relationship × one filing.
+        # Skip if we can't resolve EITHER side of the link to a clean
+        # 10-digit CBE — without both we'd insert junk into
+        # via_enterprise_number that no JOIN could ever recover.
+        if affiliated_cbe and cbe_clean and affiliated_cbe != cbe_clean:
+            for rep_name in rep_names:
+                rep_identifier = None
+                # Walk the rep dicts again to pull an identifier if the
+                # NBB schema happened to expose one (rare).
+                for rep in representatives:
+                    if not isinstance(rep, dict):
+                        continue
+                    if _person_name(rep) == rep_name:
+                        rep_identifier = _pick(rep, "Identifier", "identifier")
+                        break
+                affiliation_rows.append((
+                    rep_name,
+                    affiliated_cbe,
+                    cbe_clean,
+                    deposit_key,
+                    fiscal_year_text,
+                    "represents_admin",
+                    rep_identifier,
+                ))
 
     interests = filing_json.get("ParticipatingInterests") or filing_json.get("participatingInterests") or []
     if isinstance(interests, list):
@@ -233,6 +310,9 @@ def extract_governance_snapshot(
         "administrators": _dedupe(admin_rows, (0, 1, 4, 5)),
         "shareholders": _dedupe(shareholder_rows, (0, 1, 4)),
         "participating_interests": _dedupe(pi_rows, (0, 1, 3)),
+        # PK is (person_name, enterprise_number, via_enterprise_number,
+        # affiliation_type) — same indexes as the table constraint.
+        "affiliations": _dedupe(affiliation_rows, (0, 1, 2, 5)),
     }
 
 
@@ -265,7 +345,12 @@ def store_governance_snapshot(
 ) -> dict[str, int]:
     """Insert governance rows for one filing. Safe to re-run."""
     rows = extract_governance_snapshot(cbe, deposit_key, fiscal_year, filing_json)
-    counts = {"administrators": 0, "shareholders": 0, "participating_interests": 0}
+    counts = {
+        "administrators": 0,
+        "shareholders": 0,
+        "participating_interests": 0,
+        "affiliations": 0,
+    }
     if not any(rows.values()):
         return counts
 
@@ -295,6 +380,24 @@ def store_governance_snapshot(
                 ("enterprise_number", "deposit_key", "name"),
                 row,
             )
+        # `affiliation` may not exist on environments that haven't yet
+        # applied the affiliation migration. Probe the catalog once and
+        # skip silently rather than aborting the whole snapshot — that
+        # would rollback all governance writes for older deployments.
+        if rows["affiliations"] and _affiliation_table_exists(cur):
+            for row in rows["affiliations"]:
+                counts["affiliations"] += _insert_unique(
+                    cur,
+                    "affiliation",
+                    _AFFILIATION_COLUMNS,
+                    (
+                        "person_name",
+                        "enterprise_number",
+                        "via_enterprise_number",
+                        "affiliation_type",
+                    ),
+                    row,
+                )
         conn.commit()
         return counts
     except Exception:
@@ -302,3 +405,21 @@ def store_governance_snapshot(
         raise
     finally:
         cur.close()
+
+
+def _affiliation_table_exists(cur) -> bool:
+    """Return True if the `affiliation` table is present in the current schema.
+
+    Cached on the cursor's connection so we only hit pg_catalog once per
+    connection, not once per filing.
+    """
+    conn = cur.connection
+    cached = getattr(conn, "_affiliation_table_present", None)
+    if cached is not None:
+        return cached
+    cur.execute(
+        "SELECT to_regclass('public.affiliation') IS NOT NULL"
+    )
+    result = bool(cur.fetchone()[0])
+    setattr(conn, "_affiliation_table_present", result)
+    return result

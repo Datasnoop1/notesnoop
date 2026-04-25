@@ -794,6 +794,11 @@ export const getOutperformersBreakdown = (
 export interface PersonTopCompany {
   name: string;
   cbe: string;
+  // True iff the person→company link came only from the affiliation
+  // table (representing a corporate director elsewhere). Frontend
+  // renders affiliation-only entries with a softer pill + tooltip so
+  // operators can tell a direct mandate from a documented-affiliation.
+  affiliation_only?: boolean;
 }
 export interface PersonResult {
   name: string;
@@ -842,13 +847,43 @@ export interface PersonShareholding {
   fiscal_year: number | string | null;
 }
 
+// Source filing that introduced one affiliation row. A single
+// (person, company) affiliation can have multiple sources when several
+// filings of the "via" company name the same rep — surface them as
+// breadcrumbs so the user can verify provenance.
+export interface PersonAffiliationSource {
+  via_enterprise_number: string | null;
+  via_company_name: string | null;
+  via_deposit_key: string | null;
+  fiscal_year: string | null;
+}
+
+export interface PersonAffiliation {
+  enterprise_number: string;
+  company_name: string | null;
+  // First / latest filing that introduced the link. Older ones may
+  // be stale (rep changed since), `last_seen_at` lets us flag that.
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  affiliation_type: string;
+  revenue: number | null;
+  ebitda: number | null;
+  fte_total: number | null;
+  // The latest fiscal_year on the AFFILIATED company's financials,
+  // not the via-filing's fiscal_year (which lives in `sources`).
+  fiscal_year: number | string | null;
+  sources: PersonAffiliationSource[];
+}
+
 export interface PersonProfile {
   name: string;
   total_companies: number;
   admin_count: number;
   holding_count: number;
+  affiliation_count?: number;
   administrator_roles: PersonAdminRole[];
   shareholdings: PersonShareholding[];
+  affiliations?: PersonAffiliation[];
 }
 
 export const searchPeople = (q: string) =>
@@ -988,6 +1023,7 @@ export interface NbbLoadResult {
     administrators: number;
     shareholders: number;
     participating_interests: number;
+    affiliations?: number;
   };
   status?: string;
   /** True when NBB has only PDF-only filings for this CBE (every recent

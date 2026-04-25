@@ -36,7 +36,7 @@ function asTopCompanies(
   return list
     .map((item) =>
       typeof item === "string"
-        ? ({ name: item, cbe: "" } satisfies PersonTopCompany)
+        ? ({ name: item, cbe: "", affiliation_only: false } satisfies PersonTopCompany)
         : item
     )
     .filter((c) => c.name);
@@ -190,9 +190,29 @@ function PersonCard({
   // Per-company pill — renders a clickable /company/{cbe} link.
   // stopPropagation prevents the outer card's click handler from
   // firing when the user clicks a specific company.
+  //
+  // Affiliation-only entries (the person represents a corporate
+  // director here, but is not themselves a registered admin) get a
+  // softer slate tone + dotted underline + tooltip so the operator can
+  // distinguish "documented affiliation" from "registered mandate" at
+  // a glance.
   const CompanyPill = ({ c }: { c: PersonTopCompany }) => {
+    const affiliationOnly = c.affiliation_only === true;
     if (!c.cbe) {
       return <span className="text-slate-500">{c.name}</span>;
+    }
+    if (affiliationOnly) {
+      return (
+        <Link
+          href={`/company/${c.cbe}`}
+          onClick={(e) => e.stopPropagation()}
+          title="Affiliated — this person represents a corporate director here, not a direct mandate"
+          className="inline-block px-1.5 py-0.5 rounded bg-slate-50 text-slate-500 italic decoration-dotted underline underline-offset-2 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+        >
+          {c.name}
+          <span aria-hidden className="ml-1 text-[9px] text-slate-400">·aff</span>
+        </Link>
+      );
     }
     return (
       <Link
