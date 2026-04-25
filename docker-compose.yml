@@ -74,12 +74,14 @@ services:
       # I/O-bound workload: discovery, scraping and LLM calls mostly wait on
       # network. A higher in-process concurrency helps use the VPS better
       # without requiring full CPU saturation.
-      # Bumped 1 → 3 → 6 → 8 on 2026-04-25. Worker is I/O-bound; even at
-      # concurrency=6 the worker held at 7% CPU / 99 MB RAM (host has 4
-      # vCPU / 8 GB). Throughput at 6 was 1,650/hr (9.8× the 168/hr
-      # pre-acceleration baseline). Pushing to 8 to use more of the
-      # remaining headroom while we monitor for DDG breaker trips.
-      WORKER_CONCURRENCY: "8"
+      # Bumped 1 → 3 → 6 → 8 → 7 on 2026-04-25. At 8 we measured
+      # 3,180/hr but Ollama Cloud started returning 429 ("too many
+      # concurrent requests") on ~1% of Q2 calls — those CBEs lost their
+      # Q2 enrichment and fell back to template. Pulled to 7 to stay
+      # under the per-key concurrency limit so quality stays high. CPU
+      # was 25.8% at 8, expected ~20% at 7. Throughput should land
+      # ~2,000-2,500/hr with near-zero Q2 429s.
+      WORKER_CONCURRENCY: "7"
       WORKER_POLL_INTERVAL_S: "1"
       WORKER_IDLE_SLEEP_S: "15"
       ENRICHMENT_DAILY_BUDGET_USD: "10"
