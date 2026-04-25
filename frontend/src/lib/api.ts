@@ -622,8 +622,6 @@ export interface DeepNetworkEdge {
   target: string;
   relationship: string;
   label: string;
-  is_active?: boolean;
-  mandate_end?: string | null;
 }
 
 export interface DeepNetworkResponse {

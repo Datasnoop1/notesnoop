@@ -20,8 +20,6 @@ interface NetworkEdge {
   target: string;
   relation: string;
   pct: number | null;
-  is_active: boolean;
-  mandate_end: string | null;
 }
 
 interface NetworkData {
@@ -152,8 +150,6 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
             target: e.target,
             relation: e.relationship || e.label,
             pct: null,
-            is_active: e.is_active !== false,
-            mandate_end: e.mandate_end ?? null,
           })),
           truncated: resp.truncated,
           depth_reached: resp.depth_reached,
@@ -251,10 +247,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
   };
 
   // Color edges by relation type: green for shareholder, orange for subsidiary.
-  // Ended administrator mandates render as desaturated grey so they recede
-  // visually behind active connections.
-  const edgeColor = (link: { relation?: string; is_active?: boolean }) => {
-    if (link.is_active === false) return "#cbd5e1"; // slate-300 — past
+  const edgeColor = (link: { relation?: string }) => {
     const rel = (link.relation || "").toLowerCase();
     if (rel.includes("shareholder") || rel.includes("aandeelhouder")) return "#059669";
     if (rel.includes("subsidiary") || rel.includes("participating") || rel.includes("deelneming")) return "#d97706";
@@ -301,8 +294,6 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
       label: e.pct ? `${e.pct}%` : e.relation,
       relation: e.relation,
       pct: e.pct,
-      is_active: e.is_active,
-      mandate_end: e.mandate_end,
     })),
   };
 
@@ -334,14 +325,6 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                   {DEPTH_LABELS[d] || `Depth ${d}`}
                 </span>
               ))}
-              {data.edges.some((e) => e.is_active === false) && (
-                <span className="flex items-center gap-1">
-                  <svg width="20" height="6" viewBox="0 0 20 6" aria-hidden>
-                    <line x1="0" y1="3" x2="20" y2="3" stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="3 3" />
-                  </svg>
-                  {t("company.networkTab.endedMandate")}
-                </span>
-              )}
             </div>
           </div>
 
@@ -473,41 +456,18 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
               warmupTicks={20}
               linkDirectionalArrowLength={4}
               linkDirectionalArrowRelPos={1}
-              linkLabel={(link: { label?: string; is_active?: boolean; mandate_end?: string | null }) =>
-                link.is_active === false
-                  ? `${link.label || ""} \u2014 ${t("company.networkTab.endedMandate")}${link.mandate_end ? ` (${link.mandate_end})` : ""}`
-                  : link.label || ""
-              }
+              linkLabel={(link: { label?: string }) => link.label || ""}
               linkColor={edgeColor}
-              linkWidth={(link: { pct?: number | null; is_active?: boolean }) =>
-                link.is_active === false ? 0.5 : link.pct != null ? 1.5 : 1
+              linkWidth={(link: { pct?: number | null }) =>
+                link.pct != null ? 1.5 : 1
               }
               onNodeClick={handleNodeClick}
               linkCanvasObjectMode={() => "after"}
               linkCanvasObject={(
-                link: { source?: any; target?: any; label?: string; pct?: number | null; relation?: string; is_active?: boolean },
+                link: { source?: any; target?: any; label?: string; pct?: number | null; relation?: string },
                 ctx: CanvasRenderingContext2D,
                 globalScale: number
               ) => {
-                // Draw a dashed segment over inactive (ended-mandate) edges so
-                // they're visually distinct even at small scales — react-force-graph
-                // doesn't expose lineDash directly, so we paint the line ourselves.
-                if (link.is_active === false) {
-                  const sx = typeof link.source === "object" ? link.source.x : 0;
-                  const sy = typeof link.source === "object" ? link.source.y : 0;
-                  const tx = typeof link.target === "object" ? link.target.x : 0;
-                  const ty = typeof link.target === "object" ? link.target.y : 0;
-                  ctx.save();
-                  ctx.strokeStyle = "#cbd5e1";
-                  ctx.lineWidth = 0.7;
-                  ctx.setLineDash([3 / globalScale, 3 / globalScale]);
-                  ctx.beginPath();
-                  ctx.moveTo(sx, sy);
-                  ctx.lineTo(tx, ty);
-                  ctx.stroke();
-                  ctx.restore();
-                }
-
                 // Draw edge label (ownership %) on the link
                 if (!link.label || globalScale < 0.5) return;
                 const sx = typeof link.source === "object" ? link.source.x : 0;
@@ -528,7 +488,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                 ctx.fillStyle = "rgba(255,255,255,0.85)";
                 ctx.fillRect(mx - textWidth / 2 - pad, my - fontSize / 2 - pad, textWidth + pad * 2, fontSize + pad * 2);
 
-                ctx.fillStyle = edgeColor(link as { relation?: string; is_active?: boolean });
+                ctx.fillStyle = edgeColor(link as { relation?: string });
                 ctx.fillText(link.label, mx, my);
               }}
               nodeCanvasObject={(

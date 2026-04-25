@@ -457,7 +457,6 @@
       "nodesConnections": "{nodes} nodes, {connections} connections",
       "depthReached": "Depth reached: {depth}",
       "pressEsc": "Press Esc to exit fullscreen",
-      "endedMandate": "Ended mandate",
       "layers": "Layers:",
       "layer_shareholders": "Shareholders",
       "layer_directors": "Directors",

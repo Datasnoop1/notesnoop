@@ -439,7 +439,6 @@
       "nodesConnections": "{nodes} noeuds, {connections} connexions",
       "depthReached": "Profondeur atteinte : {depth}",
       "pressEsc": "Appuyez Echap pour quitter le plein ecran",
-      "endedMandate": "Mandat termin\u00e9",
       "layers": "Couches :",
       "layer_shareholders": "Actionnaires",
       "layer_directors": "Administrateurs",

@@ -44,10 +44,15 @@ async def get_company_network(cbe: str, max_depth: int = Query(1, ge=1, le=3)):
         """, (cbe,))
         central_name = header["name"] if header else cbe
 
-        # Get direct relationships
+        # Get direct relationships — admins filtered to current mandates only
+        # (mandate_end NULL = open-ended, >= today = ends in the future).
+        # Past mandates clutter the spider web with stale connections.
+        today_str = date.today().isoformat()
         admins = fetch_all(
-            "SELECT * FROM administrator WHERE enterprise_number = %s",
-            (cbe,),
+            "SELECT * FROM administrator "
+            "WHERE enterprise_number = %s "
+            "  AND (mandate_end IS NULL OR mandate_end >= %s)",
+            (cbe, today_str),
         )
         shareholders_rows = fetch_all(
             "SELECT * FROM shareholder WHERE enterprise_number = %s",
@@ -435,19 +440,11 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
             nodes.append({"id": nid, "name": name, "type": ntype, "depth": d})
             return True
 
-        def _add_edge(src: str, tgt: str, rel: str, label: str,
-                      is_active: bool = True, mandate_end: str | None = None):
-            """Add an edge (duplicates possible between same pair via different rels).
-
-            ``is_active`` distinguishes current vs ended administrator mandates so
-            the frontend can dim/dash the line. Shareholder + participating-interest
-            edges have no temporal data — they default to active=True.
-            """
+        def _add_edge(src: str, tgt: str, rel: str, label: str):
+            """Add an edge (duplicates possible between same pair via different rels)."""
             edges.append({
                 "source": src, "target": tgt,
                 "relationship": rel, "label": label,
-                "is_active": is_active,
-                "mandate_end": mandate_end,
             })
 
         # Reference date for active-mandate classification.
@@ -461,13 +458,15 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
             root_id = f"person:{person_name}"
             _add_node(root_id, person_name, "person", 0)
 
+            # Person seed: only show companies where this person currently
+            # serves. Past mandates produce dead spider-web edges.
             seed_admin_rows = fetch_all(
-                "SELECT enterprise_number, role, "
-                "       BOOL_OR(mandate_end IS NULL OR mandate_end >= %s) AS is_active, "
-                "       MAX(mandate_end) AS last_mandate_end "
-                "FROM administrator WHERE name = %s "
+                "SELECT enterprise_number, role "
+                "FROM administrator "
+                "WHERE name = %s "
+                "  AND (mandate_end IS NULL OR mandate_end >= %s) "
                 "GROUP BY enterprise_number, role",
-                [today_str, person_name],
+                [person_name, today_str],
             )
             seed_sh_rows = fetch_all(
                 "SELECT DISTINCT enterprise_number, ownership_pct "
@@ -485,7 +484,7 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
             if not seed_company_ids:
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Person {person_name} not found in company network",
+                    detail=f"Person {person_name} has no current company links",
                 )
 
             seed_name_map = _fetch_entity_names(seed_company_ids)
@@ -502,14 +501,7 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
 
                 role_label = ROLE_LABELS.get(role_key, role_key or "Administrator")
                 _add_node(ent, seed_name_map.get(ent, ent), "company", 1)
-                _add_edge(
-                    root_id,
-                    ent,
-                    "administrator",
-                    role_label,
-                    is_active=bool(row.get("is_active", True)),
-                    mandate_end=row.get("last_mandate_end"),
-                )
+                _add_edge(root_id, ent, "administrator", role_label)
                 frontier.add(ent)
 
             seen_seed_sh = set()
@@ -551,29 +543,28 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
             # ── Fetch all relationships for the current batch ──────────
             ph = ",".join(["%s"] * len(batch))
 
-            # 1. Administrators OF these companies. ``is_active`` is true
-            #    if ANY matching row has a NULL or future ``mandate_end``,
-            #    so a person with both an ended and an ongoing mandate is
-            #    still rendered as active. ``last_mandate_end`` is the
-            #    latest end-date and is shown in the tooltip when the
-            #    mandate has ended.
+            # 1. Administrators OF these companies — current mandates only
+            #    (mandate_end NULL = open-ended, >= today = future end-date).
+            #    Past mandates are excluded so the spider web shows only
+            #    live links/relations.
             admin_rows = fetch_all(
-                f"SELECT enterprise_number, name, role, person_type, identifier, "
-                f"       BOOL_OR(mandate_end IS NULL OR mandate_end >= %s) AS is_active, "
-                f"       MAX(mandate_end) AS last_mandate_end "
-                f"FROM administrator WHERE enterprise_number IN ({ph}) "
+                f"SELECT enterprise_number, name, role, person_type, identifier "
+                f"FROM administrator "
+                f"WHERE enterprise_number IN ({ph}) "
+                f"  AND (mandate_end IS NULL OR mandate_end >= %s) "
                 f"GROUP BY enterprise_number, name, role, person_type, identifier",
-                [today_str] + batch,
+                batch + [today_str],
             )
 
-            # 2. Companies where these entities serve as administrator (reverse)
+            # 2. Companies where these entities serve as administrator (reverse) —
+            #    same current-mandate filter.
             admin_reverse_rows = fetch_all(
-                f"SELECT enterprise_number, name, role, person_type, identifier, "
-                f"       BOOL_OR(mandate_end IS NULL OR mandate_end >= %s) AS is_active, "
-                f"       MAX(mandate_end) AS last_mandate_end "
-                f"FROM administrator WHERE identifier IN ({ph}) "
+                f"SELECT enterprise_number, name, role, person_type, identifier "
+                f"FROM administrator "
+                f"WHERE identifier IN ({ph}) "
+                f"  AND (mandate_end IS NULL OR mandate_end >= %s) "
                 f"GROUP BY enterprise_number, name, role, person_type, identifier",
-                [today_str] + batch,
+                batch + [today_str],
             )
 
             # 3. Shareholders OF these companies
@@ -648,10 +639,7 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
                 label_name = name_map.get(cbe_id, aname) if cbe_id else aname
                 role_label = ROLE_LABELS.get(role_key, role_key or "Administrator")
                 added = _add_node(nid, label_name, ntype, current_depth)
-                is_active = bool(row.get("is_active", True))
-                _add_edge(nid, ent, "administrator", role_label,
-                          is_active=is_active,
-                          mandate_end=row.get("last_mandate_end"))
+                _add_edge(nid, ent, "administrator", role_label)
 
                 if cbe_id and added:
                     frontier.add(cbe_id)
@@ -673,10 +661,7 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
                 target_name = name_map.get(target_ent, row.get("name") or target_ent)
                 role_label = ROLE_LABELS.get(role_key, role_key or "Administrator")
                 added = _add_node(target_ent, target_name, "company", current_depth)
-                is_active = bool(row.get("is_active", True))
-                _add_edge(cbe_id, target_ent, "administrator", role_label,
-                          is_active=is_active,
-                          mandate_end=row.get("last_mandate_end"))
+                _add_edge(cbe_id, target_ent, "administrator", role_label)
                 if added:
                     frontier.add(target_ent)
 
