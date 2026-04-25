@@ -720,10 +720,18 @@ export default function AdminPanel() {
       const { data: sessionData } = await supabase.auth.getSession();
       setMyEmail(sessionData.session?.user?.email || "");
 
+      // Fire heavy data (activity, insights, usage, traction, etc.) in
+      // PARALLEL with core data instead of waiting for core to finish.
+      // Earlier flow chained `void loadHeavyData()` after the core
+      // Promise.all, so admins waited ~30 s on slow connections for
+      // analytics to even start fetching (#22 audit).
+      const heavyPromise = loadHeavyData();
+
       // Core — everything that's a DB-only query on the backend. Fast
-      // (<500ms) so we load it all on mount. Commerce endpoints (Stripe
-      // list + iter, OpenRouter live API, pnl-summary) are lazy-loaded
-      // by a separate effect when the Revenue tab is visited.
+      // (<500ms after #22 cache + nbb-backload rewrite). Commerce
+      // endpoints (Stripe list + iter, OpenRouter live API, pnl-summary)
+      // are lazy-loaded by a separate effect when the Revenue tab is
+      // visited.
       const [s, u, f, p, fby, nbb, tc, sc] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
@@ -742,7 +750,9 @@ export default function AdminPanel() {
       setNbbBackload(nbb);
       setTiers(tc);
       if (sc?.site_logo) setSiteLogo(sc.site_logo);
-      void loadHeavyData();
+      // Don't block initial render on heavy — but await it before we
+      // turn off `loading` so error states surface in this catch.
+      void heavyPromise.catch(() => {});
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -852,7 +862,19 @@ export default function AdminPanel() {
 
   /* ---- Feedback actions ---- */
 
+  // Per-row two-step confirm: first click arms `confirmDeleteFeedback`,
+  // second click within ~5 s commits. Avoids the trash-icon-misclick
+  // failure mode the operator flagged in the #22 admin audit.
+  const [confirmDeleteFeedback, setConfirmDeleteFeedback] = useState<number | null>(null);
   async function deleteFeedback(id: number) {
+    if (confirmDeleteFeedback !== id) {
+      setConfirmDeleteFeedback(id);
+      window.setTimeout(() => {
+        setConfirmDeleteFeedback((current) => (current === id ? null : current));
+      }, 5000);
+      return;
+    }
+    setConfirmDeleteFeedback(null);
     setActionLoading(`fb-${id}`);
     try {
       await adminFetch(`/api/admin/feedback/${id}`, { method: "DELETE" });
@@ -1102,14 +1124,35 @@ export default function AdminPanel() {
     return (
       <Card key={f.id} className="bg-white" size="sm">
         <CardContent className="relative">
-          <button
-            className="absolute top-0 right-0 p-1 text-slate-300 hover:text-red-500 transition-colors"
-            onClick={() => deleteFeedback(f.id)}
-            disabled={actionLoading === `fb-${f.id}`}
-            aria-label="Delete feedback"
-          >
-            <Trash2 className="size-3.5" />
-          </button>
+          {confirmDeleteFeedback === f.id ? (
+            <div className="absolute top-0 right-0 flex items-center gap-1 text-[10px]">
+              <span className="text-red-500 font-medium">Delete?</span>
+              <button
+                className="px-1.5 py-0.5 rounded bg-red-500 text-white hover:bg-red-600"
+                onClick={() => deleteFeedback(f.id)}
+                disabled={actionLoading === `fb-${f.id}`}
+                aria-label="Confirm delete feedback"
+              >
+                Yes
+              </button>
+              <button
+                className="px-1.5 py-0.5 rounded border border-slate-200 text-slate-500 hover:bg-slate-50"
+                onClick={() => setConfirmDeleteFeedback(null)}
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <button
+              className="absolute top-0 right-0 p-1 text-slate-300 hover:text-red-500 transition-colors"
+              onClick={() => deleteFeedback(f.id)}
+              disabled={actionLoading === `fb-${f.id}`}
+              aria-label="Delete feedback"
+              title="Click to arm delete (re-click to confirm)"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
+          )}
           <p className="text-sm text-slate-800 pr-5 leading-relaxed">
             {f.description}
           </p>
@@ -3549,6 +3592,9 @@ export default function AdminPanel() {
                         disabled={classifying}
                         className="text-[10px] border-indigo-300 text-indigo-700 hover:bg-indigo-50"
                         onClick={async () => {
+                          if (!window.confirm("Re-classify ALL invoices via the LLM? This costs OpenRouter credits and overwrites any manual category corrections.")) {
+                            return;
+                          }
                           setClassifying(true);
                           try {
                             await adminFetch("/api/admin/invoices/classify-all", { method: "POST" });
