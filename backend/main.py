@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment
+from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api
 from auth import ensure_jwks_bootstrapped
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup
@@ -101,11 +101,19 @@ class EndpointContextMiddleware(BaseHTTPMiddleware):
 
 class ActivityLogMiddleware(BaseHTTPMiddleware):
     SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/status/")
+    # `/api/v1/*` (public API) has its own per-key audit log in
+    # `api_call_log`; double-logging here would just bloat activity_log
+    # without adding signal.
+    SKIP_PREFIXES = ("/api/v1/",)
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if path.startswith("/api/") and path not in self.SKIP_PATHS:
+        if (
+            path.startswith("/api/")
+            and path not in self.SKIP_PATHS
+            and not any(path.startswith(p) for p in self.SKIP_PREFIXES)
+        ):
             try:
                 from db import execute
                 email = None
@@ -230,12 +238,19 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
     """Enforce daily usage limits per user tier (guest / registered / premium)."""
 
     SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/site-config", "/api/status/")
+    # `/api/v1/*` is the customer-facing public API. It enforces its own
+    # auth (API key) and its own caps (60/min + daily) so the user-tier
+    # limiter doesn't apply.
+    SKIP_PREFIXES = ("/api/v1/",)
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
         # Only check API paths, skip static/admin/health
         if not path.startswith("/api/") or path in self.SKIP_PATHS:
+            return await call_next(request)
+
+        if any(path.startswith(p) for p in self.SKIP_PREFIXES):
             return await call_next(request)
 
         # Skip admin endpoints entirely
@@ -434,7 +449,12 @@ class StagingGateMiddleware(BaseHTTPMiddleware):
         "/api/health",
         "/api/me/is-admin",
     }
-    ALLOWLIST_PREFIXES = ("/api/sitemap/",)
+    # `/api/v1/*` is the customer-facing public API. Auth is by API key
+    # (independent of the Supabase login this gate checks for). On staging
+    # we want operators / pilot customers to be able to smoke-test it
+    # without an admin Supabase login, so allowlist the whole prefix —
+    # the API key requirement still holds inside the router itself.
+    ALLOWLIST_PREFIXES = ("/api/sitemap/", "/api/v1/")
     # Regex patterns — dynamic paths we want anonymously accessible on staging.
     # Keep surgical: only the specific read endpoints used by the public
     # /demo/valuation/[cbe] page, so demo links can be shared externally.
@@ -527,7 +547,10 @@ class BotFilterMiddleware(BaseHTTPMiddleware):
         "httpclient", "libwww", "lwp-trivial", "slimerjs",
         "phantomjs", "headlesschrome", "selenium",
     )
-    SKIP_PATHS = ("/api/health", "/api/sitemap/", "/api/status/")
+    # `/api/v1/*` is server-to-server — Go HTTP clients, libcurl, etc.
+    # are legitimate consumers. Auth is by API key, so we don't need
+    # UA-based gating here.
+    SKIP_PATHS = ("/api/health", "/api/sitemap/", "/api/status/", "/api/v1/")
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -573,6 +596,29 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         method = request.method
 
         if not path.startswith("/api/"):
+            return await call_next(request)
+
+        # `/api/v1/*` (public API) is keyed by API key, not by JWT/IP.
+        # The auth dependency enforces 60/min per key + a daily cap.
+        # However, both `require_api_key` (DB lookup on every call) and
+        # `/api/v1/health` (no auth) are exposed to the public internet.
+        # Without *some* IP-level floor an attacker could flood the
+        # public-API surface with no key at all and overload the auth
+        # lookup. Apply a generous per-IP cap (600/min) here — high
+        # enough that legitimate webshop traffic from a single egress IP
+        # never hits it, low enough to bound unauthenticated abuse.
+        if path.startswith("/api/v1/"):
+            try:
+                limiter.check(
+                    f"ip:{get_client_ip(request)}:apiv1",
+                    max_requests=600,
+                    window_seconds=60,
+                )
+            except Exception as e:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": str(e.detail) if hasattr(e, "detail") else "Rate limit exceeded"},
+                )
             return await call_next(request)
 
         key = self._get_rate_key(request)
@@ -622,6 +668,7 @@ app.include_router(open_data.router)
 app.include_router(staatsblad_events.router)
 app.include_router(search.router)
 app.include_router(admin_enrichment.router)
+app.include_router(public_api.router)
 
 # ---------------------------------------------------------------------------
 # Health check
