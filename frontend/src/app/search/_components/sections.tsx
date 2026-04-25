@@ -206,7 +206,7 @@ function PersonCard({
         <Link
           href={`/company/${c.cbe}`}
           onClick={(e) => e.stopPropagation()}
-          title="Affiliated — this person represents a corporate director here, not a direct mandate"
+          title="Affiliated — this person represents a corporate director here"
           className="inline-block px-1.5 py-0.5 rounded bg-slate-50 text-slate-500 italic decoration-dotted underline underline-offset-2 hover:bg-slate-100 hover:text-slate-700 transition-colors"
         >
           {c.name}

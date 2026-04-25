@@ -61,7 +61,11 @@ function sourceBadge(source: string | null) {
 }
 
 function AdminRoleRow({ role }: { role: PersonAdminRole }) {
-  const ended = !!role.mandate_end;
+  // A mandate is only "ended" when its end date is in the past. KBO
+  // filings often record a future statutory end date (e.g. a 6-year
+  // term) for a mandate that is still very much active — flagging
+  // those as ended is incorrect and alarming.
+  const ended = !!role.mandate_end && new Date(role.mandate_end) <= new Date();
   return (
     <div className={`px-3 py-2 border-b border-slate-50 last:border-0 flex items-center gap-3 ${ended ? "opacity-70" : ""}`}>
       <div className="min-w-0 flex-1">
@@ -132,7 +136,7 @@ function AffiliationRow({ a }: { a: PersonAffiliation }) {
             </span>
           )}
           <span
-            title="Affiliated — this person represents a corporate director here, not a direct mandate"
+            title="Affiliated — this person represents a corporate director here"
             className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-50 text-slate-500 border border-slate-100"
           >
             via rep
@@ -386,7 +390,7 @@ export default function PersonProfilePage() {
                           <ExternalLink className="h-3 w-3" />
                         </Link>
                         <span className="text-slate-400"> — {r.role_label || r.role || "admin"}</span>
-                        {r.mandate_end && (
+                        {r.mandate_end && new Date(r.mandate_end) <= new Date() && (
                           <span className="text-rose-400"> • ended {formatYear(r.mandate_end)}</span>
                         )}
                       </li>

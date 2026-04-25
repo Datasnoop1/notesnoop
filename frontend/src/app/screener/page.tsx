@@ -25,7 +25,11 @@ import {
   MapPin,
   ChevronUp,
   ChevronDown,
+  ChevronRight,
   TrendingUp,
+  Building2,
+  Coins,
+  LineChart,
   Save,
   FolderOpen,
   Trash2,
@@ -471,6 +475,37 @@ export default function ScreenerPage() {
   const [nlQuery, setNlQuery] = useState("");
   const [nlLoading, setNlLoading] = useState(false);
 
+  // Collapsible filter groups. Company is open by default; the others
+  // collapse so the sidebar isn't a wall of inputs on first load.
+  const [openGroups, setOpenGroups] = useState<{ company: boolean; financials: boolean; trend: boolean }>({
+    company: true,
+    financials: false,
+    trend: false,
+  });
+  const toggleGroup = useCallback((g: "company" | "financials" | "trend") => {
+    setOpenGroups((prev) => ({ ...prev, [g]: !prev[g] }));
+  }, []);
+  // Open every group that has at least one active filter in `f`. Used
+  // when hydrating a saved preset so values that land in collapsed
+  // groups don't go invisible. Company stays open regardless.
+  const openGroupsForFilters = useCallback((f: Filters) => {
+    setOpenGroups({
+      company: true,
+      financials: !!(
+        f.rev_min || f.rev_max ||
+        f.ebit_min || f.ebit_max ||
+        f.fte_min || f.fte_max ||
+        f.margin_min || f.nd_ebitda_max ||
+        f.fixed_assets_min || f.fixed_assets_max
+      ),
+      trend: !!(
+        f.rev_growth_min || f.rev_growth_max ||
+        f.ebitda_growth_min || f.ebitda_growth_max ||
+        f.fte_growth_3y_min || f.fte_growth_3y_max
+      ),
+    });
+  }, []);
+
   useEffect(() => { setPresets(loadPresets()); }, []);
 
   /* NACE autocomplete */
@@ -702,23 +737,27 @@ export default function ScreenerPage() {
     );
   }, [results, nameSearch]);
 
-  /* Active filter count for badge */
-  const activeFilterCount = useMemo(() => {
-    let c = 0;
-    if (filters.nace) c++;
-    if (filters.zipcode || filters.province) c++;
-    if (filters.rev_min || filters.rev_max) c++;
-    if (filters.ebit_min || filters.ebit_max) c++;
-    if (filters.fte_min || filters.fte_max) c++;
-    if (filters.margin_min) c++;
-    if (filters.nd_ebitda_max) c++;
-    if (filters.rev_growth_min || filters.rev_growth_max) c++;
-    if (filters.ebitda_growth_min || filters.ebitda_growth_max) c++;
-    if (filters.fte_growth_3y_min || filters.fte_growth_3y_max) c++;
-    if (filters.fixed_assets_min || filters.fixed_assets_max) c++;
-    if (filters.distress) c++;
-    return c;
+  /* Active filter counts — total + per-group, so each group header can
+     show how many filters are set inside it without expanding. */
+  const groupCounts = useMemo(() => {
+    let company = 0;
+    let financials = 0;
+    let trend = 0;
+    if (filters.nace) company++;
+    if (filters.zipcode || filters.province) company++;
+    if (filters.distress) company++;
+    if (filters.rev_min || filters.rev_max) financials++;
+    if (filters.ebit_min || filters.ebit_max) financials++;
+    if (filters.fte_min || filters.fte_max) financials++;
+    if (filters.margin_min) financials++;
+    if (filters.nd_ebitda_max) financials++;
+    if (filters.fixed_assets_min || filters.fixed_assets_max) financials++;
+    if (filters.rev_growth_min || filters.rev_growth_max) trend++;
+    if (filters.ebitda_growth_min || filters.ebitda_growth_max) trend++;
+    if (filters.fte_growth_3y_min || filters.fte_growth_3y_max) trend++;
+    return { company, financials, trend };
   }, [filters]);
+  const activeFilterCount = groupCounts.company + groupCounts.financials + groupCounts.trend;
 
   return (
     <div className="flex h-[calc(100dvh-116px)] md:h-[calc(100vh-64px)] overflow-hidden relative">
@@ -796,6 +835,7 @@ export default function ScreenerPage() {
                           onClick={() => {
                             setFilters(p.filters);
                             setUnit(p.unit as FinancialUnit);
+                            openGroupsForFilters(p.filters);
                             doFetch(p.filters);
                             setShowPresetMenu(false);
                           }}
@@ -860,6 +900,117 @@ export default function ScreenerPage() {
             </div>
           )}
 
+          {/* ─── Display options (always visible, pinned to top) ─── */}
+          <div className="border-t border-slate-200 pt-2 space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+              Display
+            </span>
+
+            {/* Unit toggle */}
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+                {t("screener.unit")}
+              </span>
+              <div className="flex rounded border border-slate-200 overflow-hidden">
+                {(["raw", "K", "M"] as FinancialUnit[]).map((u) => (
+                  <button
+                    key={u}
+                    onClick={() => setUnit(u)}
+                    className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                      unit === u
+                        ? "bg-brand text-white"
+                        : "bg-white text-slate-400 hover:bg-slate-50"
+                    }`}
+                  >
+                    {u === "raw" ? "€" : u}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Limit (number of rows shown) */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+                {t("screener.limit")}
+              </span>
+              <Select
+                value={filters.limit}
+                onValueChange={(v) => updateFilter("limit", v ?? "100")}
+              >
+                <SelectTrigger className="h-7 text-xs w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LIMIT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt} value={opt}>
+                      {opt} rows
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Coverage-gap mode: show only enterprises not yet in NBB filings */}
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="no-financials-toggle"
+                checked={filters.no_financials}
+                onChange={(e) => {
+                  setFilters((prev) => {
+                    const next = { ...prev, no_financials: e.target.checked };
+                    scheduleFetch(next);
+                    return next;
+                  });
+                }}
+                className="h-3.5 w-3.5 rounded border-slate-300"
+              />
+              <label
+                htmlFor="no-financials-toggle"
+                className="text-[11px] md:text-[10px] text-slate-500 cursor-pointer select-none"
+              >
+                {t("screener.noFinancialsOnly")}
+              </label>
+            </div>
+          </div>
+
+          {/* ============================================================
+              FILTER GROUPS — three collapsible accordions. The header
+              button toggles `openGroups[id]`; each header surfaces a
+              small badge counting active filters in that group so the
+              operator can see at a glance whether anything is set
+              inside a collapsed section.
+              ============================================================ */}
+
+          {/* ─── Group 1: COMPANY (open by default) ─── */}
+          <div className="border-t border-slate-200 pt-2">
+            <button
+              type="button"
+              onClick={() => toggleGroup("company")}
+              className="w-full flex items-center gap-1.5 py-1 text-left group"
+            >
+              {openGroups.company ? (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
+              )}
+              <Building2 className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex-1">
+                Company
+              </span>
+              {groupCounts.company > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] bg-brand-soft text-[color:var(--brand-ink)] px-1.5 py-0"
+                >
+                  {groupCounts.company}
+                </Badge>
+              )}
+            </button>
+          </div>
+
+          {openGroups.company && (
+          <>
           {/* NACE (multi-select with chips) */}
           <div className="space-y-1" ref={naceContainerRef}>
             <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
@@ -977,32 +1128,68 @@ export default function ScreenerPage() {
             </Select>
           </div>
 
-          {/* Unit toggle */}
-          <div className="pt-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-                {t("screener.unit")}
+          {/* Activity status (juridical situation) \u2014 kept inside Company
+              since "active vs distressed" is fundamentally a company-
+              level attribute, not a financial one. */}
+          <div className="space-y-1">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              {t("screener.distress")}
+            </Label>
+            <Select
+              value={filters.distress || "none"}
+              onValueChange={(v) =>
+                updateFilter(
+                  "distress",
+                  v === "none" || !v ? "" : (v as "bankruptcy" | "wco" | "any" | "healthy")
+                )
+              }
+            >
+              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
+                <SelectValue placeholder={t("screener.distressAny")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">{t("screener.distressAny")}</SelectItem>
+                <SelectItem value="healthy">{t("screener.distressHealthy")}</SelectItem>
+                <SelectItem value="bankruptcy">{t("screener.distressBankruptcy")}</SelectItem>
+                <SelectItem value="wco">{t("screener.distressWco")}</SelectItem>
+                <SelectItem value="any">{t("screener.distressAnyDistress")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          </>
+          )}
+
+          {/* \u2500\u2500\u2500 Group 2: FINANCIALS (collapsed by default) \u2500\u2500\u2500 */}
+          <div className="border-t border-slate-200 pt-2">
+            <button
+              type="button"
+              onClick={() => toggleGroup("financials")}
+              className="w-full flex items-center gap-1.5 py-1 text-left group"
+            >
+              {openGroups.financials ? (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
+              )}
+              <Coins className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex-1">
+                Financials
               </span>
-              <div className="flex rounded border border-slate-200 overflow-hidden">
-                {(["raw", "K", "M"] as FinancialUnit[]).map((u) => (
-                  <button
-                    key={u}
-                    onClick={() => setUnit(u)}
-                    className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
-                      unit === u
-                        ? "bg-brand text-white"
-                        : "bg-white text-slate-400 hover:bg-slate-50"
-                    }`}
-                  >
-                    {u === "raw" ? "\u20ac" : u}
-                  </button>
-                ))}
-              </div>
-            </div>
+              {groupCounts.financials > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] bg-brand-soft text-[color:var(--brand-ink)] px-1.5 py-0"
+                >
+                  {groupCounts.financials}
+                </Badge>
+              )}
+            </button>
           </div>
 
+          {openGroups.financials && (
+          <>
           {/* Revenue */}
-          <div className="space-y-1 border-t border-slate-200 pt-2">
+          <div className="space-y-1">
             <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               {t("screener.revenue")}{unit !== "raw" ? ` (${unit})` : ""}
             </Label>
@@ -1099,8 +1286,62 @@ export default function ScreenerPage() {
             />
           </div>
 
-          {/* ── Growth Filters ── */}
+          {/* Fixed assets (rubric 20/28 — intangible + tangible + financial) */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              {t("screener.fixedAssets")}
+            </Label>
+            <div className="grid grid-cols-2 gap-1">
+              <Input
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
+                type="number"
+                placeholder="Min"
+                value={filters.fixed_assets_min}
+                onChange={(e) => updateFilter("fixed_assets_min", e.target.value)}
+              />
+              <Input
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
+                type="number"
+                placeholder="Max"
+                value={filters.fixed_assets_max}
+                onChange={(e) => updateFilter("fixed_assets_max", e.target.value)}
+              />
+            </div>
+          </div>
+          </>
+          )}
+
+          {/* ─── Group 3: TREND METRICS (collapsed by default) ─── */}
+          <div className="border-t border-slate-200 pt-2">
+            <button
+              type="button"
+              onClick={() => toggleGroup("trend")}
+              className="w-full flex items-center gap-1.5 py-1 text-left group"
+            >
+              {openGroups.trend ? (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600" />
+              )}
+              <LineChart className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 flex-1">
+                Trend metrics
+              </span>
+              {groupCounts.trend > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] bg-brand-soft text-[color:var(--brand-ink)] px-1.5 py-0"
+                >
+                  {groupCounts.trend}
+                </Badge>
+              )}
+            </button>
+          </div>
+
+          {openGroups.trend && (
+          <>
+          {/* Revenue growth (YoY) */}
+          <div className="space-y-1">
             <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <TrendingUp className="w-3 h-3 inline mr-1" />
               {t("screener.revenueGrowth")}
@@ -1146,83 +1387,10 @@ export default function ScreenerPage() {
             </div>
           </div>
 
-          {/* Fixed assets (rubric 20/28 — intangible + tangible + financial) */}
-          <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              {t("screener.fixedAssets")}
-            </Label>
-            <div className="grid grid-cols-2 gap-1">
-              <Input
-                className="h-10 md:h-7 text-base md:text-xs font-mono"
-                type="number"
-                placeholder="Min"
-                value={filters.fixed_assets_min}
-                onChange={(e) => updateFilter("fixed_assets_min", e.target.value)}
-              />
-              <Input
-                className="h-10 md:h-7 text-base md:text-xs font-mono"
-                type="number"
-                placeholder="Max"
-                value={filters.fixed_assets_max}
-                onChange={(e) => updateFilter("fixed_assets_max", e.target.value)}
-              />
-            </div>
-          </div>
-
-          {/* Distress / juridical situation */}
-          <div className="space-y-1">
-            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              {t("screener.distress")}
-            </Label>
-            <Select
-              value={filters.distress || "none"}
-              onValueChange={(v) =>
-                updateFilter(
-                  "distress",
-                  v === "none" || !v ? "" : (v as "bankruptcy" | "wco" | "any" | "healthy")
-                )
-              }
-            >
-              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
-                <SelectValue placeholder={t("screener.distressAny")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">{t("screener.distressAny")}</SelectItem>
-                <SelectItem value="healthy">{t("screener.distressHealthy")}</SelectItem>
-                <SelectItem value="bankruptcy">{t("screener.distressBankruptcy")}</SelectItem>
-                <SelectItem value="wco">{t("screener.distressWco")}</SelectItem>
-                <SelectItem value="any">{t("screener.distressAnyDistress")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Coverage-gap mode: show only enterprises not yet in NBB filings */}
-          <div className="flex items-center gap-2 pt-1">
-            <input
-              type="checkbox"
-              id="no-financials-toggle"
-              checked={filters.no_financials}
-              onChange={(e) => {
-                setFilters((prev) => {
-                  const next = { ...prev, no_financials: e.target.checked };
-                  scheduleFetch(next);
-                  return next;
-                });
-              }}
-              className="h-3.5 w-3.5 rounded border-slate-300"
-            />
-            <label
-              htmlFor="no-financials-toggle"
-              className="text-[11px] md:text-[10px] text-slate-500 cursor-pointer select-none"
-            >
-              {t("screener.noFinancialsOnly")}
-            </label>
-          </div>
-
           {/* FTE 3-year growth — replaces the old Mgmt Change filter.
               Sustained headcount growth is a stronger signal of scale-up
               than a flag for a single management change in the last X days. */}
-          <div className="space-y-1 border-t border-slate-200 pt-2">
+          <div className="space-y-1">
             <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               <TrendingUp className="w-3 h-3 inline mr-1" />
               {t("screener.fteGrowth3y")}
@@ -1244,28 +1412,9 @@ export default function ScreenerPage() {
               />
             </div>
           </div>
+          </>
+          )}
 
-          {/* Limit */}
-          <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              {t("screener.limit")}
-            </Label>
-            <Select
-              value={filters.limit}
-              onValueChange={(v) => updateFilter("limit", v ?? "100")}
-            >
-              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LIMIT_OPTIONS.map((opt) => (
-                  <SelectItem key={opt} value={opt}>
-                    {opt} rows
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
         </div>
       </aside>
 
