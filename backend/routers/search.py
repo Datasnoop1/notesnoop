@@ -29,6 +29,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from cache import ttl_cache
 from db import fetch_all, fetch_one
 from embeddings import embed_query
 from search_normalization import (
@@ -178,21 +179,16 @@ SUGGEST_MAX_LIMIT = 10
 SUGGEST_DEFAULT_LIMIT = 5
 
 
-@router.get("/suggest")
-async def suggest(
-    q: str = Query(..., min_length=1, max_length=100),
-    limit: int = Query(SUGGEST_DEFAULT_LIMIT, ge=1, le=SUGGEST_MAX_LIMIT),
-):
-    """Grouped autocomplete: companies, people, CBE exact, addresses.
+@ttl_cache(ttl_seconds=60, maxsize=1024)
+def _suggest_cached(raw: str, limit: int) -> dict:
+    """Run the suggest pipeline once and memoise. Keyed on `(raw, limit)`
+    so any normalisation drift is invisible to the cache.
 
-    Fires on every keystroke once the query hits 2 chars (frontend
-    debounces to 150 ms). Uses prefix matching (indexed) not trigram
-    similarity so the hot path stays fast.
+    60 s TTL is short enough that name additions / typos surface within
+    the minute, and long enough that "t", "to", "tot", "tota", "total"
+    typed sequentially by users on the same prefix all share the same
+    cached row after the first hit. maxsize bounds memory at ~1k keys.
     """
-    raw = (q or "").strip()
-    if len(raw) < 2:
-        return _empty_suggest(raw)
-
     qtype = detect_query_type(raw)
     cbe_digits = extract_cbe_digits(raw) if qtype == "cbe" else None
     nq = _v2_normalize_name(raw)
@@ -205,21 +201,38 @@ async def suggest(
         "cbe_pfx": (cbe_digits + "%") if cbe_digits else None,
         "limit": int(limit),
     }
-    try:
-        row = fetch_one(_SUGGEST_SQL, params)
-    except Exception:
-        logger.exception("suggest failed for q=%r", raw[:80])
-        return _empty_suggest(raw)
+    row = fetch_one(_SUGGEST_SQL, params)
     if not row or not row.get("payload"):
         return _empty_suggest(raw)
     payload = row["payload"]
-    # psycopg2 returns JSON columns as parsed dicts when using the
-    # default JSON decoder; wrap defensively.
     if isinstance(payload, str):
         import json
         payload = json.loads(payload)
     payload.setdefault("q", raw)
     return payload
+
+
+@router.get("/suggest")
+async def suggest(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(SUGGEST_DEFAULT_LIMIT, ge=1, le=SUGGEST_MAX_LIMIT),
+):
+    """Grouped autocomplete: companies, people, CBE exact, addresses.
+
+    Fires on every keystroke once the query hits 2 chars (frontend
+    debounces to 150 ms). Uses prefix matching (indexed) not trigram
+    similarity so the hot path stays fast. Result cached 60 s — common
+    short prefixes (`tot`, `koffi`, `antwer`) repeat constantly across
+    users, so memoising keeps the autocomplete loader snappy.
+    """
+    raw = (q or "").strip()
+    if len(raw) < 2:
+        return _empty_suggest(raw)
+    try:
+        return _suggest_cached(raw.lower(), int(limit))
+    except Exception:
+        logger.exception("suggest failed for q=%r", raw[:80])
+        return _empty_suggest(raw)
 
 
 def _empty_suggest(q: str) -> dict:
@@ -283,24 +296,30 @@ cbe_match AS (
     LIMIT 1
 ),
 addresses AS (
-    SELECT DISTINCT ON (COALESCE(ad.street_nl, ad.street_fr, ''), ci.city)
-           COALESCE(ad.street_nl, ad.street_fr) AS street,
-           ci.city,
-           ad.zipcode,
-           ci.enterprise_number AS cbe
-    FROM company_info ci
-    JOIN address ad ON ad.entity_number = ci.enterprise_number
-                    AND ad.type_of_address = 'REGO'
-    WHERE %(nq_pfx)s IS NOT NULL
-      AND length(%(nq_pfx)s) >= 4  -- gate to >=3-char queries (+ wildcard)
-                                   -- a single letter fans out to tens of
-                                   -- millions of rows via the ILIKE.
-      AND (
-          ad.street_nl          ILIKE %(nq_pfx)s
-          OR ad.street_fr       ILIKE %(nq_pfx)s
-          OR ad.municipality_nl ILIKE %(nq_pfx)s
-          OR ad.municipality_fr ILIKE %(nq_pfx)s
-      )
+    -- The 4-OR ILIKE produces tens of thousands of candidates for common
+    -- prefixes ("antwer%" → 65k+). DISTINCT ON over that whole set was the
+    -- main hot-path cost (~600 ms). Take a hard 200-row pre-cap, then
+    -- DISTINCT ON in an outer SELECT — same 3-row output, ~50× fewer rows
+    -- through the sort.
+    SELECT DISTINCT ON (street, city) street, city, zipcode, cbe
+    FROM (
+        SELECT COALESCE(ad.street_nl, ad.street_fr) AS street,
+               ci.city,
+               ad.zipcode,
+               ci.enterprise_number AS cbe
+        FROM address ad
+        JOIN company_info ci ON ci.enterprise_number = ad.entity_number
+        WHERE ad.type_of_address = 'REGO'
+          AND %(nq_pfx)s IS NOT NULL
+          AND length(%(nq_pfx)s) >= 4
+          AND (
+              ad.street_nl          ILIKE %(nq_pfx)s
+              OR ad.street_fr       ILIKE %(nq_pfx)s
+              OR ad.municipality_nl ILIKE %(nq_pfx)s
+              OR ad.municipality_fr ILIKE %(nq_pfx)s
+          )
+        LIMIT 200
+    ) raw_addr
     LIMIT 3
 )
 SELECT json_build_object(
