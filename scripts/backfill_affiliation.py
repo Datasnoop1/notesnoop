@@ -113,6 +113,14 @@ def fetch_candidates(conn, limit: int) -> list[tuple[str, str, str | None]]:
             WHERE a.person_type = 'legal'
               AND a.identifier IS NOT NULL
               AND a.identifier <> ''
+              -- Some admin rows from the legacy SQLite era carry empty
+              -- deposit_keys (schema is NOT NULL but stored as ''). They
+              -- produce malformed NBB URLs and 400s; filter them out.
+              AND a.deposit_key IS NOT NULL
+              AND a.deposit_key <> ''
+              -- Sentinel from the legacy nbb_loader for "no XBRL filings"
+              -- companies. Not a real filing.
+              AND a.deposit_key <> 'NO_FILINGS'
               AND NOT EXISTS (
                   SELECT 1
                   FROM affiliation_backfill_log abl
