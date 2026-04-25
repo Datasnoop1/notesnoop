@@ -123,7 +123,7 @@ export default function Home() {
               {/* Subtitle */}
               <p className="text-[14.5px] sm:text-[15.5px] text-[#5F6B85] leading-relaxed mb-6 max-w-[480px]">
                 A cleaner workspace for company discovery, financial benchmarking,
-                publications and AI-assisted deal signals.
+                publications and AI-assisted signals.
               </p>
 
               {/* Search bar */}
