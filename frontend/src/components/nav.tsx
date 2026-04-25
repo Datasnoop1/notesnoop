@@ -100,19 +100,15 @@ export default function Nav() {
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6">
         <div className="flex items-center h-[60px] gap-6">
 
-          {/* Brand — hidden on landing (brand lives in the hero there) */}
-          {isLanding ? (
-            <span aria-hidden className="w-0" />
-          ) : (
-            <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
-              <img src={logoPath} alt="Datasnoop" width={36} height={36} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/95" />
-              <span className="text-[15px] font-semibold tracking-tight">
-                <span className="text-[#07142F]">data</span>
-                <span className="text-[#0B5CFF]">snoop</span>
-              </span>
-              <span className="text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
-            </Link>
-          )}
+          {/* Brand — shown on every page including landing */}
+          <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
+            <img src={logoPath} alt="Datasnoop" width={36} height={36} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/95" />
+            <span className="text-[15px] font-semibold tracking-tight">
+              <span className="text-[#07142F]">data</span>
+              <span className="text-[#0B5CFF]">snoop</span>
+            </span>
+            <span className="text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
+          </Link>
 
           {/* Center: inline search (non-landing, non-search pages) */}
           {!hideHeaderSearch && (
