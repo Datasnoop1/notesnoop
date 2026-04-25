@@ -26,8 +26,6 @@ import { getNotifications, markNotificationsRead } from "@/lib/api";
 import type { FavNotification } from "@/lib/api";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-
 export default function Nav() {
   const pathname = usePathname();
   const router = useRouter();
@@ -38,7 +36,7 @@ export default function Nav() {
   const [notifs, setNotifs] = useState<FavNotification[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
   const notifContainerRef = useRef<HTMLDivElement | null>(null);
-  const [logoPath, setLogoPath] = useState("/logos/dog-telescope-clean.jpeg");
+  const logoPath = "/logos/datasnoop-brand.png";
 
   const NAV_LINKS = [
     { label: t("nav.favourites"), href: "/favourites" },
@@ -72,15 +70,6 @@ export default function Nav() {
       .then((data) => { setNotifCount(data.count); setNotifs(data.notifications); })
       .catch(() => {});
   }, [user]);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/site-config`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.site_logo) setLogoPath(data.site_logo);
-      })
-      .catch(() => {});
-  }, []);
 
   // Close notifications dropdown on outside click or Escape.
   useEffect(() => {
@@ -118,20 +107,35 @@ export default function Nav() {
 
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? "?";
   const isLanding = pathname === "/";
+  const isScreener = pathname.startsWith("/screener");
   const hideHeaderSearch = isLanding || pathname === "/search";
+
+  // Header brand visibility:
+  //   - /screener: never (results-card top-right hosts the mark instead).
+  //   - /         : hidden on lg+ (hero hosts the mark), but visible on
+  //                 mobile/tablet where the hero illustration is collapsed.
+  //   - other     : always visible.
+  const brandVisibilityClass = isScreener
+    ? "hidden"
+    : isLanding
+      ? "flex lg:hidden"
+      : "flex";
 
   return (
     <header className="sticky top-0 z-50 glass-chrome border-b border-[#E3EAF4]">
-      <div className="max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center h-[60px] gap-6">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-6 h-[80px]">
 
-          {/* Brand — shown on every page including landing */}
-          <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
-            <img src={logoPath} alt="Datasnoop" width={36} height={36} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/95" />
-            <span className="text-[15px] font-semibold tracking-tight">
-              <span className="text-[#07142F]">data</span>
-              <span className="text-[#0B5CFF]">snoop</span>
-            </span>
+          {/* Brand — full wordmark + telescope dog mark. PNG is tightly
+             cropped (994x279 — no whitespace), so a modest header box
+             gives a strongly-visible mark. */}
+          <Link href="/" className={`${brandVisibilityClass} items-center gap-2 shrink-0 group`}>
+            <img
+              src={logoPath}
+              alt="DataSnoop"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/logos/dog-telescope-clean.jpeg"; }}
+              className="h-12 w-auto shrink-0 group-hover:opacity-90 transition-opacity"
+            />
             <span className="text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
           </Link>
 
@@ -257,8 +261,12 @@ export default function Nav() {
               </SheetTrigger>
               <SheetContent side="left" className="w-72 border-[#E3EAF4]">
                 <SheetTitle className="flex items-center gap-2 text-[15px] font-semibold">
-                  <img src={logoPath} alt="Datasnoop" width={32} height={32} className="rounded-md bg-white/95" />
-                  <span><span className="text-[#07142F]">data</span><span className="text-[#0B5CFF]">snoop</span></span>
+                  <img
+                    src={logoPath}
+                    alt="DataSnoop"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/logos/dog-telescope-clean.jpeg"; }}
+                    className="h-7 w-auto"
+                  />
                 </SheetTitle>
                 <div className="mt-6 flex flex-col gap-1">
                   {NAV_LINKS.map((item) => (

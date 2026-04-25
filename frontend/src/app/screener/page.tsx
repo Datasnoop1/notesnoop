@@ -1314,6 +1314,20 @@ export default function ScreenerPage() {
               <Download className="w-3 h-3" />
               {t("screener.export")}
             </button>
+
+            {/* Brand mark — lives here on /screener instead of the global
+               header so the dense filter chrome stays focused. Sized to
+               match the row's other controls (h-8 ~ 32px) so the top
+               bar's vertical rhythm doesn't jump. Visible on every
+               viewport so mobile users still have a home link. */}
+            <Link href="/" aria-label="DataSnoop home" className="flex items-center shrink-0 group">
+              <img
+                src="/logos/datasnoop-brand.png"
+                alt="DataSnoop"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/logos/dog-telescope-clean.jpeg"; }}
+                className="h-8 w-auto group-hover:opacity-90 transition-opacity"
+              />
+            </Link>
           </div>
 
           {/* Row 2: Quick filters */}
