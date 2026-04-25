@@ -950,28 +950,6 @@ export default function ScreenerPage() {
               </Select>
             </div>
 
-            {/* Coverage-gap mode: show only enterprises not yet in NBB filings */}
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="no-financials-toggle"
-                checked={filters.no_financials}
-                onChange={(e) => {
-                  setFilters((prev) => {
-                    const next = { ...prev, no_financials: e.target.checked };
-                    scheduleFetch(next);
-                    return next;
-                  });
-                }}
-                className="h-3.5 w-3.5 rounded border-slate-300"
-              />
-              <label
-                htmlFor="no-financials-toggle"
-                className="text-[11px] md:text-[10px] text-slate-500 cursor-pointer select-none"
-              >
-                {t("screener.noFinancialsOnly")}
-              </label>
-            </div>
           </div>
 
           {/* ============================================================
