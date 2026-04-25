@@ -283,6 +283,15 @@ def refresh_company_info():
     with NULL names — anything filed in NL or with no language tag (Toyota,
     Cargill, Janssen, AB InBev …) showed as a CBE in the UI.
 
+    NACE source: prefer activity_group='006' (RSZ — what the EMPLOYEES
+    actually do day-to-day) over '001' (VAT/BTW — how the company files
+    taxes). RSZ classification reflects real business activity. The VAT
+    classification is often legacy/admin and produces nonsense answers
+    like Microsoft → "Market research", Viatris → "Real estate broker",
+    or D'Hondt Insurance → "Real estate brokerage". Falls back to '001'
+    when no '006' MAIN entry exists (typical for companies without
+    employees). Within each group, prefer NACE 2025 over 2008.
+
     ON CONFLICT uses COALESCE so a refresh never overwrites a good name with
     NULL just because this run couldn't resolve a denomination.
     """
@@ -301,11 +310,22 @@ def refresh_company_info():
             AND d.type_of_denomination = '001'
         LEFT JOIN address a ON a.entity_number = e.enterprise_number
             AND a.type_of_address = 'REGO'
-        LEFT JOIN (
-            SELECT entity_number, nace_code
+        LEFT JOIN LATERAL (
+            -- Pick the best MAIN NACE per enterprise. Prefer activity_group
+            -- '006' (RSZ — what employees do = real business activity) over
+            -- '001' (VAT — tax filing classification). Within group, prefer
+            -- NACE 2025 over 2008 over 2003.
+            SELECT nace_code
             FROM activity
-            WHERE activity_group = '001' AND nace_version = '2008' AND classification = 'MAIN'
-        ) act ON act.entity_number = e.enterprise_number
+            WHERE entity_number = e.enterprise_number
+              AND classification = 'MAIN'
+              AND activity_group IN ('006', '001')
+            ORDER BY
+                CASE activity_group WHEN '006' THEN 1 WHEN '001' THEN 2 ELSE 3 END,
+                CASE nace_version  WHEN '2025' THEN 1 WHEN '2008' THEN 2
+                                   WHEN '2003' THEN 3 ELSE 4 END
+            LIMIT 1
+        ) act ON TRUE
         WHERE e.status = 'AC'
         ORDER BY e.enterprise_number,
                  CASE d.language
@@ -325,6 +345,55 @@ def refresh_company_info():
             nace_code = COALESCE(EXCLUDED.nace_code, company_info.nace_code)
     """)
     log.info(f"company_info refreshed in {time.time() - t0:.1f}s")
+
+
+def refresh_nace_lookup():
+    """Re-seed nace_lookup from the canonical KBO `code` table.
+
+    KBO ships every NACE code with NL/FR descriptions in code.csv,
+    versioned (Nace2003 / Nace2008 / Nace2025). The display table here
+    used to be loaded once at migration time with NACE 2003 descriptions
+    — but the activity table records 2008 / 2025 codes, and the codes
+    were re-used between revisions for completely different industries
+    (`64200` was "Telecommunicatie" in 2003, "Holdings" in 2008). So a
+    company tagged 64200 was being shown as a telecom firm.
+
+    Re-seeding from `code` keeps the lookup in lockstep with whatever
+    KBO has just shipped. NACE 2025 wins where present, with 2008 as
+    the fallback. NACE 2003 is intentionally never the source of truth
+    here.
+
+    `company_count` is a separate per-row aggregate maintained elsewhere
+    — preserve whatever value already exists rather than zero it on
+    every refresh.
+    """
+    log.info("Refreshing nace_lookup descriptions...")
+    t0 = time.time()
+    execute("""
+        WITH backup AS (
+            SELECT nace_code, company_count FROM nace_lookup
+        ),
+        ranked AS (
+            SELECT DISTINCT ON (c.code)
+                   c.code AS nace_code,
+                   c.description,
+                   COALESCE(b.company_count, 0) AS company_count
+            FROM code c
+            LEFT JOIN backup b ON b.nace_code = c.code
+            WHERE c.category IN ('Nace2025', 'Nace2008')
+              AND c.language = 'NL'
+            ORDER BY c.code,
+                     CASE c.category WHEN 'Nace2025' THEN 1
+                                     WHEN 'Nace2008' THEN 2
+                                     ELSE 3 END
+        )
+        INSERT INTO nace_lookup (nace_code, description, company_count)
+        SELECT nace_code, description, company_count FROM ranked
+        ON CONFLICT (nace_code) DO UPDATE SET
+            description   = EXCLUDED.description,
+            company_count = COALESCE(EXCLUDED.company_count, nace_lookup.company_count)
+    """)
+    log.info(f"nace_lookup refreshed in {time.time() - t0:.1f}s")
 
 
 def process_zip(zip_path):
@@ -430,7 +499,11 @@ def main():
                 continue
 
         if applied > 0:
-            # Refresh company_info after all updates
+            # Refresh nace_lookup BEFORE company_info — the description table
+            # is read-only metadata, so applying it first keeps a refreshed
+            # company_info pointing to fresh descriptions even if the run
+            # crashes in between.
+            refresh_nace_lookup()
             refresh_company_info()
             # Update snapshot date in meta
             execute(

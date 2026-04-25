@@ -252,9 +252,10 @@ def rebuild_materialized_tables(conn):
 
     log("  Rebuilding company_info ...")
     conn.execute("DELETE FROM company_info")
-    # DISTINCT ON picks the best-language denomination per enterprise:
-    # NL > FR > unspecified > DE > EN. Including '0' / '3' / '4' avoids
-    # leaving big multinationals (Toyota, AB InBev, …) with NULL names.
+    # Denomination ranking: NL > FR > unspecified > DE > EN. NACE source:
+    # prefer activity_group='006' (RSZ — what employees do) over '001' (VAT
+    # filing) because RSZ reflects the real business activity. Keep this
+    # in lockstep with refresh_company_info() in kbo_daily_update.py.
     conn.execute("""
         INSERT INTO company_info (enterprise_number, name, city, zipcode, nace_code)
         SELECT DISTINCT ON (fl.enterprise_number)
@@ -270,9 +271,17 @@ def rebuild_materialized_tables(conn):
         LEFT JOIN address a
                ON a.entity_number = fl.enterprise_number
               AND a.type_of_address = 'REGO'
-        LEFT JOIN activity act
-               ON act.entity_number = fl.enterprise_number
-              AND act.classification = 'MAIN'
+        LEFT JOIN LATERAL (
+            SELECT nace_code FROM activity
+            WHERE entity_number = fl.enterprise_number
+              AND classification = 'MAIN'
+              AND activity_group IN ('006', '001')
+            ORDER BY
+                CASE activity_group WHEN '006' THEN 1 WHEN '001' THEN 2 ELSE 3 END,
+                CASE nace_version  WHEN '2025' THEN 1 WHEN '2008' THEN 2
+                                   WHEN '2003' THEN 3 ELSE 4 END
+            LIMIT 1
+        ) act ON TRUE
         ORDER BY fl.enterprise_number,
                  CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 WHEN '0' THEN 3
                                  WHEN '3' THEN 4 WHEN '4' THEN 5 ELSE 6 END,

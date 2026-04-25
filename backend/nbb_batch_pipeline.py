@@ -338,9 +338,10 @@ def rebuild_materialized_tables():
 
         # company_info — insert rows for newly-loaded financials.
         # Pick the best-language denomination per enterprise (NL > FR > none > DE/EN)
-        # via DISTINCT ON. Earlier MAX(d.denomination) limited to languages
-        # ('1','2') discarded ~800k language='0' rows (Toyota, Cargill …)
-        # and ordered alphabetically rather than by language preference.
+        # and the best NACE per enterprise (RSZ group 006 > VAT 001, latest
+        # taxonomy preferred). Keep this in sync with refresh_company_info()
+        # in backend/kbo_daily_update.py — both materialisers must agree on
+        # priority or the daily update will flip newly-loaded rows back.
         cur.execute("""
             INSERT INTO company_info (enterprise_number, name, city, zipcode, nace_code)
             SELECT DISTINCT ON (fl.enterprise_number)
@@ -354,8 +355,17 @@ def rebuild_materialized_tables():
                 AND d.type_of_denomination = '001'
             LEFT JOIN address a ON a.entity_number = fl.enterprise_number
                 AND a.type_of_address = 'REGO'
-            LEFT JOIN activity act ON act.entity_number = fl.enterprise_number
-                AND act.classification = 'MAIN'
+            LEFT JOIN LATERAL (
+                SELECT nace_code FROM activity
+                WHERE entity_number = fl.enterprise_number
+                  AND classification = 'MAIN'
+                  AND activity_group IN ('006', '001')
+                ORDER BY
+                    CASE activity_group WHEN '006' THEN 1 WHEN '001' THEN 2 ELSE 3 END,
+                    CASE nace_version  WHEN '2025' THEN 1 WHEN '2008' THEN 2
+                                       WHEN '2003' THEN 3 ELSE 4 END
+                LIMIT 1
+            ) act ON TRUE
             WHERE NOT EXISTS (SELECT 1 FROM company_info ci WHERE ci.enterprise_number = fl.enterprise_number)
             ORDER BY fl.enterprise_number,
                      CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 WHEN '0' THEN 3
