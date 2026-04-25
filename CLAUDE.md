@@ -51,13 +51,14 @@ gotchas), coverage state, and the full change history.
   and `company_embedding`. Legacy 4-step `ai_insights_pipeline` still owns
   on-profile narratives — refactor deferred to Phase 5.
 - **Web scraping**: raw `httpx + trafilatura` is the bulk default. **Zenrows
-  is fully disabled as of 2026-04-25** pending the Playwright + Webshare
-  replacement service — sites that previously used the proxy fallback now
-  fall through to the deterministic template path. The Zenrows-Google SERP
-  layer was already DROPPED from bulk discovery per Phase 0 (0% success on
-  our previous Zenrows plan). All `zenrows*` function signatures stay in
-  place so the Webshare service can swap in behind them; do NOT delete the
-  callers.
+  was replaced by an in-network `playwright-scraper` service on 2026-04-25**
+  — headless Chromium rotating through a Webshare datacenter proxy pool
+  (~100 IPs). Lives at `playwright-scraper/`, reachable inside the docker
+  network as `http://playwright-scraper:8000/scrape`. The legacy `zenrows*`
+  function names in `backend/scraper.py` now delegate to this service;
+  `ZENROWS_API_KEY` env var is no longer required. The Zenrows-Google SERP
+  layer remains DROPPED from bulk discovery per Phase 0 (datacenter proxies
+  are 0% viable against Google's anti-bot regardless of provider).
 - **Deployment**: docker-compose + nginx + Let's Encrypt
 - **Loaders**: `requests` for KBO/NBB ingestion, streaming CSV/JSON
 - **Legacy UI**: Streamlit app under `app/` still works against Postgres but is secondary
@@ -151,10 +152,10 @@ platform/
 - **AI enrichment** (OpenRouter): summarisation and entity enrichment from
   scraped pages.
 
-- **Web scraping** (DISABLED 2026-04-25): proxied scraping of public Belgian
-  company websites is paused. Zenrows was the previous provider; replacement
-  is a self-hosted Playwright service rotating through a Webshare datacenter
-  proxy pool, work-in-progress.
+- **Web scraping** (`playwright-scraper`): proxied scraping of public Belgian
+  company websites and LinkedIn pages, served by an internal Playwright +
+  Chromium container rotating through Webshare datacenter proxies. Replaces
+  the previous Zenrows integration as of 2026-04-25.
 
 - **Deployment**: `docker compose up -d` builds and runs backend + frontend +
   nginx. Staging variant exposes port 8080 with no TLS. Healthchecks gate

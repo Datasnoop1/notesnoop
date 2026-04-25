@@ -8,6 +8,8 @@ services:
       # signing in. Admin routes remain locked at the router level via
       # `_require_admin` dependencies, independent of STAGING_MODE.
       STAGING_MODE: "false"
+      # See docker-compose.yml backend service for explanation.
+      PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper-staging:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -94,10 +96,14 @@ services:
       BULK_Q2_FALLBACK_MODEL: ""
       BULK_HAIKU_MODEL: "anthropic/claude-haiku-4.5"
       BULK_HAIKU_FALLBACK_MODEL: ""
+      # Staging variant points at the staging playwright-scraper service.
+      PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper-staging:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       backend-staging:
+        condition: service_healthy
+      playwright-scraper-staging:
         condition: service_healthy
     command: ["python", "-m", "enrichment_worker"]
     healthcheck:
@@ -166,6 +172,38 @@ services:
           memory: 1G
         reservations:
           memory: 256M
+
+  # Staging variant of the playwright-scraper service. Same image, separate
+  # container so a staging restart doesn't kill in-flight prod scrapes.
+  # See docker-compose.yml for the full design notes.
+  playwright-scraper-staging:
+    build: ./playwright-scraper
+    restart: always
+    expose:
+      - "8000"
+    environment:
+      WEBSHARE_PROXIES_FILE: "/run/secrets/webshare_proxies.txt"
+      PLAYWRIGHT_MAX_CONCURRENT: "${PLAYWRIGHT_MAX_CONCURRENT:-2}"
+      PLAYWRIGHT_DEFAULT_TIMEOUT_MS: "${PLAYWRIGHT_DEFAULT_TIMEOUT_MS:-30000}"
+      PLAYWRIGHT_RECYCLE_AFTER: "${PLAYWRIGHT_RECYCLE_AFTER:-500}"
+    volumes:
+      - ${WEBSHARE_PROXIES_FILE:-/root/webshare_proxies.txt}:/run/secrets/webshare_proxies.txt:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,json; r=urllib.request.urlopen('http://localhost:8000/health'); d=json.load(r); exit(0 if d.get('status')=='ok' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Lower concurrency than prod (2 vs 3) — staging shares the host with
+    # prod and we don't want a runaway test to starve the live worker.
+    mem_limit: 1200m
+    mem_reservation: 384m
+    deploy:
+      resources:
+        limits:
+          memory: 1200M
+        reservations:
+          memory: 384M
 
   nginx-staging:
     image: nginx:alpine

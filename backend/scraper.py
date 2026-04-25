@@ -22,6 +22,119 @@ logger = logging.getLogger(__name__)
 ZENROWS_KEY = os.getenv("ZENROWS_API_KEY", "")
 ZENROWS_BASE = "https://api.zenrows.com/v1/"
 
+# ── Playwright + Webshare proxy scraper ───────────────────────────────
+# As of 2026-04-25 the proxy fallback is served by an in-network
+# playwright-scraper container (see docker-compose.yml + playwright-scraper/).
+# The Zenrows function names below stay intact for backwards compatibility,
+# but their bodies now delegate to this internal HTTP service. Set the env
+# var to empty to disable the proxy fallback entirely.
+PLAYWRIGHT_SCRAPER_URL = os.getenv("PLAYWRIGHT_SCRAPER_URL", "").rstrip("/")
+# Network-side timeout buffer — the playwright service has its own page
+# timeout (defaults to 30s); we add a small margin to account for queueing
+# behind the in-flight semaphore inside the service.
+PLAYWRIGHT_HTTP_TIMEOUT_S = float(os.getenv("PLAYWRIGHT_HTTP_TIMEOUT_S", "75"))
+
+
+def _url_passes_basic_ssrf_guard(url: str) -> bool:
+    """Cheap pre-flight SSRF check before we send a URL to the scraper.
+
+    Rejects bad schemes and literal private/loopback IPs without doing
+    DNS — the playwright service does the full DNS-resolved check as a
+    second line of defence. This is intentionally a fast belt-and-braces
+    pass: stop obvious abuse without round-tripping through the scraper.
+
+    Handles the IPv4-mapped IPv6 bypass (`http://[::ffff:127.0.0.1]/`):
+    Python's `is_loopback` returns False for the IPv6 wrapper because
+    IPv6 loopback is `::1` only, but the underlying IPv4 IS loopback.
+    """
+    from urllib.parse import urlparse
+    import ipaddress
+
+    try:
+        u = urlparse(url)
+    except Exception:
+        return False
+    if u.scheme not in ("http", "https"):
+        return False
+    if not u.hostname:
+        return False
+    try:
+        ip = ipaddress.ip_address(u.hostname)
+    except ValueError:
+        return True  # not a literal IP — let the scraper resolve and judge
+
+    def _internal(addr) -> bool:
+        if (addr.is_private or addr.is_loopback or addr.is_link_local
+                or addr.is_reserved or addr.is_multicast or addr.is_unspecified):
+            return True
+        mapped = getattr(addr, "ipv4_mapped", None)
+        if mapped is not None and (
+            mapped.is_private or mapped.is_loopback or mapped.is_link_local
+            or mapped.is_reserved or mapped.is_multicast or mapped.is_unspecified
+        ):
+            return True
+        return False
+
+    return not _internal(ip)
+
+
+async def _playwright_fetch(url: str, timeout_ms: int | None = None) -> str:
+    """Fetch a URL via the in-network playwright-scraper service.
+
+    Returns the raw HTML on success, or an empty string on any failure
+    (no proxies, browser down, HTTP error, timeout, network error).
+    Callers should treat the empty return as "scrape failed, fall through
+    to template path" — same contract the old Zenrows path had.
+    """
+    if not PLAYWRIGHT_SCRAPER_URL:
+        return ""
+    if not _url_passes_basic_ssrf_guard(url):
+        # Truncate + strip control chars so a malicious URL can't
+        # corrupt the log line (e.g. inject fake INFO records via
+        # newlines).
+        safe_log = "".join(
+            c if 0x20 <= ord(c) < 0x7f else "?" for c in url[:256]
+        )
+        logger.warning("playwright-scraper: refusing unsafe url %s", safe_log)
+        return ""
+    payload: dict[str, object] = {"url": url}
+    if timeout_ms is not None:
+        payload["timeout_ms"] = timeout_ms
+    try:
+        async with httpx.AsyncClient(timeout=PLAYWRIGHT_HTTP_TIMEOUT_S) as client:
+            resp = await client.post(
+                f"{PLAYWRIGHT_SCRAPER_URL}/scrape", json=payload,
+            )
+            if resp.status_code != 200:
+                logger.warning(
+                    "playwright-scraper returned HTTP %d for %s",
+                    resp.status_code, url,
+                )
+                return ""
+            data = resp.json()
+            html = data.get("html") or ""
+            if not html:
+                err = data.get("error") or "empty"
+                logger.info(
+                    "playwright-scraper miss url=%s proxy=%s elapsed=%dms err=%s",
+                    url,
+                    data.get("proxy_used"),
+                    int(data.get("elapsed_ms") or 0),
+                    err,
+                )
+                return ""
+            logger.info(
+                "playwright-scraper hit url=%s proxy=%s elapsed=%dms bytes=%d",
+                url,
+                data.get("proxy_used"),
+                int(data.get("elapsed_ms") or 0),
+                len(html),
+            )
+            return html
+    except Exception as e:
+        logger.warning("playwright-scraper request failed for %s: %s", url, e)
+        return ""
+
 # ── DuckDuckGo rate-limit protection ──────────────────────────────────
 # Phase 0 mini-spike (scripts/research/v3) observed DDG 403s after ~50
 # sequential calls from one IP. The bulk worker calls
@@ -179,48 +292,18 @@ def invalidate_skiplist_cache() -> None:
 
 
 async def scrape_url(url: str, js_render: bool = False, premium_proxy: bool = False) -> str:
-    """Scrape a URL via Zenrows. Returns HTML text.
+    """Scrape a URL via the playwright-scraper service. Returns HTML text.
 
-    Parameters
-    ----------
-    url : str
-        The target URL to scrape.
-    js_render : bool
-        Enable JavaScript rendering (needed for SPAs / LinkedIn).
-    premium_proxy : bool
-        Use premium residential proxies (needed for LinkedIn).
+    The `js_render` and `premium_proxy` parameters are kept for backwards
+    compatibility with old Zenrows callers, but a real headless Chromium
+    always renders JS — they're now interpreted as timeout hints:
+
+    - js_render=True OR premium_proxy=True → 60 s page timeout (was: 60s
+      Zenrows API timeout + JS render flag). LinkedIn / heavy SPAs.
+    - default → 30 s page timeout. Most company sites.
     """
-    if not ZENROWS_KEY:
-        logger.warning("ZENROWS_API_KEY not configured — skipping scrape")
-        return ""
-
-    params: dict[str, str] = {
-        "apikey": ZENROWS_KEY,
-        "url": url,
-    }
-    if js_render:
-        params["js_render"] = "true"
-    if premium_proxy:
-        params["premium_proxy"] = "true"
-
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                ZENROWS_BASE,
-                params=params,
-                timeout=60,
-            )
-            if resp.status_code == 200:
-                logger.info("Scraped %s — %d bytes", url, len(resp.text))
-                return resp.text
-            logger.warning(
-                "Zenrows returned %s for %s: %s",
-                resp.status_code, url, resp.text[:300],
-            )
-    except Exception as e:
-        logger.exception("Zenrows request failed for %s: %s", url, e)
-
-    return ""
+    timeout_ms = 60000 if (js_render or premium_proxy) else 30000
+    return await _playwright_fetch(url, timeout_ms=timeout_ms)
 
 
 def _strip_html(html: str, max_chars: int = 12000) -> str:
@@ -494,37 +577,18 @@ def _url_encode(query: str) -> str:
 
 
 async def _zenrows_fetch(url: str, timeout: int = 5) -> str:
-    """Fetch a URL via Zenrows with a tight timeout. Returns HTML or empty string.
+    """Fetch a URL via the playwright-scraper service. Returns HTML or empty string.
 
-    NOTE: Zenrows is disabled as of 2026-04-25; if ZENROWS_API_KEY is empty
-    we short-circuit before issuing a doomed network call. The function and
-    its callers stay in place so the Webshare/Playwright replacement can
-    swap in behind the same signature.
+    Used by the Google-SERP discovery helpers (`zenrows_search_url` and
+    `zenrows_search_website_url`). The legacy `timeout` parameter is in
+    seconds and gets converted to milliseconds for the Playwright service.
+
+    NOTE: Phase 0 already showed the Google-SERP path is essentially 0%
+    viable through datacenter proxies (Google fingerprints them aggressively).
+    These helpers are kept wired for completeness but do NOT expect them to
+    routinely return useful HTML — DDG remains the working discovery path.
     """
-    if not ZENROWS_KEY:
-        return ""
-    params: dict[str, str] = {
-        "apikey": ZENROWS_KEY,
-        "url": url,
-    }
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                ZENROWS_BASE,
-                params=params,
-                timeout=timeout,
-            )
-            if resp.status_code == 200:
-                return resp.text
-            logger.warning(
-                "Zenrows returned %s for Google search: %s",
-                resp.status_code, resp.text[:200],
-            )
-    except httpx.TimeoutException:
-        logger.warning("Zenrows Google search timed out after %ds for %s", timeout, url)
-    except Exception as e:
-        logger.warning("Zenrows Google search failed: %s", e)
-    return ""
+    return await _playwright_fetch(url, timeout_ms=max(timeout, 1) * 1000)
 
 
 # Legacy export retained for any code importing the old constant.

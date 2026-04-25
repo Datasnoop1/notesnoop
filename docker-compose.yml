@@ -3,6 +3,10 @@ services:
     build: ./backend
     restart: always
     env_file: .env.production
+    environment:
+      # See enrichment-worker for explanation. Backend on-profile retry
+      # endpoints (/api/companies/.../enrichment) hit the same service.
+      PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:
@@ -84,10 +88,16 @@ services:
       BULK_Q2_FALLBACK_MODEL: ""
       BULK_HAIKU_MODEL: "anthropic/claude-haiku-4.5"
       BULK_HAIKU_FALLBACK_MODEL: ""
+      # Pointer to the in-network playwright-scraper service (Webshare proxy
+      # rotation behind a headless Chromium). Set empty to disable the proxy
+      # fallback entirely and force template-path on every blocked site.
+      PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       backend:
+        condition: service_healthy
+      playwright-scraper:
         condition: service_healthy
     command: ["python", "-m", "enrichment_worker"]
     # Worker doesn't serve HTTP — healthcheck confirms the process is
@@ -160,6 +170,43 @@ services:
           memory: 1G
         reservations:
           memory: 256M
+
+  # Playwright + Webshare proxy scraper. Replaces the bulk Zenrows fallback
+  # path that was disabled on 2026-04-25. Backend and enrichment-worker call
+  # this service over the docker network at http://playwright-scraper:8000
+  # whenever raw httpx + trafilatura comes back empty. The proxy file is
+  # the same one the staatsblad bulk worker uses (single source of truth on
+  # the host at /root/webshare_proxies.txt). Single uvicorn worker is
+  # intentional — Chromium concurrency is capped inside the app.
+  playwright-scraper:
+    build: ./playwright-scraper
+    restart: always
+    expose:
+      - "8000"
+    environment:
+      WEBSHARE_PROXIES_FILE: "/run/secrets/webshare_proxies.txt"
+      PLAYWRIGHT_MAX_CONCURRENT: "${PLAYWRIGHT_MAX_CONCURRENT:-3}"
+      PLAYWRIGHT_DEFAULT_TIMEOUT_MS: "${PLAYWRIGHT_DEFAULT_TIMEOUT_MS:-30000}"
+      PLAYWRIGHT_RECYCLE_AFTER: "${PLAYWRIGHT_RECYCLE_AFTER:-500}"
+    volumes:
+      - ${WEBSHARE_PROXIES_FILE:-/root/webshare_proxies.txt}:/run/secrets/webshare_proxies.txt:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,json; r=urllib.request.urlopen('http://localhost:8000/health'); d=json.load(r); exit(0 if d.get('status')=='ok' else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # Chromium + 3 concurrent contexts can spike to ~1 GB. 1.5 GB cap
+    # gives breathing room without starving the rest of the stack on
+    # the 8 GB Hetzner box.
+    mem_limit: 1500m
+    mem_reservation: 512m
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+        reservations:
+          memory: 512M
 
   nginx:
     image: nginx:alpine

@@ -84,7 +84,7 @@ dots on load; never pad.
 | NBB CBSO | Per-company annual-accounts pulls | `NBB_AUTHENTIC_KEY` (and `NBB_EXTRACT_KEY` for daily batch) |
 | NBB SDMX | Under evaluation as bulk-route alternative to CBSO | **No auth** (public API). See tech-debt + `docs/sdmx-migration-spike.md`. |
 | OpenRouter | LLM pipeline for AI insights, extract-admins, company enrichment | `OPENROUTER_API_KEY` |
-| ~~Zenrows~~ (DISABLED 2026-04-25) | Proxied scraping was paused pending the Playwright + Webshare replacement service | ~~`ZENROWS_API_KEY`~~ |
+| `playwright-scraper` (in-network) | Headless Chromium + Webshare datacenter proxies. Replaces Zenrows as of 2026-04-25. | `WEBSHARE_PROXIES_FILE` (host path), `PLAYWRIGHT_SCRAPER_URL` (set in compose) |
 
 ---
 
@@ -262,7 +262,7 @@ output. Both share the scraper and KBO-context builders.
 3. Dormant check       → `is_dormant(...)` short-circuit (`DISSOLVED_SITUATION_CODES`)
 4. EBITDA fast lane    → known EBITDA below floor → template + embed, no discovery
 5. Website resolve     → KBO contact WEB row → else DuckDuckGo (throttled)
-6. Scrape              → raw httpx + trafilatura (≤8k); proxy fallback DISABLED 2026-04-25 pending Webshare replacement (sites that need a proxy now fall through to template path)
+6. Scrape              → raw httpx + trafilatura (≤8k); proxy fallback via in-network playwright-scraper (Chromium + Webshare DC proxies) for sites that block raw httpx
 7. Template fallback   → scrape absent or untrustworthy → deterministic summary
 8. KBO context block   → build_kbo_context_block({parent, admins, NACE, notes…})
 9. Q2 call             → call_q2(kbo, scraped) — GPT-4o-mini, structured output
