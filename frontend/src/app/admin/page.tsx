@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -750,9 +750,12 @@ export default function AdminPanel() {
       setNbbBackload(nbb);
       setTiers(tc);
       if (sc?.site_logo) setSiteLogo(sc.site_logo);
-      // Don't block initial render on heavy — but await it before we
-      // turn off `loading` so error states surface in this catch.
-      void heavyPromise.catch(() => {});
+      // Don't block initial render on heavy — but log failures so they
+      // don't disappear silently. Heavy data is auxiliary (analytics
+      // cards), so a failure here shouldn't blank the whole page.
+      void heavyPromise.catch((err) => {
+        console.error("[admin] heavy data load failed:", err);
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Unknown error";
       setError(message);
@@ -865,14 +868,30 @@ export default function AdminPanel() {
   // Per-row two-step confirm: first click arms `confirmDeleteFeedback`,
   // second click within ~5 s commits. Avoids the trash-icon-misclick
   // failure mode the operator flagged in the #22 admin audit.
+  // The disarm timer is held in a ref so we can cancel it on unmount or
+  // when a different row is armed (avoids stale-state setState warnings).
   const [confirmDeleteFeedback, setConfirmDeleteFeedback] = useState<number | null>(null);
+  const confirmDeleteTimerRef = useRef<ReturnType<typeof globalThis.setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (confirmDeleteTimerRef.current) {
+      globalThis.clearTimeout(confirmDeleteTimerRef.current);
+    }
+  }, []);
   async function deleteFeedback(id: number) {
     if (confirmDeleteFeedback !== id) {
       setConfirmDeleteFeedback(id);
-      window.setTimeout(() => {
+      if (confirmDeleteTimerRef.current) {
+        globalThis.clearTimeout(confirmDeleteTimerRef.current);
+      }
+      confirmDeleteTimerRef.current = globalThis.setTimeout(() => {
         setConfirmDeleteFeedback((current) => (current === id ? null : current));
+        confirmDeleteTimerRef.current = null;
       }, 5000);
       return;
+    }
+    if (confirmDeleteTimerRef.current) {
+      globalThis.clearTimeout(confirmDeleteTimerRef.current);
+      confirmDeleteTimerRef.current = null;
     }
     setConfirmDeleteFeedback(null);
     setActionLoading(`fb-${id}`);

@@ -179,6 +179,17 @@ async def nbb_backload_progress(user=Depends(_require_admin)):
         # forces Postgres to compute e_active once and reuse it; the
         # per-year NOT EXISTS still uses idx_fby_enterprise_fy. Result:
         # ~26 s → ~2 s on the active 1.9M enterprise universe (#22 audit).
+        #
+        # SEMANTICS NOTE: nbb_load_log entries with deposit_key matching
+        # 'NO_FILINGS%' or 'PDF_ONLY' represent ENTERPRISE-WIDE retirements
+        # (the company files no XBRL at all, or only PDF). They are not
+        # year-specific markers. So pre-filtering them out of e_active is
+        # equivalent to the old per-row-per-year filter under current
+        # data semantics. Verified empirically: equal counts (664831 for
+        # FY 2022/2023/2024) before and after the rewrite. If future
+        # ingestion ever stores year-scoped NO_FILINGS markers, this
+        # simplification needs to be undone — track via the deposit_key
+        # naming convention.
         overview = fetch_one("""
             WITH e_active AS MATERIALIZED (
                 SELECT e.enterprise_number
