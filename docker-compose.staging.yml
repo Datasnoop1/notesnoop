@@ -101,8 +101,14 @@ services:
       BULK_HAIKU_FALLBACK_MODEL: "anthropic/claude-haiku-4.5"
       # Staging variant points at the staging playwright-scraper service.
       PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper-staging:8000"
+      # Wave 2 acceleration — see prod compose for design notes.
+      DDG_VIA_WEBSHARE: "true"
+      DDG_VIA_WEBSHARE_MIN_INTERVAL_S: "0.5"
+      WEBSHARE_PROXIES_FILE: "/run/secrets/webshare_proxies.txt"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ${WEBSHARE_PROXIES_FILE:-/root/webshare_proxies.txt}:/run/secrets/webshare_proxies.txt:ro
     depends_on:
       backend-staging:
         condition: service_healthy

@@ -100,8 +100,19 @@ services:
       # rotation behind a headless Chromium). Set empty to disable the proxy
       # fallback entirely and force template-path on every blocked site.
       PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper:8000"
+      # Wave 2 acceleration (2026-04-25): route DDG through the same
+      # Webshare datacenter proxy pool the staatsblad worker already uses.
+      # Each call rotates to a different IP so DDG's per-IP rate-limit no
+      # longer caps total throughput at this host. With 100 proxies the
+      # effective ceiling is ~1k-5k DDG calls/hr (vs ~180/hr direct).
+      DDG_VIA_WEBSHARE: "true"
+      DDG_VIA_WEBSHARE_MIN_INTERVAL_S: "0.5"
+      WEBSHARE_PROXIES_FILE: "/run/secrets/webshare_proxies.txt"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Same proxy file the staatsblad-bulk-worker mounts. Read-only.
+      - ${WEBSHARE_PROXIES_FILE:-/root/webshare_proxies.txt}:/run/secrets/webshare_proxies.txt:ro
     depends_on:
       backend:
         condition: service_healthy

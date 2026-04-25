@@ -1,0 +1,356 @@
+diff --git a/backend/scraper.py b/backend/scraper.py
+index c42d1ee..1434f0d 100644
+--- a/backend/scraper.py
++++ b/backend/scraper.py
+@@ -163,6 +163,110 @@ _ddg_rate_limit_streak: int = 0
+ _ddg_success_streak: int = 0
+ 
+ 
++# ── Webshare proxy pool for DDG (Wave 2 acceleration) ─────────────────
++# Routes DuckDuckGo HTML calls through a rotating Webshare datacenter
++# proxy pool, lifting the per-IP rate-limit ceiling that was the binding
++# constraint with WORKER_CONCURRENCY > 1. With 100 proxies the effective
++# DDG quota goes from ~180/hr (single IP at 20s/call) to potentially
++# 1k-5k/hr before DDG ML-detects the rotation.
++#
++# Same proxy file used by the staatsblad bulk worker
++# (/root/webshare_proxies.txt on the host, mounted to
++# /run/secrets/webshare_proxies.txt inside the container).
++import random as _random
++from pathlib import Path as _Path
++
++WEBSHARE_PROXIES_FILE = os.getenv(
++    "WEBSHARE_PROXIES_FILE", "/run/secrets/webshare_proxies.txt"
++)
++DDG_VIA_WEBSHARE = os.getenv("DDG_VIA_WEBSHARE", "false").strip().lower() in {
++    "1", "true", "yes", "on",
++}
++# When DDG_VIA_WEBSHARE is on, this is the much-shorter throttle that
++# governs total DDG calls/sec from THIS PROCESS (not per-IP). Each call
++# rotates to a different proxy IP so DDG's per-IP rate-limit doesn't
++# apply, but a global cap is still polite and avoids accidentally
++# detected-as-bot patterns.
++DDG_VIA_WEBSHARE_MIN_INTERVAL_S = float(
++    os.getenv("DDG_VIA_WEBSHARE_MIN_INTERVAL_S", "0.5")
++)
++
++
++def _load_webshare_proxies(path: str) -> list[str]:
++    """Same parser as scripts/staatsblad_bulk_scrape.py::ProxyPool — file
++    has one `IP:PORT:USER:PASS` per line; returns httpx-ready proxy URLs
++    `http://USER:PASS@IP:PORT`. Malformed lines are dropped silently
++    (we never log line content — defends against accidentally pointing
++    the path at a secrets file).
++    """
++    p = _Path(path)
++    if not p.exists():
++        return []
++    out: list[str] = []
++    for line in p.read_text().splitlines():
++        line = line.strip()
++        if not line or line.startswith("#"):
++            continue
++        if line.count(":") != 3:
++            continue
++        ip, port, user, pw = line.split(":")
++        out.append(f"http://{user}:{pw}@{ip}:{port}")
++    return out
++
++
++_WEBSHARE_DDG_PROXIES: list[str] = (
++    _load_webshare_proxies(WEBSHARE_PROXIES_FILE) if DDG_VIA_WEBSHARE else []
++)
++if DDG_VIA_WEBSHARE:
++    if _WEBSHARE_DDG_PROXIES:
++        logger.info(
++            "DDG via Webshare ENABLED: %d proxies loaded from %s "
++            "(min_interval=%.2fs)",
++            len(_WEBSHARE_DDG_PROXIES),
++            WEBSHARE_PROXIES_FILE,
++            DDG_VIA_WEBSHARE_MIN_INTERVAL_S,
++        )
++    else:
++        logger.warning(
++            "DDG_VIA_WEBSHARE=true but no proxies loaded from %s — "
++            "falling back to direct DDG with per-host throttle.",
++            WEBSHARE_PROXIES_FILE,
++        )
++
++# Circuit-breaker for the case where DDG bans the entire Webshare ASN.
++# Per-proxy 4xx are normal (one bad IP doesn't fail the cohort), but if
++# we see a long run of 4xx across DIFFERENT IPs, that's a signal the
++# whole pool is hot and we should back off globally. Reset on any 200.
++_DDG_PROXY_4XX_BREAKER_THRESHOLD = int(
++    os.getenv("DDG_VIA_WEBSHARE_BREAKER_THRESHOLD", "20")
++)
++_ddg_proxy_4xx_streak: int = 0
++
++
++def _ddg_proxy_or_none() -> str | None:
++    """Return a random Webshare proxy URL if rotation is enabled and the
++    pool is non-empty, else None (caller goes direct).
++    """
++    if not _WEBSHARE_DDG_PROXIES:
++        return None
++    return _random.choice(_WEBSHARE_DDG_PROXIES)
++
++
++def _scrub_proxy_url(text: str) -> str:
++    """Strip Webshare credentials from a string before logging.
++
++    httpx / urllib3 occasionally include the full proxy URL (with
++    user:password embedded) in connection error messages. Replace
++    `http://USER:PASS@HOST:PORT` with `http://<proxy>` so creds never
++    land in /var/log.
++    """
++    return re.sub(
++        r"http://[^:@\s]+:[^@\s]+@",
++        "http://<proxy>",
++        text,
++    )
++
++
+ async def _ddg_throttle() -> None:
+     """Sleep until at least DDG_MIN_INTERVAL_S has elapsed since the last call.
+ 
+@@ -170,6 +274,11 @@ async def _ddg_throttle() -> None:
+     concurrent jobs and a per-task sleep wouldn't actually rate-limit at
+     the DDG origin. The lock serialises the wait window so two tasks can't
+     both wake up and fire simultaneously.
++
++    When Webshare-DDG rotation is enabled (`DDG_VIA_WEBSHARE=true`), each
++    call goes through a different proxy IP so DDG's per-IP rate-limit no
++    longer applies. We still hold a much-shorter global throttle (default
++    0.5 s) to avoid spiking the DDG origin and to remain a polite client.
+     """
+     global _ddg_last_call
+     async with _ddg_lock:
+@@ -177,13 +286,44 @@ async def _ddg_throttle() -> None:
+         if now < _ddg_cooldown_until:
+             await asyncio.sleep(_ddg_cooldown_until - now)
+             now = _time.monotonic()
+-        min_gap = max(DDG_MIN_INTERVAL_S, _ddg_dynamic_interval_s)
++        if _WEBSHARE_DDG_PROXIES:
++            min_gap = DDG_VIA_WEBSHARE_MIN_INTERVAL_S
++        else:
++            min_gap = max(DDG_MIN_INTERVAL_S, _ddg_dynamic_interval_s)
+         delta = now - _ddg_last_call
+         if delta < min_gap:
+             await asyncio.sleep(min_gap - delta)
+         _ddg_last_call = _time.monotonic()
+ 
+ 
++async def _ddg_proxy_4xx_observed(status: int, label: str) -> None:
++    """Track 4xx-via-proxy hits and trip the global cooldown if too many
++    fire back-to-back across DIFFERENT proxy IPs (signal that DDG has
++    blocklisted the whole Webshare ASN, not just one IP).
++    """
++    global _ddg_proxy_4xx_streak
++    async with _ddg_lock:
++        _ddg_proxy_4xx_streak += 1
++        if _ddg_proxy_4xx_streak >= _DDG_PROXY_4XX_BREAKER_THRESHOLD:
++            # Re-use the existing cooldown machinery so the rest of the
++            # worker behaves consistently. Reset the streak so we don't
++            # re-trigger every call until the cooldown passes.
++            await _ddg_record_rate_limit(status, "<proxy-pool>", label)
++            _ddg_proxy_4xx_streak = 0
++            logger.warning(
++                "DDG via Webshare circuit-breaker tripped: %d consecutive "
++                "4xx across different proxy IPs — entering global cooldown",
++                _DDG_PROXY_4XX_BREAKER_THRESHOLD,
++            )
++
++
++async def _ddg_proxy_2xx_observed() -> None:
++    """Reset the 4xx streak on any successful proxy-routed call."""
++    global _ddg_proxy_4xx_streak
++    async with _ddg_lock:
++        _ddg_proxy_4xx_streak = 0
++
++
+ async def _ddg_record_success() -> None:
+     """Gradually recover toward the floor interval after sustained success."""
+     global _ddg_success_streak, _ddg_rate_limit_streak, _ddg_dynamic_interval_s
+@@ -348,8 +488,12 @@ async def duckduckgo_search_url(
+     if include_website:
+         website_query = f"{company_name}{location_part} {country} official website"
+         await _ddg_throttle()
++        proxy = _ddg_proxy_or_none()
++        client_kwargs: dict = {"timeout": 5.0}
++        if proxy:
++            client_kwargs["proxy"] = proxy
+         try:
+-            async with httpx.AsyncClient(timeout=5.0) as client:
++            async with httpx.AsyncClient(**client_kwargs) as client:
+                 resp = await client.get(
+                     f"https://html.duckduckgo.com/html/?q={_url_encode(website_query)}",
+                     headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+@@ -357,18 +501,32 @@ async def duckduckgo_search_url(
+                 )
+                 if resp.status_code == 200:
+                     await _ddg_record_success()
++                    if proxy:
++                        await _ddg_proxy_2xx_observed()
+                     website_url = _extract_best_website(resp.text, company_name)
+                 elif resp.status_code in (403, 429):
+-                    await _ddg_record_rate_limit(resp.status_code, company_name, "website")
++                    # Per-IP rate limit only matters when going direct.
++                    # When rotating Webshare proxies, a 429 on one IP
++                    # doesn't mean all IPs are throttled — but track
++                    # cross-proxy 4xx streaks so we trip a circuit
++                    # breaker if DDG bans the whole Webshare ASN.
++                    if proxy:
++                        await _ddg_proxy_4xx_observed(resp.status_code, "website")
++                    else:
++                        await _ddg_record_rate_limit(resp.status_code, company_name, "website")
+         except Exception as e:
+-            logger.warning("DuckDuckGo website search failed for %s: %s", company_name, e)
++            logger.warning("DuckDuckGo website search failed for %s: %s", company_name, _scrub_proxy_url(str(e)))
+ 
+     # ── Search for LinkedIn page ────────────────────────────────
+     if include_linkedin:
+         linkedin_query = f"{company_name}{location_part} site:linkedin.com/company"
+         await _ddg_throttle()
++        proxy = _ddg_proxy_or_none()
++        client_kwargs: dict = {"timeout": 5.0}
++        if proxy:
++            client_kwargs["proxy"] = proxy
+         try:
+-            async with httpx.AsyncClient(timeout=5.0) as client:
++            async with httpx.AsyncClient(**client_kwargs) as client:
+                 resp = await client.get(
+                     f"https://html.duckduckgo.com/html/?q={_url_encode(linkedin_query)}",
+                     headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+@@ -376,11 +534,16 @@ async def duckduckgo_search_url(
+                 )
+                 if resp.status_code == 200:
+                     await _ddg_record_success()
++                    if proxy:
++                        await _ddg_proxy_2xx_observed()
+                     linkedin_url = _extract_linkedin_url(resp.text)
+                 elif resp.status_code in (403, 429):
+-                    await _ddg_record_rate_limit(resp.status_code, company_name, "linkedin")
++                    if proxy:
++                        await _ddg_proxy_4xx_observed(resp.status_code, "linkedin")
++                    else:
++                        await _ddg_record_rate_limit(resp.status_code, company_name, "linkedin")
+         except Exception as e:
+-            logger.warning("DuckDuckGo LinkedIn search failed for %s: %s", company_name, e)
++            logger.warning("DuckDuckGo LinkedIn search failed for %s: %s", company_name, _scrub_proxy_url(str(e)))
+ 
+     logger.info(
+         "DuckDuckGo search for '%s': website=%s, linkedin=%s",
+@@ -402,8 +565,12 @@ async def duckduckgo_search_website_url(
+     website_query = f"{company_name}{location_part} {country} official website"
+     ddg_rate_limited = False
+     await _ddg_throttle()
++    proxy = _ddg_proxy_or_none()
++    client_kwargs: dict = {"timeout": 5.0}
++    if proxy:
++        client_kwargs["proxy"] = proxy
+     try:
+-        async with httpx.AsyncClient(timeout=5.0) as client:
++        async with httpx.AsyncClient(**client_kwargs) as client:
+             resp = await client.get(
+                 f"https://html.duckduckgo.com/html/?q={_url_encode(website_query)}",
+                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+@@ -411,12 +578,20 @@ async def duckduckgo_search_website_url(
+             )
+             if resp.status_code == 200:
+                 await _ddg_record_success()
++                if proxy:
++                    await _ddg_proxy_2xx_observed()
+                 return _extract_best_website(resp.text, company_name)
+             if resp.status_code in (403, 429):
+                 ddg_rate_limited = True
+-                await _ddg_record_rate_limit(resp.status_code, company_name, "website")
++                # When rotating Webshare proxies, a 429 on one IP doesn't
++                # imply the global cooldown — but track the streak so we
++                # trip the breaker if DDG bans the whole Webshare ASN.
++                if proxy:
++                    await _ddg_proxy_4xx_observed(resp.status_code, "website")
++                else:
++                    await _ddg_record_rate_limit(resp.status_code, company_name, "website")
+     except Exception as e:
+-        logger.warning("DuckDuckGo website search failed for %s: %s", company_name, e)
++        logger.warning("DuckDuckGo website search failed for %s: %s", company_name, _scrub_proxy_url(str(e)))
+     if BING_FALLBACK_ENABLED:
+         if ddg_rate_limited:
+             logger.info("Website discovery fallback for %s: trying Bing RSS after DDG rate-limit", company_name)
+@@ -435,8 +610,12 @@ async def duckduckgo_search_linkedin_url(
+     linkedin_query = f"{company_name}{location_part} site:linkedin.com/company"
+     ddg_rate_limited = False
+     await _ddg_throttle()
++    proxy = _ddg_proxy_or_none()
++    client_kwargs: dict = {"timeout": 5.0}
++    if proxy:
++        client_kwargs["proxy"] = proxy
+     try:
+-        async with httpx.AsyncClient(timeout=5.0) as client:
++        async with httpx.AsyncClient(**client_kwargs) as client:
+             resp = await client.get(
+                 f"https://html.duckduckgo.com/html/?q={_url_encode(linkedin_query)}",
+                 headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+@@ -444,12 +623,17 @@ async def duckduckgo_search_linkedin_url(
+             )
+             if resp.status_code == 200:
+                 await _ddg_record_success()
++                if proxy:
++                    await _ddg_proxy_2xx_observed()
+                 return _extract_linkedin_url(resp.text)
+             if resp.status_code in (403, 429):
+                 ddg_rate_limited = True
+-                await _ddg_record_rate_limit(resp.status_code, company_name, "linkedin")
++                if proxy:
++                    await _ddg_proxy_4xx_observed(resp.status_code, "linkedin")
++                else:
++                    await _ddg_record_rate_limit(resp.status_code, company_name, "linkedin")
+     except Exception as e:
+-        logger.warning("DuckDuckGo LinkedIn search failed for %s: %s", company_name, e)
++        logger.warning("DuckDuckGo LinkedIn search failed for %s: %s", company_name, _scrub_proxy_url(str(e)))
+     if BING_FALLBACK_ENABLED:
+         if ddg_rate_limited:
+             logger.info("LinkedIn discovery fallback for %s: trying Bing RSS after DDG rate-limit", company_name)
+diff --git a/docker-compose.staging.yml b/docker-compose.staging.yml
+index 6d3109b..c3f6741 100644
+--- a/docker-compose.staging.yml
++++ b/docker-compose.staging.yml
+@@ -101,8 +101,14 @@ services:
+       BULK_HAIKU_FALLBACK_MODEL: "anthropic/claude-haiku-4.5"
+       # Staging variant points at the staging playwright-scraper service.
+       PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper-staging:8000"
++      # Wave 2 acceleration — see prod compose for design notes.
++      DDG_VIA_WEBSHARE: "true"
++      DDG_VIA_WEBSHARE_MIN_INTERVAL_S: "0.5"
++      WEBSHARE_PROXIES_FILE: "/run/secrets/webshare_proxies.txt"
+     extra_hosts:
+       - "host.docker.internal:host-gateway"
++    volumes:
++      - ${WEBSHARE_PROXIES_FILE:-/root/webshare_proxies.txt}:/run/secrets/webshare_proxies.txt:ro
+     depends_on:
+       backend-staging:
+         condition: service_healthy
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 52f93eb..6037a3c 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -100,8 +100,19 @@ services:
+       # rotation behind a headless Chromium). Set empty to disable the proxy
+       # fallback entirely and force template-path on every blocked site.
+       PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper:8000"
++      # Wave 2 acceleration (2026-04-25): route DDG through the same
++      # Webshare datacenter proxy pool the staatsblad worker already uses.
++      # Each call rotates to a different IP so DDG's per-IP rate-limit no
++      # longer caps total throughput at this host. With 100 proxies the
++      # effective ceiling is ~1k-5k DDG calls/hr (vs ~180/hr direct).
++      DDG_VIA_WEBSHARE: "true"
++      DDG_VIA_WEBSHARE_MIN_INTERVAL_S: "0.5"
++      WEBSHARE_PROXIES_FILE: "/run/secrets/webshare_proxies.txt"
+     extra_hosts:
+       - "host.docker.internal:host-gateway"
++    volumes:
++      # Same proxy file the staatsblad-bulk-worker mounts. Read-only.
++      - ${WEBSHARE_PROXIES_FILE:-/root/webshare_proxies.txt}:/run/secrets/webshare_proxies.txt:ro
+     depends_on:
+       backend:
+         condition: service_healthy
