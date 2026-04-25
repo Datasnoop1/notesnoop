@@ -218,6 +218,47 @@ new-company load rate is ~17,000–21,000 per day.
 
 ---
 
+## Governance data — loaded inline with every filing
+
+Both pipelines (daily batch and backload) call `store_filing()` per filing, which
+in turn calls `store_governance_snapshot()` (`backend/nbb_governance.py`)
+immediately after the rubric insert is committed. The governance write runs in a
+**separate transaction** and is wrapped in a `try/except` that logs and continues
+on failure, so a governance write error never rolls back the rubric data.
+Result: every filing the loader touches also writes governance rows for that
+filing (best-effort).
+
+`store_governance_snapshot()` populates four tables:
+
+| Table | What it stores | Approx scale |
+|---|---|---|
+| `administrator` | Directors and Representatives extracted from the filing's governance section | ~1.09M rows; ~140k distinct companies/year for FY2022–2024 |
+| `shareholder` | Shareholder snapshot per filing | populated alongside |
+| `participating_interest` | Equity participations declared in the filing | populated alongside |
+| `affiliation` | Natural persons behind **legal-person** administrators (i.e. when a director is itself a company, the natural person who represents it) | small (~1k rows). Rare pattern: only fires when an admin is a legal entity. |
+
+The `affiliation` block has a guard — `_affiliation_table_exists()` — so older
+deployments without the migration applied skip silently rather than aborting
+the whole governance write. On prod the table is present, so affiliations are
+written inline.
+
+### Affiliation catch-up cron (separate from the backload)
+
+For filings loaded **before** the inline affiliation extraction was added to
+`store_governance_snapshot()`, a nightly catch-up walks the already-loaded
+deposit history and extracts affiliations from filings that had legal-person
+admins but no affiliation rows.
+
+```
+0 4 * * * docker exec ... python /app/scripts/backfill_affiliation.py --max-filings 5000
+```
+
+Tracked in `affiliation_backfill_log` so re-runs never repeat work. **Not
+redundant** with the inline path — only catches up historical filings; new
+filings loaded going forward already get their affiliations inline.
+
+---
+
 ## Database tables
 
 | Table | Purpose |
@@ -228,6 +269,11 @@ new-company load rate is ~17,000–21,000 per day.
 | `financial_by_year` | Materialised: one row per (company, fiscal_year) |
 | `financial_summary` | View: pivoted P&L / BS figures |
 | `sector_percentiles` | Materialised: NACE-level percentile bands, used for benchmarking |
+| `administrator` | Governance: directors / representatives per filing (loaded inline by `store_governance_snapshot`) |
+| `shareholder` | Governance: shareholder snapshot per filing |
+| `participating_interest` | Governance: equity participations per filing |
+| `affiliation` | Governance: natural-person representatives behind legal-person admins (inline + nightly catch-up cron) |
+| `affiliation_backfill_log` | Tracks which filings the affiliation catch-up cron has already processed |
 
 **Rebuild trigger:** The nightly 02:00 run and the daily batch both call
 `rebuild_materialized_tables()` after loading. This takes ~2.5 min on the current DB size.
@@ -257,7 +303,8 @@ The actual cron entries live in `crontab -e` on the server host (not in the repo
 Current entries:
 ```
 */30 6-22 * * * MAX_CALLS=3500 PER_YEAR_CAP=3500 SKIP_REBUILD=1 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
-0 2 * * * MAX_CALLS=5000 PER_YEAR_CAP=5000 SKIP_REBUILD=0 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+0 2 * * *      MAX_CALLS=5000 PER_YEAR_CAP=5000 SKIP_REBUILD=0 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+0 4 * * *      docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/backfill_affiliation.py --max-filings 5000   # affiliation catch-up for pre-inline-extraction filings
 ```
 
 ---
@@ -280,3 +327,4 @@ Current entries:
 | 2026-04-24 | ORDER BY changed from `total_assets DESC NULLS LAST` → `NULLS FIRST` — unknown companies now queued first |
 | 2026-04-24 | Combined throughput improvement: ~26,000 → ~35,000 API calls/day (+35%) |
 | 2026-04-25 | Backload scope contracted from end_year=2016 back to end_year=2022. Pre-April-2022 filings are PDF-only and skipped by the loader, so older candidate pools were burning quota for zero gain. |
+| 2026-04-25 | Doc clarified: the backload populates governance tables (`administrator`, `shareholder`, `participating_interest`, `affiliation`) inline via `store_governance_snapshot()` for every filing — not just `financial_data`. The 04:00 `backfill_affiliation.py` cron is a catch-up for filings loaded before inline extraction existed, not part of normal flow. |
