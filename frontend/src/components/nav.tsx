@@ -107,19 +107,7 @@ export default function Nav() {
 
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? "?";
   const isLanding = pathname === "/";
-  const isScreener = pathname.startsWith("/screener");
   const hideHeaderSearch = isLanding || pathname === "/search";
-
-  // Header brand visibility:
-  //   - /screener: never (results-card top-right hosts the mark instead).
-  //   - /         : hidden on lg+ (hero hosts the mark), but visible on
-  //                 mobile/tablet where the hero illustration is collapsed.
-  //   - other     : always visible.
-  const brandVisibilityClass = isScreener
-    ? "hidden"
-    : isLanding
-      ? "flex lg:hidden"
-      : "flex";
 
   return (
     <header className="sticky top-0 z-50 glass-chrome border-b border-[#E3EAF4]">
@@ -129,7 +117,7 @@ export default function Nav() {
           {/* Brand — full wordmark + telescope dog mark. PNG is tightly
              cropped (994x279 — no whitespace), so a modest header box
              gives a strongly-visible mark. */}
-          <Link href="/" className={`${brandVisibilityClass} items-center gap-2 shrink-0 group`}>
+          <Link href="/" className="flex items-center gap-2 shrink-0 group">
             <img
               src={logoPath}
               alt="DataSnoop"
