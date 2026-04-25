@@ -219,7 +219,7 @@ services:
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
       - ${DEMO_BOX_PATH:-/srv/demo-box}:/var/www/demo-box:ro
-      # datasnoop-tools repo, cloned to /srv/tools on the host. Each file is
+      # experimental-tools repo, cloned to /srv/tools on the host. Each file is
       # served directly by nginx via a `location` block in default.conf.
       - ${TOOLS_PATH:-/srv/tools}:/var/www/tools:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
