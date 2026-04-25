@@ -55,7 +55,7 @@ export default function Home() {
         className="pointer-events-none absolute inset-x-0 top-0 h-[480px] -z-10"
         style={{
           background:
-            "radial-gradient(ellipse 60% 80% at center 35%, rgba(13,115,119,0.16) 0%, rgba(13,115,119,0.06) 35%, transparent 70%)",
+            "radial-gradient(ellipse 60% 80% at center 35%, rgba(13,115,119,0.09) 0%, rgba(13,115,119,0.03) 35%, transparent 70%)",
         }}
       />
       {/* Brand */}
