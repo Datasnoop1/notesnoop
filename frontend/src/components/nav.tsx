@@ -108,8 +108,9 @@ export default function Nav() {
           ) : (
             <Link href="/" className="flex items-center gap-2.5 group shrink-0">
               <img src={logoPath} alt="Datasnoop" width={44} height={44} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/95" />
-              <span className="text-base font-semibold text-slate-900 tracking-tight">
-                Datasnoop
+              <span className="text-base font-semibold tracking-tight">
+                <span className="text-slate-900">data</span>
+                <span className="text-brand">snoop</span>
               </span>
               <span className="text-[9px] sm:text-[10px] font-bold bg-brand-soft text-brand px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
             </Link>
@@ -244,9 +245,9 @@ export default function Nav() {
                 </span>
               </SheetTrigger>
               <SheetContent side="left" className="w-64">
-                <SheetTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
+                <SheetTitle className="flex items-center gap-2 text-base font-semibold">
                   <img src={logoPath} alt="Datasnoop" width={36} height={36} className="rounded-md bg-white/95" />
-                  Datasnoop
+                  <span><span className="text-slate-900">data</span><span className="text-brand">snoop</span></span>
                 </SheetTitle>
                 <div className="mt-6 flex flex-col gap-4">
                   {/* Sign in lives only in the top header per operator

@@ -66,8 +66,8 @@ export default function Home() {
           className="rounded-xl bg-white mb-6 sm:mb-7 opacity-95 sm:w-[88px] sm:h-[88px]"
         />
         <div className="flex items-baseline gap-2 sm:gap-3">
-          <h1 className="text-4xl sm:text-6xl font-light text-gray-900 tracking-tight">
-            Datasnoop
+          <h1 className="text-4xl sm:text-6xl font-light tracking-tight">
+            <span className="text-gray-900">data</span><span className="text-brand">snoop</span>
           </h1>
           <span className="text-[11px] sm:text-[12px] font-medium text-gray-400 uppercase tracking-[0.2em]">
             Beta

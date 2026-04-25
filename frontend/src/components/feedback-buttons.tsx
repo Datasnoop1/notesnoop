@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { usePathname } from "next/navigation";
-import { Bug, Lightbulb, Heart } from "lucide-react";
+import { useState } from "react";
+import { Mail, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,135 +9,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { createClient } from "@/lib/supabase";
-import { submitFeedback } from "@/lib/api";
-import type { User } from "@supabase/supabase-js";
-
-function FeedbackDialog({
-  type,
-  icon,
-  label,
-  fullLabel,
-  placeholder,
-}: {
-  type: "bug" | "suggestion";
-  icon: React.ReactNode;
-  label: string;
-  fullLabel: string;
-  placeholder: string;
-}) {
-  const pathname = usePathname();
-  const [user, setUser] = useState<User | null>(null);
-  const [open, setOpen] = useState(false);
-  const [description, setDescription] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => setUser(session?.user ?? null)
-    );
-    return () => subscription.unsubscribe();
-  }, []);
-
-  async function handleSubmit() {
-    if (!description.trim()) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await submitFeedback(type, description.trim(), pathname, user?.email ?? undefined);
-      setSubmitted(true);
-      setDescription("");
-      setTimeout(() => {
-        setOpen(false);
-        setSubmitted(false);
-      }, 2000);
-    } catch (err) {
-      setError("Failed to submit. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger>
-        <span
-          title={fullLabel}
-          aria-label={fullLabel}
-          className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-[12px] font-medium text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer"
-        >
-          {icon}
-          <span>{label}</span>
-        </span>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
-        <div className="space-y-4">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              {type === "bug" ? "Report a Bug" : "Suggest a Feature"}
-            </h2>
-            <p className="text-sm text-slate-500">
-              {type === "bug"
-                ? "Describe what went wrong and we'll look into it."
-                : "Tell us what would make Datasnoop better."}
-            </p>
-          </div>
-
-          {submitted ? (
-            <div className="text-sm text-green-600 bg-green-50 border border-green-200 rounded-md px-4 py-3">
-              Thank you! Your {type === "bug" ? "bug report" : "suggestion"} has been submitted.
-            </div>
-          ) : (
-            <>
-              <div>
-                <Label htmlFor="feedback-desc">Description</Label>
-                <Textarea
-                  id="feedback-desc"
-                  placeholder={placeholder}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={4}
-                  className="mt-1"
-                />
-              </div>
-
-              <div className="text-xs text-slate-400">
-                {user
-                  ? `Submitting as ${user.email} from page: ${pathname}`
-                  : `Submitting anonymously from page: ${pathname}`}
-              </div>
-
-              {error && (
-                <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                  {error}
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setOpen(false)}>
-                  Cancel
-                </Button>
-                <Button
-                  className="bg-brand hover:bg-[color:var(--brand-ink)]"
-                  onClick={handleSubmit}
-                  disabled={submitting || !description.trim()}
-                >
-                  {submitting ? "Submitting..." : "Submit"}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function DonateButton() {
   const [loading, setLoading] = useState(false);
@@ -196,7 +66,7 @@ function DonateButton() {
                 disabled={loading}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-2.5 text-sm font-semibold text-slate-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 transition-colors disabled:opacity-50"
               >
-                {loading ? "..." : `\u20AC${amt}`}
+                {loading ? "..." : `€${amt}`}
               </button>
             ))}
           </div>
@@ -204,7 +74,7 @@ function DonateButton() {
             <Input
               type="number"
               min={1}
-              placeholder="Custom \u20AC"
+              placeholder="Custom €"
               value={customAmount}
               onChange={(e) => setCustomAmount(e.target.value)}
               className="flex-1"
@@ -229,20 +99,15 @@ function DonateButton() {
 export default function FeedbackButtons() {
   return (
     <div className="flex items-center gap-1.5">
-      <FeedbackDialog
-        type="bug"
-        icon={<Bug className="w-4 h-4" />}
-        label="Bug"
-        fullLabel="Report bug"
-        placeholder="What happened? What did you expect to happen?"
-      />
-      <FeedbackDialog
-        type="suggestion"
-        icon={<Lightbulb className="w-4 h-4" />}
-        label="Feature"
-        fullLabel="Suggest idea"
-        placeholder="What feature or improvement would you like to see?"
-      />
+      <a
+        href="mailto:claude@datasnoop.be?subject=DataSnoop%20feedback"
+        title="Send feedback to claude@datasnoop.be"
+        aria-label="Send feedback to claude@datasnoop.be"
+        className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-[12px] font-medium text-gray-400 hover:text-brand hover:bg-brand-soft/60 transition-colors cursor-pointer"
+      >
+        <Mail className="w-4 h-4" />
+        <span>Feedback</span>
+      </a>
       <DonateButton />
     </div>
   );
