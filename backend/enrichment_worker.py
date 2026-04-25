@@ -315,6 +315,27 @@ def _write_bulk_row(
     )
 
 
+async def _persist_and_embed(
+    cbe: str,
+    summary: dict,
+    website_url: str | None,
+    scraped_text: str | None,
+    kbo: dict,
+) -> None:
+    """Run the bulk-row UPSERT and the embedding LLM call concurrently.
+
+    They're independent — UPSERT touches `company_enrichment`, embed writes
+    `company_embedding` keyed on the same CBE. The DB write is synchronous
+    psycopg2 so we shove it onto a worker thread via asyncio.to_thread; the
+    embed call is already async. Saves ~300–800 ms per job by overlapping
+    the embedding round-trip with the DB write that previously waited for it.
+    """
+    await asyncio.gather(
+        asyncio.to_thread(_write_bulk_row, cbe, summary, website_url, scraped_text),
+        _embed_and_store(cbe, summary, kbo),
+    )
+
+
 _NAME_MATCH_NOISE = {
     "group",
     "holding",
@@ -450,19 +471,16 @@ async def _enrich_one(cbe: str) -> dict:
     # 1a. Dormant bypass -----------------------------------------------
     if is_dormant(kbo.get("juridical_situation")):
         summary = build_template_summary(kbo)
-        _write_bulk_row(cbe, summary, None, None)
+        # Templated rows are still embedded — the confidence floor filters
+        # them out of default search results, not out of the vector store.
+        await _persist_and_embed(cbe, summary, None, None, kbo)
         out.update(ok=True, path="dormant", confidence=summary.get("confidence"))
-        # Still embed — templated rows are searchable (confidence floor
-        # filters them out of default results, not out of the vector
-        # store).
-        await _embed_and_store(cbe, summary, kbo)
         return out
 
     # 1b. Explicit EBITDA fast lane -----------------------------------
     if is_fastlane_ebitda(kbo.get("_ebitda_eur")):
         summary = build_template_summary(kbo)
-        _write_bulk_row(cbe, summary, None, None)
-        await _embed_and_store(cbe, summary, kbo)
+        await _persist_and_embed(cbe, summary, None, None, kbo)
         out.update(
             ok=True,
             path="fastlane_ebitda",
@@ -492,8 +510,7 @@ async def _enrich_one(cbe: str) -> dict:
     # 3. If we have no scrape and no financial signal, templated fallback
     if not scraped_text:
         summary = build_template_summary(kbo)
-        _write_bulk_row(cbe, summary, website_url, scraped_text)
-        await _embed_and_store(cbe, summary, kbo)
+        await _persist_and_embed(cbe, summary, website_url, scraped_text, kbo)
         out.update(ok=True, path="template", confidence=summary.get("confidence"))
         return out
 
@@ -503,8 +520,7 @@ async def _enrich_one(cbe: str) -> dict:
         # Q2 failure. Write a template so the row is searchable, mark
         # the job as failed so it is retried; don't poison the queue.
         summary = build_template_summary(kbo)
-        _write_bulk_row(cbe, summary, website_url, scraped_text)
-        await _embed_and_store(cbe, summary, kbo)
+        await _persist_and_embed(cbe, summary, website_url, scraped_text, kbo)
         out.update(ok=False, path="q2_failed",
                    confidence=summary.get("confidence"),
                    error=q2.get("error") or "q2_unknown")
@@ -554,9 +570,8 @@ async def _enrich_one(cbe: str) -> dict:
                 cbe, reason, hk.get("error"),
             )
 
-    # 7. Persist + embed --------------------------------------------
-    _write_bulk_row(cbe, summary, website_url, scraped_text)
-    await _embed_and_store(cbe, summary, kbo)
+    # 7. Persist + embed (run in parallel — see _persist_and_embed) -
+    await _persist_and_embed(cbe, summary, website_url, scraped_text, kbo)
 
     out.update(ok=True, path=path, confidence=summary.get("confidence"))
     return out
