@@ -76,6 +76,27 @@ def _require_admin(user=Depends(get_current_user)):
 _admin_stats_cache: dict[str, tuple[float, dict]] = {}
 _ADMIN_STATS_TTL_SECONDS = 10.0
 
+# 30-second TTL cache for the admin email list. /traction (and any future
+# endpoint that wants to exclude admin traffic from analytics) reads this
+# once per request. Without the cache that's a SELECT email FROM user_roles
+# WHERE role = 'admin' on every traction load. Newly-promoted admins enter
+# the analytics-excluded set within 30 s — fine for the use case (#22 audit).
+_admin_emails_cache: dict[str, tuple[float, list[str]]] = {}
+_ADMIN_EMAILS_TTL_SECONDS = 30.0
+
+
+def _get_admin_emails() -> list[str]:
+    """Return the cached admin-email list, refreshing on TTL expiry."""
+    cached = _admin_emails_cache.get("admins")
+    if cached:
+        ts, payload = cached
+        if (time.time() - ts) < _ADMIN_EMAILS_TTL_SECONDS:
+            return payload
+    rows = fetch_all("SELECT email FROM user_roles WHERE role = 'admin'")
+    emails = [r["email"] for r in rows] if rows else []
+    _admin_emails_cache["admins"] = (time.time(), emails)
+    return emails
+
 
 @router.get("/stats")
 async def admin_stats(user=Depends(_require_admin)):
@@ -349,19 +370,43 @@ async def list_users(user=Depends(_require_admin)):
 
 
 @router.get("/feedback")
-async def list_feedback(user=Depends(_require_admin)):
-    """List all feedback."""
+async def list_feedback(
+    limit: int = 50,
+    offset: int = 0,
+    user=Depends(_require_admin),
+):
+    """List feedback with pagination.
+
+    Default page is 50 rows. The earlier endpoint hard-coded LIMIT 200 with
+    no pagination, so anything past entry 200 silently disappeared from the
+    admin UI (#22 audit). Now the response includes a `total` count so the
+    frontend can render Prev/Next or a page indicator.
+    """
+    # Clamp to keep the page reasonable.
+    limit = max(1, min(200, int(limit)))
+    offset = max(0, int(offset))
     try:
-        rows = fetch_all("""
+        total_row = fetch_one("SELECT COUNT(*) AS n FROM feedback")
+        total = int((total_row or {}).get("n") or 0)
+
+        rows = fetch_all(
+            """
             SELECT id, type, page, description, user_email, created_at, reply, replied_at
-            FROM feedback ORDER BY created_at DESC LIMIT 200
-        """)
+            FROM feedback ORDER BY created_at DESC LIMIT %s OFFSET %s
+            """,
+            (limit, offset),
+        )
         for r in rows:
             if r.get("created_at"):
                 r["created_at"] = str(r["created_at"])
             if r.get("replied_at"):
                 r["replied_at"] = str(r["replied_at"])
-        return rows
+        return {
+            "items": rows,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
     except Exception as e:
         logger.exception("List feedback failed")
         raise HTTPException(status_code=500, detail=str(e))
@@ -720,9 +765,10 @@ async def traction_dashboard(user=Depends(_require_admin)):
             if not r: return {}
             return {k: (float(v) if isinstance(v, decimal.Decimal) else str(v) if isinstance(v, (dt.date, dt.datetime)) else v) for k, v in r.items()}
 
-        # Admin emails to exclude from traction metrics
-        admin_rows = fetch_all("SELECT email FROM user_roles WHERE role = 'admin'")
-        admin_emails = [r["email"] for r in admin_rows] if admin_rows else []
+        # Admin emails to exclude from traction metrics — cached at the
+        # module level (30 s TTL) so the same list isn't pulled from the
+        # DB on every /traction call. See _get_admin_emails() above.
+        admin_emails = _get_admin_emails()
         admin_filter = ""
         admin_params: list = []
         if admin_emails:
@@ -774,19 +820,23 @@ async def traction_dashboard(user=Depends(_require_admin)):
         """, tuple(admin_params) or None))
 
         # Hourly usage today in Belgian time (excl admins).
-        # Use a half-open timestamp range against Brussels midnight so the
-        # filter works regardless of DB session timezone. The earlier
-        # (created_at AT TIME ZONE 'Europe/Brussels')::date = today version
-        # silently dropped rows around timezone boundaries.
+        # Compute the Brussels day boundaries ONCE in a bounds CTE so the
+        # filter doesn't rerun three AT TIME ZONE conversions per row
+        # (#22 Phase 2 cleanup).
         hourly_today = _ser(fetch_all(f"""
+            WITH bounds AS (
+                SELECT
+                    date_trunc('day', NOW() AT TIME ZONE 'Europe/Brussels') AT TIME ZONE 'Europe/Brussels' AS day_start,
+                    (date_trunc('day', NOW() AT TIME ZONE 'Europe/Brussels') + INTERVAL '1 day') AT TIME ZONE 'Europe/Brussels' AS day_end
+            )
             SELECT
                 EXTRACT(HOUR FROM created_at AT TIME ZONE 'Europe/Brussels')::int AS hour,
                 COUNT(*) AS requests,
                 COUNT(DISTINCT user_email) FILTER (WHERE user_email LIKE 'anon:%%') AS guests,
                 COUNT(DISTINCT user_email) FILTER (WHERE user_email NOT LIKE 'anon:%%') AS registered
-            FROM activity_log
-            WHERE created_at >= date_trunc('day', NOW() AT TIME ZONE 'Europe/Brussels') AT TIME ZONE 'Europe/Brussels'
-              AND created_at <  (date_trunc('day', NOW() AT TIME ZONE 'Europe/Brussels') + INTERVAL '1 day') AT TIME ZONE 'Europe/Brussels'
+            FROM activity_log, bounds
+            WHERE created_at >= bounds.day_start
+              AND created_at <  bounds.day_end
               {admin_filter}
             GROUP BY 1
             ORDER BY 1

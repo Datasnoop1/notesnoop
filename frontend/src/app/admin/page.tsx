@@ -121,6 +121,13 @@ interface UserRow {
   feedback_count: number;
 }
 
+interface FeedbackPage {
+  items: FeedbackRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 interface FeedbackRow {
   id: number;
   type: string;
@@ -626,6 +633,30 @@ export default function AdminPanel() {
   const [stats, setStats] = useState<AdminStats | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
   const [feedback, setFeedback] = useState<FeedbackRow[]>([]);
+  const [feedbackTotal, setFeedbackTotal] = useState<number>(0);
+  const [feedbackLoadingMore, setFeedbackLoadingMore] = useState(false);
+  const FEEDBACK_PAGE_SIZE = 50;
+  // Track which named sections failed to load so admins see a banner +
+  // can retry instead of just rendering empty cards (the silent-failure
+  // mode the #22 audit flagged). Each fetch in loadData / loadHeavyData
+  // adds to this set on .catch, and clearing it triggers a retry.
+  const [loadErrors, setLoadErrors] = useState<Set<string>>(new Set());
+  const noteLoadError = useCallback((section: string) => {
+    setLoadErrors((prev) => {
+      if (prev.has(section)) return prev;
+      const next = new Set(prev);
+      next.add(section);
+      return next;
+    });
+  }, []);
+  const clearLoadError = useCallback((section: string) => {
+    setLoadErrors((prev) => {
+      if (!prev.has(section)) return prev;
+      const next = new Set(prev);
+      next.delete(section);
+      return next;
+    });
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sheet, setSheet] = useState<AdminSheet>("pulse");
@@ -691,18 +722,34 @@ export default function AdminPanel() {
   const [siteLogo, setSiteLogo] = useState<string>("/logos/dog-telescope.jpg");
   const [logoSaving, setLogoSaving] = useState(false);
 
+  // Wrapper — tag a fetch with a section name so loadErrors can show
+  // the operator which sections failed. Promise resolves to the fallback
+  // when the request errors so the rest of the load doesn't crash.
+  const taggedFetch = useCallback(
+    <T,>(section: string, url: string, fallback: T, init?: RequestInit) =>
+      adminFetch<T>(url, init)
+        .then((data) => {
+          clearLoadError(section);
+          return data;
+        })
+        .catch((err) => {
+          console.error(`[admin] ${section} failed:`, err);
+          noteLoadError(section);
+          return fallback;
+        }),
+    [noteLoadError, clearLoadError],
+  );
+
   const loadHeavyData = useCallback(async () => {
     const [a, alog, ins, usage, adopt, trac, llmCostData, invs] = await Promise.all([
-      adminFetch<ActivitySummary[]>("/api/admin/activity/summary").catch(
-        () => [] as ActivitySummary[]
-      ),
-      adminFetch<ActivityEntry[]>("/api/admin/activity").catch(() => [] as ActivityEntry[]),
-      adminFetch<Insights>("/api/admin/insights").catch(() => null),
-      adminFetch<typeof usageData>("/api/admin/usage").catch(() => null),
-      adminFetch<AdoptionData>("/api/admin/adoption").catch(() => null),
-      adminFetch<TractionData>("/api/admin/traction").catch(() => null),
-      adminFetch<LlmCostBreakdown>("/api/admin/llm-cost-breakdown").catch(() => null),
-      adminFetch<InvoicesData>("/api/admin/invoices").catch(() => null),
+      taggedFetch<ActivitySummary[]>("activity-summary", "/api/admin/activity/summary", []),
+      taggedFetch<ActivityEntry[]>("activity-log", "/api/admin/activity", []),
+      taggedFetch<Insights | null>("insights", "/api/admin/insights", null),
+      taggedFetch<typeof usageData>("usage", "/api/admin/usage", null),
+      taggedFetch<AdoptionData | null>("adoption", "/api/admin/adoption", null),
+      taggedFetch<TractionData | null>("traction", "/api/admin/traction", null),
+      taggedFetch<LlmCostBreakdown | null>("llm-cost", "/api/admin/llm-cost-breakdown", null),
+      taggedFetch<InvoicesData | null>("invoices", "/api/admin/invoices", null),
     ]);
     setActivity(a);
     setActivityLog(alog);
@@ -712,7 +759,7 @@ export default function AdminPanel() {
     setTractionData(trac);
     setLlmCosts(llmCostData);
     setInvoicesData(invs);
-  }, []);
+  }, [taggedFetch]);
 
   const loadData = useCallback(async () => {
     try {
@@ -735,7 +782,7 @@ export default function AdminPanel() {
       const [s, u, f, p, fby, nbb, tc, sc] = await Promise.all([
         adminFetch<AdminStats>("/api/admin/stats"),
         adminFetch<UserRow[]>("/api/admin/users"),
-        adminFetch<FeedbackRow[]>("/api/admin/feedback"),
+        adminFetch<FeedbackPage>(`/api/admin/feedback?limit=${FEEDBACK_PAGE_SIZE}&offset=0`),
         adminFetch<Poll[]>("/api/polls").catch(() => [] as Poll[]),
         adminFetch<{ fiscal_year: number; companies: number; filings: number }[]>("/api/admin/financials-by-year").catch(() => []),
         adminFetch<NbbBackloadProgress>("/api/admin/nbb-backload").catch(() => null),
@@ -744,7 +791,8 @@ export default function AdminPanel() {
       ]);
       setStats(s);
       setUsers(u);
-      setFeedback(f);
+      setFeedback(f.items);
+      setFeedbackTotal(f.total);
       setPolls(p);
       setFinByYear(fby);
       setNbbBackload(nbb);
@@ -898,10 +946,29 @@ export default function AdminPanel() {
     try {
       await adminFetch(`/api/admin/feedback/${id}`, { method: "DELETE" });
       setFeedback((prev) => prev.filter((f) => f.id !== id));
+      setFeedbackTotal((prev) => Math.max(0, prev - 1));
     } catch {
       /* ignore */
     } finally {
       setActionLoading(null);
+    }
+  }
+
+  // Pagination "Load more" — fetches the next page and appends to the
+  // existing list. Backend returns `{items, total, limit, offset}`.
+  async function loadMoreFeedback() {
+    if (feedbackLoadingMore || feedback.length >= feedbackTotal) return;
+    setFeedbackLoadingMore(true);
+    try {
+      const next = await adminFetch<FeedbackPage>(
+        `/api/admin/feedback?limit=${FEEDBACK_PAGE_SIZE}&offset=${feedback.length}`,
+      );
+      setFeedback((prev) => [...prev, ...next.items]);
+      setFeedbackTotal(next.total);
+    } catch (err) {
+      console.error("[admin] load-more feedback failed:", err);
+    } finally {
+      setFeedbackLoadingMore(false);
     }
   }
 
@@ -910,6 +977,7 @@ export default function AdminPanel() {
     try {
       await adminFetch("/api/admin/feedback", { method: "DELETE" });
       setFeedback([]);
+      setFeedbackTotal(0);
       setConfirmClearFeedback(false);
     } catch {
       /* ignore */
@@ -1276,6 +1344,38 @@ export default function AdminPanel() {
         </Button>
       </div>
 
+      {/* Partial-load failure banner. Surfaces silently-failed fetches
+          (#22 audit) and offers a single Retry button that re-runs the
+          full data load so the operator doesn't have to guess why a
+          card is empty. */}
+      {loadErrors.size > 0 && !loading && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3 text-xs">
+          <CircleAlert className="size-4 text-amber-500 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <p className="text-amber-800 font-medium">
+              Some sections failed to load
+            </p>
+            <p className="text-amber-700 mt-0.5">
+              {Array.from(loadErrors).join(", ")}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={() => {
+              setLoadErrors(new Set());
+              setLoading(true);
+              loadData();
+            }}
+            disabled={loading}
+            className="border-amber-300 text-amber-700 hover:bg-amber-100 shrink-0"
+          >
+            <RefreshCw className="size-3 mr-1" />
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Sheet toggle — Pulse vs Operations. Reframes the 10 admin
           panels into 2 intuitive groups; the underlying TabsContent
           panels are unchanged. */}
@@ -1334,9 +1434,9 @@ export default function AdminPanel() {
               <TabsTrigger value="feedback">
                 <MessageSquare className="size-3.5 mr-1.5" />
                 Feedback
-                {feedback.length > 0 && (
+                {feedbackTotal > 0 && (
                   <Badge variant="secondary" className="ml-1.5 font-mono text-[10px] px-1.5 py-0">
-                    {feedback.length}
+                    {feedbackTotal}
                   </Badge>
                 )}
               </TabsTrigger>
@@ -2775,7 +2875,7 @@ export default function AdminPanel() {
           <div className="space-y-6 pt-2">
             <div className="flex items-center justify-between">
               <SectionHeading icon={MessageSquare}>
-                Feedback ({feedback.length})
+                Feedback ({feedback.length}{feedbackTotal > feedback.length ? ` of ${feedbackTotal}` : ""})
               </SectionHeading>
               {feedback.length > 0 && !confirmClearFeedback && (
                 <Button
@@ -2791,7 +2891,7 @@ export default function AdminPanel() {
               {confirmClearFeedback && (
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-500">
-                    Delete all {feedback.length}?
+                    Delete all {feedbackTotal}?
                   </span>
                   <Button
                     variant="destructive"
@@ -2855,6 +2955,24 @@ export default function AdminPanel() {
                 )}
               </div>
             </div>
+
+            {/* Load-more — paginates the underlying feedback fetch.
+                Backend returns the newest 50 by default; clicking
+                "Load more" appends the next page. */}
+            {feedback.length < feedbackTotal && (
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadMoreFeedback}
+                  disabled={feedbackLoadingMore}
+                >
+                  {feedbackLoadingMore
+                    ? "Loading…"
+                    : `Load more (${feedbackTotal - feedback.length} remaining)`}
+                </Button>
+              </div>
+            )}
 
             {/* Survey results bar chart */}
             {surveys.length > 0 && (
