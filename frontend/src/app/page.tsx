@@ -47,13 +47,15 @@ export default function Home() {
 
   return (
     <div className="relative isolate flex flex-col items-center px-4 pt-[10vh] pb-24">
-      {/* Decorative teal radial — matches use-cases.html hero glow. Pointer-events-none so it never traps clicks. */}
+      {/* Decorative teal radial — sits BEHIND the search input as a subtle
+          spotlight, on top of the body-wide top aura. Pointer-events-none
+          so it never traps clicks. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[420px] -z-10"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[480px] -z-10"
         style={{
           background:
-            "radial-gradient(ellipse at center top, rgba(13,115,119,0.08), transparent 60%)",
+            "radial-gradient(ellipse 60% 80% at center 35%, rgba(13,115,119,0.16) 0%, rgba(13,115,119,0.06) 35%, transparent 70%)",
         }}
       />
       {/* Brand */}

@@ -42,10 +42,9 @@ function DonateButton() {
         <span
           title="Support us"
           aria-label="Support us"
-          className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-[12px] font-medium text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+          className="inline-flex items-center justify-center h-8 w-8 rounded-md text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
         >
           <Heart className="w-4 h-4" />
-          <span>Donate</span>
         </span>
       </DialogTrigger>
       <DialogContent className="sm:max-w-xs">
@@ -103,10 +102,9 @@ export default function FeedbackButtons() {
         href="mailto:claude@datasnoop.be?subject=DataSnoop%20feedback"
         title="Send feedback to claude@datasnoop.be"
         aria-label="Send feedback to claude@datasnoop.be"
-        className="inline-flex items-center gap-1.5 h-8 px-2 rounded-md text-[12px] font-medium text-gray-400 hover:text-brand hover:bg-brand-soft/60 transition-colors cursor-pointer"
+        className="inline-flex items-center justify-center h-8 w-8 rounded-md text-gray-400 hover:text-brand hover:bg-brand-soft/60 transition-colors cursor-pointer"
       >
         <Mail className="w-4 h-4" />
-        <span>Feedback</span>
       </a>
       <DonateButton />
     </div>
