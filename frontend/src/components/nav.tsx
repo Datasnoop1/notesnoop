@@ -26,8 +26,6 @@ import { getNotifications, markNotificationsRead } from "@/lib/api";
 import type { FavNotification } from "@/lib/api";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
-
 export default function Nav() {
   const pathname = usePathname();
   const router = useRouter();
@@ -38,7 +36,7 @@ export default function Nav() {
   const [notifs, setNotifs] = useState<FavNotification[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
   const notifContainerRef = useRef<HTMLDivElement | null>(null);
-  const [logoPath, setLogoPath] = useState("/logos/datasnoop-brand.png");
+  const logoPath = "/logos/datasnoop-brand.png";
 
   const NAV_LINKS = [
     { label: t("nav.favourites"), href: "/favourites" },
@@ -72,15 +70,6 @@ export default function Nav() {
       .then((data) => { setNotifCount(data.count); setNotifs(data.notifications); })
       .catch(() => {});
   }, [user]);
-
-  useEffect(() => {
-    fetch(`${API_BASE}/api/site-config`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.site_logo) setLogoPath(data.site_logo);
-      })
-      .catch(() => {});
-  }, []);
 
   // Close notifications dropdown on outside click or Escape.
   useEffect(() => {
