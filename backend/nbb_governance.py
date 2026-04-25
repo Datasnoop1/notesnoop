@@ -407,19 +407,23 @@ def store_governance_snapshot(
         cur.close()
 
 
+_AFFILIATION_TABLE_PRESENT: bool | None = None
+
+
 def _affiliation_table_exists(cur) -> bool:
     """Return True if the `affiliation` table is present in the current schema.
 
-    Cached on the cursor's connection so we only hit pg_catalog once per
-    connection, not once per filing.
+    Cached at module level rather than on the connection because psycopg2's
+    `psycopg2.extensions.connection` is a C-extension type that rejects
+    arbitrary attribute assignment. Module-level caching is safe here:
+    schema state is process-wide, every connection in the pool sees the
+    same `public.affiliation` table.
     """
-    conn = cur.connection
-    cached = getattr(conn, "_affiliation_table_present", None)
-    if cached is not None:
-        return cached
+    global _AFFILIATION_TABLE_PRESENT
+    if _AFFILIATION_TABLE_PRESENT is not None:
+        return _AFFILIATION_TABLE_PRESENT
     cur.execute(
         "SELECT to_regclass('public.affiliation') IS NOT NULL"
     )
-    result = bool(cur.fetchone()[0])
-    setattr(conn, "_affiliation_table_present", result)
-    return result
+    _AFFILIATION_TABLE_PRESENT = bool(cur.fetchone()[0])
+    return _AFFILIATION_TABLE_PRESENT
