@@ -213,7 +213,7 @@ export default function StatusPage() {
           type="button"
           onClick={runChecks}
           disabled={refreshing}
-          className="inline-flex items-center gap-1 text-xs text-slate-500 border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 px-2.5 py-1 rounded-md"
+          className="inline-flex items-center gap-1 text-xs text-slate-500 border border-slate-200 hover:border-brand/40 hover:text-brand px-2.5 py-1 rounded-md"
         >
           {refreshing ? <Loader2 className="h-3 w-3 animate-spin" /> : "\u21bb"} Refresh
         </button>
@@ -299,7 +299,7 @@ export default function StatusPage() {
 
       <p className="mt-6 text-center text-[11px] text-slate-400">
         Checks auto-refresh every 60 s.
-        {" "}<Link href="/" className="hover:text-indigo-600">Back to DataSnoop</Link>
+        {" "}<Link href="/" className="hover:text-brand">Back to DataSnoop</Link>
       </p>
     </div>
   );

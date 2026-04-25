@@ -584,7 +584,7 @@ export default function AggregatePage() {
                           {fmtEur(r.revenue)}
                         </Badge>
                       )}
-                      <Plus className="h-3.5 w-3.5 text-indigo-500" />
+                      <Plus className="h-3.5 w-3.5 text-brand" />
                     </div>
                   </div>
                 </button>
@@ -637,7 +637,7 @@ export default function AggregatePage() {
               {loadingProject ? (
                 <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
               ) : (
-                <FolderOpen className="h-4 w-4 mr-1.5 text-indigo-500" />
+                <FolderOpen className="h-4 w-4 mr-1.5 text-brand" />
               )}
               <span className="hidden sm:inline">{t("aggregate.loadProject")}</span>
               <span className="sm:hidden">{t("aggregate.project")}</span>
@@ -661,7 +661,7 @@ export default function AggregatePage() {
                         key={p.id}
                         onClick={() => loadProject(p)}
                         disabled={p.members.length === 0}
-                        className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="w-full text-left px-3 py-2.5 hover:bg-brand-soft/60 border-b border-slate-50 last:border-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <span className="text-sm font-medium text-slate-800 block truncate">
                           {p.name}
@@ -692,7 +692,7 @@ export default function AggregatePage() {
           {companies.map((c) => (
             <div
               key={c.cbe}
-              className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full text-sm font-medium"
+              className="inline-flex items-center gap-1.5 bg-brand-soft text-[color:var(--brand-ink)] px-3 py-1.5 rounded-full text-sm font-medium"
             >
               {c.loading && (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -703,12 +703,12 @@ export default function AggregatePage() {
               >
                 {c.name}
               </Link>
-              <span className="text-indigo-400 text-xs">
+              <span className="text-brand/60 text-xs">
                 {fmtCbe(c.cbe)}
               </span>
               <button
                 onClick={() => removeCompany(c.cbe)}
-                className="ml-0.5 hover:bg-indigo-100 rounded-full p-1.5 -mr-1 transition-colors"
+                className="ml-0.5 hover:bg-brand-soft rounded-full p-1.5 -mr-1 transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -736,7 +736,7 @@ export default function AggregatePage() {
                 key={s.cbe}
                 onClick={() => addCompany(s.cbe, s.name)}
                 disabled={companies.length >= MAX_COMPANIES}
-                className="inline-flex items-center gap-1 rounded-full border border-dashed border-indigo-200 bg-white px-2.5 py-1 text-[11px] font-medium text-indigo-700 hover:border-indigo-400 hover:bg-indigo-50 disabled:opacity-40"
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-brand/30 bg-white px-2.5 py-1 text-[11px] font-medium text-[color:var(--brand-ink)] hover:border-brand/60 hover:bg-brand-soft/60 disabled:opacity-40"
                 title={t("aggregate.suggestionTooltip", { name: s.name })}
               >
                 <Plus className="h-3 w-3" />
@@ -750,7 +750,7 @@ export default function AggregatePage() {
                     await addCompany(s.cbe, s.name);
                   }
                 }}
-                className="inline-flex items-center gap-1 rounded-full bg-indigo-600 text-white px-2.5 py-1 text-[11px] font-medium hover:bg-indigo-700"
+                className="inline-flex items-center gap-1 rounded-full bg-brand text-white px-2.5 py-1 text-[11px] font-medium hover:bg-[color:var(--brand-ink)]"
                 title={t("aggregate.addAllN", { count: String(addAllCount) })}
               >
                 {t("aggregate.addAllN", { count: String(addAllCount) })}
@@ -776,7 +776,7 @@ export default function AggregatePage() {
             const margin = latest.revenue && latest.ebitda ? (latest.ebitda / latest.revenue) * 100 : null;
             return (
               <div key={`kpi-${c.cbe}`} className="text-xs text-slate-600">
-                <Link href={`/company/${c.cbe}`} className="font-semibold text-indigo-600 hover:underline">
+                <Link href={`/company/${c.cbe}`} className="font-semibold text-brand hover:underline">
                   {c.name}
                 </Link>
                 <span className="text-slate-300 mx-1.5">|</span>
@@ -812,7 +812,7 @@ export default function AggregatePage() {
       {companies.length >= 1 && allYears.length > 0 && !anyLoading && (
         <>
           <div>
-            <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
+            <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-brand pl-2">
               {t("aggregate.aggregatedIncomeStatement")}
             </h3>
             <div className="rounded-lg border overflow-x-auto bg-white">
@@ -913,7 +913,7 @@ export default function AggregatePage() {
 
           {/* Per-company breakdown */}
           <details className="group">
-            <summary className="cursor-pointer text-sm text-indigo-600 font-medium hover:text-indigo-800 select-none flex items-center gap-1.5">
+            <summary className="cursor-pointer text-sm text-brand font-medium hover:text-[color:var(--brand-ink)] select-none flex items-center gap-1.5">
               <Building2 className="h-3.5 w-3.5 text-slate-400" />
               Show per-company breakdown
             </summary>
@@ -939,7 +939,7 @@ export default function AggregatePage() {
                         <TableCell className="text-sm">
                           <Link
                             href={`/company/${c.cbe}`}
-                            className="text-indigo-600 hover:underline font-medium"
+                            className="text-brand hover:underline font-medium"
                           >
                             {c.name.length > 25
                               ? c.name.slice(0, 25) + "..."
@@ -982,7 +982,7 @@ export default function AggregatePage() {
       {/* Loading indicator when any company is still fetching */}
       {anyLoading && companies.length > 0 && (
         <div className="border border-dashed border-slate-300 rounded-lg p-8 text-center">
-          <Loader2 className="h-6 w-6 text-indigo-400 mx-auto mb-2 animate-spin" />
+          <Loader2 className="h-6 w-6 text-brand/60 mx-auto mb-2 animate-spin" />
           <p className="text-sm text-slate-500">
             Loading financial data...
           </p>

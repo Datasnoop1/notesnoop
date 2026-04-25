@@ -827,7 +827,7 @@ export function CompanyPageClient({
         </p>
         <Link
           href="/company"
-          className="mt-4 inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline"
+          className="mt-4 inline-flex items-center gap-1 text-sm text-brand hover:underline"
         >
           <ArrowLeft className="h-3.5 w-3.5" /> {t("company.backToSearch")}
         </Link>
@@ -857,7 +857,7 @@ export function CompanyPageClient({
       {/* Back link */}
       <Link
         href="/company"
-        className="mb-3 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600"
+        className="mb-3 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-brand"
       >
         <ArrowLeft className="h-3 w-3" /> {t("company.backToSearch")}
       </Link>
@@ -911,7 +911,7 @@ export function CompanyPageClient({
                   }}
                   aria-label={copiedCbe ? t("company.copied") : t("company.copyCbe")}
                   title={copiedCbe ? t("company.copied") : t("company.copyCbe")}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-brand transition-colors"
                 >
                   {copiedCbe ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
                 </button>
@@ -943,7 +943,7 @@ export function CompanyPageClient({
                   href={detail.website.startsWith("http") ? detail.website : `https://${detail.website}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-indigo-500 hover:text-indigo-700 transition-colors truncate"
+                  className="text-brand hover:text-[color:var(--brand-ink)] transition-colors truncate"
                 >
                   {detail.website.replace(/^https?:\/\//, "")}
                 </a>
@@ -979,8 +979,8 @@ export function CompanyPageClient({
             <div className="w-full max-w-[380px] rounded-2xl border border-slate-200 bg-white shadow-2xl p-6">
               <div className="flex items-center gap-3 mb-4">
                 {loadStages.some((s) => s.status === "active") ? (
-                  <div className="h-10 w-10 rounded-full bg-indigo-50 flex items-center justify-center">
-                    <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
+                  <div className="h-10 w-10 rounded-full bg-brand-soft flex items-center justify-center">
+                    <Loader2 className="h-5 w-5 animate-spin text-brand" />
                   </div>
                 ) : (
                   <div className="h-10 w-10 rounded-full bg-emerald-50 flex items-center justify-center">
@@ -1005,13 +1005,13 @@ export function CompanyPageClient({
                     {stage.status === "done" ? (
                       <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
                     ) : stage.status === "active" ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-indigo-500 shrink-0" />
+                      <Loader2 className="h-4 w-4 animate-spin text-brand shrink-0" />
                     ) : stage.status === "error" ? (
                       <XCircle className="h-4 w-4 text-rose-400 shrink-0" />
                     ) : (
                       <div className="h-4 w-4 rounded-full border-2 border-slate-200 shrink-0" />
                     )}
-                    <span className={`text-sm ${stage.status === "active" ? "text-indigo-600 font-medium" : stage.status === "done" ? "text-slate-500" : stage.status === "error" ? "text-rose-400" : "text-slate-400"}`}>
+                    <span className={`text-sm ${stage.status === "active" ? "text-brand font-medium" : stage.status === "done" ? "text-slate-500" : stage.status === "error" ? "text-rose-400" : "text-slate-400"}`}>
                       {stage.label}
                     </span>
                   </div>
@@ -1020,12 +1020,12 @@ export function CompanyPageClient({
               {loadStartTime && (
                 <div className="pt-3 border-t border-slate-100">
                   <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
-                    <div className="h-full bg-indigo-500 rounded-full animate-pulse" style={{ width: `${Math.min(95, loadElapsed * 1.5)}%`, transition: "width 1s ease" }} />
+                    <div className="h-full bg-brand rounded-full animate-pulse" style={{ width: `${Math.min(95, loadElapsed * 1.5)}%`, transition: "width 1s ease" }} />
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1.5">
                     <span>{loadElapsed}s elapsed</span>
                     <span className="flex items-center gap-1">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand/60 animate-pulse" />
                       Working...
                     </span>
                   </div>
@@ -1119,7 +1119,7 @@ export function CompanyPageClient({
                         onClick={() => handleTabChange(g.subs[0].value)}
                         className={`text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap border-b-2 transition ${
                           active
-                            ? "border-indigo-600 text-indigo-600"
+                            ? "border-brand text-brand"
                             : "border-transparent text-slate-600 hover:text-slate-900"
                         }`}
                       >
@@ -1154,7 +1154,7 @@ export function CompanyPageClient({
                       if (!aiInsights && !aiInsightsLoading) handleGenerateInsights();
                     }}
                     title="AI Insights"
-                    className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${aiInsights ? "bg-indigo-50 border-indigo-400" : ""}`}
+                    className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-brand/40 text-brand hover:bg-brand-soft/60 hover:border-brand/60 ${aiInsights ? "bg-brand-soft border-brand/60" : ""}`}
                   >
                     {aiInsightsLoading ? (
                       <Loader2 className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1 animate-spin" />
@@ -1168,7 +1168,7 @@ export function CompanyPageClient({
                     size="sm"
                     onClick={() => handleTabChange("benchmark")}
                     title="Benchmark"
-                    className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${activeTab === "benchmark" ? "bg-indigo-50 border-indigo-400" : ""}`}
+                    className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-brand/40 text-brand hover:bg-brand-soft/60 hover:border-brand/60 ${activeTab === "benchmark" ? "bg-brand-soft border-brand/60" : ""}`}
                   >
                     <BarChart3 className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
                     <span className="hidden sm:inline">{t("company.tabs.benchmark")}</span>
@@ -1178,7 +1178,7 @@ export function CompanyPageClient({
                     size="sm"
                     onClick={() => handleTabChange("similar")}
                     title="Find similar"
-                    className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-400 ${activeTab === "similar" ? "bg-indigo-50 border-indigo-400" : ""}`}
+                    className={`h-9 md:h-7 text-[11px] px-2.5 md:px-2 border-brand/40 text-brand hover:bg-brand-soft/60 hover:border-brand/60 ${activeTab === "similar" ? "bg-brand-soft border-brand/60" : ""}`}
                   >
                     <Sparkles className="w-3.5 h-3.5 md:w-3 md:h-3 mr-1" />
                     <span className="hidden sm:inline">{t("company.findSimilar")}</span>
@@ -1210,7 +1210,7 @@ export function CompanyPageClient({
                         }}
                         className="text-xs cursor-pointer"
                       >
-                        <Share2 className="w-4 h-4 mr-2 text-indigo-500" />
+                        <Share2 className="w-4 h-4 mr-2 text-brand" />
                         Share card (public link)
                       </DropdownMenuItem>
                     </DropdownMenuContent>

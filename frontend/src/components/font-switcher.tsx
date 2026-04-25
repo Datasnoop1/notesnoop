@@ -42,7 +42,7 @@ export default function FontSwitcher() {
             onClick={() => applyFont(f.id)}
             className={`rounded-lg border p-3 text-left transition-all ${
               active === f.id
-                ? "border-indigo-500 bg-indigo-50 ring-1 ring-indigo-500"
+                ? "border-brand bg-brand-soft ring-1 ring-brand"
                 : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
             }`}
           >

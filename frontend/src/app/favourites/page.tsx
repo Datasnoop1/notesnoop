@@ -170,7 +170,7 @@ function ProjectCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-10 md:h-7 px-3 md:px-2 text-xs text-indigo-600 hover:text-indigo-800"
+              className="h-10 md:h-7 px-3 md:px-2 text-xs text-brand hover:text-[color:var(--brand-ink)]"
               onClick={() => setShowAddMenu(true)}
             >
               <Plus className="h-3.5 w-3.5 mr-1" />
@@ -197,7 +197,7 @@ function ProjectCard({
                     onClick={() => setAddMode("search")}
                     className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 ${
                       addMode === "search"
-                        ? "border-indigo-500 text-indigo-600"
+                        ? "border-brand text-brand"
                         : "border-transparent text-slate-400 hover:text-slate-600"
                     }`}
                   >
@@ -207,7 +207,7 @@ function ProjectCard({
                     onClick={() => setAddMode("favourites")}
                     className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 ${
                       addMode === "favourites"
-                        ? "border-indigo-500 text-indigo-600"
+                        ? "border-brand text-brand"
                         : "border-transparent text-slate-400 hover:text-slate-600"
                     }`}
                   >
@@ -248,7 +248,7 @@ function ProjectCard({
                               setAddSearch("");
                               setShowAddMenu(false);
                             }}
-                            className="w-full text-left px-4 py-3 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                            className="w-full text-left px-4 py-3 hover:bg-brand-soft/60 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
                           >
                             <div className="min-w-0">
                               <span className="text-sm font-medium text-slate-800 truncate block">
@@ -258,7 +258,7 @@ function ProjectCard({
                                 {fmtCbe(r.enterprise_number)} · {r.city || "—"}
                               </span>
                             </div>
-                            <Plus className="h-4 w-4 text-indigo-500 shrink-0" />
+                            <Plus className="h-4 w-4 text-brand shrink-0" />
                           </button>
                         ))
                       )}
@@ -281,7 +281,7 @@ function ProjectCard({
                             onAddMember(project.id, f.enterprise_number);
                             setShowAddMenu(false);
                           }}
-                          className="w-full text-left px-4 py-3 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                          className="w-full text-left px-4 py-3 hover:bg-brand-soft/60 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
                         >
                           <div className="min-w-0">
                             <span className="text-sm font-medium text-slate-800 truncate block">
@@ -291,7 +291,7 @@ function ProjectCard({
                               {fmtCbe(f.enterprise_number)} · {f.city || "—"}
                             </span>
                           </div>
-                          <Plus className="h-4 w-4 text-indigo-500 shrink-0" />
+                          <Plus className="h-4 w-4 text-brand shrink-0" />
                         </button>
                       ))
                     )}
@@ -327,7 +327,7 @@ function ProjectCard({
                     <div className="flex items-center gap-2 min-w-0">
                       <Link
                         href={`/company/${m.enterprise_number}`}
-                        className="text-sm text-indigo-600 hover:underline truncate"
+                        className="text-sm text-brand hover:underline truncate"
                       >
                         {m.name || fmtCbe(m.enterprise_number)}
                       </Link>
@@ -526,7 +526,7 @@ function CsTab({
                     key={r.enterprise_number}
                     onClick={() => handleSearchAdd(r.enterprise_number)}
                     disabled={csAdding === r.enterprise_number}
-                    className="w-full text-left px-3 py-2 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                    className="w-full text-left px-3 py-2 hover:bg-brand-soft/60 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0">
                       <span className="text-sm font-medium text-slate-800 truncate block">
@@ -537,9 +537,9 @@ function CsTab({
                       </span>
                     </div>
                     {csAdding === r.enterprise_number ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500 shrink-0" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-brand shrink-0" />
                     ) : (
-                      <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                      <Plus className="h-3.5 w-3.5 text-brand shrink-0" />
                     )}
                   </button>
                 ))
@@ -558,13 +558,13 @@ function CsTab({
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
             placeholder={"One per line or comma-separated:\n0403.101.811\n0404202677\n0439 819 279"}
-            className="w-full flex-1 min-h-[7.5rem] px-3 py-2 text-base md:text-xs font-mono border border-slate-200 rounded-lg bg-white resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-slate-300"
+            className="w-full flex-1 min-h-[7.5rem] px-3 py-2 text-base md:text-xs font-mono border border-slate-200 rounded-lg bg-white resize-none focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand/40 placeholder:text-slate-300"
             disabled={uploading}
           />
           <button
             onClick={handleTextSubmit}
             disabled={uploading || !textInput.trim()}
-            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-start"
+            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand hover:bg-[color:var(--brand-ink)] rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-start"
           >
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
             {uploading ? t("favourites.processing") : t("favourites.matchCompanies")}
@@ -580,13 +580,13 @@ function CsTab({
             onDrop={handleDrop}
             className={`flex-1 min-h-[7.5rem] flex flex-col items-center justify-center rounded-lg border border-dashed px-4 transition-colors ${
               dragOver
-                ? "border-indigo-400 bg-indigo-50"
+                ? "border-brand/60 bg-brand-soft"
                 : "border-slate-200 bg-slate-50/30 hover:border-slate-300"
             }`}
           >
             {uploading ? (
               <div className="flex items-center gap-2">
-                <Loader2 className="h-5 w-5 animate-spin text-indigo-500" />
+                <Loader2 className="h-5 w-5 animate-spin text-brand" />
                 <span className="text-sm text-slate-600">Processing...</span>
               </div>
             ) : (
@@ -605,7 +605,7 @@ function CsTab({
                     onChange={handleFileInput}
                     className="hidden"
                   />
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg cursor-pointer transition-colors">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand bg-brand-soft/60 hover:bg-brand-soft rounded-lg cursor-pointer transition-colors">
                     <Upload className="h-3.5 w-3.5" />
                     {t("favourites.browse")}
                   </span>
@@ -691,11 +691,11 @@ function CsTab({
             </TableHeader>
             <TableBody>
               {items.map((item) => (
-                <TableRow key={item.enterprise_number} className="hover:bg-indigo-50/40">
+                <TableRow key={item.enterprise_number} className="hover:bg-brand-soft/40">
                   <TableCell className="font-medium py-1.5 text-sm">
                     <Link
                       href={`/company/${item.enterprise_number}`}
-                      className="text-indigo-600 hover:text-indigo-800 hover:underline"
+                      className="text-brand hover:text-[color:var(--brand-ink)] hover:underline"
                     >
                       {item.name || item.custom_name || fmtCbe(item.enterprise_number)}
                     </Link>
@@ -817,7 +817,7 @@ function BulkImportPanel({
         className="w-full flex items-center justify-between px-4 py-2.5 text-left"
       >
         <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700">
-          <ClipboardList className="h-4 w-4 text-indigo-500" />
+          <ClipboardList className="h-4 w-4 text-brand" />
           {t("favourites.bulkImportTitle")}
         </span>
         {open ? (
@@ -833,7 +833,7 @@ function BulkImportPanel({
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={t("favourites.bulkImportPlaceholder")}
-            className="w-full min-h-[8rem] px-3 py-2 text-base md:text-xs font-mono border border-slate-200 rounded-lg bg-white resize-y focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 placeholder:text-slate-300"
+            className="w-full min-h-[8rem] px-3 py-2 text-base md:text-xs font-mono border border-slate-200 rounded-lg bg-white resize-y focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand/40 placeholder:text-slate-300"
             disabled={matching || confirming}
           />
           <div className="flex items-center gap-2">
@@ -890,7 +890,7 @@ function BulkImportPanel({
                               <span>
                                 <Link
                                   href={`/company/${r.enterprise_number}`}
-                                  className="font-medium text-indigo-600 hover:underline"
+                                  className="font-medium text-brand hover:underline"
                                 >
                                   {r.best_match_name || fmtCbe(r.enterprise_number)}
                                 </Link>
@@ -1322,7 +1322,7 @@ export default function FavouritesPage() {
         </div>
         <div className="flex items-center gap-2">
           {!loading && (
-            <Badge variant="secondary" className="text-indigo-700 bg-indigo-50 border-indigo-200 text-[11px] sm:text-xs">
+            <Badge variant="secondary" className="text-[color:var(--brand-ink)] bg-brand-soft border-brand/30 text-[11px] sm:text-xs">
               {favourites.length} {favourites.length === 1 ? t("favourites.companySingular") : t("favourites.companyPlural")} · {peopleFavs.length} {peopleFavs.length === 1 ? t("favourites.personSingular") : t("favourites.personPlural")}
             </Badge>
           )}
@@ -1336,7 +1336,7 @@ export default function FavouritesPage() {
           onClick={() => setActiveTab("companies")}
           className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap shrink-0 ${
             activeTab === "companies"
-              ? "border-indigo-500 text-indigo-600"
+              ? "border-brand text-brand"
               : "border-transparent text-slate-500 hover:text-slate-700"
           }`}
         >
@@ -1346,7 +1346,7 @@ export default function FavouritesPage() {
           onClick={() => setActiveTab("people")}
           className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap shrink-0 ${
             activeTab === "people"
-              ? "border-indigo-500 text-indigo-600"
+              ? "border-brand text-brand"
               : "border-transparent text-slate-500 hover:text-slate-700"
           }`}
         >
@@ -1356,7 +1356,7 @@ export default function FavouritesPage() {
           onClick={() => setActiveTab("customers")}
           className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap shrink-0 ${
             activeTab === "customers"
-              ? "border-indigo-500 text-indigo-600"
+              ? "border-brand text-brand"
               : "border-transparent text-slate-500 hover:text-slate-700"
           }`}
         >
@@ -1369,7 +1369,7 @@ export default function FavouritesPage() {
           onClick={() => setActiveTab("suppliers")}
           className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors border-b-2 whitespace-nowrap shrink-0 ${
             activeTab === "suppliers"
-              ? "border-indigo-500 text-indigo-600"
+              ? "border-brand text-brand"
               : "border-transparent text-slate-500 hover:text-slate-700"
           }`}
         >
@@ -1523,11 +1523,11 @@ export default function FavouritesPage() {
               </TableHeader>
               <TableBody>
                 {favourites.map((fav) => (
-                  <TableRow key={fav.enterprise_number} className="hover:bg-indigo-50/40">
+                  <TableRow key={fav.enterprise_number} className="hover:bg-brand-soft/40">
                     <TableCell className="font-medium py-1.5 text-sm">
                       <Link
                         href={`/company/${fav.enterprise_number}`}
-                        className="text-indigo-600 hover:text-indigo-800 hover:underline"
+                        className="text-brand hover:text-[color:var(--brand-ink)] hover:underline"
                       >
                         {fav.name || fmtCbe(fav.enterprise_number)}
                       </Link>
@@ -1622,7 +1622,7 @@ export default function FavouritesPage() {
                         key={r.name}
                         onClick={() => handleAddPersonFavourite(r.name)}
                         disabled={addingPerson === r.name}
-                        className="w-full text-left px-3 py-2 hover:bg-indigo-50 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
+                        className="w-full text-left px-3 py-2 hover:bg-brand-soft/60 border-b border-slate-50 last:border-0 flex items-center justify-between gap-2"
                       >
                         <div className="min-w-0">
                           <span className="text-sm font-medium text-slate-800 truncate block">
@@ -1633,9 +1633,9 @@ export default function FavouritesPage() {
                           </span>
                         </div>
                         {addingPerson === r.name ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500 shrink-0" />
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-brand shrink-0" />
                         ) : (
-                          <Plus className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
+                          <Plus className="h-3.5 w-3.5 text-brand shrink-0" />
                         )}
                       </button>
                     ))
@@ -1680,11 +1680,11 @@ export default function FavouritesPage() {
                 </TableHeader>
                 <TableBody>
                   {peopleFavs.map((pf) => (
-                    <TableRow key={pf.person_name} className="hover:bg-indigo-50/40">
+                    <TableRow key={pf.person_name} className="hover:bg-brand-soft/40">
                       <TableCell className="font-medium py-1.5 text-sm">
                         <Link
                           href={`/people?q=${encodeURIComponent(pf.person_name)}`}
-                          className="text-indigo-600 hover:text-indigo-800 hover:underline"
+                          className="text-brand hover:text-[color:var(--brand-ink)] hover:underline"
                         >
                           {pf.person_name}
                         </Link>
@@ -1748,7 +1748,7 @@ export default function FavouritesPage() {
               <Button
                 onClick={handleSuggestSimilar}
                 disabled={suggestLoading}
-                className="bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white text-sm gap-2"
+                className="bg-gradient-to-r from-brand to-purple-500 hover:from-brand hover:to-purple-600 text-white text-sm gap-2"
               >
                 {suggestLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -1773,9 +1773,9 @@ export default function FavouritesPage() {
 
           {/* Suggestions results */}
           {suggestions.length > 0 && (
-            <Card className="bg-white overflow-hidden border-indigo-200">
-              <div className="px-4 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-indigo-100 flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-indigo-500" />
+            <Card className="bg-white overflow-hidden border-brand/30">
+              <div className="px-4 py-3 bg-gradient-to-r from-brand-soft to-purple-50 border-b border-brand/20 flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-brand" />
                 <h3 className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
                   AI-Suggested Similar Companies
                 </h3>
@@ -1783,13 +1783,13 @@ export default function FavouritesPage() {
               </div>
               <div className="divide-y divide-slate-100">
                 {suggestions.map((s) => (
-                  <div key={s.enterprise_number} className="px-4 py-3 hover:bg-indigo-50/30 transition-colors">
+                  <div key={s.enterprise_number} className="px-4 py-3 hover:bg-brand-soft/30 transition-colors">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Link
                             href={`/company/${s.enterprise_number}`}
-                            className="text-sm font-medium text-indigo-600 hover:text-indigo-800 hover:underline"
+                            className="text-sm font-medium text-brand hover:text-[color:var(--brand-ink)] hover:underline"
                           >
                             {s.name}
                           </Link>
@@ -1804,14 +1804,14 @@ export default function FavouritesPage() {
                           )}
                         </div>
                         <p className="mt-1 text-xs text-slate-600 italic leading-relaxed">
-                          <Sparkles className="h-3 w-3 text-indigo-400 inline mr-1 -mt-0.5" />
+                          <Sparkles className="h-3 w-3 text-brand/60 inline mr-1 -mt-0.5" />
                           {s.reason}
                         </p>
                       </div>
                       <Button
                         variant="outline"
                         size="sm"
-                        className="shrink-0 text-xs h-8 gap-1.5 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                        className="shrink-0 text-xs h-8 gap-1.5 text-brand border-brand/30 hover:bg-brand-soft/60"
                         onClick={() => handleAddSuggestionAsCustomer(s.enterprise_number)}
                         disabled={addingSuggestion === s.enterprise_number}
                       >

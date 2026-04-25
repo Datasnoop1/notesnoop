@@ -10,6 +10,10 @@
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-soft: var(--brand-soft);
+  --color-brand-ink: var(--brand-ink);
+  --color-bg-soft: var(--bg-soft);
+  --color-rule: var(--rule);
+  --color-ink-soft: var(--ink-soft);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
@@ -52,15 +56,28 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
+  /* Warm canvas (sourced from docs/use-cases.html). Body picks this up
+     via `bg-background`. Cards stay pure white via --card for crispness. */
+  --background: #fafaf7;
   --foreground: oklch(0.145 0 0);
-  /* Brand accent — soft indigo. Matches the hardcoded bg-indigo-600/500/100
-     usages already in nav + buttons across the app. Available via
-     `bg-brand`, `text-brand`, `bg-brand-soft` for new code. Existing pages
-     keep their hardcoded indigo classes — do not mass-migrate. */
-  --brand: oklch(0.49 0.16 270);
-  --brand-foreground: oklch(0.985 0 0);
-  --brand-soft: oklch(0.96 0.02 270);
+  /* Brand accent — teal, sourced from docs/use-cases.html (#0d7377).
+     Available via `bg-brand`, `text-brand`, `bg-brand-soft`, `bg-brand-ink`.
+     Indigo references in older pages migrate during phased rebrand;
+     do not mass-rename. */
+  --brand: #0d7377;
+  --brand-foreground: #ffffff;
+  --brand-soft: #e6f4f4;
+  --brand-ink: #0a5659;
+  /* Warm neutrals — additive surfaces for the new design language. */
+  --bg-soft: #f5f4ef;
+  --rule: #e7e5e0;
+  --ink-soft: #4b5563;
+  /* Surface shadows for warm cards and glass overlays. Private vars
+     (NOT exposed as Tailwind shadow-* utilities — Tailwind v4 would
+     auto-register `--shadow-*` names, so we namespace these as
+     `--surface-shadow-*` to keep them internal to globals.css). */
+  --surface-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.04);
+  --surface-shadow-elevated: 0 2px 4px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.08);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
@@ -133,6 +150,47 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Geist stylistic alternates — single-storey 'a', alt 'g'. Inert on
+       Inter / DM Sans (font switcher) so the rule is safe across all three. */
+    font-feature-settings: 'ss01', 'cv11';
+    position: relative;
+  }
+  /* Page-wide top aura — the teal tint that the glass-chrome nav sits on
+     top of. Continues the brand colour from the nav DOWN into the page so
+     the header doesn't read as a disconnected slab. Fixed so it stays in
+     view as the page scrolls. */
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 380px;
+    background:
+      radial-gradient(
+        ellipse 90% 100% at 50% 0%,
+        rgba(13, 115, 119, 0.05) 0%,
+        rgba(13, 115, 119, 0.02) 45%,
+        transparent 75%
+      ),
+      linear-gradient(
+        180deg,
+        rgba(230, 244, 244, 0.25) 0%,
+        transparent 100%
+      );
+    pointer-events: none;
+    /* z-index: -1 sits the aura between the body bg and the content,
+       so it's visible THROUGH the glass-chrome nav (which sits at z-50)
+       but doesn't obscure normal page content. */
+    z-index: -1;
+  }
+  /* Reduced-transparency users get a flat warm canvas, no aura. */
+  @media (prefers-reduced-transparency: reduce) {
+    body::before { display: none; }
+  }
+  /* Print: no decorative aura. */
+  @media print {
+    body::before { display: none !important; }
   }
   html {
     @apply font-sans;
@@ -165,6 +223,124 @@
   }
 }
 
+/* ── Glass surfaces (Phase 1 of rebrand) ────────────────────────────
+   Reserved for chrome, overlays, and hero surfaces. NEVER apply to
+   dense data tables (P&L, balance sheet, valuation, screener cells).
+   Each utility degrades to opaque under prefers-reduced-transparency
+   and inside @media print (see overrides further down). */
+
+@utility glass-chrome {
+  /* Two-stop gradient + saturated blur. Sits ON TOP of body::before
+     aura. Teal tints kept subtle so the chrome doesn't feel heavy. */
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.7) 0%,
+      rgba(230, 244, 244, 0.25) 100%
+    );
+  backdrop-filter: saturate(200%) blur(20px);
+  -webkit-backdrop-filter: saturate(200%) blur(20px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 4px 16px -10px rgba(13, 115, 119, 0.08),
+    0 12px 32px -16px rgba(15, 23, 42, 0.05);
+}
+
+@utility glass-card {
+  /* Frosted card with diagonal highlight gradient + soft teal-tinted
+     drop shadow for depth. Used on hero feature tiles and login form. */
+  background:
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.85) 0%,
+      rgba(255, 255, 255, 0.55) 100%
+    );
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 12px 32px -8px rgba(13, 115, 119, 0.08),
+    0 24px 48px -16px rgba(15, 23, 42, 0.10);
+  border-radius: 20px;
+}
+
+@utility glass-pill {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.85) 0%,
+      rgba(255, 255, 255, 0.65) 100%
+    );
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 4px rgba(13, 115, 119, 0.06);
+  border-radius: 999px;
+}
+
+@utility glass-overlay {
+  background: rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+}
+
+@utility glass-popover {
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.92) 0%,
+      rgba(250, 250, 247, 0.88) 100%
+    );
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    var(--surface-shadow-elevated);
+}
+
+/* Accessibility / low-end-device fallback: opaque surfaces, no blur. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-chrome,
+  .glass-card,
+  .glass-pill,
+  .glass-popover {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: var(--card);
+  }
+  .glass-overlay {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(15, 23, 42, 0.55);
+  }
+}
+
+/* Dark-mode degradation: glass collapses to solid cards (no warm tint
+   over dark surfaces). Phase 1 keeps this minimal; revisit if dark
+   mode usage picks up. */
+.dark .glass-chrome,
+.dark .glass-card,
+.dark .glass-popover {
+  background: var(--card);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.dark .glass-pill {
+  background: var(--secondary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.dark .glass-overlay {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 /* Copy protection: prevent selection on financial data tables */
 [data-protected] table,
 [data-protected] .font-mono {
@@ -187,6 +363,20 @@
   .no-print,
   [data-radix-popper-content-wrapper] {
     display: none !important;
+  }
+
+  /* Glass utilities collapse to opaque white in print so PDFs render
+     cleanly through headless engines that don't honour backdrop-filter. */
+  .glass-chrome,
+  .glass-card,
+  .glass-pill,
+  .glass-popover,
+  .glass-overlay {
+    background: white !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-color: #ddd !important;
+    box-shadow: none !important;
   }
 
   /* Clean background */

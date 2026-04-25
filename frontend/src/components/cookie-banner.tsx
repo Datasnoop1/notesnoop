@@ -28,14 +28,14 @@ export default function CookieBanner() {
       <div className="max-w-lg mx-auto bg-white border border-slate-200 rounded-lg shadow-lg px-5 py-4 flex items-center gap-4 pointer-events-auto">
         <p className="text-sm text-slate-600 flex-1">
           We use essential cookies for authentication only. No tracking cookies.{" "}
-          <Link href="/privacy" className="text-indigo-600 hover:underline whitespace-nowrap">
+          <Link href="/privacy" className="text-brand hover:underline whitespace-nowrap">
             Privacy Policy
           </Link>
         </p>
         <Button
           size="sm"
           onClick={handleAccept}
-          className="bg-indigo-600 hover:bg-indigo-700 shrink-0"
+          className="bg-brand hover:bg-[color:var(--brand-ink)] shrink-0"
         >
           Accept
         </Button>

@@ -185,7 +185,7 @@ function PeoplePageInner() {
 
       {results.length > 0 && (
         <div>
-          <Badge variant="secondary" className="mb-3 text-indigo-700 bg-indigo-50 border-indigo-200">
+          <Badge variant="secondary" className="mb-3 text-[color:var(--brand-ink)] bg-brand-soft border-brand/30">
             {results.length} {results.length === 1 ? "result" : "results"}
           </Badge>
 
@@ -202,7 +202,7 @@ function PeoplePageInner() {
                 {results.map((person) => (
                   <TableRow
                     key={person.name}
-                    className="cursor-pointer hover:bg-indigo-50/40"
+                    className="cursor-pointer hover:bg-brand-soft/40"
                     onClick={() => router.push(`/people/${encodeURIComponent(person.name)}`)}
                   >
                     <TableCell className="w-8">
@@ -210,7 +210,7 @@ function PeoplePageInner() {
                     </TableCell>
                     <TableCell className="font-medium text-slate-900">
                       <div className="flex items-center gap-2">
-                        <span className="text-indigo-600">
+                        <span className="text-brand">
                           {person.name}
                         </span>
                       </div>

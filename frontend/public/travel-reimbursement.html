@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Travel reimbursement calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #e5e5e5;
+    --border-strong: #d4d4d8;
+    --text: #18181b;
+    --muted: #71717a;
+    --primary: #4f46e5;
+    --primary-hover: #4338ca;
+    --primary-soft: #eef2ff;
+    --danger: #ef4444;
+    --success: #16a34a;
+    --warn: #d97706;
+    --row-hover: #f8f8f8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 32px 24px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .container {
+    max-width: 1280px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .subtitle {
+    color: var(--muted);
+    margin: 0 0 24px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .controls {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .control-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  label {
+    font-weight: 500;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  input[type="text"], input[type="number"] {
+    font-family: inherit;
+    font-size: 14px;
+    padding: 7px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--card);
+    color: var(--text);
+    transition: border-color 0.12s, box-shadow 0.12s;
+  }
+  input[type="text"]:focus, input[type="number"]:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+  }
+  input[type="number"] { width: 80px; text-align: right; }
+  button {
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 14px;
+    border: none;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+  }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-secondary {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+  }
+  .btn-secondary:hover { background: var(--row-hover); }
+  .btn-icon {
+    background: transparent;
+    color: var(--muted);
+    padding: 4px 8px;
+    font-size: 16px;
+  }
+  .btn-icon:hover { color: var(--text); background: var(--row-hover); }
+  .btn-icon.danger:hover { color: var(--danger); background: #fef2f2; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--muted);
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  td {
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--row-hover); }
+  td input { width: 100%; }
+  td input[data-field="sessions"] { width: 64px; }
+  /* Autocomplete dropdown */
+  .ac-wrap { position: relative; }
+  .ac-list {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--card);
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    margin-top: 2px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    z-index: 10;
+    max-height: 240px;
+    overflow-y: auto;
+    display: none;
+  }
+  .ac-list.open { display: block; }
+  .ac-item {
+    padding: 8px 10px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1.35;
+    border-bottom: 1px solid var(--border);
+  }
+  .ac-item:last-child { border-bottom: none; }
+  .ac-item:hover, .ac-item.active { background: var(--primary-soft); color: var(--primary); }
+  .ac-item .ac-meta { display: block; font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .ac-status {
+    padding: 8px 10px;
+    font-size: 12px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .col-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .col-num.muted { color: var(--muted); }
+  .col-amount { font-weight: 500; }
+  .calc-note {
+    display: block;
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .checkbox-cell { text-align: center; }
+  .checkbox-cell input { width: 16px; height: 16px; cursor: pointer; }
+  .totals {
+    display: flex;
+    justify-content: flex-end;
+    gap: 32px;
+    padding: 18px 8px 8px;
+    margin-top: 8px;
+    border-top: 2px solid var(--border-strong);
+    font-size: 15px;
+  }
+  .totals .label { color: var(--muted); margin-right: 8px; font-size: 13px; }
+  .totals .value { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .status-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .status-pill.error { background: #fef2f2; color: var(--danger); }
+  .status-pill.warn { background: #fffbeb; color: var(--warn); }
+  .status-pill.loading { background: var(--primary-soft); color: var(--primary); }
+  .footer {
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 16px;
+  }
+  .footer a { color: var(--primary); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Travel reimbursement calculator</h1>
+  <p class="subtitle">Enter a start and end address per row. The tool fetches the driving distance, then multiplies by sessions × round-trip × rate.</p>
+
+  <div class="card">
+    <div class="controls">
+      <div class="control-group">
+        <label for="rate">Rate (€/km)</label>
+        <input type="number" id="rate" value="0.42" step="0.01" min="0">
+      </div>
+      <div style="flex:1"></div>
+      <button class="btn-secondary" onclick="addRow()">+ Add row</button>
+      <button class="btn-secondary" onclick="exportCsv()">Export CSV</button>
+      <button class="btn-secondary" onclick="clearAll()" title="Remove all rows and clear saved data">Clear all</button>
+      <button class="btn-primary" onclick="calculateAll()" id="calc-all-btn">Calculate all distances</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 16%">Prestatie</th>
+          <th style="width: 24%">From</th>
+          <th style="width: 24%">To</th>
+          <th style="width: 7%" class="col-num">Sessions</th>
+          <th style="width: 7%" class="checkbox-cell">Round trip</th>
+          <th style="width: 9%" class="col-num">Distance (km)</th>
+          <th style="width: 10%" class="col-num">Amount (€)</th>
+          <th style="width: 6%"></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+
+    <div class="totals">
+      <div><span class="label">Total km</span><span class="value" id="total-km">0.0</span></div>
+      <div><span class="label">Total amount</span><span class="value" id="total-amount">€ 0.00</span></div>
+    </div>
+  </div>
+
+  <p class="footer">
+    <strong>Privacy:</strong> the addresses you type are sent to OpenStreetMap servers
+    (<a href="https://nominatim.openstreetmap.org" target="_blank" rel="noopener">Nominatim</a> for geocoding,
+    <a href="https://project-osrm.org" target="_blank" rel="noopener">OSRM</a> for routing) so they can be looked up.
+    Your rows are saved only in this browser (localStorage). No DataSnoop account or database is involved.<br>
+    Distances are typically within ~1% of Google Maps for car routes.
+  </p>
+</div>
+
+<script>
+const STORAGE_KEY = 'travel-reimbursement-v1';
+let rowId = 0;
+let saveScheduled = false;
+
+function saveState() {
+  // Debounce so rapid typing doesn't thrash localStorage
+  if (saveScheduled) return;
+  saveScheduled = true;
+  setTimeout(() => {
+    saveScheduled = false;
+    const rows = Array.from(document.querySelectorAll('#rows tr')).map(tr => {
+      const get = f => tr.querySelector(`[data-field="${f}"]`);
+      const distCell = get('distance');
+      return {
+        prestatie: get('prestatie').value,
+        from: get('from').value,
+        to: get('to').value,
+        sessions: get('sessions').value,
+        roundtrip: get('roundtrip').checked,
+        cachedKm: distCell.dataset.km || '',
+      };
+    });
+    const state = { rate: document.getElementById('rate').value, rows };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {
+      // Quota exceeded or storage disabled — silently ignore
+    }
+  }, 250);
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+}
+
+function clearAll() {
+  if (!confirm('Remove all rows and clear saved data?')) return;
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  document.getElementById('rows').innerHTML = '';
+  updateTotals();
+  addRow();
+}
+
+function addRow(prefill = {}) {
+  const id = rowId++;
+  const tbody = document.getElementById('rows');
+  const tr = document.createElement('tr');
+  tr.id = `row-${id}`;
+  tr.innerHTML = `
+    <td><input type="text" data-field="prestatie" placeholder="e.g. Psycholoog CAW" value="${escapeHtml(prefill.prestatie || '')}"></td>
+    <td><div class="ac-wrap"><input type="text" data-field="from" placeholder="Start address" value="${escapeHtml(prefill.from || '')}" autocomplete="off"><div class="ac-list" data-for="from"></div></div></td>
+    <td><div class="ac-wrap"><input type="text" data-field="to" placeholder="End address" value="${escapeHtml(prefill.to || '')}" autocomplete="off"><div class="ac-list" data-for="to"></div></div></td>
+    <td class="col-num"><input type="number" data-field="sessions" value="${prefill.sessions || 1}" min="1"></td>
+    <td class="checkbox-cell"><input type="checkbox" data-field="roundtrip" ${prefill.roundtrip === false ? '' : 'checked'}></td>
+    <td class="col-num muted" data-field="distance">—</td>
+    <td class="col-num col-amount" data-field="amount">—</td>
+    <td style="text-align:right; white-space:nowrap;">
+      <button class="btn-icon" onclick="calculateRow(${id})" title="Calculate this row">↻</button>
+      <button class="btn-icon danger" onclick="deleteRow(${id})" title="Delete row">×</button>
+    </td>
+  `;
+  tbody.appendChild(tr);
+  tr.querySelectorAll('[data-field="sessions"], [data-field="roundtrip"]').forEach(el => {
+    el.addEventListener('change', () => { recalcAmount(id); saveState(); });
+  });
+  tr.querySelectorAll('[data-field="prestatie"]').forEach(el => {
+    el.addEventListener('input', saveState);
+  });
+  // Recalculate distance if user edits an address after a previous calc
+  tr.querySelectorAll('[data-field="from"], [data-field="to"]').forEach(el => {
+    el.addEventListener('input', () => {
+      const distCell = tr.querySelector('[data-field="distance"]');
+      distCell.dataset.km = '';
+      distCell.textContent = '—';
+      distCell.className = 'col-num muted';
+      recalcAmount(id);
+      saveState();
+    });
+    // Wire up address autocomplete on each From/To input
+    const listEl = el.parentElement.querySelector('.ac-list');
+    if (listEl) attachAutocomplete(el, listEl);
+  });
+  // If a cached km value was loaded, render it now
+  if (prefill.cachedKm) {
+    const distCell = tr.querySelector('[data-field="distance"]');
+    distCell.dataset.km = prefill.cachedKm;
+    distCell.textContent = parseFloat(prefill.cachedKm).toFixed(1);
+    recalcAmount(id);
+  }
+}
+
+function deleteRow(id) {
+  document.getElementById(`row-${id}`)?.remove();
+  updateTotals();
+  saveState();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[c]);
+}
+
+// Nominatim usage policy: max 1 request/second, no parallel requests.
+// Serialise every fetch through this gate so any caller (parallel or
+// sequential) is automatically throttled.
+let nominatimLastCall = 0;
+async function nominatimFetch(url) {
+  const wait = Math.max(0, 1100 - (Date.now() - nominatimLastCall));
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  nominatimLastCall = Date.now();
+  return fetch(url, { headers: { 'Accept': 'application/json' } });
+}
+
+// --- Address autocomplete (Nominatim, debounced) ---
+async function nominatimSearch(query, limit = 5) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=${limit}&addressdetails=1&countrycodes=be`;
+  const res = await nominatimFetch(url);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+function attachAutocomplete(input, listEl) {
+  let debounceTimer = null;
+  let activeIdx = -1;
+  let currentItems = [];
+
+  const closeList = () => {
+    listEl.classList.remove('open');
+    listEl.innerHTML = '';
+    activeIdx = -1;
+    currentItems = [];
+  };
+
+  const renderItems = (items) => {
+    if (!items.length) {
+      listEl.innerHTML = '<div class="ac-status">No matches</div>';
+      listEl.classList.add('open');
+      return;
+    }
+    currentItems = items;
+    listEl.innerHTML = items.map((it, i) => {
+      // Build a friendlier short label
+      const a = it.address || {};
+      const street = [a.road, a.house_number].filter(Boolean).join(' ');
+      const city = a.city || a.town || a.village || a.municipality || '';
+      const postcode = a.postcode || '';
+      const primary = street || it.name || it.display_name.split(',')[0];
+      const secondary = [postcode, city].filter(Boolean).join(' ') || it.display_name;
+      return `<div class="ac-item" data-idx="${i}"><div>${escapeHtml(primary)}</div><span class="ac-meta">${escapeHtml(secondary)}</span></div>`;
+    }).join('');
+    listEl.classList.add('open');
+    // Click handler — use mousedown so it fires before blur
+    listEl.querySelectorAll('.ac-item').forEach(itemEl => {
+      itemEl.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const idx = parseInt(itemEl.dataset.idx);
+        const chosen = currentItems[idx];
+        if (chosen) selectItem(chosen);
+      });
+    });
+  };
+
+  const selectItem = (item) => {
+    // Use the friendly short form for display, full display_name as fallback
+    const a = item.address || {};
+    const street = [a.road, a.house_number].filter(Boolean).join(' ');
+    const city = a.city || a.town || a.village || a.municipality || '';
+    const postcode = a.postcode || '';
+    const formatted = [street, [postcode, city].filter(Boolean).join(' ')].filter(Boolean).join(', ') || item.display_name;
+    input.value = formatted;
+    closeList();
+    // Trigger the input event so the row's distance is invalidated and saveState fires
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  };
+
+  input.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const q = input.value.trim();
+    if (q.length < 3) { closeList(); return; }
+    listEl.innerHTML = '<div class="ac-status">Searching…</div>';
+    listEl.classList.add('open');
+    debounceTimer = setTimeout(async () => {
+      try {
+        const results = await nominatimSearch(q, 5);
+        // Bail if user moved on to a different query
+        if (input.value.trim() !== q) return;
+        renderItems(results);
+      } catch (e) {
+        listEl.innerHTML = '<div class="ac-status">Lookup failed</div>';
+      }
+    }, 400);
+  });
+
+  input.addEventListener('blur', () => {
+    // Delay so click on a suggestion can register
+    setTimeout(closeList, 150);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const items = listEl.querySelectorAll('.ac-item');
+    if (!items.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIdx = (activeIdx + 1) % items.length;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIdx = (activeIdx - 1 + items.length) % items.length;
+    } else if (e.key === 'Enter' && activeIdx >= 0) {
+      e.preventDefault();
+      selectItem(currentItems[activeIdx]);
+      return;
+    } else if (e.key === 'Escape') {
+      closeList();
+      return;
+    } else {
+      return;
+    }
+    items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+  });
+}
+
+async function geocode(address) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1&countrycodes=be`;
+  const res = await nominatimFetch(url);
+  if (!res.ok) throw new Error(`Geocode HTTP ${res.status}`);
+  const data = await res.json();
+  if (!data.length) {
+    // Retry without country filter
+    const fallback = await nominatimFetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`);
+    const fallbackData = await fallback.json();
+    if (!fallbackData.length) throw new Error(`Address not found`);
+    return { lat: parseFloat(fallbackData[0].lat), lon: parseFloat(fallbackData[0].lon), label: fallbackData[0].display_name };
+  }
+  return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), label: data[0].display_name };
+}
+
+async function route(from, to) {
+  const url = `https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Route HTTP ${res.status}`);
+  const data = await res.json();
+  if (!data.routes?.length) throw new Error('No route found');
+  return data.routes[0].distance / 1000;
+}
+
+async function calculateRow(id) {
+  const tr = document.getElementById(`row-${id}`);
+  if (!tr) return;
+  const from = tr.querySelector('[data-field="from"]').value.trim();
+  const to = tr.querySelector('[data-field="to"]').value.trim();
+  const distanceCell = tr.querySelector('[data-field="distance"]');
+  if (!from || !to) {
+    distanceCell.innerHTML = '<span class="status-pill warn">need addresses</span>';
+    distanceCell.className = 'col-num';
+    return;
+  }
+  distanceCell.innerHTML = '<span class="status-pill loading">…</span>';
+  distanceCell.className = 'col-num';
+  try {
+    const [fromCoords, toCoords] = await Promise.all([geocode(from), geocode(to)]);
+    const km = await route(fromCoords, toCoords);
+    distanceCell.textContent = km.toFixed(1);
+    distanceCell.className = 'col-num';
+    distanceCell.dataset.km = km;
+    distanceCell.title = `${fromCoords.label}\n→\n${toCoords.label}`;
+    recalcAmount(id);
+    saveState();
+  } catch (e) {
+    distanceCell.innerHTML = `<span class="status-pill error">${escapeHtml(e.message)}</span>`;
+    distanceCell.className = 'col-num';
+    distanceCell.dataset.km = '';
+    recalcAmount(id);
+  }
+}
+
+function recalcAmount(id) {
+  const tr = document.getElementById(`row-${id}`);
+  if (!tr) return;
+  const distanceCell = tr.querySelector('[data-field="distance"]');
+  const amountCell = tr.querySelector('[data-field="amount"]');
+  const km = parseFloat(distanceCell.dataset.km);
+  if (isNaN(km)) {
+    amountCell.textContent = '—';
+    amountCell.dataset.amount = '';
+    amountCell.dataset.totalKm = '';
+    amountCell.title = '';
+    updateTotals();
+    return;
+  }
+  const sessions = parseInt(tr.querySelector('[data-field="sessions"]').value) || 1;
+  const roundtripMult = tr.querySelector('[data-field="roundtrip"]').checked ? 2 : 1;
+  const rate = parseFloat(document.getElementById('rate').value) || 0;
+  const totalKm = km * roundtripMult * sessions;
+  const amount = totalKm * rate;
+  amountCell.innerHTML = `${amount.toFixed(2)}<span class="calc-note">${km.toFixed(1)} × ${roundtripMult} × ${sessions} × ${rate.toFixed(2)}</span>`;
+  amountCell.dataset.amount = amount;
+  amountCell.dataset.totalKm = totalKm;
+  updateTotals();
+}
+
+function updateTotals() {
+  let totalKm = 0, totalAmount = 0;
+  document.querySelectorAll('[data-field="amount"]').forEach(cell => {
+    totalAmount += parseFloat(cell.dataset.amount) || 0;
+    totalKm += parseFloat(cell.dataset.totalKm) || 0;
+  });
+  document.getElementById('total-km').textContent = totalKm.toFixed(1);
+  document.getElementById('total-amount').textContent = '€ ' + totalAmount.toFixed(2);
+}
+
+async function calculateAll() {
+  const btn = document.getElementById('calc-all-btn');
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  const rows = Array.from(document.querySelectorAll('#rows tr'));
+  let done = 0;
+  for (const tr of rows) {
+    const id = parseInt(tr.id.replace('row-', ''));
+    const distance = tr.querySelector('[data-field="distance"]').dataset.km;
+    const from = tr.querySelector('[data-field="from"]').value.trim();
+    const to = tr.querySelector('[data-field="to"]').value.trim();
+    if (!distance && from && to) {
+      btn.textContent = `Calculating ${done + 1}/${rows.length}…`;
+      await calculateRow(id);
+      // Throttling is enforced inside nominatimFetch — no extra sleep needed.
+    }
+    done++;
+  }
+  btn.disabled = false;
+  btn.textContent = originalText;
+}
+
+function exportCsv() {
+  // Defang Excel-formula injection: cells beginning with =, +, -, @ or tab
+  // are interpreted as formulas when the CSV opens in Excel/LibreOffice.
+  // Prefix with a single quote so they render as plain text instead.
+  const csvCell = c => {
+    let s = String(c);
+    if (/^[=+\-@\t]/.test(s)) s = "'" + s;
+    return `"${s.replace(/"/g, '""')}"`;
+  };
+  const headers = ['Prestatie', 'From', 'To', 'Sessions', 'Round trip', 'Distance one-way (km)', 'Total km', 'Amount (€)'];
+  const lines = [headers.map(csvCell).join(',')];
+  document.querySelectorAll('#rows tr').forEach(tr => {
+    const get = field => tr.querySelector(`[data-field="${field}"]`);
+    const row = [
+      get('prestatie').value,
+      get('from').value,
+      get('to').value,
+      get('sessions').value,
+      get('roundtrip').checked ? 'Yes' : 'No',
+      get('distance').dataset.km || '',
+      get('amount').dataset.totalKm || '',
+      get('amount').dataset.amount || '',
+    ];
+    lines.push(row.map(csvCell).join(','));
+  });
+  const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'travel-reimbursement.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('rate').addEventListener('input', () => {
+  document.querySelectorAll('#rows tr').forEach(tr => {
+    recalcAmount(parseInt(tr.id.replace('row-', '')));
+  });
+  saveState();
+});
+
+// On load: restore from localStorage if present, otherwise show the example.
+const saved = loadState();
+if (saved && Array.isArray(saved.rows) && saved.rows.length) {
+  if (saved.rate) document.getElementById('rate').value = saved.rate;
+  saved.rows.forEach(row => addRow(row));
+} else {
+  addRow({ prestatie: 'Psycholoog CAW', from: 'Dalestraat 26, Sint-Denijs', to: 'CAW Kortrijk', sessions: 9 });
+  addRow({ prestatie: 'Psycholoog CAW', from: 'Deerlijkstraat 29, Zwevegem', to: 'CAW Kortrijk', sessions: 23 });
+  addRow({ prestatie: 'Psycholoog CAW', from: 'Hugo Verriestlaan 22, Ledegem', to: 'CAW Kortrijk', sessions: 19 });
+  addRow({ prestatie: 'Consultatie parodontoloog Ilse Geers', from: 'Dalestraat 26, Sint-Denijs', to: 'Deerlijksestraat 38a, Kortrijk', sessions: 4 });
+  addRow();
+}
+</script>
+</body>
+</html>

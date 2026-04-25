@@ -42,17 +42,17 @@ function fmtEurUnit(v: number | null | undefined, unit: Unit): string {
 
 function VlerickBanner({ url }: { url: string }) {
   return (
-    <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2.5 text-[11px] text-indigo-900">
+    <div className="rounded-lg border border-brand/20 bg-brand-soft/50 px-3 py-2.5 text-[11px] text-[color:var(--brand-ink)]">
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="font-semibold uppercase tracking-wider text-[10px]">Source</span>
-        <span className="text-indigo-400">|</span>
+        <span className="text-brand/60">|</span>
         <span>
           Multiples sourced from the{" "}
           <a
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-0.5 font-semibold text-indigo-700 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
+            className="inline-flex items-center gap-0.5 font-semibold text-[color:var(--brand-ink)] underline decoration-brand/40 underline-offset-2 hover:decoration-brand"
           >
             Vlerick M&amp;A Monitor
             <ExternalLink className="h-3 w-3" />
@@ -389,7 +389,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                    indication that the group toggle is active. */
                 <a
                   href="#valuation-group"
-                  className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 hover:bg-indigo-100 normal-case tracking-normal"
+                  className="inline-flex items-center gap-1 rounded-full bg-brand-soft/60 px-2 py-0.5 text-[10px] font-medium text-[color:var(--brand-ink)] hover:bg-brand-soft normal-case tracking-normal"
                   title="Headline reflects this primary plus the listed group companies"
                 >
                   <Users className="h-3 w-3" />
@@ -403,7 +403,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                 href={vlerick_reference.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
+                className="inline-flex items-center gap-0.5 font-semibold text-brand underline decoration-brand/40 underline-offset-2 hover:decoration-brand"
               >
                 {vlerick_reference.report}
                 <ExternalLink className="h-3 w-3" />
@@ -434,7 +434,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                   onClick={() => handleSourceChange(s.key)}
                   className={`rounded-md px-2.5 py-2 md:py-1 text-[11px] font-medium transition ${
                     sourceKey === s.key
-                      ? "bg-indigo-600 text-white"
+                      ? "bg-brand text-white"
                       : "text-slate-500 hover:text-slate-700"
                   }`}
                   title={s.label}
@@ -452,7 +452,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               disabled={!srcHasSector}
               className={`rounded-md px-3 py-2 md:py-1.5 text-xs font-medium transition ${
                 view === "sector"
-                  ? "bg-indigo-600 text-white"
+                  ? "bg-brand text-white"
                   : srcHasSector
                   ? "text-slate-500 hover:text-slate-700"
                   : "text-slate-300 cursor-not-allowed"
@@ -466,7 +466,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               disabled={!srcHasSize}
               className={`rounded-md px-3 py-2 md:py-1.5 text-xs font-medium transition ${
                 view === "size"
-                  ? "bg-indigo-600 text-white"
+                  ? "bg-brand text-white"
                   : srcHasSize
                   ? "text-slate-500 hover:text-slate-700"
                   : "text-slate-300 cursor-not-allowed"
@@ -483,7 +483,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           <select
             value={sectorOverride ?? profile.vlerick_sector}
             onChange={(e) => handleSectorChange(e.target.value)}
-            className={`rounded-md border border-slate-200 bg-white px-2 py-2 md:py-1 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none ${view === "sector" ? "" : "invisible"}`}
+            className={`rounded-md border border-slate-200 bg-white px-2 py-2 md:py-1 text-xs text-slate-700 focus:border-brand/60 focus:outline-none ${view === "sector" ? "" : "invisible"}`}
             title={sourceTag}
             aria-hidden={view !== "sector"}
           >
@@ -520,7 +520,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           <button
             onClick={fetchAiCommentary}
             disabled={aiLoading || loading}
-            className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-2 md:py-1 text-[11px] font-medium text-indigo-700 hover:border-indigo-400 hover:bg-indigo-100 disabled:opacity-50 transition"
+            className="inline-flex items-center gap-1 rounded-md border border-brand/30 bg-brand-soft/60 px-2 py-2 md:py-1 text-[11px] font-medium text-[color:var(--brand-ink)] hover:border-brand/60 hover:bg-brand-soft disabled:opacity-50 transition"
             title="Get an AI commentary on this valuation"
           >
             {aiLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
@@ -557,10 +557,10 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           2. Valuation remarks (company-specific observations on EBITDA
              trend, net-debt, spreads, caveats) */}
       {(aiHasContent || aiError) && (
-        <div className="rounded-lg border border-indigo-100 bg-indigo-50/40 p-3 no-print space-y-3">
+        <div className="rounded-lg border border-brand/20 bg-brand-soft/40 p-3 no-print space-y-3">
           <div className="flex items-center gap-1.5">
-            <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-indigo-700">
+            <Sparkles className="h-3.5 w-3.5 text-brand" />
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-[color:var(--brand-ink)]">
               AI commentary
             </span>
           </div>
@@ -568,7 +568,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
             <>
               {aiSectorRationale && (
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 mb-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-brand mb-1">
                     Sector rationale
                   </div>
                   <p className="text-[12px] leading-relaxed text-slate-700 whitespace-pre-wrap">
@@ -578,7 +578,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               )}
               {aiValuationRemarks && (
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 mb-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-brand mb-1">
                     Valuation remarks
                   </div>
                   <p className="text-[12px] leading-relaxed text-slate-700 whitespace-pre-wrap">
@@ -621,7 +621,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                   Applied multiple
                 </div>
-                <div className="mt-0.5 text-2xl font-bold text-indigo-600">
+                <div className="mt-0.5 text-2xl font-bold text-brand">
                   {fmtMultiple(activeMultiple)}
                 </div>
                 <div className="mt-0.5 text-[10px] text-slate-500 truncate" title={activeLabel}>
@@ -686,8 +686,8 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
         const avgYearsLabel = positiveEbitdas.length;
         const someNegativeExcluded = positiveEbitdas.length < totalReportedYears;
 
-        const avgHeadCls = "text-right text-xs min-w-[120px] bg-indigo-50/70 border-l border-indigo-200";
-        const avgCellCls = "text-right font-mono text-xs py-1.5 bg-indigo-50/40 border-l border-indigo-200";
+        const avgHeadCls = "text-right text-xs min-w-[120px] bg-brand-soft/70 border-l border-brand/30";
+        const avgCellCls = "text-right font-mono text-xs py-1.5 bg-brand-soft/40 border-l border-brand/30";
 
         return (
           <div>
@@ -709,7 +709,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                         className={avgHeadCls}
                         title={`Average across ${avgYearsLabel} positive-EBITDA year${avgYearsLabel === 1 ? "" : "s"}, multiplied by the Vlerick M&A Monitor multiple, minus the LATEST year's net debt${someNegativeExcluded ? " — loss-making years excluded" : ""}`}
                       >
-                        <span className="text-indigo-700 font-semibold">Avg ({avgYearsLabel}y)</span>
+                        <span className="text-[color:var(--brand-ink)] font-semibold">Avg ({avgYearsLabel}y)</span>
                       </TableHead>
                     )}
                   </TableRow>
@@ -725,15 +725,15 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     ))}
                     {hasAvg && <TableCell className={avgCellCls + " font-semibold text-slate-800"}>{fmt(avgEbitda)}</TableCell>}
                   </TableRow>
-                  <TableRow className="bg-indigo-50/30">
-                    <TableCell className="text-xs py-1.5 text-indigo-700 font-medium sticky left-0 z-[5] bg-indigo-50/30 whitespace-normal break-words w-[130px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)]">
+                  <TableRow className="bg-brand-soft/30">
+                    <TableCell className="text-xs py-1.5 text-[color:var(--brand-ink)] font-medium sticky left-0 z-[5] bg-brand-soft/30 whitespace-normal break-words w-[130px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)]">
                       × Vlerick M&amp;A Monitor multiple
                       <div className="text-[11px] text-slate-500 font-normal">Applied: {activeLabel}</div>
                     </TableCell>
                     {years.map((y, i) => (
-                      <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-indigo-700">{fmtMultiple(activeMultiple)}</TableCell>
+                      <TableCell key={i} className="text-right font-mono text-xs py-1.5 text-[color:var(--brand-ink)]">{fmtMultiple(activeMultiple)}</TableCell>
                     ))}
-                    {hasAvg && <TableCell className={avgCellCls + " text-indigo-700 font-semibold"}>{fmtMultiple(activeMultiple)}</TableCell>}
+                    {hasAvg && <TableCell className={avgCellCls + " text-[color:var(--brand-ink)] font-semibold"}>{fmtMultiple(activeMultiple)}</TableCell>}
                   </TableRow>
                   <TableRow className="border-t-2 border-slate-200">
                     <TableCell className="text-xs py-1.5 text-slate-800 font-semibold sticky left-0 z-[5] bg-white whitespace-normal break-words w-[130px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)]">
@@ -826,9 +826,9 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           </span>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-700">
+          <span className="inline-flex items-center gap-1 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-medium text-[color:var(--brand-ink)]">
             {companyName || fmtCbe(cbe)}
-            <span className="text-indigo-400">(primary)</span>
+            <span className="text-brand/60">(primary)</span>
           </span>
           {includeMembers.map((m) => (
             <span
@@ -847,7 +847,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           ))}
           <button
             onClick={() => setGroupSearchOpen((v) => !v)}
-            className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700"
+            className="inline-flex items-center gap-1 rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:border-brand/60 hover:text-[color:var(--brand-ink)]"
             disabled={includeMembers.length >= 9}
           >
             <Plus className="h-3 w-3" />
@@ -880,7 +880,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                     {bulkCount > 1 && (
                       <button
                         onClick={addAllGroupSuggestions}
-                        className="text-[10px] font-semibold uppercase tracking-wider text-indigo-600 hover:text-indigo-800"
+                        className="text-[10px] font-semibold uppercase tracking-wider text-brand hover:text-[color:var(--brand-ink)]"
                         title="Consolidate the whole known group into the valuation"
                       >
                         + Add all {bulkCount}
@@ -892,7 +892,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                       <li key={s.cbe}>
                         <button
                           onClick={() => addGroupMember(s)}
-                          className="block w-full px-3 py-2 text-left text-[12px] hover:bg-indigo-50"
+                          className="block w-full px-3 py-2 text-left text-[12px] hover:bg-brand-soft/60"
                         >
                           <div className="font-medium text-slate-800">{s.name}</div>
                           <div className="text-[10px] text-slate-400">{fmtCbe(s.cbe)}</div>
@@ -914,7 +914,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
                   <li key={r.enterprise_number}>
                     <button
                       onClick={() => addGroupMember({ cbe: r.enterprise_number, name: r.name || r.enterprise_number })}
-                      className="block w-full px-3 py-2 text-left text-[12px] hover:bg-indigo-50"
+                      className="block w-full px-3 py-2 text-left text-[12px] hover:bg-brand-soft/60"
                     >
                       <div className="font-medium text-slate-800">{r.name || r.enterprise_number}</div>
                       <div className="text-[10px] text-slate-400">{fmtCbe(r.enterprise_number)}</div>
@@ -946,7 +946,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               href={vlerick_reference.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
+              className="font-semibold text-brand underline decoration-brand/40 underline-offset-2 hover:decoration-brand"
             >
               {vlerick_reference.report}
             </a>
@@ -967,7 +967,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
               href={vlerick_reference.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-0.5 font-semibold text-indigo-600 underline decoration-indigo-300 underline-offset-2 hover:decoration-indigo-500"
+              className="inline-flex items-center gap-0.5 font-semibold text-brand underline decoration-brand/40 underline-offset-2 hover:decoration-brand"
             >
               {vlerick_reference.report}
               <ExternalLink className="h-3 w-3" />

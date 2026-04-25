@@ -211,7 +211,7 @@ export function BalanceSheetTab({
       />
 
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-brand pl-2">
           {t("company.bs.title")}
         </h3>
         <ExportButtons
@@ -252,7 +252,7 @@ export function BalanceSheetTab({
                         <button
                           type="button"
                           onClick={() => toggleSection(summaryOf!)}
-                          className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors text-left"
+                          className="inline-flex items-center gap-1 hover:text-brand transition-colors text-left"
                           aria-expanded={!isCollapsedSummary}
                         >
                           <span className="text-xs leading-none">{isCollapsedSummary ? "\u25b8" : "\u25be"}</span>

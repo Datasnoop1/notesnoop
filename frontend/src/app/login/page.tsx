@@ -97,8 +97,17 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-[70vh]">
-      <Card className="w-full max-w-sm bg-white">
+    <div className="relative isolate flex items-center justify-center min-h-[70vh]">
+      {/* Subtle teal backdrop — only place in the app where a form sits on glass. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10"
+        style={{
+          background:
+            "radial-gradient(ellipse 480px 360px at center, rgba(13,115,119,0.10), transparent 60%)",
+        }}
+      />
+      <Card className="w-full max-w-sm glass-card border-0 shadow-none">
         <CardContent className="pt-6 pb-5 px-6">
           {/* Header */}
           <div className="text-center mb-5">
@@ -195,7 +204,7 @@ export default function LoginPage() {
 
             <Button
               type="submit"
-              className="w-full bg-indigo-600 hover:bg-indigo-700"
+              className="w-full bg-brand hover:bg-[color:var(--brand-ink)]"
               disabled={loading}
             >
               {loading ? t("login.pleaseWait") : buttonLabels[mode]}
@@ -206,9 +215,9 @@ export default function LoginPage() {
           {mode === "signup" && (
             <p className="text-center text-[11px] text-slate-400 mt-3">
               {t("login.termsNotice")}{" "}
-              <Link href="/terms" className="text-indigo-600 hover:underline">{t("login.termsOfUse")}</Link>
+              <Link href="/terms" className="text-brand hover:underline">{t("login.termsOfUse")}</Link>
               {" "}{t("login.and")}{" "}
-              <Link href="/privacy" className="text-indigo-600 hover:underline">{t("login.privacyPolicy")}</Link>.
+              <Link href="/privacy" className="text-brand hover:underline">{t("login.privacyPolicy")}</Link>.
             </p>
           )}
 
@@ -218,13 +227,13 @@ export default function LoginPage() {
               <>
                 <button
                   onClick={() => switchMode("forgot")}
-                  className="text-indigo-600 hover:underline font-medium block mx-auto"
+                  className="text-brand hover:underline font-medium block mx-auto"
                 >
                   {t("login.forgotPassword")}
                 </button>
                 <p>
                   {t("login.noAccount")}{" "}
-                  <button onClick={() => switchMode("signup")} className="text-indigo-600 hover:underline font-medium">
+                  <button onClick={() => switchMode("signup")} className="text-brand hover:underline font-medium">
                     {t("login.signUp")}
                   </button>
                 </p>
@@ -233,7 +242,7 @@ export default function LoginPage() {
             {mode === "signup" && (
               <p>
                 {t("login.alreadyHaveAccount")}{" "}
-                <button onClick={() => switchMode("login")} className="text-indigo-600 hover:underline font-medium">
+                <button onClick={() => switchMode("login")} className="text-brand hover:underline font-medium">
                   {t("login.signInButton")}
                 </button>
               </p>
@@ -241,7 +250,7 @@ export default function LoginPage() {
             {mode === "forgot" && (
               <p>
                 {t("login.rememberPassword")}{" "}
-                <button onClick={() => switchMode("login")} className="text-indigo-600 hover:underline font-medium">
+                <button onClick={() => switchMode("login")} className="text-brand hover:underline font-medium">
                   {t("login.signInButton")}
                 </button>
               </p>

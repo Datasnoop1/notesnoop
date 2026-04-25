@@ -46,7 +46,18 @@ export default function Home() {
   }
 
   return (
-    <div className="flex flex-col items-center px-4 pt-[10vh] pb-24 bg-white">
+    <div className="relative isolate flex flex-col items-center px-4 pt-[10vh] pb-24">
+      {/* Decorative teal radial — sits BEHIND the search input as a subtle
+          spotlight, on top of the body-wide top aura. Pointer-events-none
+          so it never traps clicks. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[480px] -z-10"
+        style={{
+          background:
+            "radial-gradient(ellipse 60% 80% at center 35%, rgba(13,115,119,0.09) 0%, rgba(13,115,119,0.03) 35%, transparent 70%)",
+        }}
+      />
       {/* Brand */}
       <div className="flex flex-col items-center mb-12 sm:mb-14">
         <img
@@ -57,8 +68,8 @@ export default function Home() {
           className="rounded-xl bg-white mb-6 sm:mb-7 opacity-95 sm:w-[88px] sm:h-[88px]"
         />
         <div className="flex items-baseline gap-2 sm:gap-3">
-          <h1 className="text-4xl sm:text-6xl font-light text-gray-900 tracking-tight">
-            Datasnoop
+          <h1 className="text-4xl sm:text-6xl font-light tracking-tight">
+            <span className="text-gray-900">data</span><span className="text-brand">snoop</span>
           </h1>
           <span className="text-[11px] sm:text-[12px] font-medium text-gray-400 uppercase tracking-[0.2em]">
             Beta
@@ -93,6 +104,10 @@ export default function Home() {
           <Link href="/guide" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
             User guide
           </Link>
+          <span className="text-gray-300" aria-hidden>·</span>
+          <a href="/use-cases.html" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
+            Use cases
+          </a>
         </div>
       </form>
 

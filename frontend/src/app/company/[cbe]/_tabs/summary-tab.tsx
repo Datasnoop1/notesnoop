@@ -315,7 +315,7 @@ export function SummaryTab({
                       const prevRow = i < recentFirst.length - 1 ? recentFirst[i + 1] : null;
                       const isLatest = i === 0;
                       return (
-                        <tr key={r.fiscal_year} className={isLatest ? "bg-indigo-50/30 font-medium" : "border-t border-slate-50"}>
+                        <tr key={r.fiscal_year} className={isLatest ? "bg-brand-soft/30 font-medium" : "border-t border-slate-50"}>
                           <td className="px-5 py-2 font-mono text-slate-700">{r.fiscal_year}</td>
                           <td className="px-3 py-2 text-right font-mono text-slate-700">
                             {fmtEur(r.revenue)}
@@ -356,7 +356,7 @@ export function SummaryTab({
               {currentAdmins.length > 0 && <span className="text-slate-300">({currentAdmins.length})</span>}
             </h3>
             {currentAdmins.length > 0 && (
-              <button type="button" onClick={() => setActiveTab("administrators")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+              <button type="button" onClick={() => setActiveTab("administrators")} className="text-[10px] text-brand hover:text-[color:var(--brand-ink)] font-medium transition-colors">
                 View all →
               </button>
             )}
@@ -371,16 +371,16 @@ export function SummaryTab({
                 const adminCbe = cleanCbe(a.identifier);
                 return (
                   <div key={`${a.name}-${i}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 transition-colors">
-                    <div className="h-8 w-8 rounded-full bg-indigo-50 flex items-center justify-center text-[10px] font-bold text-indigo-600 shrink-0">
+                    <div className="h-8 w-8 rounded-full bg-brand-soft flex items-center justify-center text-[10px] font-bold text-brand shrink-0">
                       {(a.name || "?").slice(0, 2).toUpperCase()}
                     </div>
                     <div className="min-w-0 flex-1">
                       {adminCbe ? (
-                        <Link href={`/company/${adminCbe}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                        <Link href={`/company/${adminCbe}`} className="text-sm text-brand hover:text-[color:var(--brand-ink)] hover:underline font-medium truncate block">
                           {a.name}
                         </Link>
                       ) : (
-                        <Link href={`/people?q=${encodeURIComponent(a.name)}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                        <Link href={`/people?q=${encodeURIComponent(a.name)}`} className="text-sm text-brand hover:text-[color:var(--brand-ink)] hover:underline font-medium truncate block">
                           {a.name}
                         </Link>
                       )}
@@ -397,7 +397,7 @@ export function SummaryTab({
                 );
               })}
               {currentAdmins.length > 6 && (
-                <button type="button" onClick={() => setActiveTab("administrators")} className="w-full text-center text-[10px] text-indigo-500 hover:text-indigo-700 py-1 font-medium">
+                <button type="button" onClick={() => setActiveTab("administrators")} className="w-full text-center text-[10px] text-brand hover:text-[color:var(--brand-ink)] py-1 font-medium">
                   + {currentAdmins.length - 6} more people →
                 </button>
               )}
@@ -415,7 +415,7 @@ export function SummaryTab({
               )}
             </h3>
             {(structure?.staatsblad_publications?.length ?? 0) > 0 && (
-              <button type="button" onClick={() => setActiveTab("publications")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+              <button type="button" onClick={() => setActiveTab("publications")} className="text-[10px] text-brand hover:text-[color:var(--brand-ink)] font-medium transition-colors">
                 View all →
               </button>
             )}
@@ -441,7 +441,7 @@ export function SummaryTab({
                 </div>
               ))}
               {structure.staatsblad_publications.length > 6 && (
-                <button type="button" onClick={() => setActiveTab("publications")} className="w-full text-center text-[10px] text-indigo-500 hover:text-indigo-700 py-1 font-medium">
+                <button type="button" onClick={() => setActiveTab("publications")} className="w-full text-center text-[10px] text-brand hover:text-[color:var(--brand-ink)] py-1 font-medium">
                   + {structure.staatsblad_publications.length - 6} more →
                 </button>
               )}
@@ -456,7 +456,7 @@ export function SummaryTab({
               {(structure?.shareholders?.length ?? 0) > 0 && <span className="text-slate-300">({structure?.shareholders?.length})</span>}
             </h3>
             {(structure?.shareholders?.length ?? 0) > 0 && (
-              <button type="button" onClick={() => setActiveTab("structure")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+              <button type="button" onClick={() => setActiveTab("structure")} className="text-[10px] text-brand hover:text-[color:var(--brand-ink)] font-medium transition-colors">
                 View all →
               </button>
             )}
@@ -476,11 +476,11 @@ export function SummaryTab({
                   </div>
                   <div className="min-w-0 flex-1">
                     {shCbe ? (
-                      <Link href={`/company/${shCbe}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                      <Link href={`/company/${shCbe}`} className="text-sm text-brand hover:text-[color:var(--brand-ink)] hover:underline font-medium truncate block">
                         {sh.name}
                       </Link>
                     ) : (
-                      <Link href={`/people?q=${encodeURIComponent(sh.name)}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                      <Link href={`/people?q=${encodeURIComponent(sh.name)}`} className="text-sm text-brand hover:text-[color:var(--brand-ink)] hover:underline font-medium truncate block">
                         {sh.name}
                       </Link>
                     )}
@@ -492,13 +492,13 @@ export function SummaryTab({
                     </div>
                   </div>
                   {sh.ownership_pct != null && (
-                    <span className="text-xs font-semibold font-mono text-indigo-600 shrink-0">{sh.ownership_pct.toFixed(1)}%</span>
+                    <span className="text-xs font-semibold font-mono text-brand shrink-0">{sh.ownership_pct.toFixed(1)}%</span>
                   )}
                 </div>
                 );
               })}
               {structure.shareholders.length > 5 && (
-                <button type="button" onClick={() => setActiveTab("structure")} className="w-full text-center text-[10px] text-indigo-500 hover:text-indigo-700 py-1 font-medium">
+                <button type="button" onClick={() => setActiveTab("structure")} className="w-full text-center text-[10px] text-brand hover:text-[color:var(--brand-ink)] py-1 font-medium">
                   + {structure.shareholders.length - 5} more shareholders →
                 </button>
               )}
@@ -514,7 +514,7 @@ export function SummaryTab({
               {(structure?.participating_interests?.length ?? 0) > 0 && <span className="text-slate-300">({structure?.participating_interests?.length})</span>}
             </h3>
             {(structure?.participating_interests?.length ?? 0) > 0 && (
-              <button type="button" onClick={() => setActiveTab("structure")} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+              <button type="button" onClick={() => setActiveTab("structure")} className="text-[10px] text-brand hover:text-[color:var(--brand-ink)] font-medium transition-colors">
                 View all →
               </button>
             )}
@@ -534,11 +534,11 @@ export function SummaryTab({
                   </div>
                   <div className="min-w-0 flex-1">
                     {subCbe ? (
-                      <Link href={`/company/${subCbe}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                      <Link href={`/company/${subCbe}`} className="text-sm text-brand hover:text-[color:var(--brand-ink)] hover:underline font-medium truncate block">
                         {sub.name}
                       </Link>
                     ) : (
-                      <Link href={`/people?q=${encodeURIComponent(sub.name)}`} className="text-sm text-indigo-600 hover:text-indigo-800 hover:underline font-medium truncate block">
+                      <Link href={`/people?q=${encodeURIComponent(sub.name)}`} className="text-sm text-brand hover:text-[color:var(--brand-ink)] hover:underline font-medium truncate block">
                         {sub.name}
                       </Link>
                     )}
@@ -548,13 +548,13 @@ export function SummaryTab({
                     </div>
                   </div>
                   {sub.ownership_pct != null && (
-                    <span className="text-xs font-semibold font-mono text-indigo-600 shrink-0">{sub.ownership_pct.toFixed(1)}%</span>
+                    <span className="text-xs font-semibold font-mono text-brand shrink-0">{sub.ownership_pct.toFixed(1)}%</span>
                   )}
                 </div>
                 );
               })}
               {structure.participating_interests.length > 5 && (
-                <button type="button" onClick={() => setActiveTab("structure")} className="w-full text-center text-[10px] text-indigo-500 hover:text-indigo-700 py-1 font-medium">
+                <button type="button" onClick={() => setActiveTab("structure")} className="w-full text-center text-[10px] text-brand hover:text-[color:var(--brand-ink)] py-1 font-medium">
                   + {structure.participating_interests.length - 5} more subsidiaries →
                 </button>
               )}
@@ -569,7 +569,7 @@ export function SummaryTab({
           <button
             type="button"
             onClick={() => setActiveTab("pnl")}
-            className="text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
+            className="text-xs text-brand hover:text-[color:var(--brand-ink)] font-medium flex items-center gap-1 transition-colors"
           >
             P&L details <ChevronRight className="h-3 w-3" />
           </button>
@@ -578,7 +578,7 @@ export function SummaryTab({
           <button
             type="button"
             onClick={() => setActiveTab("credit")}
-            className="text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
+            className="text-xs text-brand hover:text-[color:var(--brand-ink)] font-medium flex items-center gap-1 transition-colors"
           >
             Credit analysis <ChevronRight className="h-3 w-3" />
           </button>
@@ -587,7 +587,7 @@ export function SummaryTab({
           <button
             type="button"
             onClick={() => setActiveTab("administrators")}
-            className="text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
+            className="text-xs text-brand hover:text-[color:var(--brand-ink)] font-medium flex items-center gap-1 transition-colors"
           >
             {currentAdmins.length} administrator{currentAdmins.length !== 1 ? "s" : ""} <ChevronRight className="h-3 w-3" />
           </button>
@@ -596,7 +596,7 @@ export function SummaryTab({
           <button
             type="button"
             onClick={() => setActiveTab("structure")}
-            className="text-xs text-indigo-500 hover:text-indigo-700 font-medium flex items-center gap-1 transition-colors"
+            className="text-xs text-brand hover:text-[color:var(--brand-ink)] font-medium flex items-center gap-1 transition-colors"
           >
             Structure <ChevronRight className="h-3 w-3" />
           </button>
@@ -631,7 +631,7 @@ function CompanyTimeline({ cbe }: { cbe: string }) {
 
   const dotColor: Record<string, string> = {
     founding: "bg-emerald-500",
-    filing: "bg-indigo-400",
+    filing: "bg-brand/60",
     publication: "bg-amber-400",
     mandate_start: "bg-sky-400",
     mandate_end: "bg-rose-400",
@@ -673,7 +673,7 @@ function CompanyTimeline({ cbe }: { cbe: string }) {
                           href={e.ref}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="hover:text-indigo-600 hover:underline"
+                          className="hover:text-brand hover:underline"
                         >
                           {e.label}
                         </a>

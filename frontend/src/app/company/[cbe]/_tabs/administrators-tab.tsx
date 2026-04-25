@@ -129,7 +129,7 @@ export function AdministratorsTab({
                             <GoogleSearchLink query={admin.name}>
                               <Link
                                 href={`/company/${adminCbe}`}
-                                className="font-bold text-sm text-indigo-600 hover:underline truncate"
+                                className="font-bold text-sm text-brand hover:underline truncate"
                               >
                                 {admin.name}
                               </Link>
@@ -138,7 +138,7 @@ export function AdministratorsTab({
                             <GoogleSearchLink query={admin.name}>
                               <Link
                                 href={`/people?q=${encodeURIComponent(admin.name)}`}
-                                className="font-bold text-sm text-indigo-600 hover:underline truncate"
+                                className="font-bold text-sm text-brand hover:underline truncate"
                               >
                                 {admin.name}
                               </Link>
@@ -169,8 +169,8 @@ export function AdministratorsTab({
                           title="Enrich with AI"
                           className={`h-10 w-10 md:h-6 md:w-6 flex items-center justify-center rounded transition-colors ${
                             pe?.summary
-                              ? "text-indigo-500"
-                              : "text-slate-300 hover:text-indigo-500"
+                              ? "text-brand"
+                              : "text-slate-300 hover:text-brand"
                           }`}
                         >
                           {pe?.loading ? (
@@ -202,9 +202,9 @@ export function AdministratorsTab({
                       </div>
                     </div>
                     {pe?.summary && (
-                      <div className="mt-2 pt-2 border-t border-indigo-100">
+                      <div className="mt-2 pt-2 border-t border-brand/20">
                         <div className="flex items-start gap-1.5">
-                          <Sparkles className="h-3 w-3 text-indigo-400 mt-0.5 shrink-0" />
+                          <Sparkles className="h-3 w-3 text-brand/60 mt-0.5 shrink-0" />
                           <p className="text-xs text-slate-600 leading-relaxed">{pe.summary}</p>
                         </div>
                       </div>
@@ -344,8 +344,8 @@ export function AdministratorsTab({
                             title="Enrich with AI"
                             className={`h-10 w-10 md:h-6 md:w-6 flex items-center justify-center rounded transition-colors ${
                               pe?.summary
-                                ? "text-indigo-500"
-                                : "text-slate-300 hover:text-indigo-500"
+                                ? "text-brand"
+                                : "text-slate-300 hover:text-brand"
                             }`}
                           >
                             {pe?.loading ? (
@@ -363,9 +363,9 @@ export function AdministratorsTab({
                         </div>
                       </div>
                       {pe?.summary && (
-                        <div className="mt-2 pt-2 border-t border-indigo-100">
+                        <div className="mt-2 pt-2 border-t border-brand/20">
                           <div className="flex items-start gap-1.5">
-                            <Sparkles className="h-3 w-3 text-indigo-400 mt-0.5 shrink-0" />
+                            <Sparkles className="h-3 w-3 text-brand/60 mt-0.5 shrink-0" />
                             <p className="text-xs text-slate-600 leading-relaxed">{pe.summary}</p>
                           </div>
                         </div>

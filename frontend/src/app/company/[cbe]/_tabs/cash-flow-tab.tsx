@@ -245,7 +245,7 @@ export function CashFlowTab({
                         <button
                           type="button"
                           onClick={() => toggleSection(summaryOf!)}
-                          className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors text-left"
+                          className="inline-flex items-center gap-1 hover:text-brand transition-colors text-left"
                           aria-expanded={!isCollapsedSummary}
                         >
                           <span className="text-xs leading-none">{isCollapsedSummary ? "\u25b8" : "\u25be"}</span>

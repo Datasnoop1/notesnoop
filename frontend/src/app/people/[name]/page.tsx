@@ -46,7 +46,7 @@ function sourceBadge(source: string | null) {
   }
   if (source === "merged") {
     return (
-      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-brand-soft text-[color:var(--brand-ink)] border border-brand/20">
         merged
       </span>
     );
@@ -65,7 +65,7 @@ function AdminRoleRow({ role }: { role: PersonAdminRole }) {
       <div className="min-w-0 flex-1">
         <Link
           href={`/company/${role.enterprise_number}`}
-          className="text-sm font-medium text-indigo-600 hover:underline truncate block"
+          className="text-sm font-medium text-brand hover:underline truncate block"
         >
           {role.company_name || fmtCbe(role.enterprise_number)}
         </Link>
@@ -108,7 +108,7 @@ function HoldingRow({ h }: { h: PersonShareholding }) {
       <div className="min-w-0 flex-1">
         <Link
           href={`/company/${h.enterprise_number}`}
-          className="text-sm font-medium text-indigo-600 hover:underline truncate block"
+          className="text-sm font-medium text-brand hover:underline truncate block"
         >
           {h.company_name || fmtCbe(h.enterprise_number)}
         </Link>
@@ -184,7 +184,7 @@ export default function PersonProfilePage() {
     <div className="mx-auto w-full max-w-[1000px] px-4 py-6">
       <Link
         href="/people"
-        className="mb-4 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600"
+        className="mb-4 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-brand"
       >
         <ArrowLeft className="h-3 w-3" /> Back to people
       </Link>
@@ -208,7 +208,7 @@ export default function PersonProfilePage() {
 
       {loading && (
         <div className="flex items-center justify-center py-10">
-          <Loader2 className="h-5 w-5 animate-spin text-indigo-400" />
+          <Loader2 className="h-5 w-5 animate-spin text-brand/60" />
         </div>
       )}
       {err && !loading && (
@@ -278,7 +278,7 @@ export default function PersonProfilePage() {
               <span className="absolute top-2 bottom-2 left-1 w-px bg-slate-200" />
               {timeline.map(({ year, rows }) => (
                 <div key={year} className="mb-3 relative">
-                  <span className="absolute -left-3 top-1 inline-block w-2 h-2 rounded-full bg-indigo-400" />
+                  <span className="absolute -left-3 top-1 inline-block w-2 h-2 rounded-full bg-brand/60" />
                   <div className="text-[11px] font-mono text-slate-500 mb-1">
                     {year === "unknown" ? "No date" : year}
                   </div>
@@ -287,7 +287,7 @@ export default function PersonProfilePage() {
                       <li key={`${r.enterprise_number}-${i}`} className="text-xs text-slate-600">
                         <Link
                           href={`/company/${r.enterprise_number}`}
-                          className="text-indigo-600 hover:underline inline-flex items-center gap-1"
+                          className="text-brand hover:underline inline-flex items-center gap-1"
                         >
                           {r.company_name || fmtCbe(r.enterprise_number)}
                           <ExternalLink className="h-3 w-3" />

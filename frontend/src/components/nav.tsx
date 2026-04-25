@@ -99,7 +99,7 @@ export default function Nav() {
   const hideHeaderSearch = isLanding || pathname === "/search";
 
   return (
-    <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80">
+    <header className="sticky top-0 z-50 glass-chrome">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className={`flex items-center h-16 ${isLanding ? "justify-center" : "justify-between"}`}>
           {/* Brand — hidden on landing (brand lives in the hero there) */}
@@ -108,10 +108,11 @@ export default function Nav() {
           ) : (
             <Link href="/" className="flex items-center gap-2.5 group shrink-0">
               <img src={logoPath} alt="Datasnoop" width={44} height={44} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/95" />
-              <span className="text-base font-semibold text-slate-900 tracking-tight">
-                Datasnoop
+              <span className="text-base font-semibold tracking-tight">
+                <span className="text-slate-900">data</span>
+                <span className="text-brand">snoop</span>
               </span>
-              <span className="text-[9px] sm:text-[10px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
+              <span className="text-[9px] sm:text-[10px] font-bold bg-brand-soft text-brand px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
             </Link>
           )}
 
@@ -206,7 +207,7 @@ export default function Nav() {
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger className="hidden md:flex items-center px-2 py-1.5 rounded-md hover:bg-slate-50 transition-colors">
-                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[11px] font-bold">
+                  <div className="w-7 h-7 rounded-full bg-brand text-white flex items-center justify-center text-[11px] font-bold">
                     {initials}
                   </div>
                 </DropdownMenuTrigger>
@@ -244,9 +245,9 @@ export default function Nav() {
                 </span>
               </SheetTrigger>
               <SheetContent side="left" className="w-64">
-                <SheetTitle className="flex items-center gap-2 text-base font-semibold text-slate-900">
+                <SheetTitle className="flex items-center gap-2 text-base font-semibold">
                   <img src={logoPath} alt="Datasnoop" width={36} height={36} className="rounded-md bg-white/95" />
-                  Datasnoop
+                  <span><span className="text-slate-900">data</span><span className="text-brand">snoop</span></span>
                 </SheetTitle>
                 <div className="mt-6 flex flex-col gap-4">
                   {/* Sign in lives only in the top header per operator

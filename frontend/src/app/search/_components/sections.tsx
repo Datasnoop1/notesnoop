@@ -99,16 +99,16 @@ function CompanyCard({
   // Primary tone = indigo, muted tone = slate (for nonprofit/public section).
   // Top match = subtle ring + bolder border so the best result is obvious.
   const iconBg =
-    tone === "primary" ? "bg-indigo-50 text-indigo-500" : "bg-slate-100 text-slate-500";
+    tone === "primary" ? "bg-brand-soft text-brand" : "bg-slate-100 text-slate-500";
   const hoverBorder =
-    tone === "primary" ? "hover:border-indigo-200" : "hover:border-slate-300";
+    tone === "primary" ? "hover:border-brand/30" : "hover:border-slate-300";
   const hoverText =
-    tone === "primary" ? "group-hover:text-indigo-600" : "group-hover:text-slate-700";
+    tone === "primary" ? "group-hover:text-brand" : "group-hover:text-slate-700";
   const Icon = tone === "primary" ? Building : Landmark;
 
   const topRing =
     topMatch && tone === "primary"
-      ? "border-indigo-300 ring-1 ring-indigo-100 shadow-sm"
+      ? "border-brand/40 ring-1 ring-brand/20 shadow-sm"
       : topMatch && tone === "muted"
         ? "border-slate-300 ring-1 ring-slate-100 shadow-sm"
         : "border-slate-200";
@@ -198,7 +198,7 @@ function PersonCard({
       <Link
         href={`/company/${c.cbe}`}
         onClick={(e) => e.stopPropagation()}
-        className="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-indigo-100 hover:text-indigo-700 transition-colors"
+        className="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 hover:bg-brand-soft hover:text-[color:var(--brand-ink)] transition-colors"
       >
         {c.name}
       </Link>
@@ -334,12 +334,12 @@ function SectionHeader({
   accent: "indigo" | "emerald" | "slate";
 }) {
   const border = {
-    indigo: "border-indigo-500",
+    indigo: "border-brand",
     emerald: "border-emerald-400",
     slate: "border-slate-300",
   }[accent];
   const iconTint = {
-    indigo: "text-indigo-500",
+    indigo: "text-brand",
     emerald: "text-emerald-500",
     slate: "text-slate-500",
   }[accent];

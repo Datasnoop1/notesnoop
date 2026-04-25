@@ -125,7 +125,7 @@ export function PublicationsTab({
             }
           }}
           disabled={nbbLoading}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-indigo-600 border border-indigo-300 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium text-brand border border-brand/40 rounded-lg hover:bg-brand-soft/60 disabled:opacity-50 transition-colors"
         >
           {nbbLoading ? (
             <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {t("company.pubLoading")}</>
@@ -185,8 +185,8 @@ export function PublicationsTab({
             </div>
           )}
           {!pubSummary.risk_flag && pubSummary.pattern_alert && (
-            <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2 flex items-start gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-500 mt-0.5 shrink-0" />
+            <div className="rounded-lg border border-brand/20 bg-brand-soft/50 px-3 py-2 flex items-start gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-brand mt-0.5 shrink-0" />
               <p className="text-xs text-slate-700">{pubSummary.pattern_alert}</p>
             </div>
           )}
@@ -194,13 +194,13 @@ export function PublicationsTab({
           <div className="rounded-lg border overflow-hidden bg-white">
             <div className="px-3 py-1.5 bg-slate-50 border-b flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-indigo-500" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">{t("company.pubAiAnalysis")}</span>
+                <Sparkles className="w-3 h-3 text-brand" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-brand">{t("company.pubAiAnalysis")}</span>
               </div>
               <button
                 onClick={() => generateSummary(true)}
                 disabled={summaryLoading}
-                className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-brand transition-colors disabled:opacity-50"
                 title={t("company.pubRefresh")}
               >
                 <RefreshCw className={`w-3 h-3 ${summaryLoading ? "animate-spin" : ""}`} />
@@ -224,16 +224,16 @@ export function PublicationsTab({
           </div>
         </div>
       ) : pubSummary && (pubSummary.parse_error || typeof pubSummary === "string") ? (
-        <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/50 p-3">
+        <div className="mb-4 rounded-lg border border-brand/20 bg-brand-soft/50 p-3">
           <div className="flex items-center justify-between mb-1.5">
             <div className="flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-500">{t("company.pubAiAnalysis")}</span>
+              <Sparkles className="w-3.5 h-3.5 text-brand" />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-brand">{t("company.pubAiAnalysis")}</span>
             </div>
             <button
               onClick={() => generateSummary(true)}
               disabled={summaryLoading}
-              className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-brand transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-3 h-3 ${summaryLoading ? "animate-spin" : ""}`} />
               {t("company.pubRefresh")}
@@ -242,8 +242,8 @@ export function PublicationsTab({
           <p className="text-xs text-slate-700 leading-relaxed">{typeof pubSummary === "string" ? pubSummary : pubSummary.raw_text}</p>
         </div>
       ) : summaryLoading ? (
-        <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4 flex items-center justify-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+        <div className="mb-4 rounded-lg border border-brand/20 bg-brand-soft/30 p-4 flex items-center justify-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-brand/60" />
           <span className="text-xs text-slate-500">{t("company.pubAnalyzing")}</span>
         </div>
       ) : null}
@@ -311,7 +311,7 @@ export function PublicationsTab({
                         }
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center h-10 w-10 md:h-6 md:w-6 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition-colors"
+                        className="inline-flex items-center justify-center h-10 w-10 md:h-6 md:w-6 rounded hover:bg-brand-soft/60 text-brand hover:text-[color:var(--brand-ink)] transition-colors"
                         title="View PDF"
                       >
                         <FileText className="h-4 w-4 md:h-3.5 md:w-3.5" />

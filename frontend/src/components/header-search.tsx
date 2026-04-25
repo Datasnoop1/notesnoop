@@ -327,7 +327,7 @@ function Option({
 }) {
   const tint =
     tone === "primary"
-      ? "text-indigo-500"
+      ? "text-brand"
       : tone === "emerald"
         ? "text-emerald-500"
         : "text-slate-400";

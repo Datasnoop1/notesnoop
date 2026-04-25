@@ -159,7 +159,7 @@ export default function TermsOfUsePage() {
           <h2 className="text-lg font-semibold text-slate-800 mb-2">13. Contact</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
             For any questions about these Terms of Use, please contact us at{" "}
-            <a href="mailto:info@datasnoop.be" className="text-indigo-600 hover:underline">
+            <a href="mailto:info@datasnoop.be" className="text-brand hover:underline">
               info@datasnoop.be
             </a>.
           </p>
@@ -167,7 +167,7 @@ export default function TermsOfUsePage() {
 
         {/* Back link */}
         <div className="pt-4 border-t border-slate-200">
-          <Link href="/" className="text-sm text-indigo-600 hover:underline">
+          <Link href="/" className="text-sm text-brand hover:underline">
             &larr; Back to Datasnoop
           </Link>
         </div>

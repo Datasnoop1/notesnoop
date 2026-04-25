@@ -46,10 +46,10 @@ export default function LinkedInPage() {
           </CardContent>
         </Card>
 
-        <Card className="bg-white border-l-4 border-l-indigo-500">
+        <Card className="bg-white border-l-4 border-l-brand">
           <CardContent className="pt-4 pb-4">
             <div className="flex items-start gap-3">
-              <Building2 className="w-5 h-5 text-indigo-500 mt-0.5 shrink-0" />
+              <Building2 className="w-5 h-5 text-brand mt-0.5 shrink-0" />
               <div>
                 <h3 className="text-sm font-semibold text-slate-900">Company Matching</h3>
                 <p className="text-xs text-slate-500 mt-1">
@@ -79,7 +79,7 @@ export default function LinkedInPage() {
       </div>
 
       {/* CTA */}
-      <Card className="bg-gradient-to-r from-[#0A66C2]/5 to-indigo-50/50 border-[#0A66C2]/20">
+      <Card className="bg-gradient-to-r from-[#0A66C2]/5 to-brand-soft/50 border-[#0A66C2]/20">
         <CardContent className="pt-5 pb-5 text-center">
           <Lock className="w-8 h-8 text-slate-300 mx-auto mb-3" />
           <h3 className="text-base font-semibold text-slate-900 mb-1">
@@ -91,7 +91,7 @@ export default function LinkedInPage() {
           </p>
           {!user && (
             <Link href="/login">
-              <Button className="bg-indigo-600 hover:bg-indigo-700">
+              <Button className="bg-brand hover:bg-[color:var(--brand-ink)]">
                 Sign in to get notified
               </Button>
             </Link>

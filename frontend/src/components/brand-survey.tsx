@@ -68,14 +68,14 @@ export default function BrandSurvey() {
         <CardContent className="pt-6 pb-5 px-6">
           {voted ? (
             <div className="text-center py-4">
-              <BarChart3 className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
+              <BarChart3 className="w-8 h-8 text-brand mx-auto mb-2" />
               <p className="font-semibold text-slate-900">Thanks for your vote!</p>
             </div>
           ) : (
             <>
               <div className="text-center mb-5">
-                <BarChart3 className="w-6 h-6 text-indigo-500 mx-auto mb-2" />
-                <p className="text-sm font-bold uppercase tracking-wider text-indigo-600 mb-1">
+                <BarChart3 className="w-6 h-6 text-brand mx-auto mb-2" />
+                <p className="text-sm font-bold uppercase tracking-wider text-brand mb-1">
                   {poll.title}
                 </p>
                 <h2 className="text-lg font-bold text-slate-900">
@@ -88,7 +88,7 @@ export default function BrandSurvey() {
                   <Button
                     key={opt}
                     variant="outline"
-                    className="w-full justify-start text-left h-12 text-sm font-medium hover:bg-indigo-50 hover:border-indigo-300"
+                    className="w-full justify-start text-left h-12 text-sm font-medium hover:bg-brand-soft/60 hover:border-brand/40"
                     onClick={() => handleVote(opt)}
                     disabled={submitting}
                   >

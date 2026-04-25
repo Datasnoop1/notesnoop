@@ -255,9 +255,9 @@ function SortHeader({
   const isActive = currentSort === sortKey;
   return (
     <th
-      className={`py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap transition-colors hover:text-indigo-600 ${
+      className={`py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap transition-colors hover:text-brand ${
         align === "right" ? "text-right" : "text-left"
-      } ${isActive ? "text-indigo-700" : "text-slate-500"}`}
+      } ${isActive ? "text-[color:var(--brand-ink)]" : "text-slate-500"}`}
       onClick={() => onSort(sortKey)}
     >
       <span className="inline-flex items-center gap-0.5">
@@ -725,7 +725,7 @@ export default function ScreenerPage() {
       {/* Mobile filter toggle — positioned above the ad banner */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="md:hidden fixed bottom-20 right-4 z-40 bg-indigo-600 text-white rounded-full p-3 shadow-lg hover:bg-indigo-700 transition-colors"
+        className="md:hidden fixed bottom-20 right-4 z-40 bg-brand text-white rounded-full p-3 shadow-lg hover:bg-[color:var(--brand-ink)] transition-colors"
       >
         {sidebarOpen ? <X className="w-5 h-5" /> : <SlidersHorizontal className="w-5 h-5" />}
         {!sidebarOpen && activeFilterCount > 0 && (
@@ -755,7 +755,7 @@ export default function ScreenerPage() {
             {activeFilterCount > 0 && (
               <Badge
                 variant="secondary"
-                className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0"
+                className="text-[10px] bg-brand-soft text-[color:var(--brand-ink)] px-1.5 py-0"
               >
                 {activeFilterCount}
               </Badge>
@@ -773,7 +773,7 @@ export default function ScreenerPage() {
             </button>
             <button
               onClick={() => setShowSaveInput(!showSaveInput)}
-              className="flex items-center gap-1 text-[11px] text-indigo-500 hover:text-indigo-700 transition-colors"
+              className="flex items-center gap-1 text-[11px] text-brand hover:text-[color:var(--brand-ink)] transition-colors"
             >
               <Save className="w-3 h-3" />
               {t("screener.save")}
@@ -782,7 +782,7 @@ export default function ScreenerPage() {
               <div className="relative">
                 <button
                   onClick={() => setShowPresetMenu(!showPresetMenu)}
-                  className="flex items-center gap-1 text-[11px] text-indigo-500 hover:text-indigo-700 transition-colors"
+                  className="flex items-center gap-1 text-[11px] text-brand hover:text-[color:var(--brand-ink)] transition-colors"
                 >
                   <FolderOpen className="w-3 h-3" />
                   {t("screener.load")}
@@ -853,7 +853,7 @@ export default function ScreenerPage() {
                     setShowSaveInput(false);
                   }
                 }}
-                className="text-[10px] text-indigo-600 font-medium px-2 hover:bg-indigo-50 rounded"
+                className="text-[10px] text-brand font-medium px-2 hover:bg-brand-soft/60 rounded"
               >
                 OK
               </button>
@@ -869,9 +869,9 @@ export default function ScreenerPage() {
             {naceChips.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {naceChips.map((code) => (
-                  <span key={code} className="inline-flex items-center gap-0.5 bg-indigo-50 text-indigo-700 text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-indigo-100">
+                  <span key={code} className="inline-flex items-center gap-0.5 bg-brand-soft text-[color:var(--brand-ink)] text-[10px] font-mono px-1.5 py-0.5 rounded-md border border-brand/20">
                     {code}
-                    <button type="button" onClick={() => removeNace(code)} className="hover:text-indigo-900 ml-0.5">
+                    <button type="button" onClick={() => removeNace(code)} className="hover:text-[color:var(--brand-ink)] ml-0.5">
                       <X className="w-2.5 h-2.5" />
                     </button>
                   </span>
@@ -909,13 +909,13 @@ export default function ScreenerPage() {
                   {naceSuggestions.filter((s) => !naceChips.includes(s.nace_code)).map((s) => (
                     <button
                       key={s.nace_code}
-                      className="w-full text-left px-2 py-1.5 text-[11px] hover:bg-indigo-50 border-b border-slate-50 last:border-0"
+                      className="w-full text-left px-2 py-1.5 text-[11px] hover:bg-brand-soft/60 border-b border-slate-50 last:border-0"
                       onClick={() => {
                         addNace(s.nace_code);
                         setNaceOpen(false);
                       }}
                     >
-                      <span className="font-mono text-indigo-600">
+                      <span className="font-mono text-brand">
                         {s.nace_code}
                       </span>
                       <span className="text-slate-500 ml-1.5 truncate">
@@ -990,7 +990,7 @@ export default function ScreenerPage() {
                     onClick={() => setUnit(u)}
                     className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
                       unit === u
-                        ? "bg-indigo-600 text-white"
+                        ? "bg-brand text-white"
                         : "bg-white text-slate-400 hover:bg-slate-50"
                     }`}
                   >
@@ -1279,7 +1279,7 @@ export default function ScreenerPage() {
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
               <input
                 type="text"
-                className="w-full h-10 md:h-8 pl-8 pr-3 text-base md:text-sm border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 placeholder:text-slate-400"
+                className="w-full h-10 md:h-8 pl-8 pr-3 text-base md:text-sm border border-slate-200 rounded-md bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand/60 placeholder:text-slate-400"
                 placeholder={t("screener.searchResultsPlaceholder")}
                 value={nameSearch}
                 onChange={(e) => setNameSearch(e.target.value)}
@@ -1289,7 +1289,7 @@ export default function ScreenerPage() {
             {/* Result count + timing */}
             <div className="flex items-center gap-2 text-[11px] text-slate-400 whitespace-nowrap">
               {loading && (
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-brand" />
               )}
               {!loading && (
                 <span>
@@ -1327,8 +1327,8 @@ export default function ScreenerPage() {
                   onClick={() => toggleQuickFilter(qf)}
                   className={`h-8 md:h-5 px-3 md:px-2 text-[11px] md:text-[10px] font-medium rounded-full border transition-all ${
                     active
-                      ? "bg-indigo-600 text-white border-indigo-600"
-                      : "bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600"
+                      ? "bg-brand text-white border-brand"
+                      : "bg-white text-slate-500 border-slate-200 hover:border-brand/40 hover:text-brand"
                   }`}
                 >
                   {qf.label}
@@ -1353,7 +1353,7 @@ export default function ScreenerPage() {
               the content, defeating the purpose. */}
           {loading && (
             <div className="pointer-events-none sticky top-0 z-20 h-0">
-              <div className="absolute right-3 top-2 inline-flex items-center gap-1.5 rounded-full bg-indigo-600 text-white px-3 py-1 text-[11px] font-medium shadow-lg">
+              <div className="absolute right-3 top-2 inline-flex items-center gap-1.5 rounded-full bg-brand text-white px-3 py-1 text-[11px] font-medium shadow-lg">
                 <Loader2 className="h-3 w-3 animate-spin" />
                 {t("screener.loading")}
               </div>
@@ -1428,18 +1428,18 @@ export default function ScreenerPage() {
               {filteredResults.map((row) => (
                 <tr
                   key={row.cbe}
-                  className="group border-b border-slate-100 hover:bg-indigo-50/30 transition-colors relative"
+                  className="group border-b border-slate-100 hover:bg-brand-soft/30 transition-colors relative"
                   onMouseEnter={() => setHoveredCbe(row.cbe)}
                   onMouseLeave={() => setHoveredCbe(null)}
                 >
                   {/* Company: 2-line cell — sticky on mobile so the name
                       stays visible when horizontally scrolling the financial
                       columns. */}
-                  <td className="py-1.5 px-3 relative sticky left-0 z-[5] bg-white group-hover:bg-indigo-50/30 shadow-[1px_0_0_rgba(226,232,240,1)] w-[140px] md:w-auto">
+                  <td className="py-1.5 px-3 relative sticky left-0 z-[5] bg-white group-hover:bg-brand-soft/30 shadow-[1px_0_0_rgba(226,232,240,1)] w-[140px] md:w-auto">
                     <div className="leading-tight">
                       <Link
                         href={`/company/${row.cbe}`}
-                        className="text-sm font-semibold text-slate-800 hover:text-indigo-600 hover:underline decoration-indigo-200 underline-offset-2 truncate block max-w-[160px] md:max-w-[260px]"
+                        className="text-sm font-semibold text-slate-800 hover:text-brand hover:underline decoration-brand/30 underline-offset-2 truncate block max-w-[160px] md:max-w-[260px]"
                         title={row.name}
                       >
                         {row.name || fmtCbe(row.cbe)}
@@ -1461,7 +1461,7 @@ export default function ScreenerPage() {
                         {row.nace && (
                           <Link
                             href={`/stats?nace=${row.nace.split(" ")[0]}`}
-                            className="text-indigo-400 hover:text-indigo-600 transition-colors"
+                            className="text-brand/60 hover:text-brand transition-colors"
                             onClick={(e) => e.stopPropagation()}
                           >
                             {" "}
@@ -1614,11 +1614,11 @@ function RecentlyViewedPanel() {
           {items.map((it) => (
             <div
               key={it.cbe}
-              className="group inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[11px] hover:border-indigo-300"
+              className="group inline-flex items-center gap-1 rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[11px] hover:border-brand/40"
             >
               <Link
                 href={`/company/${it.cbe}`}
-                className="text-slate-700 hover:text-indigo-600 max-w-[180px] truncate"
+                className="text-slate-700 hover:text-brand max-w-[180px] truncate"
                 title={`${it.name}${it.city ? ` · ${it.city}` : ""}`}
               >
                 {it.name}

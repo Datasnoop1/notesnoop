@@ -521,7 +521,7 @@ function ProgressBar({
   height?: string;
 }) {
   const p = pct(value, target);
-  const color = colorCoded ? barColor(p) : "bg-indigo-600";
+  const color = colorCoded ? barColor(p) : "bg-brand";
   return (
     <div className={`${height} w-full rounded-full bg-slate-100 overflow-hidden`}>
       <div
@@ -1276,7 +1276,7 @@ export default function AdminPanel() {
               <div className="flex gap-2">
                 <Button
                   size="xs"
-                  className="bg-indigo-600 text-white hover:bg-indigo-700"
+                  className="bg-brand text-white hover:bg-[color:var(--brand-ink)]"
                   disabled={
                     !replyText.trim() || actionLoading === `reply-${f.id}`
                   }
@@ -1301,7 +1301,7 @@ export default function AdminPanel() {
               <Button
                 variant="outline"
                 size="xs"
-                className="border-indigo-300 text-indigo-600 hover:bg-indigo-50 text-[11px]"
+                className="border-brand/40 text-brand hover:bg-brand-soft/60 text-[11px]"
                 onClick={() => {
                   setReplyingTo(f.id);
                   setReplyText("");
@@ -1386,7 +1386,7 @@ export default function AdminPanel() {
             onClick={() => setSheet(s)}
             className={`px-4 py-1.5 text-xs font-semibold rounded-md transition ${
               sheet === s
-                ? "bg-indigo-600 text-white"
+                ? "bg-brand text-white"
                 : "text-slate-500 hover:text-slate-700"
             }`}
             title={
@@ -1501,13 +1501,13 @@ export default function AdminPanel() {
                     <Card className="bg-white">
                       <CardContent className="pt-3 pb-3 text-center">
                         <div className="text-[10px] text-slate-400 mb-1">Avg Pages / Guest</div>
-                        <div className="text-2xl font-bold text-indigo-600 font-mono">{tractionData.engagement.avg_pages_per_guest ?? "--"}</div>
+                        <div className="text-2xl font-bold text-brand font-mono">{tractionData.engagement.avg_pages_per_guest ?? "--"}</div>
                       </CardContent>
                     </Card>
                     <Card className="bg-white">
                       <CardContent className="pt-3 pb-3 text-center">
                         <div className="text-[10px] text-slate-400 mb-1">Avg Requests / Guest</div>
-                        <div className="text-2xl font-bold text-indigo-600 font-mono">{tractionData.engagement.avg_requests_per_guest ?? "--"}</div>
+                        <div className="text-2xl font-bold text-brand font-mono">{tractionData.engagement.avg_requests_per_guest ?? "--"}</div>
                       </CardContent>
                     </Card>
                     <Card className="bg-white">
@@ -1801,7 +1801,7 @@ export default function AdminPanel() {
                               <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
                                 Active Users (7d)
                               </span>
-                              <Users className="size-3.5 text-indigo-300" />
+                              <Users className="size-3.5 text-brand/40" />
                             </div>
                             <div className="text-2xl font-bold font-mono text-slate-900">
                               {fmt(insights.active_users_7d)}
@@ -1911,7 +1911,7 @@ export default function AdminPanel() {
                             {/* Stacked bar */}
                             <div className="h-3 w-full rounded-full bg-slate-100 overflow-hidden flex">
                               <div
-                                className="h-full bg-indigo-500 transition-all duration-700"
+                                className="h-full bg-brand transition-all duration-700"
                                 style={{ width: `${authPct}%` }}
                               />
                               <div
@@ -1921,7 +1921,7 @@ export default function AdminPanel() {
                             </div>
                             <div className="flex justify-between mt-2 text-xs">
                               <span className="flex items-center gap-1.5">
-                                <span className="inline-block w-2 h-2 rounded-full bg-indigo-500" />
+                                <span className="inline-block w-2 h-2 rounded-full bg-brand" />
                                 <span className="text-slate-600">Registered</span>
                                 <span className="font-mono font-semibold text-slate-800">{fmt(insights.auth_requests_7d)}</span>
                                 <span className="text-slate-400">({authPct.toFixed(0)}%)</span>
@@ -1966,7 +1966,7 @@ export default function AdminPanel() {
                                         </div>
                                         <div className="h-1 w-full rounded-full bg-slate-100 overflow-hidden">
                                           <div
-                                            className="h-full rounded-full bg-indigo-400 transition-all duration-500"
+                                            className="h-full rounded-full bg-brand/60 transition-all duration-500"
                                             style={{ width: `${barW}%` }}
                                           />
                                         </div>
@@ -2154,20 +2154,20 @@ export default function AdminPanel() {
                           const isFocus = fy.fiscal_year >= 2024;
                           const pctOfMax = maxCompanies > 0 ? (fy.companies / maxCompanies) * 100 : 0;
                           return (
-                            <div key={fy.fiscal_year} className={`flex items-center gap-3 ${isFocus ? "bg-indigo-50/50 rounded px-2 py-1.5 -mx-2" : ""}`}>
-                              <span className={`text-xs font-mono w-10 ${isFocus ? "font-bold text-indigo-700" : "text-slate-500"}`}>
+                            <div key={fy.fiscal_year} className={`flex items-center gap-3 ${isFocus ? "bg-brand-soft/50 rounded px-2 py-1.5 -mx-2" : ""}`}>
+                              <span className={`text-xs font-mono w-10 ${isFocus ? "font-bold text-[color:var(--brand-ink)]" : "text-slate-500"}`}>
                                 {fy.fiscal_year}
                               </span>
                               <div className="flex-1 h-4 bg-slate-100 rounded-full overflow-hidden">
                                 <div
-                                  className={`h-full rounded-full ${isFocus ? "bg-indigo-500" : "bg-slate-300"}`}
+                                  className={`h-full rounded-full ${isFocus ? "bg-brand" : "bg-slate-300"}`}
                                   style={{ width: `${Math.min(100, pctOfMax)}%` }}
                                 />
                               </div>
-                              <span className={`text-xs font-mono w-12 text-right ${isFocus ? "font-bold text-indigo-700" : "text-slate-500"}`}>
+                              <span className={`text-xs font-mono w-12 text-right ${isFocus ? "font-bold text-[color:var(--brand-ink)]" : "text-slate-500"}`}>
                                 {pctOfMax.toFixed(0)}%
                               </span>
-                              <span className={`text-xs font-mono w-20 text-right ${isFocus ? "font-bold text-indigo-700" : "text-slate-600"}`}>
+                              <span className={`text-xs font-mono w-20 text-right ${isFocus ? "font-bold text-[color:var(--brand-ink)]" : "text-slate-600"}`}>
                                 {fy.companies.toLocaleString()}
                               </span>
                               <span className="text-[10px] text-slate-400 w-16 text-right">
@@ -2229,7 +2229,7 @@ export default function AdminPanel() {
                         <span className="text-[11px] uppercase tracking-wide text-slate-400 font-medium">
                           Loads Last Hour
                         </span>
-                        <Activity className="size-3.5 text-indigo-300" />
+                        <Activity className="size-3.5 text-brand/40" />
                       </div>
                       <div className="text-2xl font-bold font-mono text-slate-900">
                         {fmt(nbbBackload.rows_1h)}
@@ -2394,9 +2394,9 @@ export default function AdminPanel() {
                     {
                       label: "Registered Users",
                       value: adoptionData.kpis.total_registered,
-                      icon: <Users className="size-4 text-indigo-500" />,
-                      color: "text-indigo-700",
-                      bg: "bg-indigo-50 border-indigo-100",
+                      icon: <Users className="size-4 text-brand" />,
+                      color: "text-[color:var(--brand-ink)]",
+                      bg: "bg-brand-soft border-brand/20",
                       sub: null,
                     },
                     {
@@ -2579,7 +2579,7 @@ export default function AdminPanel() {
                           <TableBody>
                             {adoptionData.top_users.map((u, i) => (
                               <TableRow key={i}>
-                                <TableCell className="text-xs text-indigo-600 font-medium truncate max-w-[180px]">
+                                <TableCell className="text-xs text-brand font-medium truncate max-w-[180px]">
                                   {u.email}
                                 </TableCell>
                                 <TableCell className="text-xs text-right font-mono">
@@ -2621,7 +2621,7 @@ export default function AdminPanel() {
                   onClick={() => setUserView("all")}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                     userView === "all"
-                      ? "bg-indigo-600 text-white shadow-sm"
+                      ? "bg-brand text-white shadow-sm"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
@@ -2631,7 +2631,7 @@ export default function AdminPanel() {
                   onClick={() => setUserView("active")}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                     userView === "active"
-                      ? "bg-indigo-600 text-white shadow-sm"
+                      ? "bg-brand text-white shadow-sm"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
@@ -2708,7 +2708,7 @@ export default function AdminPanel() {
                                   }
                                   className={
                                     u.role === "admin"
-                                      ? "bg-indigo-100 text-indigo-700"
+                                      ? "bg-brand-soft text-[color:var(--brand-ink)]"
                                       : u.role === "pro"
                                         ? "bg-amber-100 text-amber-700"
                                         : u.role === "blocked"
@@ -2795,7 +2795,7 @@ export default function AdminPanel() {
                                     <Button
                                       variant="outline"
                                       size="xs"
-                                      className="border-indigo-300 text-indigo-600 hover:bg-indigo-50"
+                                      className="border-brand/40 text-brand hover:bg-brand-soft/60"
                                       disabled={
                                         actionLoading === `role-${u.email}`
                                       }
@@ -2937,7 +2937,7 @@ export default function AdminPanel() {
               {/* Suggestions */}
               <div>
                 <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
-                  <CircleCheck className="size-3.5 text-indigo-400" />
+                  <CircleCheck className="size-3.5 text-brand/60" />
                   Suggestions ({suggestions.length})
                 </h3>
                 {suggestions.length === 0 ? (
@@ -2998,7 +2998,7 @@ export default function AdminPanel() {
                             </div>
                             <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
                               <div
-                                className="h-full rounded-full bg-indigo-500 transition-all duration-500"
+                                className="h-full rounded-full bg-brand transition-all duration-500"
                                 style={{
                                   width: `${(count / surveyMax) * 100}%`,
                                 }}
@@ -3069,7 +3069,7 @@ export default function AdminPanel() {
                           .split(",")
                           .filter((o) => o.trim()).length < 2
                       }
-                      className="w-full bg-indigo-600 text-white hover:bg-indigo-700"
+                      className="w-full bg-brand text-white hover:bg-[color:var(--brand-ink)]"
                     >
                       {pollCreating ? "Creating..." : "Create"}
                     </Button>
@@ -3123,7 +3123,7 @@ export default function AdminPanel() {
                                 </div>
                                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
                                   <div
-                                    className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                                    className="h-full bg-brand rounded-full transition-all duration-500"
                                     style={{ width: `${votePct}%` }}
                                   />
                                 </div>
@@ -3177,7 +3177,7 @@ export default function AdminPanel() {
                             />
                             <Button
                               size="xs"
-                              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                              className="bg-brand hover:bg-[color:var(--brand-ink)] text-white"
                               onClick={async () => {
                                 if (newOptionText.trim()) {
                                   await adminFetch(`/api/polls/${poll.id}/add-options`, {
@@ -3278,7 +3278,7 @@ export default function AdminPanel() {
                             <Button
                               variant="outline"
                               size="xs"
-                              className="border-indigo-300 text-indigo-600 hover:bg-indigo-50"
+                              className="border-brand/40 text-brand hover:bg-brand-soft/60"
                               disabled={
                                 actionLoading === `poll-activate-${poll.id}`
                               }
@@ -3375,12 +3375,12 @@ export default function AdminPanel() {
                   };
                   const colorMap = {
                     guest: "text-slate-500",
-                    registered: "text-indigo-600",
+                    registered: "text-brand",
                     premium: "text-amber-500",
                   };
                   const bgMap = {
                     guest: "bg-slate-50 border-slate-200",
-                    registered: "bg-indigo-50 border-indigo-200",
+                    registered: "bg-brand-soft border-brand/30",
                     premium: "bg-amber-50 border-amber-200",
                   };
                   const TierIcon = iconMap[tierName];
@@ -3482,7 +3482,7 @@ export default function AdminPanel() {
               );
 
               function endpointLabel(ep: string): { label: string; icon: React.ReactNode; color: string } {
-                if (ep.includes("/company/") && ep.includes("/financials")) return { label: "Viewed financials", icon: <BarChart3 className="size-3.5" />, color: "text-indigo-600 bg-indigo-50" };
+                if (ep.includes("/company/") && ep.includes("/financials")) return { label: "Viewed financials", icon: <BarChart3 className="size-3.5" />, color: "text-brand bg-brand-soft" };
                 if (ep.includes("/company/") && ep.includes("/structure")) return { label: "Viewed structure", icon: <Users className="size-3.5" />, color: "text-purple-600 bg-purple-50" };
                 if (ep.includes("/company/")) return { label: "Viewed company", icon: <Eye className="size-3.5" />, color: "text-blue-600 bg-blue-50" };
                 if (ep.includes("/screener")) return { label: "Used screener", icon: <Search className="size-3.5" />, color: "text-emerald-600 bg-emerald-50" };
@@ -3509,13 +3509,13 @@ export default function AdminPanel() {
                         <CardContent className="p-4">
                           {/* User header */}
                           <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100">
-                            <div className={`shrink-0 p-1.5 rounded-full ${isGuest ? "bg-orange-50" : "bg-indigo-50"}`}>
+                            <div className={`shrink-0 p-1.5 rounded-full ${isGuest ? "bg-orange-50" : "bg-brand-soft"}`}>
                               {isGuest
                                 ? <Globe className="size-3.5 text-orange-500" />
-                                : <UserCheck className="size-3.5 text-indigo-500" />
+                                : <UserCheck className="size-3.5 text-brand" />
                               }
                             </div>
-                            <span className={`text-xs font-semibold ${isGuest ? "text-orange-600" : "text-indigo-600"}`}>
+                            <span className={`text-xs font-semibold ${isGuest ? "text-orange-600" : "text-brand"}`}>
                               {displayName}
                             </span>
                             <span className="text-[10px] text-slate-400 ml-auto">
@@ -3713,7 +3713,7 @@ export default function AdminPanel() {
               const totalCosts = (col: keyof PnlSummary) =>
                 pnlData[col].openrouter_eur + pnlData[col].invoices_total_eur;
               return (
-                <Card className="bg-white border-l-4 border-l-indigo-500">
+                <Card className="bg-white border-l-4 border-l-brand">
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
                       <div>
@@ -3727,7 +3727,7 @@ export default function AdminPanel() {
                         size="xs"
                         variant="outline"
                         disabled={classifying}
-                        className="text-[10px] border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                        className="text-[10px] border-brand/40 text-[color:var(--brand-ink)] hover:bg-brand-soft/60"
                         onClick={async () => {
                           if (!window.confirm("Re-classify ALL invoices via the LLM? This costs OpenRouter credits and overwrites any manual category corrections.")) {
                             return;
@@ -3935,7 +3935,7 @@ export default function AdminPanel() {
                               {(p.amount / 100).toLocaleString("en", { style: "currency", currency: p.currency })}
                             </TableCell>
                             <TableCell>
-                              <Badge variant="secondary" className={`text-[10px] ${p.mode === "subscription" ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-600"}`}>
+                              <Badge variant="secondary" className={`text-[10px] ${p.mode === "subscription" ? "bg-brand-soft text-brand" : "bg-slate-100 text-slate-600"}`}>
                                 {p.mode === "subscription" ? "Subscription" : "One-time"}
                               </Badge>
                             </TableCell>
@@ -4017,12 +4017,12 @@ export default function AdminPanel() {
                         }}
                         className={`relative flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${
                           isActive
-                            ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200"
+                            ? "border-brand bg-brand-soft ring-2 ring-brand/30"
                             : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
                         } ${logoSaving ? "opacity-50 cursor-wait" : "cursor-pointer"}`}
                       >
                         {isActive && (
-                          <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center">
+                          <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-brand text-white flex items-center justify-center">
                             <Check className="w-3 h-3" />
                           </div>
                         )}
