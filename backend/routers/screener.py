@@ -41,8 +41,12 @@ def _nace_suggestions_cached(q: str) -> list:
 
 
 @router.get("/nace-suggestions")
-async def nace_suggestions(q: str = Query("", min_length=1)):
-    """Return NACE codes matching the query. Cached 15 min — nace_lookup changes rarely."""
+async def nace_suggestions(q: str = Query("", min_length=1, max_length=80)):
+    """Return NACE codes matching the query. Cached 15 min — nace_lookup changes rarely.
+
+    `max_length` caps the cache-key cardinality so a hostile caller can't
+    push the in-process cache toward eviction churn with junk strings.
+    """
     return _nace_suggestions_cached(q.lower())
 
 
