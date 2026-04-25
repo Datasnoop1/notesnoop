@@ -252,27 +252,31 @@ def rebuild_materialized_tables(conn):
 
     log("  Rebuilding company_info ...")
     conn.execute("DELETE FROM company_info")
-    # Use GROUP BY to deduplicate multi-language denominations and multiple addresses
+    # DISTINCT ON picks the best-language denomination per enterprise:
+    # NL > FR > unspecified > DE > EN. Including '0' / '3' / '4' avoids
+    # leaving big multinationals (Toyota, AB InBev, …) with NULL names.
     conn.execute("""
         INSERT INTO company_info (enterprise_number, name, city, zipcode, nace_code)
-        SELECT
+        SELECT DISTINCT ON (fl.enterprise_number)
             fl.enterprise_number,
-            MAX(d.denomination),
-            MAX(a.municipality_nl),
-            MAX(a.zipcode),
-            MAX(act.nace_code)
+            d.denomination,
+            a.municipality_nl,
+            a.zipcode,
+            act.nace_code
         FROM financial_latest fl
         LEFT JOIN denomination d
                ON d.entity_number = fl.enterprise_number
               AND d.type_of_denomination = '001'
-              AND d.language IN ('2', '1')
         LEFT JOIN address a
                ON a.entity_number = fl.enterprise_number
               AND a.type_of_address = 'REGO'
         LEFT JOIN activity act
                ON act.entity_number = fl.enterprise_number
               AND act.classification = 'MAIN'
-        GROUP BY fl.enterprise_number
+        ORDER BY fl.enterprise_number,
+                 CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 WHEN '0' THEN 3
+                                 WHEN '3' THEN 4 WHEN '4' THEN 5 ELSE 6 END,
+                 d.denomination NULLS LAST
     """)
     conn.commit()
 

@@ -112,7 +112,13 @@ async def search_people(q: str = Query(..., min_length=2, max_length=200)):
 # top-3 highest-revenue companies.
 _PEOPLE_V2_SQL = """
 WITH
-people_hits AS (
+-- MATERIALIZED forces Postgres to evaluate the 12 UNION arms once and
+-- spool the result, instead of inlining the CTE into every downstream
+-- reference. Downstream `grouped` joins to denomination/staatsblad/
+-- financial_latest by enterprise_number, and re-evaluating those LIMIT
+-- arms per join row blew up cost. With ~500-1000 hits per query the
+-- materialised set is small and reuse pays for itself.
+people_hits AS MATERIALIZED (
     -- 1.0: exact normalised match OR exact reversed (order-agnostic)
     SELECT a.name, a.enterprise_number, 'admin' AS src, 1.0::real AS base
     FROM administrator a

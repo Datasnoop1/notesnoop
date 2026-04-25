@@ -537,19 +537,21 @@ def _refresh_materialized_for_company(cur, conn, cbe: str):
     # Also upsert company_info if this company isn't in it yet
     cur.execute("SELECT 1 FROM company_info WHERE enterprise_number = %s", (cbe,))
     if not cur.fetchone():
+        # DISTINCT ON ranks denomination by language (NL>FR>none>DE>EN)
+        # so multinationals filed under language='0' or '2' get a real name
+        # rather than the alphabetic MAX of languages '1','2'.
         cur.execute("""
             INSERT INTO company_info (enterprise_number, name, city, zipcode, nace_code)
-            SELECT
-                %s,
-                MAX(d.denomination),
-                MAX(a.municipality_nl),
-                MAX(a.zipcode),
-                MAX(act.nace_code)
+            SELECT DISTINCT ON (e.enterprise_number)
+                e.enterprise_number,
+                d.denomination,
+                a.municipality_nl,
+                a.zipcode,
+                act.nace_code
             FROM enterprise e
             LEFT JOIN denomination d
                    ON d.entity_number = e.enterprise_number
                   AND d.type_of_denomination = '001'
-                  AND d.language IN ('2', '1')
             LEFT JOIN address a
                    ON a.entity_number = e.enterprise_number
                   AND a.type_of_address = 'REGO'
@@ -557,7 +559,11 @@ def _refresh_materialized_for_company(cur, conn, cbe: str):
                    ON act.entity_number = e.enterprise_number
                   AND act.classification = 'MAIN'
             WHERE e.enterprise_number = %s
-        """, (cbe, cbe))
+            ORDER BY e.enterprise_number,
+                     CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 WHEN '0' THEN 3
+                                     WHEN '3' THEN 4 WHEN '4' THEN 5 ELSE 6 END,
+                     d.denomination NULLS LAST
+        """, (cbe,))
 
     conn.commit()
     logger.info("Refreshed materialized tables for %s", cbe)

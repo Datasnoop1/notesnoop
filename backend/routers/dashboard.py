@@ -4,70 +4,82 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from db import fetch_one, fetch_all
+from cache import ttl_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
+# Dashboard KPIs are reltuples-based estimates that change daily at most.
+# Top-companies/recently-loaded change once a day. 5 min cache is safe.
+_DASHBOARD_TTL_S = 300
+
+
+@ttl_cache(ttl_seconds=_DASHBOARD_TTL_S)
+def _dashboard_cached() -> dict:
+    stats = fetch_one("""
+        SELECT
+            (SELECT reltuples::bigint FROM pg_class WHERE relname = 'enterprise') AS enterprise_count,
+            (SELECT reltuples::bigint FROM pg_class WHERE relname = 'financial_latest') AS financial_count,
+            (SELECT reltuples::bigint FROM pg_class WHERE relname = 'financial_by_year') AS filing_count,
+            (SELECT reltuples::bigint FROM pg_class WHERE relname = 'administrator') AS admin_count,
+            (SELECT value FROM meta WHERE variable = 'SnapshotDate') AS snapshot_date
+    """)
+    return {
+        "enterprise_count": stats["enterprise_count"] or 0,
+        "financial_count": stats["financial_count"] or 0,
+        "filing_count": stats["filing_count"] or 0,
+        "admin_count": stats["admin_count"] or 0,
+        "snapshot_date": stats["snapshot_date"],
+    }
+
 
 @router.get("")
 async def get_dashboard():
-    """Return KPI stats using fast pre-computed tables (not slow COUNT on raw data)."""
+    """Return KPI stats using fast pre-computed tables (cached 5 min)."""
     try:
-        # Use pg_stat estimated counts (instant) instead of COUNT(*) (slow full scan)
-        stats = fetch_one("""
-            SELECT
-                (SELECT reltuples::bigint FROM pg_class WHERE relname = 'enterprise') AS enterprise_count,
-                (SELECT reltuples::bigint FROM pg_class WHERE relname = 'financial_latest') AS financial_count,
-                (SELECT reltuples::bigint FROM pg_class WHERE relname = 'financial_by_year') AS filing_count,
-                (SELECT reltuples::bigint FROM pg_class WHERE relname = 'administrator') AS admin_count,
-                (SELECT value FROM meta WHERE variable = 'SnapshotDate') AS snapshot_date
-        """)
-
-        return {
-            "enterprise_count": stats["enterprise_count"] or 0,
-            "financial_count": stats["financial_count"] or 0,
-            "filing_count": stats["filing_count"] or 0,
-            "admin_count": stats["admin_count"] or 0,
-            "snapshot_date": stats["snapshot_date"],
-        }
-    except Exception as e:
+        return _dashboard_cached()
+    except Exception:
         logger.exception("Dashboard query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@ttl_cache(ttl_seconds=_DASHBOARD_TTL_S)
+def _top_companies_cached(metric: str, limit: int) -> list:
+    rows = fetch_all(f"""
+        SELECT fl.enterprise_number,
+               COALESCE(ci.name, fl.enterprise_number) AS "name",
+               fl.{metric} AS "metric_value",
+               fl.ebitda,
+               fl.revenue,
+               CASE WHEN fl.revenue > 0
+                    THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1)
+               END AS "margin",
+               fl.fte_total,
+               fl.fiscal_year,
+               ci.nace_code,
+               COALESCE(nl.description, ci.nace_code) AS "sector",
+               ci.city
+        FROM financial_latest fl
+        JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+        LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+        WHERE fl.{metric} IS NOT NULL AND fl.{metric} > 0
+        ORDER BY fl.{metric} DESC
+        LIMIT %s
+    """, (limit,))
+    return rows
+
+
 @router.get("/top-companies")
 async def get_top_companies(metric: str = "revenue", limit: int = 15):
-    """Return top companies ranked by a given metric."""
+    """Return top companies ranked by a given metric. Cached 5 min."""
     allowed_metrics = {"revenue", "ebitda", "fte_total"}
     if metric not in allowed_metrics:
         raise HTTPException(status_code=400, detail=f"metric must be one of {allowed_metrics}")
     if limit < 1 or limit > 100:
         limit = 15
-
     try:
-        rows = fetch_all(f"""
-            SELECT fl.enterprise_number,
-                   COALESCE(ci.name, fl.enterprise_number) AS "name",
-                   fl.{metric} AS "metric_value",
-                   fl.ebitda,
-                   fl.revenue,
-                   CASE WHEN fl.revenue > 0
-                        THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1)
-                   END AS "margin",
-                   fl.fte_total,
-                   fl.fiscal_year,
-                   ci.nace_code,
-                   COALESCE(nl.description, ci.nace_code) AS "sector",
-                   ci.city
-            FROM financial_latest fl
-            JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-            LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
-            WHERE fl.{metric} IS NOT NULL AND fl.{metric} > 0
-            ORDER BY fl.{metric} DESC
-            LIMIT %s
-        """, (limit,))
-        return rows
-    except Exception as e:
+        return _top_companies_cached(metric, limit)
+    except Exception:
         logger.exception("Top companies query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
