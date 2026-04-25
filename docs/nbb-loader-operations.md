@@ -48,19 +48,29 @@ separate credential.
 ## Pipeline 2 — Historical backload (`nbb_nightly_backload.py`)
 
 **Purpose:** Fills coverage gaps for companies that have never been loaded —
-works backwards from the most recent fiscal year to 2016.
+works backwards from the most recent fiscal year to 2022. Older fiscal years
+are intentionally out of scope: the loader skips any filing with
+`end_date < 2022-04-01` (NBB only publishes JSON-XBRL from April 2022 onward),
+so probing FY2021 and earlier burns API quota for zero data.
 
 **Schedule:** Two cron slots, both via `nbb_backload_cron.sh`:
 ```
-0 2    * * *  MAX_CALLS=5000 PER_YEAR_CAP=3000 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
-0 6-22 * * *  MAX_CALLS=3000 PER_YEAR_CAP=3000 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+*/30 6-22 * * *  MAX_CALLS=3500 PER_YEAR_CAP=3500 SKIP_REBUILD=1 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+0 2    * * *     MAX_CALLS=5000 PER_YEAR_CAP=5000 SKIP_REBUILD=0 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
 ```
-Daytime runs are hourly but each takes ~82 min (3000 calls × 1.5 s/call), so
-the host-side `flock` lock means only ~7–8 actually complete per day. Effective
-throughput: **~26,000 API calls/day**.
 
-**Year order:** `start_year` (2025) → `end_year` (2016), most recent first.
+- **Daytime:** Runs every 30 minutes, 06:00–22:00. Each run is 3,500 calls × 1.25 s/call ≈ 73 min.
+  The host-side `flock` lock means only ~2 runs complete per hour (one finishes before the
+  next start, the other start is skipped). Roughly 26–28 daytime run-slots complete per day.
+- **Nightly:** 02:00 run with 5,000 calls and full materialized table rebuild.
+- **Skip-rebuild on daytime:** Daytime runs pass `--skip-rebuild` so they don't spend 2.5 min
+  on a rebuild that the next run would immediately undo. The nightly 02:00 run always rebuilds,
+  so screener data is fresh by morning.
+- **Effective throughput:** ~35,000 API calls/day.
+
+**Year order:** `start_year` (2025) → `end_year` (2022), most recent first.
 Older years are only reached once the recent year's candidate pool is exhausted.
+FY2021 and earlier are not backfilled — see purpose note above.
 
 **Log:** `/opt/leadpeek/scripts/_watchdog_state/nightly.log`
 
@@ -75,15 +85,23 @@ which companies to check. **Read this carefully before modifying.**
 SELECT e.enterprise_number
 FROM enterprise e
 WHERE e.status = 'AC'
-  AND e.type_of_enterprise = '2'          -- legal persons only
+  AND e.type_of_enterprise = '2'          -- legal persons only (see KBO inversion note below)
   AND e.juridical_form = ANY(...)         -- required-filer forms only (see below)
   AND NOT EXISTS (financial_by_year for this fiscal_year)
-  AND NOT EXISTS (nbb_load_log NO_FILINGS or PDF_ONLY)
-ORDER BY total_assets DESC NULLS LAST, enterprise_number
+  AND NOT EXISTS (nbb_load_log NO_FILINGS% or PDF_ONLY)
+ORDER BY (SELECT total_assets FROM financial_latest WHERE enterprise_number = e.enterprise_number)
+         DESC NULLS FIRST, enterprise_number
 LIMIT %s
 ```
 
-### KBO type_of_enterprise — counterintuitive!
+`NULLS FIRST` is intentional: companies with no prior financial data come
+**first** in the queue. These are the unknown companies we want to discover most.
+Companies already in `financial_latest` (with known assets) follow after, ordered
+by size.
+
+---
+
+## KBO type_of_enterprise — counterintuitive!
 
 Despite what the KBO schema doc says, the **actual data** is:
 - `type_of_enterprise = '2'` → **legal persons** (NV, BV, VZW, etc.)
@@ -92,13 +110,19 @@ Despite what the KBO schema doc says, the **actual data** is:
 This is inverted from the written spec. Verified empirically: AB InBev
 (NV/SA, definitely a legal person) has `type_of_enterprise = '2'`.
 
-### Required-filer juridical forms (Tier 1 only)
+**The backload uses `'2'`.**  Using `'1'` (the mistake made before 2026-04-24) queries
+sole traders who never file with NBB and produces 0 loaded companies.
 
-Only these forms are checked. Everything else is excluded — they either never
-file with NBB or file so rarely it wastes quota. ~786k companies total in KBO.
+---
 
-| Code | Form | KBO count | Notes |
-|------|------|-----------|-------|
+## Required-filer juridical forms (Tier 1)
+
+Only the following forms are checked. Everything else is excluded — they either never
+file with NBB or file so rarely it wastes quota. The Tier 1 universe is ~787k
+active companies in KBO.
+
+| Code | Form | KBO count (approx) | Notes |
+|------|------|--------------------|-------|
 | 610 | BV (Besloten Vennootschap) | 523k | New form since 2019. **Biggest group.** |
 | 014 | NV (Naamloze Vennootschap) | 79k | |
 | 015 | BVBA (legacy BV form) | 77k | Being phased out post-2019 |
@@ -115,7 +139,8 @@ file with NBB or file so rarely it wastes quota. ~786k companies total in KBO.
 | 508 | CVBA met sociaal oogmerk | 88 | |
 | 114 | NV van publiek recht | 76 | |
 | 616 | BV van publiek recht | 75 | |
-| + variants | publiek recht / sociaal oogmerk | small | |
+| 615, 614, 515, 010, 108, 116, 716 | Sociaal oogmerk / publiek recht variants | small | |
+| 001 | Europese Coöperatieve Vennootschap | small | |
 | 027 | SE (Societas Europaea) | 14 | |
 
 **Deliberately excluded:**
@@ -127,13 +152,22 @@ file with NBB or file so rarely it wastes quota. ~786k companies total in KBO.
 - `721` Entities without legal personality
 - All other non-commercial forms
 
-### NO_FILINGS / PDF_ONLY sentinels
+---
+
+## NO_FILINGS / PDF_ONLY sentinels
 
 When NBB returns an empty reference list for a company, it is marked
 `NO_FILINGS` in `nbb_load_log`. This is **global and permanent** — the company
 is excluded from ALL future year queries, not just the year being processed.
+
+This is correct because the NBB `fiscalYear` query param is a no-op: NBB always
+returns the full filing history regardless of the param. An empty response means
+the company has NO filings at all — not just none for that year.
+
 Companies with PDF-only model codes (m120/m211/m212) are marked `PDF_ONLY`.
-Never delete these rows — doing so re-queues those companies for every year.
+
+**Never delete these rows** — doing so re-queues those companies for every year,
+wasting API quota on companies that will never produce data.
 
 ---
 
@@ -141,19 +175,21 @@ Never delete these rows — doing so re-queues those companies for every year.
 
 - **Base URL:** `https://ws.cbso.nbb.be`
 - **Auth:** `NBB-CBSO-Subscription-Key` header (`NBB_AUTHENTIC_KEY` env var)
-- **Rate limit:** 1.5 s between calls (`REQUEST_DELAY` in the script)
+- **Rate limit:** 1.25 s between calls (`REQUEST_DELAY` in the script)
 - **JSON/XBRL availability:** Only for filings with `end_date >= 2022-04-01`.
-  Older filings exist in NBB but are PDF-only — the loader skips them.
-  Going back to fiscal year 2016 in the backload is useful only for companies
-  with unusual fiscal year-ends that push their filing date past April 2022.
+  Older filings exist in NBB but are PDF-only — the loader skips them. This is
+  why the backload is capped at fiscal year 2022; probing 2021 or earlier
+  candidate pools just burns quota on filings that will be skipped anyway.
 - **`fiscalYear` query param is a no-op:** NBB always returns the full filing
   history regardless of the param. An empty response means the company has
   NO filings at all — not just none for that year.
 - **401 response:** means the API key is revoked. The script stops immediately
   and lets the NBB watchdog (15-min cron) handle key rotation.
+- **429 response:** rate limit hit — script stops the run cleanly.
 - **Per-visit efficiency:** When the script visits a company, it loads ALL
   available years in one API session. A company found as a candidate for FY2025
-  will also have FY2024/2023/2022 loaded in the same visit.
+  will also have FY2024/2023/2022 loaded in the same visit. This means FY2024
+  candidates will collapse dramatically once the FY2025 pass is complete.
 
 ---
 
@@ -166,18 +202,19 @@ Never delete these rows — doing so re-queues those companies for every year.
 | FY2024 | 143,388 |
 | FY2023 | 143,773 |
 | FY2022 | 144,715 |
-| FY2021 and older | <100 (backload not yet reached) |
+| FY2021 and older | <100 (out of scope — backload caps at FY2022) |
 
 `financial_latest` (the materialised table used by screener): **176,424 rows**.
 
-**Backload queue (remaining Tier 1 candidates per year):**
-- FY2025: ~704k
-- FY2024: ~612k (will collapse after FY2025 is done — same companies)
-- FY2021–2016: ~755k each (but pre-April-2022 filings skipped anyway)
+**Backload queue (remaining Tier 1 candidates per year, approx):**
+- FY2025: ~704k remaining
+- FY2024: ~612k (will collapse after FY2025 pass — same companies)
+- FY2023 / FY2022: side-effect coverage from FY2025/FY2024 visits (NBB returns full history per call)
+- FY2021 and earlier: out of scope (pre-April-2022 filings are PDF-only)
 
-Estimated full Tier 1 coverage for FY2022–2025: **~3 months** at current pace
-(~26k calls/day). The bottleneck is the first FY2025 pass which marks ~200–300k
-dormant/newly-formed required filers as NO_FILINGS and clears them permanently.
+**ETA for full Tier 1 FY2024/FY2025 coverage:** ~30 days from 2026-04-24, i.e. late May 2026.
+At ~35,000 calls/day with ~50-60% hit rate (remainder NO_FILINGS), effective
+new-company load rate is ~17,000–21,000 per day.
 
 ---
 
@@ -192,8 +229,9 @@ dormant/newly-formed required filers as NO_FILINGS and clears them permanently.
 | `financial_summary` | View: pivoted P&L / BS figures |
 | `sector_percentiles` | Materialised: NACE-level percentile bands, used for benchmarking |
 
-**Rebuild trigger:** Both pipelines call `rebuild_materialized_tables()` after
-loading. This takes ~2.5 min on the current DB size. Do not run concurrently.
+**Rebuild trigger:** The nightly 02:00 run and the daily batch both call
+`rebuild_materialized_tables()` after loading. This takes ~2.5 min on the current DB size.
+Daytime backload runs skip rebuild (`--skip-rebuild`) to avoid blocking overlap.
 
 ---
 
@@ -211,9 +249,16 @@ loading. This takes ~2.5 min on the current DB size. Do not run concurrently.
 ## Cron config location
 
 `/opt/leadpeek/scripts/nbb_backload_cron.sh` — edit `START_YEAR` / `END_YEAR`
-/ `MAX_CALLS` / `PER_YEAR_CAP` here to adjust backload scope and speed.
+/ `MAX_CALLS` / `PER_YEAR_CAP` / `SKIP_REBUILD` here to adjust backload scope and speed.
 The script is volume-mounted into the container, so a `git pull` on the server
 is sufficient to deploy changes — no Docker rebuild needed.
+
+The actual cron entries live in `crontab -e` on the server host (not in the repo).
+Current entries:
+```
+*/30 6-22 * * * MAX_CALLS=3500 PER_YEAR_CAP=3500 SKIP_REBUILD=1 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+0 2 * * * MAX_CALLS=5000 PER_YEAR_CAP=5000 SKIP_REBUILD=0 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+```
 
 ---
 
@@ -227,4 +272,11 @@ is sufficient to deploy changes — no Docker rebuild needed.
 | 2026-04-24 | **Bug fix:** juridical form priority had 610=VZW and 017=BV — exactly reversed. Fixed from KBO code table: 610=BV, 017=VZW. |
 | 2026-04-24 | Backload scope extended from end_year=2022 to end_year=2016 |
 | 2026-04-24 | start_year bumped to 2025 (FY2025 now has meaningful volume) |
-| 2026-04-24 | Candidate query restricted to required-filer forms only — VZW, VME, foreign entities, public bodies excluded |
+| 2026-04-24 | Candidate query restricted to required-filer forms only — VZW, VME, foreign entities, public bodies excluded (~480k non-filer companies removed from queue) |
+| 2026-04-24 | REQUEST_DELAY reduced 1.5s → 1.25s (~20% faster per call) |
+| 2026-04-24 | Daytime cron frequency increased from hourly to every 30 min |
+| 2026-04-24 | MAX_CALLS per daytime run increased from 3,000 → 3,500 |
+| 2026-04-24 | `--skip-rebuild` flag added; daytime runs skip materialized table rebuild; nightly 02:00 run always rebuilds |
+| 2026-04-24 | ORDER BY changed from `total_assets DESC NULLS LAST` → `NULLS FIRST` — unknown companies now queued first |
+| 2026-04-24 | Combined throughput improvement: ~26,000 → ~35,000 API calls/day (+35%) |
+| 2026-04-25 | Backload scope contracted from end_year=2016 back to end_year=2022. Pre-April-2022 filings are PDF-only and skipped by the loader, so older candidate pools were burning quota for zero gain. |
