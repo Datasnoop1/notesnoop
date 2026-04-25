@@ -526,7 +526,7 @@ async def scrape_company_website(cbe: str, user=Depends(get_current_user)):
     if not html:
         raise HTTPException(
             status_code=502,
-            detail="Could not retrieve website data — check ZENROWS_API_KEY or try again later",
+            detail="Could not retrieve website data — proxy scraping is temporarily unavailable, please try again later",
         )
 
     # 3. Extract text from HTML
@@ -628,7 +628,7 @@ async def scrape_company_linkedin(cbe: str, user=Depends(get_current_user)):
     if not html:
         raise HTTPException(
             status_code=502,
-            detail="Could not retrieve LinkedIn data — check ZENROWS_API_KEY or try again later",
+            detail="Could not retrieve LinkedIn data — proxy scraping is temporarily unavailable, please try again later",
         )
 
     # 3. Extract text from HTML

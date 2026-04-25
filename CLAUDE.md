@@ -50,10 +50,14 @@ gotchas), coverage state, and the full change history.
   KBO context → Haiku 4.5 escalation) feeds `company_enrichment.bulk_summary`
   and `company_embedding`. Legacy 4-step `ai_insights_pipeline` still owns
   on-profile narratives — refactor deferred to Phase 5.
-- **Web scraping**: raw `httpx + trafilatura` is the bulk default;
-  Zenrows remains the bulk scrape proxy fallback and the on-profile retry
-  path. The Zenrows-Google SERP layer is DROPPED from bulk discovery per
-  Phase 0 (0% success on our current Zenrows plan).
+- **Web scraping**: raw `httpx + trafilatura` is the bulk default. **Zenrows
+  is fully disabled as of 2026-04-25** pending the Playwright + Webshare
+  replacement service — sites that previously used the proxy fallback now
+  fall through to the deterministic template path. The Zenrows-Google SERP
+  layer was already DROPPED from bulk discovery per Phase 0 (0% success on
+  our previous Zenrows plan). All `zenrows*` function signatures stay in
+  place so the Webshare service can swap in behind them; do NOT delete the
+  callers.
 - **Deployment**: docker-compose + nginx + Let's Encrypt
 - **Loaders**: `requests` for KBO/NBB ingestion, streaming CSV/JSON
 - **Legacy UI**: Streamlit app under `app/` still works against Postgres but is secondary
@@ -147,8 +151,10 @@ platform/
 - **AI enrichment** (OpenRouter): summarisation and entity enrichment from
   scraped pages.
 
-- **Web scraping** (Zenrows): proxied scraping of public Belgian company
-  websites and Staatsblad pages.
+- **Web scraping** (DISABLED 2026-04-25): proxied scraping of public Belgian
+  company websites is paused. Zenrows was the previous provider; replacement
+  is a self-hosted Playwright service rotating through a Webshare datacenter
+  proxy pool, work-in-progress.
 
 - **Deployment**: `docker compose up -d` builds and runs backend + frontend +
   nginx. Staging variant exposes port 8080 with no TLS. Healthchecks gate

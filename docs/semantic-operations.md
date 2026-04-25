@@ -86,8 +86,10 @@ The pipeline is healthy when all of the following are true:
 - `company_enrichment`, `enrichment_job`, `company_embedding`,
   `query_embedding_cache`, and `aggregator_skiplist` exist.
 - `meta.enrichment_enabled=true`.
-- `OPENROUTER_API_KEY`, `ZENROWS_API_KEY`, and
-  `ENRICHMENT_ADMIN_PASSWORD` are present in the worker/backend runtime.
+- `OPENROUTER_API_KEY` and `ENRICHMENT_ADMIN_PASSWORD` are present in the
+  worker/backend runtime. (`ZENROWS_API_KEY` was required until 2026-04-25;
+  Zenrows is now disabled pending the Playwright + Webshare replacement,
+  and its absence is no longer a health-check failure.)
 - The worker heartbeat on `/admin/enrichment` is fresh.
 - `company_enrichment.bulk_summary` has rows.
 - `company_embedding` has rows.
@@ -162,8 +164,9 @@ python scripts/semantic_status.py --ensure-schema
 2. Confirm runtime secrets exist in the environment used by backend and worker:
 
 - `OPENROUTER_API_KEY`
-- `ZENROWS_API_KEY`
 - `ENRICHMENT_ADMIN_PASSWORD`
+- (`ZENROWS_API_KEY` no longer required as of 2026-04-25 — Zenrows disabled
+  pending Playwright + Webshare replacement)
 
 3. Seed the queue if needed, from the **production backend container only**.
    Start small:

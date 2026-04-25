@@ -354,16 +354,14 @@ def check_regsol() -> CheckResult:
     """Regsol insolvency scraper (03:30)."""
     tail = _read_log("regsol.log", 60)
     if "ZENROWS_API_KEY not set" in tail:
+        # Zenrows was intentionally disabled on 2026-04-25 pending the
+        # Playwright + Webshare replacement service. Treat the missing key
+        # as expected, not as an incident.
         return CheckResult(
             name="Regsol scraper",
-            status="RED",
-            summary="ZENROWS_API_KEY missing — no scrapes happening",
+            status="YELLOW",
+            summary="Regsol scraper paused — Zenrows disabled, awaiting Webshare replacement",
             detail=tail[-800:],
-            claude_prompt=(
-                "Regsol scrape is failing because ZENROWS_API_KEY is not set on the "
-                "Hetzner host. The operator needs to put the key in /opt/leadpeek/.env "
-                "and .env.production, then force-recreate the backend container."
-            ),
         )
     if not tail.strip():
         return CheckResult(

@@ -31,7 +31,9 @@ _semantic_schema_ensured = False
 
 _REQUIRED_ENV_VARS = (
     "OPENROUTER_API_KEY",
-    "ZENROWS_API_KEY",
+    # ZENROWS_API_KEY removed 2026-04-25 — Zenrows disabled pending the
+    # Playwright + Webshare replacement service. Sites that previously used
+    # the proxy fallback now fall through to the deterministic template path.
     "ENRICHMENT_ADMIN_PASSWORD",
 )
 

@@ -494,7 +494,15 @@ def _url_encode(query: str) -> str:
 
 
 async def _zenrows_fetch(url: str, timeout: int = 5) -> str:
-    """Fetch a URL via Zenrows with a tight timeout. Returns HTML or empty string."""
+    """Fetch a URL via Zenrows with a tight timeout. Returns HTML or empty string.
+
+    NOTE: Zenrows is disabled as of 2026-04-25; if ZENROWS_API_KEY is empty
+    we short-circuit before issuing a doomed network call. The function and
+    its callers stay in place so the Webshare/Playwright replacement can
+    swap in behind the same signature.
+    """
+    if not ZENROWS_KEY:
+        return ""
     params: dict[str, str] = {
         "apikey": ZENROWS_KEY,
         "url": url,

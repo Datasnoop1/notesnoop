@@ -198,17 +198,33 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
 
 
 def fetch_references(cbe: str, fiscal_year: int, session: requests.Session) -> tuple[int, list[dict]]:
-    """Return (status_code, refs). refs is empty on 4xx/5xx."""
-    try:
-        resp = session.get(
-            f"{NBB_BASE_URL}/authentic/legalEntity/{cbe}/references",
-            headers=_headers(),
-            params={"fiscalYear": str(fiscal_year)},
-            timeout=20,
-        )
-    except Exception as e:
-        log.warning("refs %s fy=%d network error: %s", cbe, fiscal_year, e)
-        return 0, []
+    """Return (status_code, refs). refs is empty on 4xx/5xx.
+
+    Retries once on network error after a 5s backoff. Bumped timeout from
+    20s → 30s on 2026-04-25 — NBB CBSO occasionally stalls during their
+    morning load and the previous 20s ceiling caused multi-hour slow starts
+    when a long string of consecutive reads timed out.
+    """
+    last_exc: Optional[Exception] = None
+    for attempt in (1, 2):
+        try:
+            resp = session.get(
+                f"{NBB_BASE_URL}/authentic/legalEntity/{cbe}/references",
+                headers=_headers(),
+                params={"fiscalYear": str(fiscal_year)},
+                timeout=30,
+            )
+            break
+        except Exception as e:
+            last_exc = e
+            if attempt == 1:
+                time.sleep(5)
+                continue
+            log.warning(
+                "refs %s fy=%d network error after 2 attempts: %s",
+                cbe, fiscal_year, e,
+            )
+            return 0, []
     if resp.status_code != 200:
         return resp.status_code, []
     try:
@@ -226,15 +242,29 @@ def fetch_filing(cbe: str, reference_number: str, session: requests.Session) -> 
     # NB: the correct NBB path is /authentic/deposit/{ref}/accountingData
     # (NOT /authentic/legalEntity/{cbe}/account/{ref}/...), matching the
     # live handler in backend/routers/companies/financials.py + nbb_client.py.
-    try:
-        resp = session.get(
-            f"{NBB_BASE_URL}/authentic/deposit/{reference_number}/accountingData",
-            headers={**_headers(), "Accept": "application/x.jsonxbrl"},
-            timeout=30,
-        )
-    except Exception as e:
-        log.warning("filing %s ref=%s network: %s", cbe, reference_number, e)
-        return None
+    #
+    # Retries once on network error after a 5s backoff (added 2026-04-25
+    # alongside the references-fetch retry). Filings are larger payloads,
+    # so the 30s timeout is preserved.
+    last_exc: Optional[Exception] = None
+    for attempt in (1, 2):
+        try:
+            resp = session.get(
+                f"{NBB_BASE_URL}/authentic/deposit/{reference_number}/accountingData",
+                headers={**_headers(), "Accept": "application/x.jsonxbrl"},
+                timeout=30,
+            )
+            break
+        except Exception as e:
+            last_exc = e
+            if attempt == 1:
+                time.sleep(5)
+                continue
+            log.warning(
+                "filing %s ref=%s network after 2 attempts: %s",
+                cbe, reference_number, e,
+            )
+            return None
     if resp.status_code != 200:
         return None
     try:
