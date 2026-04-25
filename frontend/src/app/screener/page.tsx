@@ -900,6 +900,80 @@ export default function ScreenerPage() {
             </div>
           )}
 
+          {/* ─── Display options (always visible, pinned to top) ─── */}
+          <div className="border-t border-slate-200 pt-2 space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+              Display
+            </span>
+
+            {/* Unit toggle */}
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+                {t("screener.unit")}
+              </span>
+              <div className="flex rounded border border-slate-200 overflow-hidden">
+                {(["raw", "K", "M"] as FinancialUnit[]).map((u) => (
+                  <button
+                    key={u}
+                    onClick={() => setUnit(u)}
+                    className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
+                      unit === u
+                        ? "bg-brand text-white"
+                        : "bg-white text-slate-400 hover:bg-slate-50"
+                    }`}
+                  >
+                    {u === "raw" ? "€" : u}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Limit (number of rows shown) */}
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+                {t("screener.limit")}
+              </span>
+              <Select
+                value={filters.limit}
+                onValueChange={(v) => updateFilter("limit", v ?? "100")}
+              >
+                <SelectTrigger className="h-7 text-xs w-24">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LIMIT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt} value={opt}>
+                      {opt} rows
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Coverage-gap mode: show only enterprises not yet in NBB filings */}
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="no-financials-toggle"
+                checked={filters.no_financials}
+                onChange={(e) => {
+                  setFilters((prev) => {
+                    const next = { ...prev, no_financials: e.target.checked };
+                    scheduleFetch(next);
+                    return next;
+                  });
+                }}
+                className="h-3.5 w-3.5 rounded border-slate-300"
+              />
+              <label
+                htmlFor="no-financials-toggle"
+                className="text-[11px] md:text-[10px] text-slate-500 cursor-pointer select-none"
+              >
+                {t("screener.noFinancialsOnly")}
+              </label>
+            </div>
+          </div>
+
           {/* ============================================================
               FILTER GROUPS — three collapsible accordions. The header
               button toggles `openGroups[id]`; each header surfaces a
@@ -1341,79 +1415,6 @@ export default function ScreenerPage() {
           </>
           )}
 
-          {/* ─── Display footer (always visible) ─── */}
-          <div className="border-t border-slate-200 pt-2 space-y-2">
-            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-              Display
-            </span>
-
-            {/* Unit toggle */}
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-                {t("screener.unit")}
-              </span>
-              <div className="flex rounded border border-slate-200 overflow-hidden">
-                {(["raw", "K", "M"] as FinancialUnit[]).map((u) => (
-                  <button
-                    key={u}
-                    onClick={() => setUnit(u)}
-                    className={`px-2 py-0.5 text-[10px] font-semibold transition-colors ${
-                      unit === u
-                        ? "bg-brand text-white"
-                        : "bg-white text-slate-400 hover:bg-slate-50"
-                    }`}
-                  >
-                    {u === "raw" ? "€" : u}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Coverage-gap mode: show only enterprises not yet in NBB filings */}
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="no-financials-toggle"
-                checked={filters.no_financials}
-                onChange={(e) => {
-                  setFilters((prev) => {
-                    const next = { ...prev, no_financials: e.target.checked };
-                    scheduleFetch(next);
-                    return next;
-                  });
-                }}
-                className="h-3.5 w-3.5 rounded border-slate-300"
-              />
-              <label
-                htmlFor="no-financials-toggle"
-                className="text-[11px] md:text-[10px] text-slate-500 cursor-pointer select-none"
-              >
-                {t("screener.noFinancialsOnly")}
-              </label>
-            </div>
-          </div>
-
-          {/* Limit */}
-          <div className="space-y-1 border-t border-slate-200 pt-2">
-            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              {t("screener.limit")}
-            </Label>
-            <Select
-              value={filters.limit}
-              onValueChange={(v) => updateFilter("limit", v ?? "100")}
-            >
-              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LIMIT_OPTIONS.map((opt) => (
-                  <SelectItem key={opt} value={opt}>
-                    {opt} rows
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
         </div>
       </aside>
 
