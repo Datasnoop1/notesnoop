@@ -502,10 +502,18 @@ def _refresh_materialized_for_company(cur, conn, cbe: str):
     Instead of rebuilding the full tables (expensive), we delete+reinsert
     only the rows for this company using the financial_summary view.
     """
-    # Refresh financial_latest for this company
+    # Refresh financial_latest for this company. Explicit target column
+    # list — `fixed_assets` lives at position 16 on the live table (added
+    # via ALTER TABLE), not next to `total_assets`. Positional insert
+    # without a column list silently shifts fte_total / personnel_costs /
+    # fixed_assets into the wrong slots.
     cur.execute("DELETE FROM financial_latest WHERE enterprise_number = %s", (cbe,))
     cur.execute("""
         INSERT INTO financial_latest
+            (enterprise_number, fiscal_year, filing_model,
+             revenue, ebit, da, ebitda, net_profit,
+             equity, lt_financial_debt, st_financial_debt, cash,
+             total_assets, fixed_assets, fte_total, personnel_costs)
         SELECT enterprise_number, fiscal_year, filing_model,
                revenue, ebit, da, ebitda, net_profit,
                equity, lt_financial_debt, st_financial_debt, cash,

@@ -320,8 +320,17 @@ def rebuild_materialized_tables():
     try:
         # financial_latest
         cur.execute("DELETE FROM financial_latest")
+        # Explicit target column list: `fixed_assets` was added late via
+        # ALTER TABLE so it sits at the end of `financial_latest`'s real
+        # column order, NOT next to `total_assets` like in the source view.
+        # Without an explicit list, positional insertion shifts fixed_assets,
+        # fte_total, and personnel_costs into the wrong slots.
         cur.execute("""
             INSERT INTO financial_latest
+                (enterprise_number, fiscal_year, filing_model,
+                 revenue, ebit, da, ebitda, net_profit,
+                 equity, lt_financial_debt, st_financial_debt, cash,
+                 total_assets, fixed_assets, fte_total, personnel_costs)
             SELECT enterprise_number, fiscal_year, filing_model,
                    revenue, ebit, da, ebitda, net_profit,
                    equity, lt_financial_debt, st_financial_debt, cash,
