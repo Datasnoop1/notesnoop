@@ -74,9 +74,11 @@ services:
       # I/O-bound workload: discovery, scraping and LLM calls mostly wait on
       # network. A higher in-process concurrency helps use the VPS better
       # without requiring full CPU saturation.
-      # Bumped from 1 → 3 on 2026-04-25. Worker is I/O-bound (~6% CPU at
-      # concurrency=1). 3 in-flight async jobs gives ~2.5× throughput.
-      WORKER_CONCURRENCY: "3"
+      # Bumped 1 → 3 then → 6 on 2026-04-25. Worker is I/O-bound and
+      # was still at 6% CPU / 105 MB RAM at concurrency=3 — vast headroom
+      # on the 4 vCPU / 8 GB host. Per-job time is ~19 s (LLM round-trips
+      # dominate), so 6 in-flight gives ~1.7× the throughput of 3.
+      WORKER_CONCURRENCY: "6"
       WORKER_POLL_INTERVAL_S: "1"
       WORKER_IDLE_SLEEP_S: "15"
       ENRICHMENT_DAILY_BUDGET_USD: "10"
