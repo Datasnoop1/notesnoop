@@ -827,8 +827,11 @@ export function CompanyPageClient({
 
   // Belgian VAT numbers are the 10-digit CBE prefixed with "BE" — same digits,
   // different external system. Operators copy this when filing invoices /
-  // looking up VAT IES, so it deserves its own copy affordance.
-  const btwNumber = `BE ${fmtCbe(cbe)}`;
+  // looking up VAT in VIES, so it deserves its own copy affordance.
+  // Display the dotted form for legibility; copy the raw `BE0123456789`
+  // form so VIES / accounting tools accept the paste without manual cleanup.
+  const btwDisplay = `BE ${fmtCbe(cbe)}`;
+  const btwCopyValue = `BE${cbe.replace(/\D/g, "").padStart(10, "0")}`;
 
   const copyToClipboard = (value: string, onCopied: () => void) => {
     const fallback = () => {
@@ -932,11 +935,11 @@ export function CompanyPageClient({
                 </button>
               </span>
               <span className="inline-flex items-center gap-1.5 before:content-['·'] before:text-slate-300 before:mr-1">
-                <span className="font-mono">{btwNumber}</span>
+                <span className="font-mono">{btwDisplay}</span>
                 <button
                   type="button"
                   onClick={() => {
-                    copyToClipboard(btwNumber, () => {
+                    copyToClipboard(btwCopyValue, () => {
                       setCopiedBtw(true);
                       window.setTimeout(() => setCopiedBtw(false), 1500);
                     });
