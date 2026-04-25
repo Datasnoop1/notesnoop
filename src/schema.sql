@@ -948,3 +948,48 @@ CREATE INDEX IF NOT EXISTS idx_staatsblad_bulk_queue_pending
 CREATE INDEX IF NOT EXISTS idx_staatsblad_bulk_queue_inprogress
     ON staatsblad_bulk_queue (locked_at)
     WHERE status = 'in_progress';
+
+
+-- ============================================================================
+-- Public API v1 — customer-facing financials API
+-- ============================================================================
+-- Authenticated by API key (Bearer <token>). Stores SHA-256 hash only —
+-- the raw token is shown once at issuance time by
+-- `scripts/issue_api_key.py` and never reconstructable from the DB.
+-- The `key_prefix` column stores the first 12 chars of the raw token in
+-- plaintext for human identification (e.g. `dsk_live_K9p`) — those 12
+-- chars are not enough to reconstruct the secret. `daily_cap` is a
+-- circuit-breaker, not a paid quota: free during the test, but caps
+-- runaway scripts. `disabled_at` lets us revoke without deleting (so
+-- the audit trail in `api_call_log` keeps its FK).
+CREATE TABLE IF NOT EXISTS api_keys (
+    id              SERIAL PRIMARY KEY,
+    key_hash        TEXT NOT NULL UNIQUE,    -- hex-encoded SHA-256 of the token
+    key_prefix      TEXT NOT NULL,           -- first 12 chars of raw token, for ID
+    label           TEXT NOT NULL,           -- e.g. "Customer X webshop"
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    disabled_at     TIMESTAMPTZ,
+    daily_cap       INTEGER NOT NULL DEFAULT 10000,
+    notes           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+
+
+-- One row per public-API call. Used for usage monitoring and audit. The
+-- daily-cap check counts rows in this table for the calling key in the
+-- last 24h, so the (api_key_id, created_at) index is load-bearing.
+-- Logged status_code lets us separate successful lookups, 404s, and
+-- 4xx/5xx for monitoring.
+CREATE TABLE IF NOT EXISTS api_call_log (
+    id              BIGSERIAL PRIMARY KEY,
+    api_key_id      INTEGER NOT NULL REFERENCES api_keys(id),
+    vat_queried     TEXT,                    -- normalized 10-digit CBE, NULL on auth failures
+    endpoint        TEXT NOT NULL,
+    status_code     INTEGER NOT NULL,
+    latency_ms      INTEGER,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_api_call_log_key_date
+    ON api_call_log(api_key_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_call_log_date
+    ON api_call_log(created_at DESC);
