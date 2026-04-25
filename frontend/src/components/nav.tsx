@@ -122,7 +122,7 @@ export default function Nav() {
               src={logoPath}
               alt="DataSnoop"
               onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/logos/dog-telescope-clean.jpeg"; }}
-              className="h-12 w-auto shrink-0 group-hover:opacity-90 transition-opacity"
+              className="h-[53px] w-auto shrink-0 group-hover:opacity-90 transition-opacity"
             />
             <span className="text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
           </Link>
