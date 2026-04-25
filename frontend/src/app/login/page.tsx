@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import Image from "next/image";
 import { createClient } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -98,24 +97,25 @@ export default function LoginPage() {
 
   return (
     <div className="relative isolate flex items-center justify-center min-h-[70vh]">
-      {/* Subtle teal backdrop — only place in the app where a form sits on glass. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10"
         style={{
           background:
-            "radial-gradient(ellipse 480px 360px at center, rgba(13,115,119,0.10), transparent 60%)",
+            "radial-gradient(ellipse 560px 400px at center, rgba(11,92,255,0.06), transparent 60%)",
         }}
       />
-      <Card className="w-full max-w-sm glass-card border-0 shadow-none">
-        <CardContent className="pt-6 pb-5 px-6">
+      <Card className="w-full max-w-sm rounded-[20px] border-[#E3EAF4] bg-white shadow-[0_12px_48px_rgba(15,23,42,0.08)]">
+        <CardContent className="pt-7 pb-6 px-7">
           {/* Header */}
-          <div className="text-center mb-5">
-            <Image src="/logo.svg" alt="Datasnoop" width={40} height={40} className="mx-auto mb-3" />
-            <h1 className="text-xl font-bold text-slate-900">
+          <div className="text-center mb-6">
+            <div className="w-10 h-10 rounded-xl bg-[#0B5CFF] flex items-center justify-center text-white font-bold text-lg mx-auto mb-4">
+              D
+            </div>
+            <h1 className="text-[20px] font-bold text-[#07142F]">
               {titles[mode]}
             </h1>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-[13px] text-[#5F6B85] mt-1.5">
               {mode === "forgot"
                 ? t("login.resetSubtitle")
                 : t("login.subtitle")}
@@ -204,7 +204,7 @@ export default function LoginPage() {
 
             <Button
               type="submit"
-              className="w-full bg-brand hover:bg-[color:var(--brand-ink)]"
+              className="w-full bg-[#0B5CFF] hover:bg-[#084ED8] text-white rounded-xl h-11"
               disabled={loading}
             >
               {loading ? t("login.pleaseWait") : buttonLabels[mode]}

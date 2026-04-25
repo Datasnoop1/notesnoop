@@ -56,58 +56,73 @@
 }
 
 :root {
-  /* Warm canvas (sourced from docs/use-cases.html). Body picks this up
-     via `bg-background`. Cards stay pure white via --card for crispness. */
-  --background: #fafaf7;
-  --foreground: oklch(0.145 0 0);
-  /* Brand accent — teal, sourced from docs/use-cases.html (#0d7377).
-     Available via `bg-brand`, `text-brand`, `bg-brand-soft`, `bg-brand-ink`.
-     Indigo references in older pages migrate during phased rebrand;
-     do not mass-rename. */
-  --brand: #0d7377;
+  /* ── DataSnoop design tokens (mockup spec) ─────────────────────────
+     These ds-* vars are the single source of truth for the new design
+     system. Components should prefer these over raw Tailwind utilities
+     when matching the mockup spec precisely. */
+  --ds-bg: #F8FAFD;
+  --ds-surface: #FFFFFF;
+  --ds-surface-soft: #F3F7FF;
+  --ds-border: #E3EAF4;
+  --ds-text: #07142F;
+  --ds-muted: #5F6B85;
+  --ds-subtle: #7B8498;
+  --ds-primary: #0B5CFF;
+  --ds-primary-hover: #084ED8;
+  --ds-success: #0C9B62;
+  --ds-warning: #E97912;
+  --ds-radius-md: 14px;
+  --ds-radius-lg: 18px;
+  --ds-radius-xl: 24px;
+  --ds-shadow-card: 0 12px 32px rgba(15,23,42,0.04);
+
+  /* ── Tailwind / shadcn tokens ───────────────────────────────────── */
+  --background: #F8FAFD;
+  --foreground: #07142F;
+  /* Brand primary — blue from mockup spec. Available via `bg-brand`,
+     `text-brand`, `border-brand`, `bg-brand-soft`, `bg-brand-ink`. */
+  --brand: #0B5CFF;
   --brand-foreground: #ffffff;
-  --brand-soft: #e6f4f4;
-  --brand-ink: #0a5659;
-  /* Warm neutrals — additive surfaces for the new design language. */
-  --bg-soft: #f5f4ef;
-  --rule: #e7e5e0;
-  --ink-soft: #4b5563;
-  /* Surface shadows for warm cards and glass overlays. Private vars
-     (NOT exposed as Tailwind shadow-* utilities — Tailwind v4 would
-     auto-register `--shadow-*` names, so we namespace these as
-     `--surface-shadow-*` to keep them internal to globals.css). */
-  --surface-shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 12px rgba(15, 23, 42, 0.04);
+  --brand-soft: #EEF3FF;
+  --brand-ink: #084ED8;
+  /* Neutral surfaces */
+  --bg-soft: #F3F7FF;
+  --rule: #E3EAF4;
+  --ink-soft: #5F6B85;
+  /* Surface shadows — namespace as `--surface-shadow-*` to avoid Tailwind
+     v4 auto-registering them as shadow utilities. */
+  --surface-shadow-card: 0 1px 3px rgba(15, 23, 42, 0.04), 0 12px 32px rgba(15, 23, 42, 0.04);
   --surface-shadow-elevated: 0 2px 4px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.08);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --card: #ffffff;
+  --card-foreground: #07142F;
+  --popover: #ffffff;
+  --popover-foreground: #07142F;
+  --primary: #0B5CFF;
+  --primary-foreground: #ffffff;
+  --secondary: #F3F7FF;
+  --secondary-foreground: #07142F;
+  --muted: #F3F7FF;
+  --muted-foreground: #5F6B85;
+  --accent: #F3F7FF;
+  --accent-foreground: #07142F;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
+  --border: #E3EAF4;
+  --input: #E3EAF4;
+  --ring: #0B5CFF;
+  --chart-1: #0B5CFF;
+  --chart-2: #0C9B62;
+  --chart-3: #E97912;
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --radius: 0.875rem;
+  --sidebar: #F8FAFD;
+  --sidebar-foreground: #07142F;
+  --sidebar-primary: #0B5CFF;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #F3F7FF;
+  --sidebar-accent-foreground: #07142F;
+  --sidebar-border: #E3EAF4;
+  --sidebar-ring: #0B5CFF;
 }
 
 .dark {
@@ -165,23 +180,20 @@
     top: 0;
     left: 0;
     right: 0;
-    height: 380px;
+    height: 320px;
     background:
       radial-gradient(
-        ellipse 90% 100% at 50% 0%,
-        rgba(13, 115, 119, 0.05) 0%,
-        rgba(13, 115, 119, 0.02) 45%,
+        ellipse 80% 100% at 50% 0%,
+        rgba(11, 92, 255, 0.04) 0%,
+        rgba(11, 92, 255, 0.015) 45%,
         transparent 75%
       ),
       linear-gradient(
         180deg,
-        rgba(230, 244, 244, 0.25) 0%,
+        rgba(243, 247, 255, 0.3) 0%,
         transparent 100%
       );
     pointer-events: none;
-    /* z-index: -1 sits the aura between the body bg and the content,
-       so it's visible THROUGH the glass-chrome nav (which sits at z-50)
-       but doesn't obscure normal page content. */
     z-index: -1;
   }
   /* Reduced-transparency users get a flat warm canvas, no aura. */
@@ -230,20 +242,19 @@
    and inside @media print (see overrides further down). */
 
 @utility glass-chrome {
-  /* Two-stop gradient + saturated blur. Sits ON TOP of body::before
-     aura. Teal tints kept subtle so the chrome doesn't feel heavy. */
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.7) 0%,
-      rgba(230, 244, 244, 0.25) 100%
+      rgba(255, 255, 255, 0.88) 0%,
+      rgba(243, 247, 255, 0.6) 100%
     );
-  backdrop-filter: saturate(200%) blur(20px);
-  -webkit-backdrop-filter: saturate(200%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    0 4px 16px -10px rgba(13, 115, 119, 0.08),
-    0 12px 32px -16px rgba(15, 23, 42, 0.05);
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 0 rgba(227, 234, 244, 0.8),
+    0 4px 16px -10px rgba(11, 92, 255, 0.05),
+    0 12px 32px -16px rgba(15, 23, 42, 0.04);
 }
 
 @utility glass-card {
@@ -261,8 +272,8 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
     0 1px 2px rgba(15, 23, 42, 0.04),
-    0 12px 32px -8px rgba(13, 115, 119, 0.08),
-    0 24px 48px -16px rgba(15, 23, 42, 0.10);
+    0 12px 32px -8px rgba(11, 92, 255, 0.06),
+    0 24px 48px -16px rgba(15, 23, 42, 0.08);
   border-radius: 20px;
 }
 

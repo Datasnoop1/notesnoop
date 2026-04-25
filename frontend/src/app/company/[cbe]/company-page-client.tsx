@@ -857,22 +857,27 @@ export function CompanyPageClient({
       {/* Back link */}
       <Link
         href="/company"
-        className="mb-3 inline-flex items-center gap-1 text-xs text-slate-500 hover:text-brand"
+        className="mb-4 inline-flex items-center gap-1.5 text-[12.5px] text-[#5F6B85] hover:text-[#0B5CFF] transition-colors"
       >
-        <ArrowLeft className="h-3 w-3" /> {t("company.backToSearch")}
+        <ArrowLeft className="h-3.5 w-3.5" /> {t("company.backToSearch")}
       </Link>
 
       {/* Company Header */}
-      <div className="mb-3">
-        <div className="flex flex-col md:flex-row items-start md:items-start justify-between gap-3">
+      <div className="mb-5 rounded-2xl border border-[#E3EAF4] bg-white p-5 sm:p-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           {/* Left: name + CBE */}
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-semibold text-slate-900">
+          <div className="flex items-center gap-4 min-w-0 flex-1">
+            {/* Initials badge */}
+            <div className="w-14 h-14 rounded-2xl bg-[#EEF3FF] flex items-center justify-center text-[#0B5CFF] font-bold text-lg shrink-0 select-none">
+              {(detail.name || fmtCbe(cbe)).split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("")}
+            </div>
+            <div className="min-w-0 flex-1">
+            <h1 className="text-[22px] sm:text-[26px] font-bold text-[#07142F] leading-tight">
               <SearchableText text={detail.name || fmtCbe(cbe)} mapsQuery={address || undefined}>
                 {detail.name || fmtCbe(cbe)}
               </SearchableText>
             </h1>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[#5F6B85]">
               <span className="inline-flex items-center gap-1.5">
                 <span className={`inline-block h-1.5 w-1.5 rounded-full ${detail.status === "AC" ? "bg-emerald-500" : "bg-red-400"}`} />
                 <span className="font-mono">CBE {fmtCbe(cbe)}</span>
@@ -911,7 +916,7 @@ export function CompanyPageClient({
                   }}
                   aria-label={copiedCbe ? t("company.copied") : t("company.copyCbe")}
                   title={copiedCbe ? t("company.copied") : t("company.copyCbe")}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-brand transition-colors"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-[#EEF3FF] hover:text-[#0B5CFF] transition-colors"
                 >
                   {copiedCbe ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
                 </button>
@@ -924,15 +929,16 @@ export function CompanyPageClient({
                 </span>
               )}
             </div>
-          </div>
+            </div>{/* closes min-w-0 flex-1 name wrapper */}
+          </div>{/* closes flex items-center initials+name wrapper */}
 
-          {/* Right: metadata stacked (action buttons live in the tab-bar row) */}
+          {/* Right: action buttons + website */}
           <div className="flex flex-col items-start md:items-end gap-2 shrink-0 w-full md:w-auto">
             {/* Print-only DataSnoop logo — uses current configured site logo */}
             <PrintLogo heightPx={28} />
 
             {/* Metadata: address + website + NACE stacked, right-aligned on desktop */}
-            <div className="flex flex-col items-start md:items-end gap-0.5 text-xs text-slate-500 max-w-full">
+            <div className="flex flex-col items-start md:items-end gap-0.5 text-[12px] text-[#5F6B85] max-w-full">
               {address && (
                 <GoogleSearchLink query={address} type="maps">
                   <span className="truncate">{address}</span>
@@ -1108,7 +1114,7 @@ export function CompanyPageClient({
                 ))}
               </TabsList>
 
-              <div className="border-b border-slate-100 flex flex-col md:flex-row md:items-end md:justify-between gap-2 md:gap-3 no-print">
+              <div className="border-b border-[#E3EAF4] flex flex-col md:flex-row md:items-end md:justify-between gap-2 md:gap-3 no-print">
                 <div className="flex flex-wrap">
                   {TAB_GROUPS.map((g) => {
                     const active = currentGroup?.id === g.id;
@@ -1120,7 +1126,7 @@ export function CompanyPageClient({
                         className={`text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap border-b-2 transition ${
                           active
                             ? "border-brand text-brand"
-                            : "border-transparent text-slate-600 hover:text-slate-900"
+                            : "border-transparent text-[#5F6B85] hover:text-[#07142F]"
                         }`}
                       >
                         {g.label}
@@ -1134,7 +1140,7 @@ export function CompanyPageClient({
                     size="sm"
                     onClick={toggleFavourite}
                     title={isFavourite ? "Remove from favourites" : "Add to favourites"}
-                    className="h-9 w-9 md:h-7 md:w-7 p-0 text-slate-400 hover:text-yellow-500 border-slate-200"
+                    className="h-9 w-9 md:h-7 md:w-7 p-0 text-[#7B8498] hover:text-yellow-500 border-[#E3EAF4]"
                   >
                     <Star
                       className={`h-4 w-4 md:h-3.5 md:w-3.5 ${

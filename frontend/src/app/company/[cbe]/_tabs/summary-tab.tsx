@@ -196,51 +196,50 @@ export function SummaryTab({
 
       {/* Key Financials — full-width KPI cards + Financial History (no gap) */}
       {latest && (
-        <div className="rounded-xl border border-slate-100 bg-white overflow-hidden">
+        <div className="rounded-2xl border border-[#E3EAF4] bg-white overflow-hidden">
           {/* Header */}
           <div className="px-5 pt-4 pb-3 flex items-baseline justify-between">
-            <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+            <h3 className="text-[11px] font-bold text-[#7B8498] uppercase tracking-wider flex items-center gap-1.5">
               <BarChart3 className="h-3 w-3" /> Key Financials
-              {latest.fiscal_year && <span className="text-slate-300 font-mono">FY{latest.fiscal_year}</span>}
+              {latest.fiscal_year && <span className="text-[#C3CEDF] font-mono ml-1">FY{latest.fiscal_year}</span>}
             </h3>
-            {/* Link removed — P&L has its own tab */}
           </div>
           {/* KPI cards row */}
-          <div className="px-5 pb-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-3">
+          <div className="px-5 pb-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 gap-3">
             {/* Revenue */}
-            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+            <div className="rounded-xl border border-[#E3EAF4] bg-[#F8FAFD] px-3.5 py-3">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-[#7B8498] uppercase tracking-wide mb-1.5">
                 <DollarSign className="h-3 w-3" /> Revenue
               </div>
-              <div className="text-sm font-semibold text-slate-900 font-mono">{fmtEur(latest.revenue)}</div>
+              <div className="text-[15px] font-bold text-[#07142F] font-mono">{fmtEur(latest.revenue)}</div>
               {changeArrow(revenueYoy) && <div className="mt-0.5">{changeArrow(revenueYoy)}</div>}
             </div>
             {/* EBITDA */}
-            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+            <div className="rounded-xl border border-[#E3EAF4] bg-[#F8FAFD] px-3.5 py-3">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-[#7B8498] uppercase tracking-wide mb-1.5">
                 <TrendingUp className="h-3 w-3" /> EBITDA
               </div>
-              <div className="text-sm font-semibold text-slate-900 font-mono">{fmtEur(latest.ebitda)}</div>
+              <div className="text-[15px] font-bold text-[#07142F] font-mono">{fmtEur(latest.ebitda)}</div>
               {changeArrow(ebitdaYoy) && <div className="mt-0.5">{changeArrow(ebitdaYoy)}</div>}
             </div>
             {/* Margin */}
-            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+            <div className="rounded-xl border border-[#E3EAF4] bg-[#F8FAFD] px-3.5 py-3">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-[#7B8498] uppercase tracking-wide mb-1.5">
                 <Percent className="h-3 w-3" /> Margin
               </div>
               <div className={`text-sm font-semibold font-mono ${marginColorClass(latest.ebitda_margin_pct)}`}>{fmtPct(latest.ebitda_margin_pct)}</div>
             </div>
             {/* Employees */}
-            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+            <div className="rounded-xl border border-[#E3EAF4] bg-[#F8FAFD] px-3.5 py-3">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-[#7B8498] uppercase tracking-wide mb-1.5">
                 <Users className="h-3 w-3" /> Employees
               </div>
-              <div className="text-sm font-semibold text-slate-900 font-mono">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</div>
+              <div className="text-[15px] font-bold text-[#07142F] font-mono">{latest.fte_total != null ? fmtNumber(latest.fte_total) : "\u2014"}</div>
               {changeArrow(fteYoy) && <div className="mt-0.5">{changeArrow(fteYoy)}</div>}
             </div>
             {/* Net Debt / EBITDA */}
-            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+            <div className="rounded-xl border border-[#E3EAF4] bg-[#F8FAFD] px-3.5 py-3">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-[#7B8498] uppercase tracking-wide mb-1.5">
                 <Scale className="h-3 w-3" /> Leverage
               </div>
               <div className={`text-sm font-semibold font-mono ${netDebtEbitda != null && isFinite(netDebtEbitda) ? (netDebtEbitda < 3 ? "text-emerald-600" : netDebtEbitda <= 5 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
@@ -249,8 +248,8 @@ export function SummaryTab({
               <div className="text-[10px] text-slate-400 mt-0.5">Net Debt / EBITDA</div>
             </div>
             {/* Equity Ratio */}
-            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+            <div className="rounded-xl border border-[#E3EAF4] bg-[#F8FAFD] px-3.5 py-3">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-[#7B8498] uppercase tracking-wide mb-1.5">
                 <Shield className="h-3 w-3" /> Equity Ratio
               </div>
               <div className={`text-sm font-semibold font-mono ${equityRatio != null ? (equityRatio >= 30 ? "text-emerald-600" : equityRatio >= 15 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
@@ -259,8 +258,8 @@ export function SummaryTab({
               <div className="text-[10px] text-slate-400 mt-0.5">Equity / Assets</div>
             </div>
             {/* Interest Coverage */}
-            <div className="rounded-lg bg-slate-50 px-3 py-2.5">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+            <div className="rounded-xl border border-[#E3EAF4] bg-[#F8FAFD] px-3.5 py-3">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-[#7B8498] uppercase tracking-wide mb-1.5">
                 <Landmark className="h-3 w-3" /> Int. Coverage
               </div>
               <div className={`text-sm font-semibold font-mono ${interestCoverage != null ? (interestCoverage >= 3 ? "text-emerald-600" : interestCoverage >= 1.5 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
@@ -269,8 +268,8 @@ export function SummaryTab({
               <div className="text-[10px] text-slate-400 mt-0.5">EBITDA / Int. Exp</div>
             </div>
             {/* DSO — high = cash-flow risk flag */}
-            <div className="rounded-lg bg-slate-50 px-3 py-2.5" title="Days Sales Outstanding = Trade Receivables / Revenue × 365. Higher = customers pay slower = cash-flow risk.">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+            <div className="rounded-xl border border-[#E3EAF4] bg-[#F8FAFD] px-3.5 py-3" title="Days Sales Outstanding = Trade Receivables / Revenue × 365. Higher = customers pay slower = cash-flow risk.">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-[#7B8498] uppercase tracking-wide mb-1.5">
                 <Clock className="h-3 w-3" /> DSO
               </div>
               <div className={`text-sm font-semibold font-mono ${dso != null ? (dso <= 45 ? "text-emerald-600" : dso <= 90 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
@@ -279,8 +278,8 @@ export function SummaryTab({
               <div className="text-[10px] text-slate-400 mt-0.5">Days to collect</div>
             </div>
             {/* DPO — paired with DSO describes the working-capital cycle */}
-            <div className="rounded-lg bg-slate-50 px-3 py-2.5" title="Days Payable Outstanding = Trade Payables / Cost of Goods × 365. Higher = paying suppliers slower = better short-term cash position.">
-              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mb-1">
+            <div className="rounded-xl border border-[#E3EAF4] bg-[#F8FAFD] px-3.5 py-3" title="Days Payable Outstanding = Trade Payables / Cost of Goods × 365. Higher = paying suppliers slower = better short-term cash position.">
+              <div className="flex items-center gap-1.5 text-[10.5px] font-semibold text-[#7B8498] uppercase tracking-wide mb-1.5">
                 <Wallet className="h-3 w-3" /> DPO
               </div>
               <div className={`text-sm font-semibold font-mono ${dpo != null ? (dpo >= 60 ? "text-emerald-600" : dpo >= 30 ? "text-amber-600" : "text-rose-400") : "text-slate-900"}`}>
@@ -349,7 +348,7 @@ export function SummaryTab({
       {/* Key People + Shareholders + Publications + Subsidiaries — 4 columns */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {/* Key People */}
-        <div className="rounded-xl border border-slate-100 bg-white p-4">
+        <div className="rounded-2xl border border-[#E3EAF4] bg-white p-4">
           <div className="flex items-baseline justify-between mb-3">
             <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <UserCheck className="h-3 w-3" /> Key People
@@ -406,7 +405,7 @@ export function SummaryTab({
         </div>
 
         {/* Recent Publications */}
-        <div className="rounded-xl border border-slate-100 bg-white p-4">
+        <div className="rounded-2xl border border-[#E3EAF4] bg-white p-4">
           <div className="flex items-baseline justify-between mb-3">
             <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <Newspaper className="h-3 w-3" /> Recent Publications
@@ -449,7 +448,7 @@ export function SummaryTab({
           )}
         </div>
         {/* Key Shareholders */}
-        <div className="rounded-xl border border-slate-100 bg-white p-4">
+        <div className="rounded-2xl border border-[#E3EAF4] bg-white p-4">
           <div className="flex items-baseline justify-between mb-3">
             <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <Briefcase className="h-3 w-3" /> Key Shareholders
@@ -507,7 +506,7 @@ export function SummaryTab({
         </div>
 
         {/* Key Subsidiaries */}
-        <div className="rounded-xl border border-slate-100 bg-white p-4">
+        <div className="rounded-2xl border border-[#E3EAF4] bg-white p-4">
           <div className="flex items-baseline justify-between mb-3">
             <h3 className="text-[10px] font-medium text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
               <GitBranch className="h-3 w-3" /> Key Subsidiaries

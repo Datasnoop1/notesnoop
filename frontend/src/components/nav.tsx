@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useState, useEffect } from "react";
-import { Menu, LogOut, User, Bell } from "lucide-react";
+import { Menu, LogOut, User, Bell, ChevronDown } from "lucide-react";
 import HeaderSearch from "@/components/header-search";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,13 +40,18 @@ export default function Nav() {
   const [logoPath, setLogoPath] = useState("/logos/dog-telescope-clean.jpeg");
 
   const NAV_LINKS = [
-    { label: t("nav.favourites"), href: "/favourites" },
-    { label: t("nav.compare"), href: "/compare" },
-    { label: t("nav.aggregate"), href: "/aggregate" },
+    { label: "Search", href: "/search" },
     { label: t("nav.screener"), href: "/screener" },
+    { label: t("nav.compare"), href: "/compare" },
+    { label: "Insights", href: "/stats" },
+    { label: "Publications", href: "/outperformers" },
   ];
 
-  // Mobile dot-row uses NAV_LINKS — keep one source of truth.
+  const MORE_LINKS = [
+    { label: t("nav.favourites"), href: "/favourites" },
+    { label: t("nav.aggregate"), href: "/aggregate" },
+    { label: "Outperformers", href: "/outperformers" },
+  ];
 
   useEffect(() => {
     const supabase = createClient();
@@ -72,7 +77,6 @@ export default function Nav() {
       .catch(() => {});
   }, [user]);
 
-  // Fetch site logo from public config (once on mount)
   useEffect(() => {
     fetch(`${API_BASE}/api/site-config`)
       .then((r) => r.json())
@@ -90,7 +94,7 @@ export default function Nav() {
   }
 
   function isActive(href: string) {
-    if (href === "/") return pathname === "/";
+    if (href === "/search") return pathname === "/search";
     return pathname.startsWith(href);
   }
 
@@ -99,58 +103,63 @@ export default function Nav() {
   const hideHeaderSearch = isLanding || pathname === "/search";
 
   return (
-    <header className="sticky top-0 z-50 glass-chrome">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className={`flex items-center h-16 ${isLanding ? "justify-center" : "justify-between"}`}>
-          {/* Brand — hidden on landing (brand lives in the hero there) */}
-          {isLanding ? (
-            <span aria-hidden className="w-0" />
-          ) : (
-            <Link href="/" className="flex items-center gap-2.5 group shrink-0">
-              <img src={logoPath} alt="Datasnoop" width={44} height={44} className="shrink-0 group-hover:scale-105 transition-transform rounded-md bg-white/95" />
-              <span className="text-base font-semibold tracking-tight">
-                <span className="text-slate-900">data</span>
-                <span className="text-brand">snoop</span>
-              </span>
-              <span className="text-[9px] sm:text-[10px] font-bold bg-brand-soft text-brand px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
-            </Link>
+    <header className="sticky top-0 z-50 glass-chrome border-b border-[#E3EAF4]">
+      <div className="max-w-[1280px] mx-auto px-4 sm:px-6">
+        <div className="flex items-center h-[60px] gap-6">
+
+          {/* Brand */}
+          <Link href="/" className="flex items-center gap-2.5 shrink-0 group">
+            <div className="w-8 h-8 rounded-lg bg-[#0B5CFF] flex items-center justify-center text-white font-bold text-sm shrink-0 group-hover:bg-[#084ED8] transition-colors">
+              D
+            </div>
+            <span className="text-[15px] font-semibold text-[#07142F] tracking-tight hidden sm:block">
+              DataSnoop
+            </span>
+          </Link>
+
+          {/* Center: inline search (non-landing, non-search pages) */}
+          {!hideHeaderSearch && (
+            <div className="flex-1 min-w-0 max-w-sm hidden md:block">
+              <HeaderSearch />
+            </div>
           )}
 
-          {/* Inline search with grouped autocomplete — hidden on landing
-              (brand + hero own the input) and on /search (the page owns
-              its own big input). */}
-          {!hideHeaderSearch && <HeaderSearch />}
-
-          {/* Desktop nav — Screener / Favourites / Compare / Aggregate.
-              Shown on landing AND non-landing so the primary actions are
-              always one tap away. Text-link style with dot separators. */}
-          <nav className="hidden md:flex items-center gap-0 shrink-0 text-[13px] text-gray-600">
-            {NAV_LINKS.map((item, idx) => (
-              <React.Fragment key={item.href}>
-                {idx > 0 && <span className="text-gray-300 select-none" aria-hidden>·</span>}
-                <Link
-                  href={item.href}
-                  className={`px-3 py-2 rounded-md transition-colors ${
-                    isActive(item.href)
-                      ? "text-gray-900 font-medium"
-                      : "hover:bg-gray-50 hover:text-gray-900"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              </React.Fragment>
+          {/* Desktop nav links */}
+          <nav className={`hidden md:flex items-center gap-1 ${hideHeaderSearch ? "flex-1 justify-center" : ""}`}>
+            {NAV_LINKS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`relative px-3 py-1.5 text-[13.5px] font-medium rounded-lg transition-colors ${
+                  isActive(item.href)
+                    ? "text-[#0B5CFF] bg-[#EEF3FF]"
+                    : "text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF]"
+                }`}
+              >
+                {item.label}
+                {isActive(item.href) && (
+                  <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-[#0B5CFF] rounded-full" />
+                )}
+              </Link>
             ))}
+
+            {/* More dropdown for secondary links */}
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex items-center gap-0.5 px-3 py-1.5 text-[13.5px] font-medium text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF] rounded-lg transition-colors">
+                More <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-44 border-[#E3EAF4]">
+                {MORE_LINKS.map((item) => (
+                  <DropdownMenuItem key={item.href} onClick={() => router.push(item.href)} className="cursor-pointer text-[13px] text-[#07142F]">
+                    {item.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </nav>
 
-          {/* Right side: feedback, notifications, auth.
-              On landing, feedback + sign-in are rendered in page.tsx
-              (under the search bar) — header keeps just bell + language. */}
-          <div className="flex items-center gap-1.5">
-            {!isLanding && (
-              <div className="hidden md:flex items-center gap-1 mr-0.5">
-                <FeedbackButtons />
-              </div>
-            )}
+          {/* Right side */}
+          <div className="flex items-center gap-2 ml-auto shrink-0">
 
             {/* Notification bell */}
             {user && (
@@ -162,9 +171,9 @@ export default function Nav() {
                       markNotificationsRead().then(() => setNotifCount(0)).catch(() => {});
                     }
                   }}
-                  className="relative p-2 rounded-md hover:bg-slate-50 transition-colors"
+                  className="relative p-2 rounded-lg text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF] transition-colors"
                 >
-                  <Bell className="w-4 h-4 text-slate-500" />
+                  <Bell className="w-4 h-4" />
                   {notifCount > 0 && (
                     <span className="absolute top-1 right-1 bg-rose-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
                       {notifCount > 9 ? "9+" : notifCount}
@@ -172,22 +181,22 @@ export default function Nav() {
                   )}
                 </button>
                 {showNotifs && (
-                  <div className="absolute right-0 mt-1 w-72 bg-white border rounded-xl shadow-xl shadow-slate-200/50 z-50 max-h-64 overflow-y-auto">
-                    <div className="px-3 py-2.5 border-b text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+                  <div className="absolute right-0 mt-2 w-72 bg-white border border-[#E3EAF4] rounded-xl shadow-lg z-50 max-h-64 overflow-y-auto">
+                    <div className="px-3 py-2.5 border-b border-[#E3EAF4] text-[11px] font-semibold text-[#5F6B85] uppercase tracking-wider">
                       {t("nav.dataUpdates")}
                     </div>
                     {notifs.length === 0 ? (
-                      <div className="px-3 py-5 text-xs text-slate-400 text-center">{t("nav.noNewUpdates")}</div>
+                      <div className="px-3 py-5 text-xs text-[#7B8498] text-center">{t("nav.noNewUpdates")}</div>
                     ) : (
                       notifs.map((n, i) => (
                         <a
                           key={i}
                           href={`/company/${n.enterprise_number}`}
-                          className="block px-3 py-2.5 hover:bg-slate-50 border-b border-slate-50 last:border-0 transition-colors"
+                          className="block px-3 py-2.5 hover:bg-[#F8FAFD] border-b border-[#E3EAF4] last:border-0 transition-colors"
                           onClick={() => setShowNotifs(false)}
                         >
-                          <div className="text-xs font-medium text-slate-800 truncate">{n.name}</div>
-                          <div className="text-[10px] text-slate-400">
+                          <div className="text-xs font-medium text-[#07142F] truncate">{n.name}</div>
+                          <div className="text-[10px] text-[#7B8498]">
                             New FY{n.fiscal_year} data loaded {n.loaded_at?.slice(0, 10)}
                           </div>
                         </a>
@@ -198,108 +207,135 @@ export default function Nav() {
               </div>
             )}
 
+            {/* Language + feedback (hidden on landing) */}
+            {!isLanding && (
+              <div className="hidden md:flex items-center gap-1">
+                <FeedbackButtons />
+              </div>
+            )}
+
             <div className="hidden md:block">
               <LanguageSwitcher />
             </div>
 
-            <div className="hidden md:block w-px h-5 bg-slate-200" />
+            <div className="hidden md:block w-px h-5 bg-[#E3EAF4]" />
 
             {user ? (
               <DropdownMenu>
-                <DropdownMenuTrigger className="hidden md:flex items-center px-2 py-1.5 rounded-md hover:bg-slate-50 transition-colors">
-                  <div className="w-7 h-7 rounded-full bg-brand text-white flex items-center justify-center text-[11px] font-bold">
+                <DropdownMenuTrigger className="hidden md:flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-[#F3F7FF] transition-colors">
+                  <div className="w-7 h-7 rounded-full bg-[#0B5CFF] text-white flex items-center justify-center text-[11px] font-bold">
                     {initials}
                   </div>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={() => router.push("/account")} className="cursor-pointer">
-                    <User className="w-4 h-4 mr-2" />
+                <DropdownMenuContent align="end" className="w-48 border-[#E3EAF4]">
+                  <DropdownMenuItem onClick={() => router.push("/account")} className="cursor-pointer text-[13px]">
+                    <User className="w-4 h-4 mr-2 text-[#5F6B85]" />
                     {t("nav.accountSettings")}
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
-                    <LogOut className="w-4 h-4 mr-2" />
+                  <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-[13px]">
+                    <LogOut className="w-4 h-4 mr-2 text-[#5F6B85]" />
                     {t("nav.signOut")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              /* Sign-in is visible on every page including landing AND
-                 on mobile, per operator preference: "keep login on top
-                 (not in hamburger)". The hamburger no longer carries
-                 a Sign-in entry, so this button is the only path in. */
-              <Link href="/login">
-                <Button variant="outline" size="sm" className="inline-flex text-[12px] md:text-[13px] h-8 md:h-9 px-2.5 md:px-3">
-                  {t("nav.signIn")}
-                </Button>
-              </Link>
+              <div className="hidden md:flex items-center gap-2">
+                <Link href="/login">
+                  <Button variant="ghost" size="sm" className="text-[13px] h-8 px-3 text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF]">
+                    {t("nav.signIn")}
+                  </Button>
+                </Link>
+                <Link href="/login">
+                  <Button size="sm" className="text-[13px] h-8 px-4 bg-[#0B5CFF] hover:bg-[#084ED8] text-white rounded-lg shadow-none">
+                    Start trial
+                  </Button>
+                </Link>
+              </div>
             )}
 
-            {/* Mobile hamburger — holds Language + Feedback on phone (those
-                are md:flex-only in the header). Sign-in lives in the header
-                bar on every viewport (per operator preference). Nav links
-                live in the bottom dot-row on non-landing, /screener excepted. */}
+            {/* Mobile hamburger */}
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger>
-                <span className="md:hidden inline-flex items-center justify-center rounded-md p-2.5 min-w-[44px] min-h-[44px] text-slate-600 hover:bg-slate-100">
+                <span className="md:hidden inline-flex items-center justify-center rounded-lg p-2 min-w-[44px] min-h-[44px] text-[#5F6B85] hover:bg-[#F3F7FF]">
                   <Menu className="h-5 w-5" />
                 </span>
               </SheetTrigger>
-              <SheetContent side="left" className="w-64">
-                <SheetTitle className="flex items-center gap-2 text-base font-semibold">
-                  <img src={logoPath} alt="Datasnoop" width={36} height={36} className="rounded-md bg-white/95" />
-                  <span><span className="text-slate-900">data</span><span className="text-brand">snoop</span></span>
+              <SheetContent side="left" className="w-72 border-[#E3EAF4]">
+                <SheetTitle className="flex items-center gap-2.5 text-[15px] font-semibold text-[#07142F]">
+                  <div className="w-7 h-7 rounded-lg bg-[#0B5CFF] flex items-center justify-center text-white font-bold text-sm">D</div>
+                  DataSnoop
                 </SheetTitle>
-                <div className="mt-6 flex flex-col gap-4">
-                  {/* Sign in lives only in the top header per operator
-                      preference; the hamburger keeps Account just for
-                      signed-in users (Sign out). */}
-                  {user && (
-                    <div>
-                      <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Account</div>
-                      <button
-                        onClick={() => { handleSignOut(); setOpen(false); }}
-                        className="w-full px-3 py-2.5 rounded-md text-sm font-medium text-red-600 hover:bg-red-50 text-left"
-                      >
-                        {t("nav.signOut")}
-                      </button>
-                    </div>
-                  )}
+                <div className="mt-6 flex flex-col gap-1">
+                  {[...NAV_LINKS, ...MORE_LINKS].map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setOpen(false)}
+                      className={`flex items-center px-3 py-2.5 rounded-lg text-[14px] font-medium transition-colors ${
+                        isActive(item.href)
+                          ? "text-[#0B5CFF] bg-[#EEF3FF]"
+                          : "text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF]"
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
 
-                  <div>
-                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Language</div>
+                  <div className="border-t border-[#E3EAF4] mt-3 pt-3">
+                    <div className="px-3 mb-2 text-[10px] font-bold text-[#7B8498] uppercase tracking-wider">Language</div>
                     <div className="px-3">
                       <LanguageSwitcher />
                     </div>
                   </div>
 
-                  <div>
-                    <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1 px-3">Feedback</div>
+                  <div className="pt-2">
+                    <div className="px-3 mb-2 text-[10px] font-bold text-[#7B8498] uppercase tracking-wider">Feedback</div>
                     <div className="px-3 flex flex-col items-start gap-1">
                       <FeedbackButtons />
                     </div>
                   </div>
+
+                  {user && (
+                    <div className="border-t border-[#E3EAF4] mt-3 pt-3">
+                      <button
+                        onClick={() => { handleSignOut(); setOpen(false); }}
+                        className="w-full flex items-center px-3 py-2.5 rounded-lg text-sm font-medium text-rose-600 hover:bg-rose-50"
+                      >
+                        <LogOut className="w-4 h-4 mr-2" />
+                        {t("nav.signOut")}
+                      </button>
+                    </div>
+                  )}
+
+                  {!user && (
+                    <div className="border-t border-[#E3EAF4] mt-3 pt-3 px-3 flex flex-col gap-2">
+                      <Link href="/login" onClick={() => setOpen(false)}>
+                        <Button variant="outline" className="w-full text-[13px] border-[#E3EAF4]">{t("nav.signIn")}</Button>
+                      </Link>
+                      <Link href="/login" onClick={() => setOpen(false)}>
+                        <Button className="w-full text-[13px] bg-[#0B5CFF] hover:bg-[#084ED8] text-white">Start trial</Button>
+                      </Link>
+                    </div>
+                  )}
                 </div>
               </SheetContent>
             </Sheet>
           </div>
         </div>
 
-        {/* Mobile dot-nav — visible only on mobile non-landing pages.
-            Hidden on /screener because the screener owns the full mobile
-            viewport (split-pane filters/results) and the dot-row collides
-            with its top toolbar. */}
+        {/* Mobile dot-nav — visible only on non-landing, non-screener pages */}
         {!isLanding && !pathname.startsWith("/screener") && (
-          <div className="md:hidden border-t border-slate-100">
-            <nav className="flex items-center justify-center gap-0 py-1 text-[13px] text-gray-600 overflow-x-auto">
-              {NAV_LINKS.map((item, idx) => (
+          <div className="md:hidden border-t border-[#E3EAF4]">
+            <nav className="flex items-center gap-0 py-1 text-[13px] overflow-x-auto scrollbar-none">
+              {NAV_LINKS.slice(0, 4).map((item, idx) => (
                 <React.Fragment key={item.href}>
-                  {idx > 0 && <span className="text-gray-300 select-none shrink-0" aria-hidden>·</span>}
+                  {idx > 0 && <span className="text-[#E3EAF4] select-none shrink-0" aria-hidden>·</span>}
                   <Link
                     href={item.href}
-                    className={`px-3 py-2.5 min-h-[44px] inline-flex items-center rounded-md transition-colors shrink-0 ${
+                    className={`px-3 py-2.5 min-h-[44px] inline-flex items-center rounded-lg transition-colors shrink-0 font-medium ${
                       isActive(item.href)
-                        ? "text-gray-900 font-medium"
-                        : "hover:text-gray-900"
+                        ? "text-[#0B5CFF]"
+                        : "text-[#5F6B85] hover:text-[#07142F]"
                     }`}
                   >
                     {item.label}
