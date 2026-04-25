@@ -1,3 +1,9 @@
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 pydantic==2.9.0
+# Pinned to the same version as the base image's bundled Chromium so the
+# Python API doesn't drift from the browser binary. The base image
+# (mcr.microsoft.com/playwright/python:v1.48.0-noble) ships the package
+# but our pip layer's site-packages doesn't always see it; an explicit
+# install pulls it into the same path uvicorn imports from.
+playwright==1.48.0
