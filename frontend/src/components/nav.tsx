@@ -186,12 +186,10 @@ export default function Nav() {
               </div>
             )}
 
-            {/* Language + feedback (hidden on landing) */}
-            {!isLanding && (
-              <div className="hidden md:flex items-center gap-1">
-                <FeedbackButtons />
-              </div>
-            )}
+            {/* Feedback (mail + donate) — shown on every page including landing */}
+            <div className="hidden md:flex items-center gap-1">
+              <FeedbackButtons />
+            </div>
 
             <div className="hidden md:block">
               <LanguageSwitcher />

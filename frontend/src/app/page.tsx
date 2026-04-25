@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Search, Grid3X3, Sparkles, ArrowRight } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
-import FeedbackButtons from "@/components/feedback-buttons";
 
 const SMART_CHIPS = [
   { label: "High growth", href: "/screener?rev_growth_min=20", tone: "blue" },
@@ -172,10 +171,8 @@ export default function Home() {
                 ))}
               </div>
 
-              {/* Secondary actions: feedback (mail/heart) + guide + use cases */}
+              {/* Secondary actions: guide + use cases (feedback icons live in the header) */}
               <div className="mt-6 flex flex-wrap items-center gap-y-1 text-[13px] text-[#5F6B85]">
-                <FeedbackButtons />
-                <span className="text-[#C3CEDF] mx-1" aria-hidden>·</span>
                 <Link
                   href="/guide"
                   className="px-3 py-2 min-h-[40px] inline-flex items-center rounded-md hover:bg-[#F3F7FF] hover:text-[#0B5CFF] transition-colors"
