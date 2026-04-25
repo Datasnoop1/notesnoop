@@ -1717,13 +1717,28 @@ def build_kbo_context_block(kbo: dict) -> str:
         clean = [str(v).strip() for v in vals if v]
         return "; ".join(clean[:5])
 
+    # Parent rendering: include ownership pct + control type so the LLM
+    # can pick the correct group description ("subsidiary of" vs
+    # "majority-owned by" vs "controlled by").
+    parent_name = kbo.get("parent") or ""
+    parent_pct = kbo.get("parent_ownership_pct")
+    if parent_name and parent_pct:
+        if parent_pct >= 75:
+            control_phrase = f"{parent_name} ({parent_pct:.0f}% — wholly/near-wholly owned)"
+        elif parent_pct >= 50:
+            control_phrase = f"{parent_name} ({parent_pct:.0f}% — majority-owned)"
+        else:
+            control_phrase = f"{parent_name} ({parent_pct:.0f}% — controlled / significant stake)"
+    else:
+        control_phrase = parent_name
+
     lines = [
         f"Name: {_nn(kbo.get('name'))}",
         f"HQ city: {_nn(kbo.get('hq_city'))}",
         f"Primary NACE: {_nn(kbo.get('primary_nace'))}"
         + (f" — {_nn(kbo.get('nace_description'))}"
            if kbo.get("nace_description") else ""),
-        f"Parent: {_nn(kbo.get('parent'))}",
+        f"Parent: {_nn(control_phrase)}",
         f"Majority shareholders: {_list(kbo.get('majority_shareholders'))}",
         f"Key subsidiaries: {_list(kbo.get('key_subsidiaries'))}",
         f"Top administrators: {_list(kbo.get('admins_top3'))}",
@@ -1745,6 +1760,7 @@ _Q2_SCHEMA_INSTRUCTION = (
     '  "business_description": "<one paragraph, 2-4 sentences>",\n'
     '  "products_services": ["<string>", ...],\n'
     '  "customer_segments": ["<string>", ...],\n'
+    '  "group_context": "<one short sentence or null>",\n'
     '  "confidence": "high|medium|low|insufficient_information"\n'
     "}\n\n"
     "Rules:\n"
@@ -1754,6 +1770,13 @@ _Q2_SCHEMA_INSTRUCTION = (
     "different company, set confidence=low and say so briefly.\n"
     "- `products_services` and `customer_segments` are 2-6 short phrases each; "
     "lowercase, no marketing fluff.\n"
+    "- `group_context` describes the corporate-graph position when KBO supplies "
+    "one. Use exactly these phrasings based on the Parent line: "
+    "≥75% → \"subsidiary of {parent}\"; 50-74% → \"majority-owned by {parent}\"; "
+    "<50% but listed → \"controlled by {parent}\". When subsidiaries are listed, "
+    "you may add \"; owns/holds stakes in {n} subsidiaries\" — never invent "
+    "ownership percentages. Set to null if KBO has no parent and no "
+    "subsidiaries.\n"
     "- `confidence=high` only if the website was substantive and the KBO facts "
     "are consistent with it. Use `insufficient_information` when the scrape "
     "returned nothing useful."

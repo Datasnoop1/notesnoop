@@ -70,6 +70,14 @@ def _stats_overview_cached(province: Optional[str]) -> dict:
     if province and province in VALID_PROVINCES:
         prov_clause = f"AND {PROVINCE_SQL} = '{province}'"
 
+    # NOTE on FTE aggregation: rubric 9087 stored in financial_latest is the
+    # PERIOD-AVERAGE number of employees during the fiscal year. Summing
+    # period averages across companies is meaningful as a workforce-size
+    # proxy ("total period-averaged headcount across screened companies"),
+    # but it's not the same as a true point-in-time headcount. We keep the
+    # SUM as `total_fte` for backwards compat, expose AVG as `avg_fte`,
+    # and add the count of companies with a non-null FTE so the frontend
+    # can disclose data coverage.
     row = fetch_one(f"""
         SELECT
             COUNT(DISTINCT fl.enterprise_number)  AS "n_companies",
@@ -77,6 +85,7 @@ def _stats_overview_cached(province: Optional[str]) -> dict:
             SUM(fl.ebitda)                         AS "total_ebitda",
             SUM(fl.fte_total)                      AS "total_fte",
             AVG(fl.fte_total)                      AS "avg_fte",
+            COUNT(fl.fte_total)                    AS "fte_reporting_companies",
             SUM(COALESCE(fl.lt_financial_debt,0) + COALESCE(fl.st_financial_debt,0)
                 - COALESCE(fl.cash,0))             AS "total_nfd"
         FROM financial_latest fl

@@ -162,8 +162,9 @@ export function CompanyPageClient({
   const [aiInsightsError, setAiInsightsError] = useState<string | null>(null);
   const [showInsightsOverlay, setShowInsightsOverlay] = useState(false);
 
-  /* -- Copy-CBE feedback -- */
+  /* -- Copy-CBE / BTW feedback -- */
   const [copiedCbe, setCopiedCbe] = useState(false);
+  const [copiedBtw, setCopiedBtw] = useState(false);
 
   /* -- Collapsible section state -- */
   // Groups default-collapsed on load so the tabs feel lighter. User can
@@ -425,10 +426,16 @@ export function CompanyPageClient({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cbe]);
 
-  /* -- Load company detail, financials, structure -- */
+  /* -- Load company detail, financials, structure --
+     SSR delivered detail/financials/structure on the request that built
+     this page (revalidated server-side per the parent route). We use those
+     directly and skip the historical 150ms client-side refetch — that
+     refetch round-tripped data we already had and never advanced
+     `runAutoLoad` (gated by `nbbAutoTriggered.current`). Dropping it
+     saves two API calls per profile open and shaves visible latency on
+     the (very common) cached-warm path. */
   useEffect(() => {
     let cancelled = false;
-    let refreshTimer: number | null = null;
     nbbAutoTriggered.current = false;
     if (initialDetail) {
       setDetail(initialDetail);
@@ -436,33 +443,7 @@ export function CompanyPageClient({
       setStructure(initialStructure);
       setLoading(false);
       runAutoLoad(initialFinancials, initialStructure);
-
-      // When SSR already gave us the page shell, only refresh the data that
-      // changes most often in practice: structure + financials. This keeps
-      // subsidiaries/admin updates fresh without paying for a full second
-      // profile load on every open.
-      refreshTimer = window.setTimeout(() => {
-        Promise.all([
-          getCompanyFinancials(cbe),
-          getCompanyStructure(cbe),
-        ])
-          .then(async ([f, s]) => {
-            if (cancelled) return;
-            setFinancials(f as unknown as FinancialsData);
-            setStructure(s as unknown as StructureData);
-            await runAutoLoad(f as unknown as FinancialsData, s as unknown as StructureData);
-          })
-          .catch((err) => {
-            if (!cancelled) {
-              console.error("Failed to refresh company financials/structure:", err);
-            }
-          });
-      }, 150);
-
-      return () => {
-        cancelled = true;
-        if (refreshTimer !== null) window.clearTimeout(refreshTimer);
-      };
+      return () => { cancelled = true; };
     }
 
     setLoading(true);
@@ -488,7 +469,6 @@ export function CompanyPageClient({
 
     return () => {
       cancelled = true;
-      if (refreshTimer !== null) window.clearTimeout(refreshTimer);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cbe]);
@@ -845,6 +825,35 @@ export function CompanyPageClient({
   ].filter(Boolean);
   const address = addressParts.length > 0 ? addressParts.join(", ") : null;
 
+  // Belgian VAT numbers are the 10-digit CBE prefixed with "BE" — same digits,
+  // different external system. Operators copy this when filing invoices /
+  // looking up VAT IES, so it deserves its own copy affordance.
+  const btwNumber = `BE ${fmtCbe(cbe)}`;
+
+  const copyToClipboard = (value: string, onCopied: () => void) => {
+    const fallback = () => {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "absolute";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        onCopied();
+      } catch {
+        /* give up silently */
+      }
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(value).then(onCopied, fallback);
+    } else {
+      fallback();
+    }
+  };
+
   const chartData = (financials?.summary ?? []).map((r) => ({
     fy: String(r.fiscal_year),
     Revenue: r.revenue,
@@ -922,10 +931,30 @@ export function CompanyPageClient({
                   {copiedCbe ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
                 </button>
               </span>
-              {detail.jf_label && (
+              <span className="inline-flex items-center gap-1.5 before:content-['·'] before:text-slate-300 before:mr-1">
+                <span className="font-mono">{btwNumber}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    copyToClipboard(btwNumber, () => {
+                      setCopiedBtw(true);
+                      window.setTimeout(() => setCopiedBtw(false), 1500);
+                    });
+                  }}
+                  aria-label={copiedBtw ? t("company.copied") : t("company.copyBtw")}
+                  title={copiedBtw ? t("company.copied") : t("company.copyBtw")}
+                  className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-[#EEF3FF] hover:text-[#0B5CFF] transition-colors"
+                >
+                  {copiedBtw ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                </button>
+              </span>
+              {(detail.jf_short || detail.jf_label) && (
                 <span className="inline-flex items-center gap-1 before:content-['\u00B7'] before:text-slate-300 before:mr-1">
-                  <span className="uppercase tracking-wide text-[10px] font-semibold text-slate-500">
-                    {detail.jf_label}
+                  <span
+                    className="uppercase tracking-wide text-[10px] font-semibold text-slate-500"
+                    title={detail.jf_label || detail.jf_code || undefined}
+                  >
+                    {detail.jf_short || detail.jf_label}
                   </span>
                 </span>
               )}

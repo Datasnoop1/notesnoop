@@ -29,12 +29,30 @@ def _search_with_trgm_threshold(sql: str, params: dict, threshold: float) -> lis
     `fetch_all` would otherwise re-acquire a (potentially different)
     pool connection for each call, losing the `SET` that has to share
     the session with the search query.
+
+    `set_limit()` mutates the session-wide pg_trgm.similarity_threshold,
+    so we MUST reset it before returning the connection to the pool —
+    otherwise the next caller borrowing this connection inherits our
+    threshold and either over-recalls (cheap-fast) or under-recalls.
     """
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT set_limit(%s::real)", (threshold,))
-            cur.execute(sql, params)
-            rows = cur.fetchall()
+            try:
+                cur.execute("SELECT set_limit(%s::real)", (threshold,))
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+            finally:
+                # Restore Postgres default so the pooled connection is
+                # neutral on return. RESET is the documented way to drop
+                # a session-level GUC change.
+                try:
+                    cur.execute("RESET pg_trgm.similarity_threshold")
+                except Exception:
+                    # Older pg_trgm versions exposed only set_limit().
+                    try:
+                        cur.execute("SELECT set_limit(0.3::real)")
+                    except Exception:
+                        pass
         conn.commit()
         return rows
 from search_normalization import (
