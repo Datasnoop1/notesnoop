@@ -97,6 +97,8 @@ export default function HeaderSearch() {
     }, 150);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      // Abort any in-flight request — prevents setResults on unmount.
+      if (abortRef.current) abortRef.current.abort();
     };
   }, [query]);
 

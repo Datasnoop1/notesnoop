@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from db import fetch_all, fetch_one, execute
 from auth import get_current_user, optional_user
+from cache import ttl_cache
 from utils import parse_nace_list
 
 logger = logging.getLogger(__name__)
@@ -28,17 +29,25 @@ SORT_OPTIONS = {
 }
 
 
-@router.get("/nace-suggestions")
-async def nace_suggestions(q: str = Query("", min_length=1)):
-    """Return NACE codes matching the query (code or description)."""
-    rows = fetch_all("""
+@ttl_cache(ttl_seconds=900)
+def _nace_suggestions_cached(q: str) -> list:
+    return fetch_all("""
         SELECT nace_code, description, company_count
         FROM nace_lookup
         WHERE nace_code ILIKE %s OR description ILIKE %s
         ORDER BY company_count DESC NULLS LAST
         LIMIT 50
     """, (f"%{q}%", f"%{q}%"))
-    return rows
+
+
+@router.get("/nace-suggestions")
+async def nace_suggestions(q: str = Query("", min_length=1, max_length=80)):
+    """Return NACE codes matching the query. Cached 15 min — nace_lookup changes rarely.
+
+    `max_length` caps the cache-key cardinality so a hostile caller can't
+    push the in-process cache toward eviction churn with junk strings.
+    """
+    return _nace_suggestions_cached(q.lower())
 
 
 @router.get("")

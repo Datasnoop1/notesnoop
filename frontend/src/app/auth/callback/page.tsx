@@ -20,7 +20,7 @@ export default function AuthCallback() {
         const { data, error } = await supabase.auth.getSession();
         if (data?.session) {
           setStatus("Signed in! Redirecting...");
-          router.push("/");
+          router.replace("/");
           return;
         }
         if (error) {
@@ -38,12 +38,12 @@ export default function AuthCallback() {
           setStatus(`Code exchange error: ${error.message}`);
           // Wait and retry
           await new Promise(r => setTimeout(r, 2000));
-          router.push("/login?error=auth_failed");
+          router.replace("/login?error=auth_failed");
           return;
         }
         if (data?.session) {
           setStatus("Signed in! Redirecting...");
-          router.push("/");
+          router.replace("/");
           return;
         }
       }
@@ -69,7 +69,7 @@ export default function AuthCallback() {
       // Nothing worked — show debug info
       setStatus(`No auth data found. URL: ${window.location.href.substring(0, 100)}...`);
       await new Promise(r => setTimeout(r, 5000));
-      router.push("/login");
+      router.replace("/login");
     }
 
     handleAuth();

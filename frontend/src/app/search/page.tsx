@@ -257,7 +257,7 @@ function UnifiedSearchPageInner() {
             )}
           </button>
           {locFiltersOpen && (
-            <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
               <Input
                 placeholder={t("search.postalCode") !== "search.postalCode" ? t("search.postalCode") : "Postal code"}
                 value={locPostalCode}
@@ -269,7 +269,7 @@ function UnifiedSearchPageInner() {
                     street: locStreet,
                   });
                 }}
-                className="h-9 text-sm"
+                className="h-10 md:h-9 text-base md:text-sm"
                 inputMode="numeric"
                 maxLength={10}
               />
@@ -284,7 +284,7 @@ function UnifiedSearchPageInner() {
                     street: locStreet,
                   });
                 }}
-                className="h-9 text-sm"
+                className="h-10 md:h-9 text-base md:text-sm"
               />
               <Input
                 placeholder={t("search.street") !== "search.street" ? t("search.street") : "Street"}
@@ -297,7 +297,7 @@ function UnifiedSearchPageInner() {
                     street: e.target.value,
                   });
                 }}
-                className="h-9 text-sm"
+                className="h-10 md:h-9 text-base md:text-sm"
               />
               {(locPostalCode || locMunicipality || locStreet) && (
                 <button
@@ -308,7 +308,7 @@ function UnifiedSearchPageInner() {
                     setLocStreet("");
                     doSearch(query, { postalCode: "", municipality: "", street: "" });
                   }}
-                  className="sm:col-span-3 inline-flex items-center justify-center gap-1 text-[11px] text-slate-500 hover:text-rose-500"
+                  className="md:col-span-3 inline-flex items-center justify-center gap-1 text-[11px] text-slate-500 hover:text-rose-500"
                 >
                   <XIcon className="h-3 w-3" /> Clear location filter
                 </button>

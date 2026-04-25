@@ -483,7 +483,7 @@ export function ValuationTab({ cbe, companyName }: ValuationTabProps) {
           <select
             value={sectorOverride ?? profile.vlerick_sector}
             onChange={(e) => handleSectorChange(e.target.value)}
-            className={`rounded-md border border-slate-200 bg-white px-2 py-2 md:py-1 text-xs text-slate-700 focus:border-brand/60 focus:outline-none ${view === "sector" ? "" : "invisible"}`}
+            className={`rounded-md border border-slate-200 bg-white px-2 h-10 md:h-7 text-base md:text-xs text-slate-700 focus:border-brand/60 focus:outline-none ${view === "sector" ? "" : "invisible"}`}
             title={sourceTag}
             aria-hidden={view !== "sector"}
           >

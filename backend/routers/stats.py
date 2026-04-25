@@ -6,9 +6,15 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from db import fetch_all, fetch_one, get_connection
+from cache import ttl_cache
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/stats", tags=["stats"])
+
+# Sector / province / size aggregates query 100k+ rows and change at most
+# once a day. A 5-minute in-process cache turns a 1.4s response into a
+# sub-millisecond dict lookup for repeat callers.
+_STATS_TTL_S = 300
 
 PROVINCE_SQL = """
     CASE
@@ -58,59 +64,56 @@ def _serialize(rows: list) -> list:
 # GET /api/stats/overview
 # ---------------------------------------------------------------------------
 
-@router.get("/overview")
-async def stats_overview(
-    province: Optional[str] = Query(None, description="Province filter"),
-):
-    """Overall database stats: company count, total revenue, EBITDA, FTE, NFD.
-
-    SQL extracted from app/pages/4_stats.py load_overview().
-    """
+@ttl_cache(ttl_seconds=_STATS_TTL_S)
+def _stats_overview_cached(province: Optional[str]) -> dict:
     prov_clause = ""
     if province and province in VALID_PROVINCES:
         prov_clause = f"AND {PROVINCE_SQL} = '{province}'"
 
+    row = fetch_one(f"""
+        SELECT
+            COUNT(DISTINCT fl.enterprise_number)  AS "n_companies",
+            SUM(fl.revenue)                        AS "total_revenue",
+            SUM(fl.ebitda)                         AS "total_ebitda",
+            SUM(fl.fte_total)                      AS "total_fte",
+            AVG(fl.fte_total)                      AS "avg_fte",
+            SUM(COALESCE(fl.lt_financial_debt,0) + COALESCE(fl.st_financial_debt,0)
+                - COALESCE(fl.cash,0))             AS "total_nfd"
+        FROM financial_latest fl
+        JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+        WHERE 1=1 {prov_clause}
+    """)
+
+    # Median margin computed entirely in SQL — old version pulled every
+    # row into Python (~80k+) and sorted client-side, which dominated the
+    # response time at scale.
+    median_row = fetch_one(f"""
+        SELECT percentile_cont(0.5) WITHIN GROUP (
+                  ORDER BY (CAST(fl.ebitda AS REAL) / fl.revenue * 100)
+               ) AS median_margin
+        FROM financial_latest fl
+        JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+        WHERE fl.revenue > 500000 AND fl.ebitda IS NOT NULL {prov_clause}
+    """)
+
+    result: dict = {}
+    if row:
+        import decimal
+        for k, v in row.items():
+            result[k] = float(v) if isinstance(v, decimal.Decimal) else v
+    median_margin = median_row.get("median_margin") if median_row else None
+    result["median_margin"] = round(float(median_margin), 1) if median_margin is not None else None
+    return result
+
+
+@router.get("/overview")
+async def stats_overview(
+    province: Optional[str] = Query(None, description="Province filter"),
+):
+    """Overall database stats: company count, total revenue, EBITDA, FTE, NFD."""
     try:
-        row = fetch_one(f"""
-            SELECT
-                COUNT(DISTINCT fl.enterprise_number)  AS "n_companies",
-                SUM(fl.revenue)                        AS "total_revenue",
-                SUM(fl.ebitda)                         AS "total_ebitda",
-                SUM(fl.fte_total)                      AS "total_fte",
-                AVG(fl.fte_total)                      AS "avg_fte",
-                SUM(COALESCE(fl.lt_financial_debt,0) + COALESCE(fl.st_financial_debt,0)
-                    - COALESCE(fl.cash,0))             AS "total_nfd"
-            FROM financial_latest fl
-            JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-            WHERE 1=1 {prov_clause}
-        """)
-
-        # Median margin (computed server-side)
-        margin_rows = fetch_all(f"""
-            SELECT CAST(fl.ebitda AS REAL) / fl.revenue * 100 AS "margin"
-            FROM financial_latest fl
-            JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-            WHERE fl.revenue > 500000 AND fl.ebitda IS NOT NULL {prov_clause}
-            ORDER BY "margin"
-        """)
-
-        median_margin = None
-        if margin_rows:
-            margins = [float(r["margin"]) for r in margin_rows if r["margin"] is not None]
-            if margins:
-                margins.sort()
-                mid = len(margins) // 2
-                median_margin = margins[mid] if len(margins) % 2 else (margins[mid - 1] + margins[mid]) / 2
-
-        result = {}
-        if row:
-            import decimal
-            for k, v in row.items():
-                result[k] = float(v) if isinstance(v, decimal.Decimal) else v
-        result["median_margin"] = round(median_margin, 1) if median_margin is not None else None
-
-        return result
-    except Exception as e:
+        return _stats_overview_cached(province if province in VALID_PROVINCES else None)
+    except Exception:
         logger.exception("Stats overview query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -119,44 +122,43 @@ async def stats_overview(
 # GET /api/stats/evolution
 # ---------------------------------------------------------------------------
 
+@ttl_cache(ttl_seconds=_STATS_TTL_S)
+def _stats_evolution_cached(y_min: int, y_max: int, province: Optional[str]) -> list:
+    prov_clause = ""
+    if province and province in VALID_PROVINCES:
+        prov_clause = f"AND {PROVINCE_SQL} = '{province}'"
+    prov_clause_fy = prov_clause.replace("fl.", "fy.") if prov_clause else ""
+
+    agg = fetch_all(f"""
+        SELECT
+            fy.fiscal_year,
+            COUNT(DISTINCT fy.enterprise_number)              AS "companies",
+            SUM(fy.revenue)/1e6                              AS "revenue_m",
+            SUM(fy.ebitda)/1e6                               AS "ebitda_m",
+            SUM(fy.ebit)/1e6                                 AS "ebit_m",
+            SUM(fy.net_profit)/1e6                           AS "net_profit_m",
+            SUM(COALESCE(fy.lt_financial_debt,0)+COALESCE(fy.st_financial_debt,0)
+                -COALESCE(fy.cash,0))/1e6                    AS "nfd_m"
+        FROM financial_by_year fy
+        JOIN company_info ci ON ci.enterprise_number = fy.enterprise_number
+        WHERE fy.fiscal_year BETWEEN %s AND %s
+        {prov_clause_fy}
+        GROUP BY fy.fiscal_year
+        ORDER BY fy.fiscal_year
+    """, (y_min, y_max))
+    return _serialize(agg)
+
+
 @router.get("/evolution")
 async def stats_evolution(
     y_min: int = Query(2021, ge=2015, le=2030),
     y_max: int = Query(2024, ge=2015, le=2030),
     province: Optional[str] = Query(None),
 ):
-    """Financial evolution by fiscal year.
-
-    SQL extracted from app/pages/4_stats.py load_evolution().
-    """
-    prov_clause = ""
-    if province and province in VALID_PROVINCES:
-        prov_clause = f"AND {PROVINCE_SQL} = '{province}'"
-
-    # Replace fl. with fy. in the province clause for financial_by_year table
-    prov_clause_fy = prov_clause.replace("fl.", "fy.") if prov_clause else ""
-
+    """Financial evolution by fiscal year."""
     try:
-        agg = fetch_all(f"""
-            SELECT
-                fy.fiscal_year,
-                COUNT(DISTINCT fy.enterprise_number)              AS "companies",
-                SUM(fy.revenue)/1e6                              AS "revenue_m",
-                SUM(fy.ebitda)/1e6                               AS "ebitda_m",
-                SUM(fy.ebit)/1e6                                 AS "ebit_m",
-                SUM(fy.net_profit)/1e6                           AS "net_profit_m",
-                SUM(COALESCE(fy.lt_financial_debt,0)+COALESCE(fy.st_financial_debt,0)
-                    -COALESCE(fy.cash,0))/1e6                    AS "nfd_m"
-            FROM financial_by_year fy
-            JOIN company_info ci ON ci.enterprise_number = fy.enterprise_number
-            WHERE fy.fiscal_year BETWEEN %s AND %s
-            {prov_clause_fy}
-            GROUP BY fy.fiscal_year
-            ORDER BY fy.fiscal_year
-        """, (y_min, y_max))
-
-        return _serialize(agg)
-    except Exception as e:
+        return _stats_evolution_cached(y_min, y_max, province if province in VALID_PROVINCES else None)
+    except Exception:
         logger.exception("Stats evolution query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -165,26 +167,15 @@ async def stats_evolution(
 # GET /api/stats/sectors
 # ---------------------------------------------------------------------------
 
-@router.get("/sectors")
-async def stats_sectors(
-    province: Optional[str] = Query(None),
-    top_n: int = Query(10, ge=5, le=50),
-):
-    """Sector breakdown by 2-digit NACE code.
-
-    Median computation pushed to SQL (percentile_cont) instead of loading
-    all 150k rows into Python — cuts latency from ~2-3s to ~150ms at
-    current data volumes.
-    """
+@ttl_cache(ttl_seconds=_STATS_TTL_S)
+def _stats_sectors_cached(province: Optional[str], top_n: int) -> list:
     prov_clause = ""
     params: tuple = ()
     if province and province in VALID_PROVINCES:
-        # Use parameterisation via a WHERE subquery lookup, so query plans cache.
         prov_clause = f"AND {PROVINCE_SQL} = %s"
         params = (province,)
 
-    try:
-        rows = fetch_all(f"""
+    rows = fetch_all(f"""
             WITH base AS (
                 SELECT
                     SUBSTR(ci.nace_code, 1, 2)                          AS nace2,
@@ -226,15 +217,29 @@ async def stats_sectors(
             LIMIT %s
         """, params + (top_n,))
 
-        # Decimal → float (cheap, small result set after aggregation)
-        import decimal
-        for r in rows:
-            for k, v in list(r.items()):
-                if isinstance(v, decimal.Decimal):
-                    r[k] = float(v)
-        return rows
+    # Decimal → float (cheap, small result set after aggregation)
+    import decimal
+    for r in rows:
+        for k, v in list(r.items()):
+            if isinstance(v, decimal.Decimal):
+                r[k] = float(v)
+    return rows
 
-    except Exception as e:
+
+@router.get("/sectors")
+async def stats_sectors(
+    province: Optional[str] = Query(None),
+    top_n: int = Query(10, ge=5, le=50),
+):
+    """Sector breakdown by 2-digit NACE code.
+
+    Median computation pushed to SQL (percentile_cont) instead of loading
+    all 150k rows into Python — cuts latency from ~2-3s to ~150ms at
+    current data volumes. Result cached in-process for 5 min.
+    """
+    try:
+        return _stats_sectors_cached(province if province in VALID_PROVINCES else None, top_n)
+    except Exception:
         logger.exception("Stats sectors query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -243,65 +248,39 @@ async def stats_sectors(
 # GET /api/stats/provinces
 # ---------------------------------------------------------------------------
 
+@ttl_cache(ttl_seconds=_STATS_TTL_S)
+def _stats_provinces_cached() -> list:
+    # Aggregate entirely in SQL — the previous version pulled every
+    # company's revenue/ebitda/fte (~150k rows) into Python and median'd
+    # client-side, which dominated the response time at scale.
+    rows = fetch_all(f"""
+        SELECT
+            {PROVINCE_SQL}                                              AS province,
+            COUNT(DISTINCT fl.enterprise_number)                        AS companies,
+            ROUND((SUM(fl.revenue)/1e6)::numeric, 1)                    AS revenue_m,
+            ROUND((SUM(fl.ebitda)/1e6)::numeric, 1)                     AS ebitda_m,
+            ROUND(percentile_cont(0.5) WITHIN GROUP (
+                  ORDER BY CASE WHEN fl.revenue > 0 AND fl.ebitda IS NOT NULL
+                                THEN fl.ebitda / fl.revenue * 100 END
+            )::numeric, 1)                                              AS med_margin,
+            ROUND(SUM(fl.fte_total)::numeric, 0)                        AS total_fte,
+            ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY fl.fte_total)::numeric, 0)
+                                                                        AS med_fte
+        FROM financial_latest fl
+        JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+        WHERE ci.zipcode IS NOT NULL AND {PROVINCE_SQL} != 'Other'
+        GROUP BY {PROVINCE_SQL}
+        ORDER BY companies DESC
+    """)
+    return _serialize(rows)
+
+
 @router.get("/provinces")
 async def stats_provinces():
-    """Province-level stats.
-
-    SQL extracted from app/pages/4_stats.py load_province_stats().
-    """
+    """Province-level stats. Cached 5 min."""
     try:
-        raw = fetch_all(f"""
-            SELECT
-                {PROVINCE_SQL}                                                 AS "province",
-                fl.enterprise_number,
-                fl.revenue, fl.ebitda, fl.fte_total
-            FROM financial_latest fl
-            JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-            WHERE ci.zipcode IS NOT NULL AND {PROVINCE_SQL} != 'Other'
-        """)
-
-        if not raw:
-            return []
-
-        from collections import defaultdict
-        import statistics
-
-        groups = defaultdict(lambda: {
-            "enterprises": set(), "revenues": [], "ebitdas": [],
-            "margins": [], "ftes": [],
-        })
-
-        for row in raw:
-            prov = row["province"]
-            groups[prov]["enterprises"].add(row["enterprise_number"])
-            rev = float(row["revenue"]) if row["revenue"] is not None else None
-            ebitda = float(row["ebitda"]) if row["ebitda"] is not None else None
-            fte = float(row["fte_total"]) if row["fte_total"] is not None else None
-            if rev is not None:
-                groups[prov]["revenues"].append(rev)
-            if ebitda is not None:
-                groups[prov]["ebitdas"].append(ebitda)
-            if fte is not None:
-                groups[prov]["ftes"].append(fte)
-            if rev and rev > 0 and ebitda is not None:
-                groups[prov]["margins"].append(ebitda / rev * 100)
-
-        result = []
-        for prov, data in groups.items():
-            result.append({
-                "province": prov,
-                "companies": len(data["enterprises"]),
-                "revenue_m": round(sum(data["revenues"]) / 1e6, 1) if data["revenues"] else 0,
-                "ebitda_m": round(sum(data["ebitdas"]) / 1e6, 1) if data["ebitdas"] else 0,
-                "med_margin": round(statistics.median(data["margins"]), 1) if data["margins"] else None,
-                "total_fte": round(sum(data["ftes"]), 0) if data["ftes"] else 0,
-                "med_fte": round(statistics.median(data["ftes"]), 0) if data["ftes"] else None,
-            })
-
-        result.sort(key=lambda x: x["companies"], reverse=True)
-        return result
-
-    except Exception as e:
+        return _stats_provinces_cached()
+    except Exception:
         logger.exception("Stats provinces query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -310,33 +289,34 @@ async def stats_provinces():
 # GET /api/stats/margin-distribution
 # ---------------------------------------------------------------------------
 
+@ttl_cache(ttl_seconds=_STATS_TTL_S)
+def _stats_margin_distribution_cached(province: Optional[str]) -> list:
+    prov_clause = ""
+    if province and province in VALID_PROVINCES:
+        prov_clause = f"AND {PROVINCE_SQL} = '{province}'"
+    rows = fetch_all(f"""
+        SELECT
+            ROUND((fl.ebitda / fl.revenue * 100)::numeric) AS "margin_bucket",
+            COUNT(*) AS "n"
+        FROM financial_latest fl
+        JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+        WHERE fl.revenue > 100000
+          AND fl.ebitda / fl.revenue * 100 BETWEEN -50 AND 80
+          {prov_clause}
+        GROUP BY "margin_bucket"
+        ORDER BY "margin_bucket"
+    """)
+    return _serialize(rows)
+
+
 @router.get("/margin-distribution")
 async def stats_margin_distribution(
     province: Optional[str] = Query(None),
 ):
-    """EBITDA margin distribution histogram data.
-
-    SQL extracted from app/pages/4_stats.py load_margin_distribution().
-    """
-    prov_clause = ""
-    if province and province in VALID_PROVINCES:
-        prov_clause = f"AND {PROVINCE_SQL} = '{province}'"
-
+    """EBITDA margin distribution histogram data. Cached 5 min."""
     try:
-        rows = fetch_all(f"""
-            SELECT
-                ROUND((fl.ebitda / fl.revenue * 100)::numeric) AS "margin_bucket",
-                COUNT(*) AS "n"
-            FROM financial_latest fl
-            JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-            WHERE fl.revenue > 100000
-              AND fl.ebitda / fl.revenue * 100 BETWEEN -50 AND 80
-              {prov_clause}
-            GROUP BY "margin_bucket"
-            ORDER BY "margin_bucket"
-        """)
-        return _serialize(rows)
-    except Exception as e:
+        return _stats_margin_distribution_cached(province if province in VALID_PROVINCES else None)
+    except Exception:
         logger.exception("Margin distribution query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -345,25 +325,9 @@ async def stats_margin_distribution(
 # GET /api/stats/sector-scatter — revenue (X) vs EBITDA margin % (Y) per company
 # ---------------------------------------------------------------------------
 
-@router.get("/sector-scatter")
-async def stats_sector_scatter(
-    nace: str = Query(..., min_length=2, max_length=5, description="NACE prefix (2-5 digits)"),
-    limit: int = Query(300, ge=10, le=1000),
-):
-    """Per-company revenue vs EBITDA-margin scatter for one NACE sector.
-
-    Drives the Plotly-style scatter on the Stats page: each dot is one
-    company, X = revenue, Y = EBITDA margin %, dot size = FTE. Capped at
-    ``limit`` rows because >1000 dots in recharts becomes unreadable
-    (and slow). Excludes outliers (margin outside [-50, 80]) so the
-    median band stays legible.
-    """
-    nace = nace.strip()
-    if not nace.isdigit():
-        raise HTTPException(status_code=400, detail="NACE must be numeric")
-
-    try:
-        rows = fetch_all("""
+@ttl_cache(ttl_seconds=_STATS_TTL_S)
+def _stats_sector_scatter_cached(nace: str, limit: int) -> list:
+    rows = fetch_all("""
             SELECT
                 ci.enterprise_number AS cbe,
                 ci.name,
@@ -380,8 +344,25 @@ async def stats_sector_scatter(
               AND fl.ebitda / fl.revenue * 100 BETWEEN -50 AND 80
             ORDER BY fl.revenue DESC
             LIMIT %s
-        """, (f"{nace}%", limit))
-        return _serialize(rows)
+    """, (f"{nace}%", limit))
+    return _serialize(rows)
+
+
+@router.get("/sector-scatter")
+async def stats_sector_scatter(
+    nace: str = Query(..., min_length=2, max_length=5, description="NACE prefix (2-5 digits)"),
+    limit: int = Query(300, ge=10, le=1000),
+):
+    """Per-company revenue vs EBITDA-margin scatter for one NACE sector.
+
+    Cached 5 min — sectors with high traffic (62 ICT, 47 Retail) repeat
+    constantly and the underlying data only refreshes nightly.
+    """
+    nace = nace.strip()
+    if not nace.isdigit():
+        raise HTTPException(status_code=400, detail="NACE must be numeric")
+    try:
+        return _stats_sector_scatter_cached(nace, limit)
     except Exception:
         logger.exception("Sector scatter query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -391,51 +372,52 @@ async def stats_sector_scatter(
 # GET /api/stats/size-distribution
 # ---------------------------------------------------------------------------
 
+@ttl_cache(ttl_seconds=_STATS_TTL_S)
+def _stats_size_distribution_cached(province: Optional[str]) -> list:
+    prov_clause = ""
+    if province and province in VALID_PROVINCES:
+        prov_clause = f"AND {PROVINCE_SQL} = '{province}'"
+    rows = fetch_all(f"""
+        SELECT
+            CASE
+                WHEN fl.revenue < 1e6    THEN '< 1M'
+                WHEN fl.revenue < 5e6    THEN '1-5M'
+                WHEN fl.revenue < 10e6   THEN '5-10M'
+                WHEN fl.revenue < 25e6   THEN '10-25M'
+                WHEN fl.revenue < 50e6   THEN '25-50M'
+                WHEN fl.revenue < 100e6  THEN '50-100M'
+                WHEN fl.revenue < 250e6  THEN '100-250M'
+                ELSE '> 250M'
+            END AS "size_bucket",
+            CASE
+                WHEN fl.revenue < 1e6    THEN 1
+                WHEN fl.revenue < 5e6    THEN 2
+                WHEN fl.revenue < 10e6   THEN 3
+                WHEN fl.revenue < 25e6   THEN 4
+                WHEN fl.revenue < 50e6   THEN 5
+                WHEN fl.revenue < 100e6  THEN 6
+                WHEN fl.revenue < 250e6  THEN 7
+                ELSE 8
+            END AS "sort_key",
+            COUNT(*) AS "companies",
+            SUM(fl.revenue)/1e6 AS "revenue_m"
+        FROM financial_latest fl
+        JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+        WHERE fl.revenue > 0 {prov_clause}
+        GROUP BY "size_bucket", "sort_key"
+        ORDER BY "sort_key"
+    """)
+    return _serialize(rows)
+
+
 @router.get("/size-distribution")
 async def stats_size_distribution(
     province: Optional[str] = Query(None),
 ):
-    """Company size distribution by revenue bucket.
-
-    SQL extracted from app/pages/4_stats.py load_size_distribution().
-    """
-    prov_clause = ""
-    if province and province in VALID_PROVINCES:
-        prov_clause = f"AND {PROVINCE_SQL} = '{province}'"
-
+    """Company size distribution by revenue bucket. Cached 5 min."""
     try:
-        rows = fetch_all(f"""
-            SELECT
-                CASE
-                    WHEN fl.revenue < 1e6    THEN '< 1M'
-                    WHEN fl.revenue < 5e6    THEN '1-5M'
-                    WHEN fl.revenue < 10e6   THEN '5-10M'
-                    WHEN fl.revenue < 25e6   THEN '10-25M'
-                    WHEN fl.revenue < 50e6   THEN '25-50M'
-                    WHEN fl.revenue < 100e6  THEN '50-100M'
-                    WHEN fl.revenue < 250e6  THEN '100-250M'
-                    ELSE '> 250M'
-                END AS "size_bucket",
-                CASE
-                    WHEN fl.revenue < 1e6    THEN 1
-                    WHEN fl.revenue < 5e6    THEN 2
-                    WHEN fl.revenue < 10e6   THEN 3
-                    WHEN fl.revenue < 25e6   THEN 4
-                    WHEN fl.revenue < 50e6   THEN 5
-                    WHEN fl.revenue < 100e6  THEN 6
-                    WHEN fl.revenue < 250e6  THEN 7
-                    ELSE 8
-                END AS "sort_key",
-                COUNT(*) AS "companies",
-                SUM(fl.revenue)/1e6 AS "revenue_m"
-            FROM financial_latest fl
-            JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-            WHERE fl.revenue > 0 {prov_clause}
-            GROUP BY "size_bucket", "sort_key"
-            ORDER BY "sort_key"
-        """)
-        return _serialize(rows)
-    except Exception as e:
+        return _stats_size_distribution_cached(province if province in VALID_PROVINCES else None)
+    except Exception:
         logger.exception("Size distribution query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 

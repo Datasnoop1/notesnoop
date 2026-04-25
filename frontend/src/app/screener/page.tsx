@@ -828,7 +828,7 @@ export default function ScreenerPage() {
           {showSaveInput && (
             <div className="flex gap-1">
               <Input
-                className="h-6 text-[11px] flex-1"
+                className="h-9 md:h-6 text-base md:text-[11px] flex-1"
                 placeholder={t("screener.presetPlaceholder")}
                 value={presetName}
                 onChange={(e) => setPresetName(e.target.value)}

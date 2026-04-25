@@ -336,24 +336,31 @@ def rebuild_materialized_tables():
         """)
         conn.commit()
 
-        # company_info (only update existing rows + add new ones from financial_latest)
+        # company_info — insert rows for newly-loaded financials.
+        # Pick the best-language denomination per enterprise (NL > FR > none > DE/EN)
+        # via DISTINCT ON. Earlier MAX(d.denomination) limited to languages
+        # ('1','2') discarded ~800k language='0' rows (Toyota, Cargill …)
+        # and ordered alphabetically rather than by language preference.
         cur.execute("""
             INSERT INTO company_info (enterprise_number, name, city, zipcode, nace_code)
-            SELECT
+            SELECT DISTINCT ON (fl.enterprise_number)
                 fl.enterprise_number,
-                MAX(d.denomination),
-                MAX(a.municipality_nl),
-                MAX(a.zipcode),
-                MAX(act.nace_code)
+                d.denomination,
+                a.municipality_nl,
+                a.zipcode,
+                act.nace_code
             FROM financial_latest fl
             LEFT JOIN denomination d ON d.entity_number = fl.enterprise_number
-                AND d.type_of_denomination = '001' AND d.language IN ('2', '1')
+                AND d.type_of_denomination = '001'
             LEFT JOIN address a ON a.entity_number = fl.enterprise_number
                 AND a.type_of_address = 'REGO'
             LEFT JOIN activity act ON act.entity_number = fl.enterprise_number
                 AND act.classification = 'MAIN'
             WHERE NOT EXISTS (SELECT 1 FROM company_info ci WHERE ci.enterprise_number = fl.enterprise_number)
-            GROUP BY fl.enterprise_number
+            ORDER BY fl.enterprise_number,
+                     CASE d.language WHEN '2' THEN 1 WHEN '1' THEN 2 WHEN '0' THEN 3
+                                     WHEN '3' THEN 4 WHEN '4' THEN 5 ELSE 6 END,
+                     d.denomination NULLS LAST
         """)
         conn.commit()
 

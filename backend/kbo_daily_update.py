@@ -277,10 +277,14 @@ def apply_inserts(cur, zf, filename, table_name):
 def refresh_company_info():
     """Refresh the company_info table from enterprise + denomination + address + activity.
 
-    Uses DISTINCT ON to guarantee a single row per enterprise_number — a few
-    companies have multiple NL registered denominations / addresses / MAIN
-    activities, and a raw multi-join would emit them as duplicate keys,
-    which Postgres rejects inside a single ON CONFLICT DO UPDATE statement.
+    DISTINCT ON picks one row per enterprise. Denomination ranking: prefer
+    NL (language='2'), then FR ('1'), then unspecified ('0'), then DE/EN.
+    Earlier versions only matched language='1' which left ~1.5M companies
+    with NULL names — anything filed in NL or with no language tag (Toyota,
+    Cargill, Janssen, AB InBev …) showed as a CBE in the UI.
+
+    ON CONFLICT uses COALESCE so a refresh never overwrites a good name with
+    NULL just because this run couldn't resolve a denomination.
     """
     log.info("Refreshing company_info table...")
     t0 = time.time()
@@ -294,7 +298,7 @@ def refresh_company_info():
             act.nace_code
         FROM enterprise e
         LEFT JOIN denomination d ON d.entity_number = e.enterprise_number
-            AND d.type_of_denomination = '001' AND d.language = '1'
+            AND d.type_of_denomination = '001'
         LEFT JOIN address a ON a.entity_number = e.enterprise_number
             AND a.type_of_address = 'REGO'
         LEFT JOIN (
@@ -303,13 +307,22 @@ def refresh_company_info():
             WHERE activity_group = '001' AND nace_version = '2008' AND classification = 'MAIN'
         ) act ON act.entity_number = e.enterprise_number
         WHERE e.status = 'AC'
-        ORDER BY e.enterprise_number, d.denomination NULLS LAST,
+        ORDER BY e.enterprise_number,
+                 CASE d.language
+                     WHEN '2' THEN 1
+                     WHEN '1' THEN 2
+                     WHEN '0' THEN 3
+                     WHEN '3' THEN 4
+                     WHEN '4' THEN 5
+                     ELSE 6
+                 END,
+                 d.denomination NULLS LAST,
                  a.zipcode NULLS LAST, act.nace_code NULLS LAST
         ON CONFLICT (enterprise_number) DO UPDATE SET
-            name = EXCLUDED.name,
-            city = EXCLUDED.city,
-            zipcode = EXCLUDED.zipcode,
-            nace_code = EXCLUDED.nace_code
+            name     = COALESCE(EXCLUDED.name,     company_info.name),
+            city     = COALESCE(EXCLUDED.city,     company_info.city),
+            zipcode  = COALESCE(EXCLUDED.zipcode,  company_info.zipcode),
+            nace_code = COALESCE(EXCLUDED.nace_code, company_info.nace_code)
     """)
     log.info(f"company_info refreshed in {time.time() - t0:.1f}s")
 
