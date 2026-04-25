@@ -101,7 +101,7 @@ export default function ShareableCompanyCard() {
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
           <p className="text-sm text-slate-500 mb-3">Company not found.</p>
-          <Link href="/" className="text-xs text-indigo-500 hover:underline">
+          <Link href="/" className="text-xs text-brand hover:underline">
             Go to DataSnoop
           </Link>
         </div>
@@ -113,13 +113,13 @@ export default function ShareableCompanyCard() {
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 py-8 px-4">
       <div className="mx-auto max-w-[620px]">
         <div className="mb-4 flex items-center justify-between text-xs text-slate-400">
-          <Link href="/" className="hover:text-indigo-600">
+          <Link href="/" className="hover:text-brand">
             ← DataSnoop
           </Link>
           <button
             type="button"
             onClick={copyLink}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-200 transition-colors"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-brand-soft/60 hover:border-brand/30 transition-colors"
             title="Copy shareable link"
           >
             {copied ? (
@@ -138,10 +138,10 @@ export default function ShareableCompanyCard() {
 
         <div className="rounded-2xl bg-white shadow-lg border border-slate-100 overflow-hidden">
           {/* Header band */}
-          <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-indigo-50 to-white">
+          <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-brand-soft to-white">
             <div className="flex items-center gap-3 mb-1">
-              <div className="h-10 w-10 rounded-lg bg-indigo-100 flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-indigo-600" />
+              <div className="h-10 w-10 rounded-lg bg-brand-soft flex items-center justify-center">
+                <Building2 className="h-5 w-5 text-brand" />
               </div>
               <div className="min-w-0">
                 <h1 className="text-xl font-bold text-slate-900 truncate">
@@ -198,7 +198,7 @@ export default function ShareableCompanyCard() {
                   href={detail.website.startsWith("http") ? detail.website : `https://${detail.website}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-indigo-600 hover:underline truncate"
+                  className="text-brand hover:underline truncate"
                 >
                   {detail.website.replace(/^https?:\/\//, "")}
                 </a>
@@ -230,7 +230,7 @@ export default function ShareableCompanyCard() {
             </span>
             <Link
               href={`/company/${cbe}`}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 transition-colors font-medium"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-brand text-white hover:bg-[color:var(--brand-ink)] transition-colors font-medium"
             >
               <TrendingUp className="h-3.5 w-3.5" />
               Full profile
@@ -239,7 +239,7 @@ export default function ShareableCompanyCard() {
         </div>
 
         <p className="mt-4 text-center text-[11px] text-slate-400">
-          Powered by <Link href="/" className="hover:text-indigo-600">DataSnoop</Link>
+          Powered by <Link href="/" className="hover:text-brand">DataSnoop</Link>
           {" · "}
           <Users className="h-3 w-3 inline -mt-0.5" /> 170k+ Belgian companies, daily refresh.
         </p>

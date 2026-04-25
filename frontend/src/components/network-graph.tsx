@@ -45,13 +45,12 @@ function isPersonNodeId(id: string | undefined): id is string {
 }
 
 /* Depth-based color palette (darker = closer to target).
- * Softer end of the scale for depths 3/4 — still readable against white
- * but less saturated than the violet gradient an earlier iteration used.
- * Operator found that version too loud. */
+ * Teal scale for depths 0-2 (matches the rebrand --brand token), slate
+ * for distant nodes so the eye still distinguishes far-removed entities. */
 const DEPTH_COLORS: Record<number, string> = {
-  0: "#4f46e5", // indigo-600 — target company
-  1: "#6366f1", // indigo-500 — direct
-  2: "#818cf8", // indigo-400 — 2nd degree
+  0: "#0a5659", // brand-ink — target company
+  1: "#178f93", // mid-teal — direct (brighter than --brand for visible step from depth 0)
+  2: "#5cb1b3", // brand teal lightest — 2nd degree
   3: "#94a3b8", // slate-400 — 3rd degree
   4: "#cbd5e1", // slate-300 — 4th degree
 };
@@ -246,8 +245,8 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   // Depth-based node colors (darker closer to target)
   const nodeColor = (node: { type?: string; id?: string; depth?: number }) => {
-    if (node.id === centerNodeId) return "#4f46e5";
-    if (node.depth != null) return DEPTH_COLORS[node.depth] || "#c7d2fe";
+    if (node.id === centerNodeId) return "#0a5659";
+    if (node.depth != null) return DEPTH_COLORS[node.depth] || "#5cb1b3";
     return "#94a3b8";
   };
 
@@ -330,7 +329,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                 <span key={d} className="flex items-center gap-1">
                   <span
                     className="w-2.5 h-2.5 rounded-full inline-block"
-                    style={{ backgroundColor: DEPTH_COLORS[d] || "#c7d2fe" }}
+                    style={{ backgroundColor: DEPTH_COLORS[d] || "#5cb1b3" }}
                   />
                   {DEPTH_LABELS[d] || `Depth ${d}`}
                 </span>
@@ -351,24 +350,24 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
               profile's CBE, so we also offer a back-to-original pill and
               a link to the clicked company's full profile. */}
           {!centeredOnOriginalCompany && (
-            <div className="flex items-center gap-2 px-3 py-2 mb-2 bg-indigo-50 border border-indigo-200 rounded-lg text-xs">
-              <span className="text-indigo-700">
+            <div className="flex items-center gap-2 px-3 py-2 mb-2 bg-brand-soft border border-brand/30 rounded-lg text-xs">
+              <span className="text-[color:var(--brand-ink)]">
                 Centered on <strong>{centerLabel}</strong>{" "}
                 {centeredCompanyId && (
-                  <span className="text-indigo-400 font-mono">({centeredCompanyId})</span>
+                  <span className="text-brand/60 font-mono">({centeredCompanyId})</span>
                 )}
               </span>
               <button
                 type="button"
                 onClick={() => { setCenterNodeId(cbe); setCenterLabel(companyName); }}
-                className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100"
+                className="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded border border-brand/30 bg-white text-[color:var(--brand-ink)] hover:bg-brand-soft"
               >
                 <ArrowLeft className="h-3 w-3" /> Back to {companyName}
               </button>
               {centeredCompanyId && (
                 <Link
                   href={`/company/${centeredCompanyId}`}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-100"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded border border-brand/30 bg-white text-[color:var(--brand-ink)] hover:bg-brand-soft"
                 >
                   <ExternalLink className="h-3 w-3" /> Open profile
                 </Link>
@@ -392,7 +391,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                 onClick={() => setDepth(d)}
                 className={`px-3 py-2 md:px-2.5 md:py-1 text-xs rounded-md font-medium transition-colors ${
                   depth === d
-                    ? "bg-indigo-600 text-white"
+                    ? "bg-brand text-white"
                     : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                 }`}
               >
@@ -413,7 +412,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                   title={shown ? `Hide ${label}` : `Show ${label}`}
                   className={`px-3 py-2 md:px-2.5 md:py-1 text-xs rounded-md font-medium transition-colors inline-flex items-center gap-1 ${
                     shown
-                      ? "bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
+                      ? "bg-brand-soft/60 text-[color:var(--brand-ink)] border border-brand/30 hover:bg-brand-soft"
                       : "bg-white text-slate-400 border border-slate-200 line-through hover:bg-slate-50"
                   }`}
                 >

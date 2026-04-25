@@ -46,7 +46,7 @@ export default function GuidePage() {
   return (
     <div className="max-w-3xl mx-auto space-y-8">
       <div className="flex items-center gap-3 mb-2">
-        <BookOpen className="w-5 h-5 text-indigo-500" />
+        <BookOpen className="w-5 h-5 text-brand" />
         <h1 className="text-lg font-bold text-slate-900">{t("guide.title")}</h1>
       </div>
       <p className="text-sm text-slate-500 -mt-4">
@@ -59,10 +59,10 @@ export default function GuidePage() {
           return (
             <div key={s.titleKey} className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="flex items-center gap-2 mb-2">
-                <Icon className="w-4 h-4 text-indigo-500 shrink-0" />
+                <Icon className="w-4 h-4 text-brand shrink-0" />
                 <h2 className="text-sm font-semibold text-slate-900">
                   {s.href ? (
-                    <Link href={s.href} className="hover:text-indigo-600 hover:underline transition-colors">
+                    <Link href={s.href} className="hover:text-brand hover:underline transition-colors">
                       {t(s.titleKey)}
                     </Link>
                   ) : t(s.titleKey)}
@@ -78,7 +78,7 @@ export default function GuidePage() {
       <AdUnit slot="3722838377" format="fluid" className="rounded-lg" />
 
       <div className="text-center py-4">
-        <Link href="/" className="text-xs text-indigo-500 hover:text-indigo-700 font-medium transition-colors">
+        <Link href="/" className="text-xs text-brand hover:text-[color:var(--brand-ink)] font-medium transition-colors">
           {t("guide.backToDashboard")}
         </Link>
       </div>

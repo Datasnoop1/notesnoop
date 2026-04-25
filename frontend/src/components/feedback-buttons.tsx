@@ -125,7 +125,7 @@ function FeedbackDialog({
                   Cancel
                 </Button>
                 <Button
-                  className="bg-indigo-600 hover:bg-indigo-700"
+                  className="bg-brand hover:bg-[color:var(--brand-ink)]"
                   onClick={handleSubmit}
                   disabled={submitting || !description.trim()}
                 >

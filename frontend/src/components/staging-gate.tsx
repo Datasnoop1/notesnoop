@@ -157,7 +157,7 @@ function BlockerCard({ email }: { email: string | null }) {
         </h1>
         <p className="mt-2 text-sm text-slate-500 leading-relaxed">
           This environment is restricted to DataSnoop admins. For the live site, please use{" "}
-          <a href="https://datasnoop.be" className="text-indigo-600 hover:underline">
+          <a href="https://datasnoop.be" className="text-brand hover:underline">
             datasnoop.be
           </a>
           .
@@ -166,14 +166,14 @@ function BlockerCard({ email }: { email: string | null }) {
           {isAnonymous ? (
             <a
               href="/login"
-              className="inline-flex items-center h-9 px-4 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors"
+              className="inline-flex items-center h-9 px-4 text-xs font-medium text-white bg-brand rounded-md hover:bg-[color:var(--brand-ink)] transition-colors"
             >
               Sign in as admin
             </a>
           ) : (
             <a
               href="https://datasnoop.be"
-              className="inline-flex items-center h-9 px-4 text-xs font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors"
+              className="inline-flex items-center h-9 px-4 text-xs font-medium text-white bg-brand rounded-md hover:bg-[color:var(--brand-ink)] transition-colors"
             >
               Go to datasnoop.be
             </a>

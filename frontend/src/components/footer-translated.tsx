@@ -11,6 +11,10 @@ export default function FooterTranslated() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-xs text-slate-400 space-y-1">
         <div>{t("footer.dataSources")}</div>
         <div className="flex items-center justify-center gap-1.5">
+          <a href="/use-cases.html" className="hover:text-slate-600 hover:underline">
+            Use cases
+          </a>
+          <span>|</span>
           <Link href="/privacy" className="hover:text-slate-600 hover:underline">
             {t("footer.privacyPolicy")}
           </Link>

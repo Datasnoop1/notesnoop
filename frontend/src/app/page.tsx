@@ -46,7 +46,16 @@ export default function Home() {
   }
 
   return (
-    <div className="flex flex-col items-center px-4 pt-[10vh] pb-24 bg-white">
+    <div className="relative isolate flex flex-col items-center px-4 pt-[10vh] pb-24">
+      {/* Decorative teal radial — matches use-cases.html hero glow. Pointer-events-none so it never traps clicks. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-[420px] -z-10"
+        style={{
+          background:
+            "radial-gradient(ellipse at center top, rgba(13,115,119,0.08), transparent 60%)",
+        }}
+      />
       {/* Brand */}
       <div className="flex flex-col items-center mb-12 sm:mb-14">
         <img
@@ -93,6 +102,10 @@ export default function Home() {
           <Link href="/guide" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
             User guide
           </Link>
+          <span className="text-gray-300" aria-hidden>·</span>
+          <a href="/use-cases.html" className="px-3 sm:px-4 py-2.5 sm:py-2 min-h-[44px] inline-flex items-center rounded-md hover:bg-gray-50 transition-colors">
+            Use cases
+          </a>
         </div>
       </form>
 

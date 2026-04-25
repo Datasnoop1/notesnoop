@@ -34,8 +34,8 @@ export default function LimitPopup() {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <div className="flex items-center gap-2 mb-1">
-            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-indigo-50">
-              <ShieldAlert className="h-5 w-5 text-indigo-600" />
+            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-brand-soft">
+              <ShieldAlert className="h-5 w-5 text-brand" />
             </div>
             <DialogTitle className="text-lg">
               {isGuest ? "Daily limit reached" : "Daily limit reached"}
@@ -65,7 +65,7 @@ export default function LimitPopup() {
           </div>
           <div className="mt-2 h-2 rounded-full bg-slate-200 overflow-hidden">
             <div
-              className="h-full rounded-full bg-indigo-500"
+              className="h-full rounded-full bg-brand"
               style={{ width: "100%" }}
             />
           </div>
@@ -79,7 +79,7 @@ export default function LimitPopup() {
             <Link
               href="/login"
               onClick={clearLimit}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-[color:var(--brand-ink)] transition-colors"
             >
               <UserPlus className="h-4 w-4" />
               Sign up free
@@ -88,7 +88,7 @@ export default function LimitPopup() {
             <Link
               href="/account"
               onClick={clearLimit}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-[color:var(--brand-ink)] transition-colors"
             >
               <Sparkles className="h-4 w-4" />
               Upgrade to Pro

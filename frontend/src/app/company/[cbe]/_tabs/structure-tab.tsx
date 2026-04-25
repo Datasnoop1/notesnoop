@@ -89,14 +89,14 @@ export function StructureTab({
                           {shCbe ? (
                             <Link
                               href={`/company/${shCbe}`}
-                              className="font-semibold text-sm text-indigo-600 hover:underline"
+                              className="font-semibold text-sm text-brand hover:underline"
                             >
                               {sh.name}
                             </Link>
                           ) : (
                             <Link
                               href={`/people?q=${encodeURIComponent(sh.name)}`}
-                              className="font-semibold text-sm text-indigo-600 hover:underline"
+                              className="font-semibold text-sm text-brand hover:underline"
                             >
                               {sh.name}
                             </Link>
@@ -156,14 +156,14 @@ export function StructureTab({
                           {piCbe ? (
                             <Link
                               href={`/company/${piCbe}`}
-                              className="font-semibold text-sm text-indigo-600 hover:underline"
+                              className="font-semibold text-sm text-brand hover:underline"
                             >
                               {pi.name}
                             </Link>
                           ) : (
                             <Link
                               href={`/people?q=${encodeURIComponent(pi.name)}`}
-                              className="font-semibold text-sm text-indigo-600 hover:underline"
+                              className="font-semibold text-sm text-brand hover:underline"
                             >
                               {pi.name}
                             </Link>

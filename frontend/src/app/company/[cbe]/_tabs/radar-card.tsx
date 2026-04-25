@@ -56,7 +56,7 @@ export function CompanyRadarCard({ cbe }: { cbe: string }) {
 
   return (
     <div className="rounded-lg border bg-white p-3">
-      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2 mb-2">
+      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-brand pl-2 mb-2">
         Sector radar — {data.peer_count} peers
       </h3>
       <ResponsiveContainer width="100%" height={220}>

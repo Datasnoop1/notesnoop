@@ -364,7 +364,7 @@ function ScorebordTab() {
                                             <TableCell>
                                               <Link
                                                 href={`/company/${c.enterprise_number}`}
-                                                className="text-indigo-600 hover:text-indigo-800 hover:underline font-medium text-sm"
+                                                className="text-brand hover:text-[color:var(--brand-ink)] hover:underline font-medium text-sm"
                                               >
                                                 {c.company_name}
                                               </Link>
@@ -417,7 +417,7 @@ function ScorebordTab() {
                                             <TableCell>
                                               <Link
                                                 href={`/company/${c.enterprise_number}`}
-                                                className="text-indigo-600 hover:text-indigo-800 hover:underline font-medium text-sm"
+                                                className="text-brand hover:text-[color:var(--brand-ink)] hover:underline font-medium text-sm"
                                               >
                                                 {c.company_name}
                                               </Link>
@@ -580,7 +580,7 @@ function InProcessTab() {
                     <TableCell>
                       <Link
                         href={`/company/${c.enterprise_number}`}
-                        className="text-indigo-600 hover:text-indigo-800 hover:underline font-medium text-sm"
+                        className="text-brand hover:text-[color:var(--brand-ink)] hover:underline font-medium text-sm"
                       >
                         {c.company_name}
                       </Link>

@@ -80,7 +80,7 @@ export default function AccountPage() {
     <div className="mx-auto w-full max-w-[1200px] space-y-6">
       {/* Profile header */}
       <div className="flex items-center gap-4">
-        <div className="w-14 h-14 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xl font-bold shrink-0">
+        <div className="w-14 h-14 rounded-full bg-brand text-white flex items-center justify-center text-xl font-bold shrink-0">
           {initials}
         </div>
         <div>
@@ -115,14 +115,14 @@ export default function AccountPage() {
                 </span>
                 <span className="text-xs text-slate-400">{t("account.limitedSearches")}</span>
               </div>
-              <div className="bg-indigo-50/70 border border-indigo-100 rounded-lg p-3">
-                <h3 className="font-semibold text-indigo-900 text-xs">{t("account.powerUser")}</h3>
-                <p className="text-[11px] text-indigo-600/80 mt-0.5">
+              <div className="bg-brand-soft/70 border border-brand/20 rounded-lg p-3">
+                <h3 className="font-semibold text-[color:var(--brand-ink)] text-xs">{t("account.powerUser")}</h3>
+                <p className="text-[11px] text-brand/80 mt-0.5">
                   {t("account.powerUserDesc")}
                 </p>
                 <button
                   disabled
-                  className="mt-2 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-md opacity-50 cursor-not-allowed"
+                  className="mt-2 px-3 py-1.5 bg-brand text-white text-xs font-medium rounded-md opacity-50 cursor-not-allowed"
                 >
                   {t("account.comingSoon")}
                 </button>
@@ -192,7 +192,7 @@ export default function AccountPage() {
                 <Button
                   type="submit"
                   size="sm"
-                  className="bg-indigo-600 hover:bg-indigo-700"
+                  className="bg-brand hover:bg-[color:var(--brand-ink)]"
                   disabled={saving}
                 >
                   {saving ? t("account.updating") : t("account.updatePassword")}

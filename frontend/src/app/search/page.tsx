@@ -226,12 +226,12 @@ function UnifiedSearchPageInner() {
             value={query}
             onChange={(e) => doSearch(e.target.value)}
             // text-[16px] avoids iOS Safari's auto-zoom on focus.
-            className="pl-12 h-12 text-[16px] rounded-xl border-slate-200 shadow-sm focus:ring-2 focus:ring-indigo-200"
+            className="pl-12 h-12 text-[16px] rounded-xl border-slate-200 shadow-sm focus:ring-2 focus:ring-brand/30"
             autoFocus
             aria-label={t("search.placeholder")}
           />
           {loading && (
-            <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-indigo-400 animate-spin" />
+            <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-brand/60 animate-spin" />
           )}
         </div>
         {!searched && (
@@ -245,13 +245,13 @@ function UnifiedSearchPageInner() {
           <button
             type="button"
             onClick={() => setLocFiltersOpen((prev) => !prev)}
-            className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition-colors"
+            className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-brand transition-colors"
             aria-expanded={locFiltersOpen}
           >
             <MapPin className="h-3.5 w-3.5" />
             {t("search.location") !== "search.location" ? t("search.location") : "Filter by location"}
             {(locPostalCode || locMunicipality || locStreet) && (
-              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-indigo-500 text-white text-[10px] px-1">
+              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-brand text-white text-[10px] px-1">
                 {[locPostalCode, locMunicipality, locStreet].filter(Boolean).length}
               </span>
             )}
@@ -379,8 +379,8 @@ function UnifiedSearchPageInner() {
       {!searched && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto mt-4">
           <a href="/company" className="block">
-            <div className="rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group text-center">
-              <Building className="w-8 h-8 text-indigo-400 mx-auto mb-2 group-hover:text-indigo-600 transition-colors" />
+            <div className="rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-brand/30 transition-all cursor-pointer group text-center">
+              <Building className="w-8 h-8 text-brand/60 mx-auto mb-2 group-hover:text-brand transition-colors" />
               <h3 className="text-sm font-semibold text-slate-700">
                 {t("search.browseCompanies")}
               </h3>

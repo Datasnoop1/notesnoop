@@ -110,7 +110,7 @@ export default function FavouritesDialog({
                     {already ? (
                       <span className="text-[10px] text-slate-400">Added</span>
                     ) : (
-                      <Plus className="h-3.5 w-3.5 text-indigo-500" />
+                      <Plus className="h-3.5 w-3.5 text-brand" />
                     )}
                   </div>
                 </button>

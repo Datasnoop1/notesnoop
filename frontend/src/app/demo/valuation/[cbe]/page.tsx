@@ -58,8 +58,8 @@ export default async function ValuationDemoPage({
     <div className="mx-auto w-full max-w-[1000px] px-2 py-4 md:py-8">
       {/* Demo-mode label — hidden in print since the valuation tab has its
           own DataSnoop logo header for the PDF. */}
-      <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-700 no-print">
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-indigo-500" />
+      <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-brand/30 bg-brand-soft px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-[color:var(--brand-ink)] no-print">
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-brand" />
         Indicative valuation · Demo
       </div>
 
@@ -94,7 +94,7 @@ export default async function ValuationDemoPage({
         This is a demo page. For the full company profile, structure, and filings, see{" "}
         <Link
           href={`/company/${cleanCbe}`}
-          className="font-semibold text-indigo-500 hover:text-indigo-600"
+          className="font-semibold text-brand hover:text-brand"
         >
           the full company page on DataSnoop
         </Link>

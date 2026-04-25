@@ -99,7 +99,7 @@ export default function Nav() {
   const hideHeaderSearch = isLanding || pathname === "/search";
 
   return (
-    <header className="sticky top-0 z-50 bg-white border-b border-slate-200/80">
+    <header className="sticky top-0 z-50 glass-chrome">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className={`flex items-center h-16 ${isLanding ? "justify-center" : "justify-between"}`}>
           {/* Brand — hidden on landing (brand lives in the hero there) */}
@@ -111,7 +111,7 @@ export default function Nav() {
               <span className="text-base font-semibold text-slate-900 tracking-tight">
                 Datasnoop
               </span>
-              <span className="text-[9px] sm:text-[10px] font-bold bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
+              <span className="text-[9px] sm:text-[10px] font-bold bg-brand-soft text-brand px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
             </Link>
           )}
 
@@ -206,7 +206,7 @@ export default function Nav() {
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger className="hidden md:flex items-center px-2 py-1.5 rounded-md hover:bg-slate-50 transition-colors">
-                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[11px] font-bold">
+                  <div className="w-7 h-7 rounded-full bg-brand text-white flex items-center justify-center text-[11px] font-bold">
                     {initials}
                   </div>
                 </DropdownMenuTrigger>

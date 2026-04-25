@@ -30,7 +30,7 @@ export default function LanguageSwitcher() {
             key={l.code}
             onClick={() => setLocale(l.code)}
             className={`cursor-pointer text-[13px] ${
-              locale === l.code ? "font-semibold text-indigo-600" : ""
+              locale === l.code ? "font-semibold text-brand" : ""
             }`}
           >
             {l.label}

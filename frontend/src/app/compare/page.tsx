@@ -537,7 +537,7 @@ export default function ComparePage() {
                     <div className="flex flex-col items-end gap-0.5">
                       <Link
                         href={`/company/${c.cbe}`}
-                        className="font-semibold text-indigo-600 hover:underline truncate max-w-[160px] block text-[11px] normal-case"
+                        className="font-semibold text-brand hover:underline truncate max-w-[160px] block text-[11px] normal-case"
                       >
                         {c.name.length > 20
                           ? c.name.slice(0, 20) + "..."
@@ -739,7 +739,7 @@ export default function ComparePage() {
                           {fmtEur(r.revenue)}
                         </Badge>
                       )}
-                      <Plus className="h-3.5 w-3.5 text-indigo-500" />
+                      <Plus className="h-3.5 w-3.5 text-brand" />
                     </div>
                   </div>
                 </button>
@@ -776,7 +776,7 @@ export default function ComparePage() {
               {loadingProject ? (
                 <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
               ) : (
-                <FolderOpen className="h-4 w-4 mr-1.5 text-indigo-500" />
+                <FolderOpen className="h-4 w-4 mr-1.5 text-brand" />
               )}
               <span className="hidden sm:inline">{t("compare.loadProject")}</span>
               <span className="sm:hidden">{t("compare.project")}</span>
@@ -800,7 +800,7 @@ export default function ComparePage() {
                         key={p.id}
                         onClick={() => loadProject(p)}
                         disabled={p.members.length === 0}
-                        className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 border-b border-slate-50 last:border-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="w-full text-left px-3 py-2.5 hover:bg-brand-soft/60 border-b border-slate-50 last:border-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <span className="text-sm font-medium text-slate-800 block truncate">
                           {p.name}
@@ -821,7 +821,7 @@ export default function ComparePage() {
         {companies.length >= maxCompanies && maxCompanies < ABSOLUTE_MAX && (
           <button
             onClick={() => setMaxCompanies((prev) => Math.min(prev + LOAD_MORE_STEP, ABSOLUTE_MAX))}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800 transition-colors self-center"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-brand hover:text-[color:var(--brand-ink)] transition-colors self-center"
           >
             + Load more slots
           </button>
@@ -839,7 +839,7 @@ export default function ComparePage() {
           {companies.map((c) => (
             <div
               key={c.cbe}
-              className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-full text-sm font-medium"
+              className="inline-flex items-center gap-1.5 bg-brand-soft text-[color:var(--brand-ink)] px-3 py-1.5 rounded-full text-sm font-medium"
             >
               {c.loading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -850,12 +850,12 @@ export default function ComparePage() {
               >
                 {c.name}
               </Link>
-              <span className="text-indigo-400 text-xs">
+              <span className="text-brand/60 text-xs">
                 {fmtCbe(c.cbe)}
               </span>
               <button
                 onClick={() => removeCompany(c.cbe)}
-                className="ml-0.5 hover:bg-indigo-100 rounded-full p-1.5 -mr-1 transition-colors"
+                className="ml-0.5 hover:bg-brand-soft rounded-full p-1.5 -mr-1 transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -874,7 +874,7 @@ export default function ComparePage() {
               <div key={`kpi-${c.cbe}`} className="text-xs text-slate-600">
                 <Link
                   href={`/company/${c.cbe}`}
-                  className="font-semibold text-indigo-600 hover:underline"
+                  className="font-semibold text-brand hover:underline"
                 >
                   {c.name}
                 </Link>
@@ -920,7 +920,7 @@ export default function ComparePage() {
             {renderSection(
               t("compare.incomeStatement"),
               INCOME_LINES,
-              "border-indigo-500"
+              "border-brand"
             )}
             {renderSection(
               t("compare.balanceSheet"),

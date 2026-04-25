@@ -269,9 +269,9 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
   if (loading && companies.length === 0) {
     return (
       <div className="py-12 text-center">
-        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-50 border border-indigo-100">
-          <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
-          <span className="text-sm text-indigo-600 font-medium">Finding similar companies with AI...</span>
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-soft border border-brand/20">
+          <Loader2 className="w-4 h-4 animate-spin text-brand" />
+          <span className="text-sm text-brand font-medium">Finding similar companies with AI...</span>
         </div>
         <p className="text-[11px] text-slate-400 mt-3">Analyzing sector, revenue, and business model</p>
       </div>
@@ -284,7 +284,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
       <div className="py-12 text-center">
         <Sparkles className="w-8 h-8 text-slate-300 mx-auto mb-2" />
         <p className="text-sm font-medium text-slate-500">{error}</p>
-        <button onClick={() => loadSimilar()} className="mt-3 text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+        <button onClick={() => loadSimilar()} className="mt-3 text-xs text-brand hover:text-[color:var(--brand-ink)] font-medium">
           Try again
         </button>
       </div>
@@ -307,9 +307,9 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <div className="h-7 px-2.5 rounded-full bg-indigo-50 border border-indigo-100 flex items-center gap-1.5">
-            <Sparkles className="w-3 h-3 text-indigo-500" />
-            <span className="text-[11px] font-semibold text-indigo-600">AI Similar Companies</span>
+          <div className="h-7 px-2.5 rounded-full bg-brand-soft border border-brand/20 flex items-center gap-1.5">
+            <Sparkles className="w-3 h-3 text-brand" />
+            <span className="text-[11px] font-semibold text-brand">AI Similar Companies</span>
           </div>
           <span className="text-[10px] text-slate-400">({companies.length})</span>
         </div>
@@ -317,7 +317,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
           <button
             onClick={resetResults}
             disabled={loading}
-            className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-1 text-[10px] text-slate-400 hover:text-brand transition-colors disabled:opacity-50"
             title="Regenerate"
           >
             <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
@@ -325,7 +325,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-[11px] text-indigo-600 border-indigo-200 hover:bg-indigo-50 px-3"
+            className="h-7 text-[11px] text-brand border-brand/30 hover:bg-brand-soft/60 px-3"
             onClick={() => {
               const cbes = companies.map((sc) => sc.enterprise_number);
               if (!cbes.includes(cbe)) cbes.unshift(cbe);
@@ -341,13 +341,13 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
 
       {/* Selection action bar */}
       {selected.size > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2">
-          <span className="text-[11px] text-indigo-600 font-medium">{selected.size} selected</span>
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-brand/20 bg-brand-soft/50 px-3 py-2">
+          <span className="text-[11px] text-brand font-medium">{selected.size} selected</span>
           <div className="flex-1" />
           <button
             onClick={addSelectedToFavourites}
             disabled={addingFavs}
-            className="inline-flex items-center gap-1 h-10 md:h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-100 disabled:opacity-50 transition-colors bg-white"
+            className="inline-flex items-center gap-1 h-10 md:h-7 px-3 text-[11px] font-medium text-brand border border-brand/30 rounded-md hover:bg-brand-soft disabled:opacity-50 transition-colors bg-white"
           >
             {addingFavs ? <Loader2 className="w-3 h-3 animate-spin" /> : <Heart className="w-3 h-3" />}
             Favourites
@@ -355,7 +355,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
           <div className="relative">
             <button
               onClick={() => { setShowProjectMenu(!showProjectMenu); if (!showProjectMenu) loadProjects(); }}
-              className="inline-flex items-center gap-1 h-10 md:h-7 px-3 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-md hover:bg-indigo-100 transition-colors bg-white"
+              className="inline-flex items-center gap-1 h-10 md:h-7 px-3 text-[11px] font-medium text-brand border border-brand/30 rounded-md hover:bg-brand-soft transition-colors bg-white"
             >
               <FolderPlus className="w-3 h-3" />
               Project
@@ -368,7 +368,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
                     key={p.id}
                     onClick={() => addSelectedToProject(p.id)}
                     disabled={addingToProject}
-                    className="w-full text-left px-3 py-1.5 text-[11px] text-slate-700 hover:bg-indigo-50 disabled:opacity-50"
+                    className="w-full text-left px-3 py-1.5 text-[11px] text-slate-700 hover:bg-brand-soft/60 disabled:opacity-50"
                   >
                     {p.name}
                   </button>
@@ -376,7 +376,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
                 {projects.length > 0 && <div className="border-t border-slate-100 my-1" />}
                 <div className="px-2 py-1.5 flex gap-1">
                   <input
-                    className="flex-1 h-6 text-[11px] border border-slate-200 rounded px-2 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                    className="flex-1 h-6 text-[11px] border border-slate-200 rounded px-2 focus:outline-none focus:ring-1 focus:ring-brand/60"
                     placeholder="New project name..."
                     value={newProjectName}
                     onChange={(e) => setNewProjectName(e.target.value)}
@@ -385,7 +385,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
                   <button
                     onClick={createProjectAndAdd}
                     disabled={!newProjectName.trim() || addingToProject}
-                    className="h-6 px-2 text-[10px] font-medium text-white bg-indigo-600 rounded disabled:opacity-40 hover:bg-indigo-700"
+                    className="h-6 px-2 text-[10px] font-medium text-white bg-brand rounded disabled:opacity-40 hover:bg-[color:var(--brand-ink)]"
                   >
                     {addingToProject ? "..." : "Create"}
                   </button>
@@ -396,7 +396,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
           <Button
             variant="outline"
             size="sm"
-            className="h-10 md:h-7 text-[11px] text-indigo-600 border-indigo-200 hover:bg-indigo-100 px-3 bg-white"
+            className="h-10 md:h-7 text-[11px] text-brand border-brand/30 hover:bg-brand-soft px-3 bg-white"
             onClick={() => {
               const cbes = [...selected];
               if (!cbes.includes(cbe)) cbes.unshift(cbe);
@@ -418,7 +418,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
               <th className="px-2 py-2 w-11">
                 <button
                   onClick={toggleAll}
-                  className="h-10 w-10 md:h-auto md:w-auto flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-colors"
+                  className="h-10 w-10 md:h-auto md:w-auto flex items-center justify-center text-slate-400 hover:text-brand transition-colors"
                   title={selected.size === companies.length ? "Unselect all" : "Select all"}
                 >
                   {selected.size === companies.length ? <CheckSquare className="w-4 h-4 md:w-3.5 md:h-3.5" /> : <Square className="w-4 h-4 md:w-3.5 md:h-3.5" />}
@@ -434,19 +434,19 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
           </thead>
           <tbody>
             {companies.map((sc, idx) => (
-              <tr key={sc.enterprise_number} className={`border-t border-slate-50 align-top hover:bg-indigo-50/30 transition-colors ${selected.has(sc.enterprise_number) ? "bg-indigo-50/40" : ""}`}>
+              <tr key={sc.enterprise_number} className={`border-t border-slate-50 align-top hover:bg-brand-soft/30 transition-colors ${selected.has(sc.enterprise_number) ? "bg-brand-soft/40" : ""}`}>
                 <td className="px-2 py-2.5 align-top">
                   <button
                     onClick={() => toggleSelect(sc.enterprise_number)}
-                    className="h-10 w-10 md:h-auto md:w-auto flex items-center justify-center text-slate-300 hover:text-indigo-600 transition-colors"
+                    className="h-10 w-10 md:h-auto md:w-auto flex items-center justify-center text-slate-300 hover:text-brand transition-colors"
                     title={selected.has(sc.enterprise_number) ? "Unselect" : "Select"}
                   >
-                    {selected.has(sc.enterprise_number) ? <CheckSquare className="w-4 h-4 md:w-3.5 md:h-3.5 text-indigo-500" /> : <Square className="w-4 h-4 md:w-3.5 md:h-3.5" />}
+                    {selected.has(sc.enterprise_number) ? <CheckSquare className="w-4 h-4 md:w-3.5 md:h-3.5 text-brand" /> : <Square className="w-4 h-4 md:w-3.5 md:h-3.5" />}
                   </button>
                 </td>
                 <td className="px-3 py-2.5 align-top text-[11px] md:text-[10px] font-mono text-slate-300 hidden sm:table-cell">{idx + 1}</td>
                 <td className="px-3 py-2.5 align-top">
-                  <Link href={`/company/${sc.enterprise_number}`} className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 hover:underline">
+                  <Link href={`/company/${sc.enterprise_number}`} className="text-xs font-semibold text-brand hover:text-[color:var(--brand-ink)] hover:underline">
                     {sc.name}
                   </Link>
                   {sc.city && <div className="text-[11px] md:text-[10px] text-slate-400 mt-0.5">{sc.city}</div>}
@@ -496,7 +496,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
           <button
             onClick={expandResults}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 px-5 py-2 text-[11px] font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 disabled:opacity-50 transition-colors"
+            className="inline-flex items-center gap-1.5 px-5 py-2 text-[11px] font-medium text-brand border border-brand/30 rounded-lg hover:bg-brand-soft/60 disabled:opacity-50 transition-colors"
           >
             {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
             {loading ? "Finding more..." : "Find more similar companies"}

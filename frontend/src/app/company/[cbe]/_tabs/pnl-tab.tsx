@@ -96,7 +96,7 @@ export function PnlTab({
       <div className="py-8 text-center">
         {nbbLoading ? (
           <div className="flex flex-col items-center gap-2">
-            <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+            <Loader2 className="w-6 h-6 animate-spin text-brand" />
             <p className="text-sm text-slate-500 animate-pulse">
               {t("company.pnl.loadingNbb")}
             </p>
@@ -147,7 +147,7 @@ export function PnlTab({
                   setNbbLoading(false);
                 }
               }}
-              className={`text-indigo-600 border-indigo-300 hover:bg-indigo-50 ${nbbLoading ? "opacity-70 cursor-not-allowed" : ""}`}
+              className={`text-brand border-brand/40 hover:bg-brand-soft/60 ${nbbLoading ? "opacity-70 cursor-not-allowed" : ""}`}
             >
               <Download className="w-4 h-4 mr-2" />
               {nbbResult === "no-data" ? t("company.pnl.retryNbb") : t("company.pnl.loadNbb")}
@@ -345,7 +345,7 @@ export function PnlTab({
               onKeyDown={m.onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); m.onClick!(); } } : undefined}
               title={m.onClick ? t("company.pnl.clickEbitdaDrilldown") : undefined}
               className={`rounded-lg border border-slate-100 bg-white p-2.5 text-center ${
-                m.onClick ? "cursor-pointer hover:border-indigo-200 hover:bg-indigo-50/40 transition-colors" : ""
+                m.onClick ? "cursor-pointer hover:border-brand/30 hover:bg-brand-soft/40 transition-colors" : ""
               }`}
             >
               <div className="flex items-center justify-center gap-1 text-[10px] text-slate-400 uppercase tracking-wider mb-1">
@@ -385,7 +385,7 @@ export function PnlTab({
       {/* -- Income Statement -- */}
       <div>
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-indigo-500 pl-2">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-brand pl-2">
           {t("company.pnl.title")}
         </h3>
         <div className="flex items-center gap-2 flex-wrap">
@@ -433,7 +433,7 @@ export function PnlTab({
                         <button
                           type="button"
                           onClick={() => toggleSection(summaryOf!)}
-                          className="inline-flex items-center gap-1 hover:text-indigo-600 transition-colors text-left"
+                          className="inline-flex items-center gap-1 hover:text-brand transition-colors text-left"
                           aria-expanded={!isCollapsedSummary}
                         >
                           <span className="text-xs leading-none">{isCollapsedSummary ? "\u25b8" : "\u25be"}</span>
@@ -490,7 +490,7 @@ export function PnlTab({
                 <YAxis tick={{ fontSize: 12, fill: "#64748b" }} tickFormatter={(v: number) => fmtEur(v)} />
                 <Tooltip content={<ChartTooltip />} />
                 <Legend wrapperStyle={{ fontSize: "12px" }} />
-                <Line type="monotone" dataKey="Revenue" stroke="#4f46e5" strokeWidth={2} dot={{ r: 4, fill: "#4f46e5" }} />
+                <Line type="monotone" dataKey="Revenue" stroke="#0a5659" strokeWidth={2} dot={{ r: 4, fill: "#0a5659" }} />
                 <Line type="monotone" dataKey="EBITDA" stroke="#06b6d4" strokeWidth={2} dot={{ r: 4, fill: "#06b6d4" }} />
               </LineChart>
             </ResponsiveContainer>

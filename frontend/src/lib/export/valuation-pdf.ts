@@ -193,7 +193,7 @@ export async function generateValuationPdf(
           d2.cell.styles.fillColor = [236, 253, 245]; // emerald-50
           d2.cell.styles.textColor = [4, 120, 87];
         }
-        if (i === 1) d2.cell.styles.textColor = [79, 70, 229]; // indigo-600
+        if (i === 1) d2.cell.styles.textColor = [13, 115, 119]; // brand teal
       }
     },
   });

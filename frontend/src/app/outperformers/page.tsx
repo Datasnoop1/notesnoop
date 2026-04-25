@@ -51,8 +51,8 @@ const BUCKET_META: Record<
     label: "Revenue growers",
     tagline: "Revenue up \u226510% over the period",
     color: "#6366f1",
-    bg: "bg-indigo-50",
-    border: "border-indigo-200",
+    bg: "bg-brand-soft",
+    border: "border-brand/30",
     icon: <TrendingUp className="w-5 h-5" />,
   },
   high_margin: {
@@ -396,11 +396,11 @@ export default function OutperformersPage() {
                   breakdown.companies.map((c) => {
                     const metric = primaryMetricFor(selected, c);
                     return (
-                      <TableRow key={c.cbe} className="hover:bg-indigo-50/30 text-[13px]">
+                      <TableRow key={c.cbe} className="hover:bg-brand-soft/30 text-[13px]">
                         <TableCell className="py-2">
                           <Link
                             href={`/company/${c.cbe}`}
-                            className="text-indigo-600 hover:text-indigo-800 hover:underline font-medium"
+                            className="text-brand hover:text-[color:var(--brand-ink)] hover:underline font-medium"
                           >
                             {c.name || fmtCbe(c.cbe)}
                           </Link>

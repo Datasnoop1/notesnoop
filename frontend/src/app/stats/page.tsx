@@ -87,7 +87,7 @@ function SkeletonRows({ cols, count }: { cols: number; count: number }) {
 
 function SectionHeader({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
   return (
-    <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-indigo-600 pl-2 mb-4 flex items-center gap-1.5">
+    <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500 border-l-2 border-brand pl-2 mb-4 flex items-center gap-1.5">
       {icon}{children}
     </h2>
   );
@@ -132,7 +132,7 @@ function marginTextColor(margin: number | null | undefined): string {
 
 /* Size bucket color palette */
 const SIZE_COLORS = [
-  "#6366f1", "#818cf8", "#a5b4fc", "#c7d2fe",
+  "#6366f1", "#818cf8", "#a5b4fc", "#5cb1b3",
   "#7c3aed", "#8b5cf6", "#a78bfa", "#c4b5fd",
 ];
 
@@ -165,8 +165,8 @@ function sortSectors(data: StatsSector[], key: SortKey, dir: SortDir): StatsSect
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   if (!active) return <ArrowUpDown className="ml-1 inline h-3 w-3 text-slate-300" />;
   return dir === "asc"
-    ? <ArrowUp className="ml-1 inline h-3 w-3 text-indigo-600" />
-    : <ArrowDown className="ml-1 inline h-3 w-3 text-indigo-600" />;
+    ? <ArrowUp className="ml-1 inline h-3 w-3 text-brand" />
+    : <ArrowDown className="ml-1 inline h-3 w-3 text-brand" />;
 }
 
 /* ============================================================
@@ -420,7 +420,7 @@ export default function StatsPage() {
       {/* ━━━━━━━━━━ HEADER ━━━━━━━━━━ */}
       <div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-          <BarChart3 className="w-6 h-6 sm:w-7 sm:h-7 inline mr-2 -mt-1 text-indigo-600" />
+          <BarChart3 className="w-6 h-6 sm:w-7 sm:h-7 inline mr-2 -mt-1 text-brand" />
           {t("stats.title")}
         </h1>
         <p className="mt-1 text-sm text-slate-500">
@@ -824,11 +824,11 @@ export default function StatsPage() {
                       ? `${row.nace2} \u2014 ${row.sector}`
                       : row.nace2;
                     return (
-                    <TableRow key={row.nace2} className="hover:bg-indigo-50/30 text-[13px]">
+                    <TableRow key={row.nace2} className="hover:bg-brand-soft/30 text-[13px]">
                       <TableCell className="font-medium py-2">
                         <Link
                           href={`/screener?nace=${row.nace2}`}
-                          className="text-indigo-600 hover:text-indigo-800 hover:underline font-mono"
+                          className="text-brand hover:text-[color:var(--brand-ink)] hover:underline font-mono"
                         >
                           {row.nace2}
                         </Link>
@@ -837,7 +837,7 @@ export default function StatsPage() {
                         {row.sector && row.sector !== row.nace2 ? (
                           <Link
                             href={`/screener?nace=${row.nace2}`}
-                            className="text-indigo-600 hover:text-indigo-800 hover:underline"
+                            className="text-brand hover:text-[color:var(--brand-ink)] hover:underline"
                           >
                             {row.sector}
                           </Link>

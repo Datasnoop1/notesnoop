@@ -19,7 +19,7 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
   if (!benchmark) {
     return (
       <div className="py-8 text-center">
-        <Loader2 className="w-6 h-6 animate-spin text-indigo-500 mx-auto mb-2" />
+        <Loader2 className="w-6 h-6 animate-spin text-brand mx-auto mb-2" />
         <p className="text-sm text-slate-400">{t("company.benchmarkTab.loading")}</p>
       </div>
     );
@@ -44,7 +44,7 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
 
   const getQuartileLabel = (pct: number) => {
     if (pct >= 75) return { label: t("company.benchmarkTab.topQuartile"), color: "text-emerald-600 bg-emerald-50 border-emerald-200", dot: "bg-emerald-500" };
-    if (pct >= 50) return { label: t("company.benchmarkTab.aboveMedian"), color: "text-indigo-600 bg-indigo-50 border-indigo-200", dot: "bg-indigo-500" };
+    if (pct >= 50) return { label: t("company.benchmarkTab.aboveMedian"), color: "text-brand bg-brand-soft border-brand/30", dot: "bg-brand" };
     if (pct >= 25) return { label: t("company.benchmarkTab.belowMedian"), color: "text-amber-600 bg-amber-50 border-amber-200", dot: "bg-amber-500" };
     return { label: t("company.benchmarkTab.bottomQuartile"), color: "text-rose-500 bg-rose-50 border-rose-200", dot: "bg-rose-400" };
   };
@@ -86,7 +86,7 @@ export function BenchmarkTab({ benchmark, detail }: BenchmarkTabProps) {
         {benchmark.benchmarks.map((b) => {
           const pct = b.percentile ?? 0;
           const q = getQuartileLabel(pct);
-          const barColor = pct >= 75 ? "bg-emerald-500" : pct >= 50 ? "bg-indigo-500" : pct >= 25 ? "bg-amber-500" : "bg-rose-400";
+          const barColor = pct >= 75 ? "bg-emerald-500" : pct >= 50 ? "bg-brand" : pct >= 25 ? "bg-amber-500" : "bg-rose-400";
 
           return (
             <div key={b.metric} className="rounded-xl border border-slate-100 bg-white p-4 hover:shadow-sm transition-shadow">

@@ -102,42 +102,30 @@
   .nav-link:hover { color: var(--accent); }
 
   .hero {
-    padding: 110px 0 80px;
+    padding: 72px 0 40px;
     text-align: center;
     position: relative;
   }
   .hero::before {
     content: '';
     position: absolute;
-    top: 40px;
+    top: 20px;
     left: 50%;
     transform: translateX(-50%);
-    width: 640px;
-    height: 640px;
+    width: 560px;
+    height: 420px;
     max-width: 90vw;
-    background: radial-gradient(circle at center, rgba(13, 115, 119, 0.08), transparent 60%);
+    background: radial-gradient(ellipse at center, rgba(13, 115, 119, 0.07), transparent 60%);
     pointer-events: none;
     z-index: -1;
   }
-  .kicker {
-    display: inline-block;
-    font-size: 13px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--accent);
-    background: var(--accent-soft);
-    padding: 6px 14px;
-    border-radius: 999px;
-    font-weight: 500;
-    margin-bottom: 28px;
-  }
   h1 {
-    font-size: 56px;
-    line-height: 1.05;
-    letter-spacing: -0.03em;
+    font-size: 46px;
+    line-height: 1.08;
+    letter-spacing: -0.025em;
     font-weight: 600;
-    max-width: 900px;
-    margin: 0 auto 24px;
+    max-width: 820px;
+    margin: 0 auto 18px;
   }
   h1 em {
     font-style: normal;
@@ -145,49 +133,67 @@
     font-weight: 500;
   }
   .hero-sub {
-    font-size: 20px;
-    color: var(--ink-soft);
-    max-width: 640px;
-    margin: 0 auto 40px;
-    line-height: 1.5;
-  }
-  .hero-meta {
-    display: inline-flex;
-    gap: 28px;
-    font-size: 14px;
-    color: var(--muted);
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .hero-meta span {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .dot { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; }
-
-  .section-head {
-    text-align: center;
-    padding: 80px 0 48px;
-  }
-  .section-head h2 {
-    font-size: 36px;
-    letter-spacing: -0.02em;
-    font-weight: 600;
-    margin-bottom: 12px;
-  }
-  .section-head p {
-    color: var(--ink-soft);
     font-size: 17px;
+    color: var(--ink-soft);
     max-width: 560px;
     margin: 0 auto;
+    line-height: 1.5;
+  }
+
+  .carousel-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    max-width: 820px;
+    margin: 40px auto 28px;
+    padding: 0 16px;
+  }
+  .carousel-tab {
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink-soft);
+    background: white;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 7px 14px 7px 11px;
+    cursor: pointer;
+    transition: background 0.22s ease, color 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease, transform 0.15s ease;
+    white-space: nowrap;
+    letter-spacing: -0.005em;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .carousel-tab svg {
+    width: 14px;
+    height: 14px;
+    stroke-width: 1.8;
+    opacity: 0.65;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    flex-shrink: 0;
+  }
+  .carousel-tab:hover svg { opacity: 0.9; }
+  .carousel-tab.active svg { opacity: 1; }
+  .carousel-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .carousel-tab:hover {
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    border-color: var(--accent-soft);
+  }
+  .carousel-tab.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+    box-shadow: 0 2px 8px rgba(13, 115, 119, 0.25);
   }
 
   .carousel {
     position: relative;
     max-width: 720px;
     margin: 0 auto;
-    padding: 0 64px 80px;
+    padding: 0 56px 32px;
   }
   .carousel-viewport {
     overflow: hidden;
@@ -195,64 +201,83 @@
   }
   .carousel-track {
     display: flex;
-    transition: transform 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
+    transition: transform 0.45s cubic-bezier(0.22, 0.61, 0.36, 1);
     touch-action: pan-y;
   }
   .carousel-track > .card {
     flex: 0 0 100%;
     width: 100%;
-    min-height: 540px;
   }
   .carousel-arrow {
     position: absolute;
-    top: calc(50% - 40px);
+    top: 50%;
     transform: translateY(-50%);
-    width: 48px;
-    height: 48px;
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     background: var(--card);
     border: 1px solid var(--rule);
     box-shadow: var(--shadow);
-    color: var(--accent-ink);
+    color: var(--ink-soft);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, opacity 0.15s ease;
     z-index: 2;
   }
-  .carousel-arrow svg { width: 20px; height: 20px; stroke-width: 2; }
-  .carousel-arrow:hover { background: var(--accent); color: white; box-shadow: var(--shadow-hover); }
-  .carousel-arrow:disabled { opacity: 0.25; cursor: not-allowed; pointer-events: none; }
+  .carousel-arrow svg { width: 18px; height: 18px; stroke-width: 2; }
+  .carousel-arrow:hover { background: var(--accent); color: white; border-color: var(--accent); box-shadow: var(--shadow-hover); }
+  .carousel-arrow:disabled { opacity: 0.2; cursor: not-allowed; pointer-events: none; }
   .carousel-arrow-prev { left: 0; }
   .carousel-arrow-next { right: 0; }
 
-  .carousel-meta {
+  /* Active-card entrance animations — dynamism without chaos */
+  .carousel-track > .card[aria-hidden="false"] .icon-wrap {
+    animation: iconPop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes iconPop {
+    0%   { transform: scale(0.75) rotate(-6deg); }
+    60%  { transform: scale(1.08) rotate(3deg); }
+    100% { transform: scale(1) rotate(0); }
+  }
+  .carousel-track > .card[aria-hidden="false"] li {
+    animation: bulletIn 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  .carousel-track > .card[aria-hidden="false"] li:nth-child(1) { animation-delay: 80ms; }
+  .carousel-track > .card[aria-hidden="false"] li:nth-child(2) { animation-delay: 140ms; }
+  .carousel-track > .card[aria-hidden="false"] li:nth-child(3) { animation-delay: 200ms; }
+  .carousel-track > .card[aria-hidden="false"] li:nth-child(4) { animation-delay: 260ms; }
+  .carousel-track > .card[aria-hidden="false"] li:nth-child(5) { animation-delay: 320ms; }
+  @keyframes bulletIn {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .carousel-track > .card[aria-hidden="false"] .icon-wrap,
+    .carousel-track > .card[aria-hidden="false"] li { animation: none; }
+    .carousel-track { transition: none; }
+  }
+
+  .carousel-cta {
     display: flex;
-    align-items: center;
     justify-content: center;
-    gap: 16px;
-    margin-top: 28px;
-    font-size: 13px;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
+    padding: 24px 0 64px;
   }
-  .carousel-counter { font-weight: 500; letter-spacing: 0.02em; }
-  .carousel-counter strong { color: var(--ink); font-weight: 600; }
-  .carousel-progress {
-    flex: 0 1 220px;
-    height: 3px;
-    background: var(--rule);
-    border-radius: 2px;
-    overflow: hidden;
+  .carousel-cta a {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--accent-ink);
+    font-weight: 500;
+    font-size: 15px;
+    text-decoration: none;
+    padding: 10px 18px;
+    border-radius: 999px;
+    transition: background 0.15s ease, color 0.15s ease;
   }
-  .carousel-progress-bar {
-    height: 100%;
-    width: 10%;
-    background: var(--accent);
-    transition: width 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
-    border-radius: 2px;
-  }
+  .carousel-cta a:hover { background: var(--accent-soft); color: var(--accent); }
+  .carousel-cta svg { width: 16px; height: 16px; }
 
   @media (max-width: 640px) {
     h1 { font-size: 38px; }
@@ -413,21 +438,56 @@
 
 <header class="hero">
   <div class="container">
-    <span class="kicker" data-i18n="hero.kicker">Voor elk bureau in België</span>
     <h1 data-i18n-html="hero.h1">Belgische bedrijfsinformatie — <em>wat je dag ook brengt.</em></h1>
-    <p class="hero-sub" data-i18n="hero.sub">Elk Belgisch bedrijf, elke neerlegging, elke bestuurder en eigenaar — in één snel scherm. Kijk hoe een gewone werkdag er in jouw beroep uit kan zien.</p>
-    <div class="hero-meta">
-      <span><span class="dot"></span><span data-i18n="hero.meta1">KBO-register · NBB-jaarrekeningen · 10 jaar historiek</span></span>
-      <span><span class="dot"></span><span data-i18n="hero.meta2">Dagelijks bijgewerkt</span></span>
-      <span><span class="dot"></span><span data-i18n="hero.meta3">Heel België</span></span>
-    </div>
   </div>
 </header>
 
 <section class="container">
-  <div class="section-head">
-    <h2 data-i18n="section.h2">Tien beroepen. Eén tool.</h2>
-    <p data-i18n="section.sub">Kies de kaart die op jouw bureau lijkt. Herken je er twee, dan voel je je meteen thuis.</p>
+  <div class="carousel-tabs" role="tablist" aria-label="Jump to profession">
+    <button class="carousel-tab" type="button" data-goto="0">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>
+      <span data-i18n="tabs.lawyers">Advocaten</span>
+    </button>
+    <button class="carousel-tab" type="button" data-goto="1">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="20" x="4" y="2" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><line x1="16" x2="16" y1="14" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>
+      <span data-i18n="tabs.accountants">Boekhouders</span>
+    </button>
+    <button class="carousel-tab" type="button" data-goto="2">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>
+      <span data-i18n="tabs.bankers">Bankiers</span>
+    </button>
+    <button class="carousel-tab" type="button" data-goto="3">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12l4 6-10 13L2 9Z"/><path d="M11 3 8 9l4 13 4-13-3-6"/><path d="M2 9h20"/></svg>
+      <span data-i18n="tabs.privatebankers">Private banking</span>
+    </button>
+    <button class="carousel-tab" type="button" data-goto="4">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+      <span data-i18n="tabs.cfos">CFO / Finance</span>
+    </button>
+    <button class="carousel-tab" type="button" data-goto="5">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+      <span data-i18n="tabs.sales">Sales / BD</span>
+    </button>
+    <button class="carousel-tab" type="button" data-goto="6">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>
+      <span data-i18n="tabs.ma">M&amp;A</span>
+    </button>
+    <button class="carousel-tab" type="button" data-goto="7">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+      <span data-i18n="tabs.strategy">Strategie</span>
+    </button>
+    <button class="carousel-tab" type="button" data-goto="8">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
+      <span data-i18n="tabs.compliance">Compliance</span>
+    </button>
+    <button class="carousel-tab" type="button" data-goto="9">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <span data-i18n="tabs.journalists">Journalisten</span>
+    </button>
+    <button class="carousel-tab" type="button" data-goto="10">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
+      <span data-i18n="tabs.realestate">Vastgoed</span>
+    </button>
   </div>
 
   <div class="carousel" role="region" aria-label="Professions" aria-roledescription="carousel">
@@ -447,10 +507,10 @@
       </div>
       <h3 data-i18n-html="card.lawyers.title">Advocaten & juridische diensten<small>Advocatenkantoren · juridische diensten · notarissen</small></h3>
       <ul>
-        <li data-i18n-html="card.lawyers.b1"><strong>KYC op een nieuwe cliënt</strong> in minder dan een minuut — UBO's, groepsstructuur, bestuurders, insolventiehistoriek.</li>
         <li data-i18n-html="card.lawyers.b2"><strong>Screen een tegenpartij vóór je tekent</strong> — cijfers, bestuurdersverleden, alarmsignalen.</li>
-        <li data-i18n-html="card.lawyers.b3"><strong>Nagaan of dagvaarden zin heeft</strong> — check of de tegenpartij effectief vermogen heeft.</li>
+        <li data-i18n-html="card.lawyers.b1"><strong>KYC op een nieuwe cliënt</strong> in minder dan een minuut — UBO's, groepsstructuur, bestuurders, insolventiehistoriek.</li>
         <li data-i18n-html="card.lawyers.b4"><strong>Voer belangenconflict-checks uit</strong> — ontdek verborgen banden tussen cliënten, tegenpartijen en hun eigenaren.</li>
+        <li data-i18n-html="card.lawyers.b3"><strong>Nagaan of dagvaarden zin heeft</strong> — check of de tegenpartij effectief vermogen heeft.</li>
         <li data-i18n-html="card.lawyers.b5"><strong>Volg je cliëntenportefeuille op</strong> — krijg een melding zodra een bestuurder wijzigt of een neerlegging verschijnt.</li>
       </ul>
       <p class="tagline" data-i18n="card.lawyers.tag">De due-diligencetab die je vroeger in zes vensters openhad — nu in één.</p>
@@ -465,8 +525,8 @@
       <ul>
         <li data-i18n-html="card.accountants.b1"><strong>Vind prospects</strong> op sector, grootte, locatie en financieel profiel in enkele seconden.</li>
         <li data-i18n-html="card.accountants.b2"><strong>Bewaak je cliëntenportefeuille</strong> op alarmsignalen vóór het een crisisgesprek wordt.</li>
-        <li data-i18n-html="card.accountants.b3"><strong>Benchmark cliënten tegen sectorgenoten</strong> — de grafiek die je adviesgesprek nodig heeft.</li>
         <li data-i18n-html="card.accountants.b4"><strong>Breng groepsstructuren in kaart</strong> voor consolidatie en fiscaal werk zonder papieren gedoe.</li>
+        <li data-i18n-html="card.accountants.b3"><strong>Benchmark cliënten tegen sectorgenoten</strong> — de grafiek die je adviesgesprek nodig heeft.</li>
         <li data-i18n-html="card.accountants.b5"><strong>Screen nieuwe cliënten op AML</strong> — UBO's en linken in één zoekactie.</li>
       </ul>
       <p class="tagline" data-i18n="card.accountants.tag">De cijfers van je cliënten, de cijfers van de hele sector, en je prospects voor volgend jaar — in één scherm.</p>
@@ -479,10 +539,10 @@
       </div>
       <h3 data-i18n-html="card.bankers.title">Bankiers & kredietanalisten<small>Commerciële kredietverlening · kredietrisico · factoring</small></h3>
       <ul>
-        <li data-i18n-html="card.bankers.b1"><strong>Haal tien jaar jaarrekeningen</strong> van elk Belgisch bedrijf direct op.</li>
         <li data-i18n-html="card.bankers.b2"><strong>Monitor je kredietportefeuille</strong> op bestuurderswissels, solvabiliteitsdalingen, reorganisaties.</li>
-        <li data-i18n-html="card.bankers.b3"><strong>Breng concerns in kaart</strong> om cross-default en concentratierisico te zien.</li>
         <li data-i18n-html="card.bankers.b4"><strong>Kwalificeer nieuwe kredietaanvragen</strong> tegen je underwriting-criteria in enkele minuten.</li>
+        <li data-i18n-html="card.bankers.b3"><strong>Breng concerns in kaart</strong> om cross-default en concentratierisico te zien.</li>
+        <li data-i18n-html="card.bankers.b1"><strong>Haal tien jaar jaarrekeningen</strong> van elk Belgisch bedrijf direct op.</li>
         <li data-i18n-html="card.bankers.b5"><strong>Herken groeisignalen</strong> bij kmo-klanten — zet ze om in upsell-gesprekken.</li>
       </ul>
       <p class="tagline" data-i18n="card.bankers.tag">Het kredietdossier dat je team écht wil lezen — zonder wachten.</p>
@@ -495,10 +555,10 @@
       </div>
       <h3 data-i18n-html="card.privatebankers.title">Private bankiers & vermogensbeheerders<small>Private banking · vermogensbeheer · family offices</small></h3>
       <ul>
+        <li data-i18n-html="card.privatebankers.b4"><strong>Vind nieuwe prospects</strong> — de ondernemer achter het bedrijf dat vandaag in de krant staat.</li>
+        <li data-i18n-html="card.privatebankers.b3"><strong>Spot liquiditeitsmomenten vroeg</strong> — als een cliënt zijn bedrijf verkoopt, wil jij als eerste bij de deposito staan.</li>
         <li data-i18n-html="card.privatebankers.b1"><strong>Breng de vermogensstructuur van je cliënt in kaart</strong> — elk bedrijf, elke participatie, elke holding op één pagina.</li>
         <li data-i18n-html="card.privatebankers.b2"><strong>Verifieer source of wealth</strong> bij onboarding — de operationele bedrijven, de exits, de bestuursmandaten.</li>
-        <li data-i18n-html="card.privatebankers.b3"><strong>Spot liquiditeitsmomenten vroeg</strong> — als een cliënt zijn bedrijf verkoopt, wil jij als eerste bij de deposito staan.</li>
-        <li data-i18n-html="card.privatebankers.b4"><strong>Vind nieuwe prospects</strong> — de ondernemer achter het bedrijf dat vandaag in de krant staat.</li>
         <li data-i18n-html="card.privatebankers.b5"><strong>Voer KYC- en opvolgingschecks uit</strong> zonder notariële akten één voor één op te vragen.</li>
       </ul>
       <p class="tagline" data-i18n="card.privatebankers.tag">Het vermogen van je cliënt, zijn structuur, en de volgende liquiditeit — vóór de concurrentie het ziet.</p>
@@ -512,9 +572,9 @@
       <h3 data-i18n-html="card.cfos.title">CFO's & financiële teams<small>Controllers · FP&A · creditmanagement · thesaurie</small></h3>
       <ul>
         <li data-i18n-html="card.cfos.b1"><strong>Doe een kredietcheck op nieuwe klanten</strong> vóór je hun betalingsvoorwaarden vastlegt.</li>
+        <li data-i18n-html="card.cfos.b4"><strong>Monitor klanten en leveranciers</strong> op de eerste tekenen van problemen.</li>
         <li data-i18n-html="card.cfos.b2"><strong>Screen leveranciers</strong> vóór je een contract van drie jaar afsluit.</li>
         <li data-i18n-html="card.cfos.b3"><strong>Benchmark je onderneming</strong> tegen de sector op marge, groei en werkkapitaal.</li>
-        <li data-i18n-html="card.cfos.b4"><strong>Monitor klanten en leveranciers</strong> op de eerste tekenen van problemen.</li>
         <li data-i18n-html="card.cfos.b5"><strong>Verrijk je stamdata</strong> — KBO-nummers, adressen, bestuurders — in batch.</li>
       </ul>
       <p class="tagline" data-i18n="card.cfos.tag">De cijfers voor je board-pack die je anders uit vier PDF's ging kopiëren — al klaar.</p>
@@ -528,10 +588,10 @@
       <h3 data-i18n-html="card.sales.title">Sales & business development<small>Account executives · SDR's · BD · accountbeheer</small></h3>
       <ul>
         <li data-i18n-html="card.sales.b1"><strong>Bouw gekwalificeerde prospectlijsten</strong> — sector, grootte, regio, financieel profiel — in seconden.</li>
-        <li data-i18n-html="card.sales.b2"><strong>Verrijk je CRM</strong> met Belgische bedrijfsdata via batch-upload.</li>
         <li data-i18n-html="card.sales.b3"><strong>Vind de beslisser</strong> — bestuurders, aandeelhouders, uiteindelijke eigenaren — op één pagina.</li>
-        <li data-i18n-html="card.sales.b4"><strong>Prioriteer accounts</strong> op financiële gezondheid en groeimomentum.</li>
         <li data-i18n-html="card.sales.b5"><strong>Krijg een melding</strong> zodra een prospect beweegt — het juiste moment om te bellen.</li>
+        <li data-i18n-html="card.sales.b4"><strong>Prioriteer accounts</strong> op financiële gezondheid en groeimomentum.</li>
+        <li data-i18n-html="card.sales.b2"><strong>Verrijk je CRM</strong> met Belgische bedrijfsdata via batch-upload.</li>
       </ul>
       <p class="tagline" data-i18n="card.sales.tag">De lijst die je meestal op vrijdagmiddag bouwt — nu klaar vóór je eerste koffie.</p>
     </article>
@@ -544,8 +604,8 @@
       <h3 data-i18n-html="card.ma.title">M&A-adviseurs & corporate development<small>Boetieks · zakenbanken · interne M&A</small></h3>
       <ul>
         <li data-i18n-html="card.ma.b1"><strong>Screen de Belgische markt</strong> tegen een thesis — sector, grootte, groei, rendabiliteit.</li>
-        <li data-i18n-html="card.ma.b2"><strong>Breng eigendomsstructuren in kaart</strong> door meerdere lagen tot aan de echte UBO.</li>
         <li data-i18n-html="card.ma.b3"><strong>Bouw longlists van targets</strong>, exporteer naar Excel, deel met je dealteam.</li>
+        <li data-i18n-html="card.ma.b2"><strong>Breng eigendomsstructuren in kaart</strong> door meerdere lagen tot aan de echte UBO.</li>
         <li data-i18n-html="card.ma.b4"><strong>Vergelijk targets met sectorgenoten</strong> om het prijsgesprek te ankeren.</li>
         <li data-i18n-html="card.ma.b5"><strong>Volg lopende processen</strong> — bekijk targets op wijzigingen in bestuur en kapitaalstructuur.</li>
       </ul>
@@ -561,8 +621,8 @@
       <ul>
         <li data-i18n-html="card.strategy.b1"><strong>Bereken een Belgische markt bottom-up</strong> — bedrijf per bedrijf, geen schatting.</li>
         <li data-i18n-html="card.strategy.b2"><strong>Benchmark concurrenten</strong> op omzet, personeel, marge, groeitraject.</li>
-        <li data-i18n-html="card.strategy.b3"><strong>Breng sectorconcentratie in kaart</strong>, consolidatiepatronen, eigendomsclusters.</li>
         <li data-i18n-html="card.strategy.b4"><strong>Maak exports klaar voor de cliënt</strong> — grafieken, tabellen, lijsten direct naar je slides.</li>
+        <li data-i18n-html="card.strategy.b3"><strong>Breng sectorconcentratie in kaart</strong>, consolidatiepatronen, eigendomsclusters.</li>
         <li data-i18n-html="card.strategy.b5"><strong>Volg sectorbeweging</strong> — nieuwe spelers, M&A, distress — bijna realtime.</li>
       </ul>
       <p class="tagline" data-i18n="card.strategy.tag">Elke studie begint met de vraag "wat zit er in deze markt?" — dit is het antwoord.</p>
@@ -593,27 +653,34 @@
       <ul>
         <li data-i18n-html="card.journalists.b1"><strong>Volg bedrijfsnetwerken</strong> door meerdere lagen van eigendom en bestuur.</li>
         <li data-i18n-html="card.journalists.b2"><strong>Follow the money</strong> via gedeelde adressen, bestuurders en aandeelhouders.</li>
-        <li data-i18n-html="card.journalists.b3"><strong>Volg neerleggingen en bestuurswijzigingen</strong> op het moment dat ze gebeuren.</li>
         <li data-i18n-html="card.journalists.b4"><strong>Bouw patroongestuurde lijsten</strong> — bedrijven die bij het verhaal passen dat je onderzoekt.</li>
+        <li data-i18n-html="card.journalists.b3"><strong>Volg neerleggingen en bestuurswijzigingen</strong> op het moment dat ze gebeuren.</li>
         <li data-i18n-html="card.journalists.b5"><strong>Exporteer gestructureerd bewijs</strong> dat je hoofdredacteur (of peer reviewer) kan natrekken.</li>
       </ul>
       <p class="tagline" data-i18n="card.journalists.tag">Het papieren spoor waar je weken aan zou werken — al voor je samengelegd.</p>
     </article>
 
+    <!-- 11. Real estate -->
+    <article class="card">
+      <div class="icon-wrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></svg>
+      </div>
+      <h3 data-i18n-html="card.realestate.title">Vastgoedprofessionals<small>Makelaars · ontwikkelaars · assetbeheerders</small></h3>
+      <ul>
+        <li data-i18n-html="card.realestate.b1"><strong>Screen een commerciële huurder</strong> vóór je de sleutels geeft — solvabiliteit, groepsstructuur, trackrecord.</li>
+        <li data-i18n-html="card.realestate.b2"><strong>Spot groeiende bedrijven</strong> die extra ruimte nodig hebben — personeelsgroei, nieuwe entiteiten, uitbreidingssignalen.</li>
+        <li data-i18n-html="card.realestate.b3"><strong>Vind de beslisser</strong> — wie tekent de huurovereenkomst, wie schrijft de cheque.</li>
+        <li data-i18n-html="card.realestate.b4"><strong>Ontrafel de SPV-structuur</strong> achter een transactie — wie koopt echt, wie verkoopt echt.</li>
+        <li data-i18n-html="card.realestate.b5"><strong>Volg actieve kopers en ontwikkelaars</strong> in jouw markt — wie koopt wat, en waar.</li>
+      </ul>
+      <p class="tagline" data-i18n="card.realestate.tag">Het huurdossier waar je drie dagen aan zou werken — klaar vóór de lunch.</p>
+    </article>
+
       </div>
     </div>
-    <div class="carousel-meta" aria-live="polite">
-      <span class="carousel-counter"><strong class="carousel-current">1</strong> / <span class="carousel-total">10</span></span>
-      <div class="carousel-progress" aria-hidden="true"><div class="carousel-progress-bar"></div></div>
-    </div>
   </div>
-</section>
-
-<section class="closing">
-  <div class="container">
-    <h2 data-i18n="close.h2">Kwam iets hiervan bekend voor? Open de app en zie het zelf.</h2>
-    <p data-i18n="close.p">Vijf minuten op je eigen data overtuigt meer dan elke salespresentatie. DataSnoop is in bèta, en de bèta is gratis te proberen.</p>
-    <a href="https://www.datasnoop.be" class="cta" target="_blank" rel="noopener">
+  <div class="carousel-cta">
+    <a href="https://www.datasnoop.be" target="_blank" rel="noopener">
       <span data-i18n="close.cta">Probeer het op een bedrijf dat je kent</span>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
     </a>
@@ -639,7 +706,19 @@
       "hero.meta2": "Dagelijks bijgewerkt",
       "hero.meta3": "Heel België",
       "section.h2": "Tien beroepen. Eén tool.",
-      "section.sub": "Kies de kaart die op jouw bureau lijkt. Herken je er twee, dan voel je je meteen thuis.",
+      "section.sub": "Welke ben jij?",
+
+      "tabs.lawyers": "Advocaten",
+      "tabs.accountants": "Boekhouders",
+      "tabs.bankers": "Bankiers",
+      "tabs.privatebankers": "Private banking",
+      "tabs.cfos": "CFO / Finance",
+      "tabs.sales": "Sales / BD",
+      "tabs.ma": "M&A",
+      "tabs.strategy": "Strategie",
+      "tabs.compliance": "Compliance",
+      "tabs.journalists": "Journalisten",
+      "tabs.realestate": "Vastgoed",
 
       "card.lawyers.title": "Advocaten & juridische diensten<small>Advocatenkantoren · juridische diensten · notarissen</small>",
       "card.lawyers.b1": "<strong>KYC op een nieuwe cliënt</strong> in minder dan een minuut — UBO's, groepsstructuur, bestuurders, insolventiehistoriek.",
@@ -721,6 +800,14 @@
       "card.journalists.b5": "<strong>Exporteer gestructureerd bewijs</strong> dat je hoofdredacteur (of peer reviewer) kan natrekken.",
       "card.journalists.tag": "Het papieren spoor waar je weken aan zou werken — al voor je samengelegd.",
 
+      "card.realestate.title": "Vastgoedprofessionals<small>Makelaars · ontwikkelaars · assetbeheerders</small>",
+      "card.realestate.b1": "<strong>Screen een commerciële huurder</strong> vóór je de sleutels geeft — solvabiliteit, groepsstructuur, trackrecord.",
+      "card.realestate.b2": "<strong>Spot groeiende bedrijven</strong> die extra ruimte nodig hebben — personeelsgroei, nieuwe entiteiten, uitbreidingssignalen.",
+      "card.realestate.b3": "<strong>Vind de beslisser</strong> — wie tekent de huurovereenkomst, wie schrijft de cheque.",
+      "card.realestate.b4": "<strong>Ontrafel de SPV-structuur</strong> achter een transactie — wie koopt echt, wie verkoopt echt.",
+      "card.realestate.b5": "<strong>Volg actieve kopers en ontwikkelaars</strong> in jouw markt — wie koopt wat, en waar.",
+      "card.realestate.tag": "Het huurdossier waar je drie dagen aan zou werken — klaar vóór de lunch.",
+
       "close.h2": "Kwam iets hiervan bekend voor? Open de app en zie het zelf.",
       "close.p": "Vijf minuten op je eigen data overtuigt meer dan elke salespresentatie. DataSnoop is in bèta, en de bèta is gratis te proberen.",
       "close.cta": "Probeer het op een bedrijf dat je kent",
@@ -737,7 +824,19 @@
       "hero.meta2": "Mis à jour quotidiennement",
       "hero.meta3": "Toute la Belgique",
       "section.h2": "Dix métiers. Un seul outil.",
-      "section.sub": "Choisissez la carte qui ressemble à votre bureau. Si deux d'entre elles vous parlent, vous êtes chez vous.",
+      "section.sub": "Et vous, lequel ?",
+
+      "tabs.lawyers": "Avocats",
+      "tabs.accountants": "Comptables",
+      "tabs.bankers": "Banquiers",
+      "tabs.privatebankers": "Banque privée",
+      "tabs.cfos": "CFO / Finance",
+      "tabs.sales": "Vente / BD",
+      "tabs.ma": "M&A",
+      "tabs.strategy": "Stratégie",
+      "tabs.compliance": "Compliance",
+      "tabs.journalists": "Journalistes",
+      "tabs.realestate": "Immobilier",
 
       "card.lawyers.title": "Avocats & juristes d'entreprise<small>Cabinets d'avocats · services juridiques · notaires</small>",
       "card.lawyers.b1": "<strong>KYC sur un nouveau client</strong> en moins d'une minute — UBO, structure de groupe, administrateurs, historique d'insolvabilité.",
@@ -819,6 +918,14 @@
       "card.journalists.b5": "<strong>Exportez des preuves structurées</strong> que votre rédacteur en chef (ou relecteur) pourra auditer.",
       "card.journalists.tag": "La piste que vous passeriez des semaines à assembler — déjà reliée pour vous.",
 
+      "card.realestate.title": "Professionnels de l'immobilier<small>Courtiers · promoteurs · asset managers</small>",
+      "card.realestate.b1": "<strong>Vérifiez un locataire commercial</strong> avant de remettre les clés — solvabilité, structure de groupe, historique.",
+      "card.realestate.b2": "<strong>Repérez les entreprises en croissance</strong> qui auront besoin de plus d'espace — effectifs, nouvelles entités, signaux d'expansion.",
+      "card.realestate.b3": "<strong>Trouvez le décideur</strong> — qui signe le bail, qui signe le chèque.",
+      "card.realestate.b4": "<strong>Démêlez la structure SPV</strong> derrière une transaction — qui achète vraiment, qui vend vraiment.",
+      "card.realestate.b5": "<strong>Suivez les acheteurs et promoteurs actifs</strong> sur votre marché — qui acquiert quoi, et où.",
+      "card.realestate.tag": "Le dossier de bail auquel vous passeriez trois jours — bouclé avant le déjeuner.",
+
       "close.h2": "Si quelque chose ici vous parle — ouvrez l'app et voyez.",
       "close.p": "Cinq minutes sur vos propres données valent mieux qu'un deck de vente. DataSnoop est en bêta, et la bêta est gratuite à l'essai.",
       "close.cta": "Essayez-le sur une entreprise que vous connaissez",
@@ -835,7 +942,19 @@
       "hero.meta2": "Updated daily",
       "hero.meta3": "Belgium-wide",
       "section.h2": "Ten professions. One tool.",
-      "section.sub": "Pick the row that looks like your desk. If you recognise even two of these, you'll feel at home.",
+      "section.sub": "Which one is you?",
+
+      "tabs.lawyers": "Lawyers",
+      "tabs.accountants": "Accountants",
+      "tabs.bankers": "Bankers",
+      "tabs.privatebankers": "Private banking",
+      "tabs.cfos": "CFO / Finance",
+      "tabs.sales": "Sales / BD",
+      "tabs.ma": "M&A",
+      "tabs.strategy": "Strategy",
+      "tabs.compliance": "Compliance",
+      "tabs.journalists": "Journalists",
+      "tabs.realestate": "Real estate",
 
       "card.lawyers.title": "Lawyers & in-house counsel<small>Law firms · legal departments · notaries</small>",
       "card.lawyers.b1": "<strong>Run KYC on a new client</strong> in under a minute — UBOs, group structure, directors, insolvency history.",
@@ -917,6 +1036,14 @@
       "card.journalists.b5": "<strong>Export structured evidence</strong> your editor (or peer reviewer) can audit.",
       "card.journalists.tag": "The paper trail you'd spend weeks assembling — already linked together.",
 
+      "card.realestate.title": "Real estate professionals<small>Brokers · developers · asset managers</small>",
+      "card.realestate.b1": "<strong>Vet a commercial tenant</strong> before you hand over the keys — solvency, group structure, track record.",
+      "card.realestate.b2": "<strong>Spot growing companies</strong> that'll need more space — headcount shifts, new entities, expansion signals.",
+      "card.realestate.b3": "<strong>Find the decision-maker</strong> — who signs the lease, who signs the cheque.",
+      "card.realestate.b4": "<strong>Unravel the SPV structure</strong> behind a transaction — who's really buying, who's really selling.",
+      "card.realestate.b5": "<strong>Track active buyers and developers</strong> in your market — who's acquiring what, and where.",
+      "card.realestate.tag": "The lease file you'd spend three days on — done by lunch.",
+
       "close.h2": "If any of this sounded like your desk — open it and see.",
       "close.p": "Five minutes on your own data will beat any sales deck we could write. DataSnoop is in beta, and the beta is free to try.",
       "close.cta": "Try it on a company you know",
@@ -971,6 +1098,7 @@
   var current = document.querySelector('.carousel-current');
   var total = document.querySelector('.carousel-total');
   var bar = document.querySelector('.carousel-progress-bar');
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.carousel-tab'));
   var n = cards.length;
   var idx = 0;
 
@@ -989,7 +1117,18 @@
       c.setAttribute('aria-hidden', i === idx ? 'false' : 'true');
       c.setAttribute('tabindex', i === idx ? '0' : '-1');
     });
+    tabs.forEach(function (t, i) {
+      t.classList.toggle('active', i === idx);
+      t.setAttribute('aria-selected', i === idx ? 'true' : 'false');
+    });
   }
+
+  tabs.forEach(function (t) {
+    t.addEventListener('click', function () {
+      var i = parseInt(t.getAttribute('data-goto'), 10);
+      if (!isNaN(i)) go(i);
+    });
+  });
 
   if (prev) prev.addEventListener('click', function () { go(idx - 1); });
   if (next) next.addEventListener('click', function () { go(idx + 1); });
