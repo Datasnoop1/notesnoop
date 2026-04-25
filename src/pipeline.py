@@ -231,9 +231,17 @@ def rebuild_materialized_tables(conn):
     section("Rebuilding materialized tables")
 
     log("  Rebuilding financial_latest ...")
+    # Explicit target column list — `fixed_assets` was added late via
+    # ALTER TABLE so it sits at the end of the real column order, NOT
+    # next to `total_assets` like in the source view. Positional insert
+    # silently shifts fte_total/personnel_costs/fixed_assets otherwise.
     conn.execute("DELETE FROM financial_latest")
     conn.execute("""
         INSERT INTO financial_latest
+            (enterprise_number, fiscal_year, filing_model,
+             revenue, ebit, da, ebitda, net_profit,
+             equity, lt_financial_debt, st_financial_debt, cash,
+             total_assets, fixed_assets, fte_total, personnel_costs)
         SELECT enterprise_number, fiscal_year, filing_model,
                revenue, ebit, da, ebitda, net_profit,
                equity, lt_financial_debt, st_financial_debt, cash,
