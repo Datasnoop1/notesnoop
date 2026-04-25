@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Menu, LogOut, User, Bell } from "lucide-react";
 import HeaderSearch from "@/components/header-search";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,7 @@ export default function Nav() {
   const [notifCount, setNotifCount] = useState(0);
   const [notifs, setNotifs] = useState<FavNotification[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
+  const notifContainerRef = useRef<HTMLDivElement | null>(null);
   const [logoPath, setLogoPath] = useState("/logos/dog-telescope-clean.jpeg");
 
   const NAV_LINKS = [
@@ -48,7 +49,9 @@ export default function Nav() {
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+    supabase.auth.getUser()
+      .then(({ data }) => setUser(data.user))
+      .catch(() => setUser(null));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
@@ -72,18 +75,40 @@ export default function Nav() {
 
   useEffect(() => {
     fetch(`${API_BASE}/api/site-config`)
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (data.site_logo) setLogoPath(data.site_logo);
+        if (data?.site_logo) setLogoPath(data.site_logo);
       })
       .catch(() => {});
   }, []);
+
+  // Close notifications dropdown on outside click or Escape.
+  useEffect(() => {
+    if (!showNotifs) return;
+    const onMouseDown = (e: MouseEvent) => {
+      if (
+        notifContainerRef.current &&
+        !notifContainerRef.current.contains(e.target as Node)
+      ) {
+        setShowNotifs(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowNotifs(false);
+    };
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [showNotifs]);
 
   async function handleSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
     setUser(null);
-    router.push("/login");
+    router.replace("/login");
   }
 
   function isActive(href: string) {
@@ -97,7 +122,7 @@ export default function Nav() {
 
   return (
     <header className="sticky top-0 z-50 glass-chrome border-b border-[#E3EAF4]">
-      <div className="max-w-[1280px] mx-auto px-4 sm:px-6">
+      <div className="max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center h-[60px] gap-6">
 
           {/* Brand — shown on every page including landing */}
@@ -142,7 +167,7 @@ export default function Nav() {
 
             {/* Notification bell */}
             {user && (
-              <div className="hidden md:block relative">
+              <div ref={notifContainerRef} className="hidden md:block relative">
                 <button
                   onClick={() => {
                     setShowNotifs(!showNotifs);
@@ -293,7 +318,7 @@ export default function Nav() {
         {/* Mobile dot-nav — visible only on non-landing, non-screener pages */}
         {!isLanding && !pathname.startsWith("/screener") && (
           <div className="md:hidden border-t border-[#E3EAF4]">
-            <nav className="flex items-center gap-0 py-1 text-[13px] overflow-x-auto scrollbar-none">
+            <nav className="flex items-center gap-0 py-1 text-[13px] overflow-x-auto md:scrollbar-none">
               {NAV_LINKS.slice(0, 4).map((item, idx) => (
                 <React.Fragment key={item.href}>
                   {idx > 0 && <span className="text-[#E3EAF4] select-none shrink-0" aria-hidden>·</span>}

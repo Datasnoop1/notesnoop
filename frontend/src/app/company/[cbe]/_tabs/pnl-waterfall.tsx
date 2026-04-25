@@ -342,7 +342,7 @@ export function PnlWaterfall({ rubrics, fiscalYears, defaultCollapsed = false }:
           <select
             value={fy}
             onChange={(e) => setFy(Number(e.target.value))}
-            className="text-[11px] border border-slate-200 rounded px-1.5 py-0.5 bg-white text-slate-600 hover:border-slate-300"
+            className="h-10 md:h-7 text-base md:text-[11px] border border-slate-200 rounded px-2 md:px-1.5 bg-white text-slate-600 hover:border-slate-300"
             aria-label="Fiscal year"
           >
             {years.map((y) => <option key={y} value={y}>FY{y}</option>)}

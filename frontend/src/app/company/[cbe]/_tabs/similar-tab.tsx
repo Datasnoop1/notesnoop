@@ -376,7 +376,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
                 {projects.length > 0 && <div className="border-t border-slate-100 my-1" />}
                 <div className="px-2 py-1.5 flex gap-1">
                   <input
-                    className="flex-1 h-6 text-[11px] border border-slate-200 rounded px-2 focus:outline-none focus:ring-1 focus:ring-brand/60"
+                    className="flex-1 h-9 md:h-6 text-base md:text-[11px] border border-slate-200 rounded px-2 focus:outline-none focus:ring-1 focus:ring-brand/60"
                     placeholder="New project name..."
                     value={newProjectName}
                     onChange={(e) => setNewProjectName(e.target.value)}

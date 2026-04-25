@@ -232,7 +232,7 @@ function ScorebordTab() {
         <div>
           <label className="text-xs font-medium text-slate-500 mb-1 block">Min. finished bankruptcies</label>
           <select
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-rose-400 focus:ring-rose-400"
+            className="rounded-md border border-slate-300 bg-white px-3 h-10 md:h-8 text-base md:text-sm text-slate-700 focus:border-rose-400 focus:ring-rose-400"
             value={minFailed}
             onChange={(e) => {
               setMinFailed(Number(e.target.value));
@@ -509,7 +509,7 @@ function InProcessTab() {
         <div>
           <label className="text-xs font-medium text-slate-500 mb-1 block">Case type</label>
           <select
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-rose-400 focus:ring-rose-400"
+            className="rounded-md border border-slate-300 bg-white px-3 h-10 md:h-8 text-base md:text-sm text-slate-700 focus:border-rose-400 focus:ring-rose-400"
             value={caseFilter}
             onChange={(e) => setCaseFilter(e.target.value as InProcessFilter)}
           >
@@ -718,7 +718,7 @@ function DirectorAgingTab() {
         <div>
           <label className="text-xs font-medium text-slate-500 mb-1 block">Min. bankruptcies</label>
           <select
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-rose-400 focus:ring-rose-400"
+            className="rounded-md border border-slate-300 bg-white px-3 h-10 md:h-8 text-base md:text-sm text-slate-700 focus:border-rose-400 focus:ring-rose-400"
             value={minTotal}
             onChange={(e) => setMinTotal(Number(e.target.value))}
           >

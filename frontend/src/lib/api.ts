@@ -167,7 +167,7 @@ export const getNaceSuggestions = (q: string) =>
 export function getScreener(filters: ScreenerFilters) {
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
-    if (v != null && v !== "" && v !== 0) params.set(k, String(v));
+    if (v != null && v !== "") params.set(k, String(v));
   }
   return apiFetch<ScreenerRow[]>(`/api/screener?${params}`);
 }
