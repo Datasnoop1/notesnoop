@@ -108,23 +108,24 @@ export default function Nav() {
   const initials = user?.email?.slice(0, 2).toUpperCase() ?? "?";
   const isLanding = pathname === "/";
   const isScreener = pathname.startsWith("/screener");
+  const hideHeaderBrand = isLanding || isScreener;
   const hideHeaderSearch = isLanding || pathname === "/search";
 
   return (
     <header className="sticky top-0 z-50 glass-chrome border-b border-[#E3EAF4]">
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center h-[68px] gap-6">
+        <div className="flex items-center h-[88px] gap-6">
 
           {/* Brand — full wordmark + telescope dog mark.
-             Hidden on /screener: that page hosts its own brand mark in the
-             top-right of the results card to keep the chrome density low. */}
-          {!isScreener && (
+             Hidden on the landing page (hero hosts the mark) and on
+             /screener (results-card top-right hosts the mark). */}
+          {!hideHeaderBrand && (
             <Link href="/" className="flex items-center gap-2 shrink-0 group">
               <img
                 src={logoPath}
                 alt="DataSnoop"
                 onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/logos/dog-telescope-clean.jpeg"; }}
-                className="h-14 w-auto shrink-0 group-hover:opacity-90 transition-opacity"
+                className="h-20 w-auto shrink-0 group-hover:opacity-90 transition-opacity"
               />
               <span className="text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
             </Link>
