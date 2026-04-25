@@ -27,11 +27,13 @@ mkdir -p "$LOG_DIR"
 # Preserve any non-managed entries, then replace the managed block.
 CURRENT=$(crontab -l 2>/dev/null || true)
 
-# Strip the old managed block
+# Strip the old managed block + any pre-existing ad-hoc entries that this
+# script now manages (added before they were folded into the managed block).
 FILTERED=$(echo "$CURRENT" | awk '
   /^# DATASNOOP-MANAGED-BEGIN$/ { skip=1; next }
   /^# DATASNOOP-MANAGED-END$/ { skip=0; next }
   /\/opt\/leadpeek\/scripts\/daily_update\.sh/ { next }
+  /backfill_affiliation\.py/ { next }
   !skip { print }
 ')
 
@@ -49,6 +51,13 @@ NEW_BLOCK=$(cat <<'EOF'
 # Larger hourly budget so we use most spare daytime capacity, while still
 # finishing comfortably within an hour on current timings.
 0 6-22 * * * MAX_CALLS=1500 PER_YEAR_CAP=1500 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+# Affiliation backfill — re-fetches NBB filings with legal-person admins and
+# extracts the natural-person Representatives into the affiliation table.
+# 5000 filings/run × ~1.1s per NBB call = ~92 min, well within the 2h gap
+# between the 02:00 nightly NBB backload and the 06:00 daytime drip-feed.
+# At 5000/day, the ~109k historical backlog clears in ~22 days. Idempotent
+# via affiliation_backfill_log so re-runs never repeat work.
+0 4 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/backfill_affiliation.py --max-filings 5000 >> /opt/leadpeek/scripts/_watchdog_state/affiliation_backfill_cron.log 2>&1
 # Regsol insolvency scraper (throttled candidates)
 30 3 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/open_data_regsol.py --batch 200 >> /opt/leadpeek/scripts/_watchdog_state/regsol.log 2>&1
 # Invoice ingest from invoice@datasnoop.be
