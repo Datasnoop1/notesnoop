@@ -114,22 +114,24 @@ export default function Nav() {
   return (
     <header className="sticky top-0 z-50 glass-chrome border-b border-[#E3EAF4]">
       <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center h-[88px] gap-6">
+        <div className={`flex items-center gap-6 ${hideHeaderBrand ? "h-[68px]" : "h-[200px]"}`}>
 
           {/* Brand — full wordmark + telescope dog mark.
              Hidden on the landing page (hero hosts the mark) and on
-             /screener (results-card top-right hosts the mark). */}
-          {!hideHeaderBrand && (
-            <Link href="/" className="flex items-center gap-2 shrink-0 group">
-              <img
-                src={logoPath}
-                alt="DataSnoop"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/logos/dog-telescope-clean.jpeg"; }}
-                className="h-20 w-auto shrink-0 group-hover:opacity-90 transition-opacity"
-              />
-              <span className="text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
-            </Link>
-          )}
+             /screener (results-card top-right hosts the mark). On every
+             other page the mark dominates a tall header so the wordmark
+             reads as a primary brand element rather than chrome. */}
+            {!hideHeaderBrand && (
+              <Link href="/" className="flex items-center gap-2 shrink-0 group">
+                <img
+                  src={logoPath}
+                  alt="DataSnoop"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/logos/dog-telescope-clean.jpeg"; }}
+                  className="h-[200px] w-auto shrink-0 group-hover:opacity-90 transition-opacity"
+                />
+                <span className="text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
+              </Link>
+            )}
 
           {/* Center: inline search (non-landing, non-search pages) */}
           {!hideHeaderSearch && (

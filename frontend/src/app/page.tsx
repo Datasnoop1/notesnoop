@@ -76,10 +76,21 @@ export default function Home() {
             style={{ background: "radial-gradient(circle, rgba(238,243,255,0.9) 0%, rgba(248,250,253,0) 60%)" }}
           />
 
-          <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-8 lg:gap-12 items-center relative">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-8 lg:gap-12 items-center relative">
 
-            {/* Left: text + search */}
-            <div className="text-left">
+            {/* Left: brand mark — replaces the global header brand on the
+               landing page (the header hides it on `/`) so the wordmark
+               + telescope dog gets a proper introduction. */}
+            <div className="hidden lg:flex items-center justify-center order-1">
+              <img
+                src="/logos/datasnoop-brand.png"
+                alt="DataSnoop"
+                className="w-full max-w-[420px] h-auto"
+              />
+            </div>
+
+            {/* Right: text + search */}
+            <div className="text-left order-2">
               {/* Eyebrow */}
               <div className="text-[11.5px] font-bold text-[#0B5CFF] uppercase tracking-[0.14em] mb-5">
                 Belgian Company Intelligence
@@ -155,16 +166,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Right: brand mark — replaces the global header brand on the
-               landing page (the header hides it on `/`) so the wordmark
-               + telescope dog gets a proper introduction. */}
-            <div className="hidden lg:flex items-center justify-center">
-              <img
-                src="/logos/datasnoop-brand.png"
-                alt="DataSnoop"
-                className="w-full max-w-[420px] h-auto"
-              />
-            </div>
           </div>
         </div>
       </section>
