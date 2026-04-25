@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Search, Grid3X3, Sparkles, ArrowRight } from "lucide-react";
+import { Search, Grid3X3, Sparkles, ArrowRight, BookOpen, Lightbulb } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
 
 const SMART_CHIPS = [
@@ -175,15 +175,17 @@ export default function Home() {
               <div className="mt-6 flex flex-wrap items-center gap-y-1 text-[13px] text-[#5F6B85]">
                 <Link
                   href="/guide"
-                  className="px-3 py-2 min-h-[40px] inline-flex items-center rounded-md hover:bg-[#F3F7FF] hover:text-[#0B5CFF] transition-colors"
+                  className="px-3 py-2 min-h-[40px] inline-flex items-center gap-1.5 rounded-md hover:bg-[#F3F7FF] hover:text-[#0B5CFF] transition-colors"
                 >
+                  <BookOpen className="w-3.5 h-3.5" />
                   User guide
                 </Link>
                 <span className="text-[#C3CEDF] mx-1" aria-hidden>·</span>
                 <a
                   href="/use-cases.html"
-                  className="px-3 py-2 min-h-[40px] inline-flex items-center rounded-md hover:bg-[#F3F7FF] hover:text-[#0B5CFF] transition-colors"
+                  className="px-3 py-2 min-h-[40px] inline-flex items-center gap-1.5 rounded-md hover:bg-[#F3F7FF] hover:text-[#0B5CFF] transition-colors"
                 >
+                  <Lightbulb className="w-3.5 h-3.5" />
                   Use cases
                 </a>
               </div>
