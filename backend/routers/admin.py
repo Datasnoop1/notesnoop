@@ -445,6 +445,13 @@ async def set_user_role(email: str, body: RoleUpdate, user=Depends(_require_admi
                ON CONFLICT (email) DO UPDATE SET role = %s""",
             (email, body.role, body.role),
         )
+        # Drop the cached tier so the next request from this user reflects the
+        # new role immediately rather than waiting on the 60s TTL.
+        try:
+            from main import invalidate_tier_role_cache
+            invalidate_tier_role_cache(email)
+        except Exception:
+            pass
         return {"email": email, "role": body.role}
     except Exception as e:
         logger.exception("Set role failed")
@@ -459,6 +466,11 @@ async def delete_user(email: str, user=Depends(_require_admin)):
     try:
         execute("DELETE FROM user_roles WHERE email = %s", (email,))
         execute("DELETE FROM favourite WHERE user_id = %s", (email,))
+        try:
+            from main import invalidate_tier_role_cache
+            invalidate_tier_role_cache(email)
+        except Exception:
+            pass
         return {"email": email, "status": "deleted"}
     except Exception as e:
         logger.exception("Delete user failed")

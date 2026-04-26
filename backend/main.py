@@ -221,6 +221,18 @@ def _classify_endpoint(path: str) -> str | None:
 import time as _time_mod
 _tier_count_cache: dict = {}
 
+# Email → (expire_ts, tier_label). Populated when the role lookup runs in
+# TierLimitMiddleware so authenticated users on tier-limited endpoints
+# don't pay a `SELECT role FROM user_roles` round-trip every request.
+# Roles change rarely (manual admin grant, Stripe webhook bumps a user
+# to "pro"). 60s staleness is acceptable and matches the tier_config
+# cache TTL right below this block. Capped at 10k entries — past that
+# we drop the whole cache instead of doing LRU bookkeeping; a real
+# multi-instance scenario should swap this for Redis.
+_TIER_ROLE_TTL_S = 60.0
+_TIER_ROLE_CACHE_MAX = 10_000
+_tier_role_cache: dict[str, tuple[float, str]] = {}
+
 
 def _ttl_now() -> float:
     return _time_mod.monotonic()
@@ -232,6 +244,50 @@ def _invalidate_tier_cache(user_label: str) -> None:
     drop = [k for k in _tier_count_cache if k[0] == user_label]
     for k in drop:
         _tier_count_cache.pop(k, None)
+
+
+def invalidate_tier_role_cache(email: str | None = None) -> None:
+    """Drop a cached role for `email`, or wipe the whole cache when None.
+
+    Stripe webhook + admin grant flows can call this after they bump a
+    user's tier so the next request sees the new role without waiting
+    for the 60s TTL to lapse.
+    """
+    if email is None:
+        _tier_role_cache.clear()
+        return
+    _tier_role_cache.pop(email, None)
+
+
+def _resolve_user_tier(email: str) -> str:
+    """Resolve the tier label for an authenticated user, with a 60s cache.
+
+    Returns 'premium' for pro/admin/premium roles, otherwise 'registered'.
+    On any DB failure falls back to 'registered' — fail-open is safer than
+    blocking a paying customer if the role lookup hiccups.
+    """
+    now = _ttl_now()
+    cached = _tier_role_cache.get(email)
+    if cached is not None and cached[0] > now:
+        return cached[1]
+
+    tier = "registered"
+    try:
+        from db import fetch_one
+        row = fetch_one(
+            "SELECT role FROM user_roles WHERE email = %s", (email,)
+        )
+        if row and row.get("role") in ("pro", "admin", "premium"):
+            tier = "premium"
+    except Exception:
+        # Fail-open: if the lookup fails, assume registered. Logging is
+        # already covered by db.py's exception path.
+        pass
+
+    if len(_tier_role_cache) > _TIER_ROLE_CACHE_MAX:
+        _tier_role_cache.clear()
+    _tier_role_cache[email] = (now + _TIER_ROLE_TTL_S, tier)
+    return tier
 
 
 class TierLimitMiddleware(BaseHTTPMiddleware):
@@ -272,7 +328,11 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
         if not any_enabled:
             return await call_next(request)
 
-        # Determine user tier
+        # Determine user tier. The role lookup goes through a 60s in-process
+        # cache (see _resolve_user_tier) so authenticated traffic on
+        # tier-limited endpoints doesn't pay the user_roles SELECT every
+        # request. Stripe + admin-grant flows invalidate the cache on
+        # role change.
         tier = "guest"
         email = None
         auth = request.headers.get("authorization", "")
@@ -282,17 +342,7 @@ class TierLimitMiddleware(BaseHTTPMiddleware):
                 payload = _decode_token(auth[7:])
                 email = payload.get("email")
                 if email:
-                    tier = "registered"
-                    # Check for premium role
-                    try:
-                        from db import fetch_one
-                        role_row = fetch_one(
-                            "SELECT role FROM user_roles WHERE email = %s", (email,)
-                        )
-                        if role_row and role_row["role"] in ("pro", "admin", "premium"):
-                            tier = "premium"
-                    except Exception:
-                        pass
+                    tier = _resolve_user_tier(email)
             except Exception:
                 pass
 

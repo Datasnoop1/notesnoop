@@ -526,22 +526,42 @@ export function InsightsOverlay({
                       <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wider">Key Management</h4>
                     </div>
                     <div className="space-y-1.5">
-                      {insights.key_management.map((person, i) => (
-                        <div key={i} className="flex items-center gap-2 text-sm">
-                          <span className="font-medium text-slate-700">{person.name}</span>
-                          {person.role && <span className="text-xs text-slate-400">— {person.role}</span>}
-                          {person.linkedin_url && (
-                            <a
-                              href={person.linkedin_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="ml-auto text-blue-500 hover:text-blue-700 transition-colors"
-                            >
-                              <Linkedin className="h-3.5 w-3.5" />
-                            </a>
-                          )}
-                        </div>
-                      ))}
+                      {insights.key_management.map((person, i) => {
+                        // Trust badge derived from server-side cross-check vs
+                        // the administrator table. A green dot says the name
+                        // is corroborated by a current KBO mandate; amber
+                        // means we found the name but the mandate has ended;
+                        // grey means we couldn't corroborate at all (could be
+                        // a non-board hire, or a stale website).
+                        const status = person.mandate_status;
+                        const badge =
+                          status === "kbo_active"
+                            ? { dot: "bg-emerald-500", title: "Confirmed by KBO — current mandate" }
+                            : status === "kbo_resigned"
+                              ? { dot: "bg-amber-500", title: "Found in KBO but mandate has ended (likely stale)" }
+                              : { dot: "bg-slate-300", title: "Sourced from website / LinkedIn only — not on KBO board" };
+                        return (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            <span
+                              className={`inline-block h-1.5 w-1.5 rounded-full ${badge.dot}`}
+                              title={badge.title}
+                              aria-label={badge.title}
+                            />
+                            <span className="font-medium text-slate-700">{person.name}</span>
+                            {person.role && <span className="text-xs text-slate-400">— {person.role}</span>}
+                            {person.linkedin_url && (
+                              <a
+                                href={person.linkedin_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-auto text-blue-500 hover:text-blue-700 transition-colors"
+                              >
+                                <Linkedin className="h-3.5 w-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}

@@ -166,6 +166,10 @@ async def search_companies(
     # Address fallback gated to ≥6 chars (was 4 — too loose, triggered
     # full-scan `address` ILIKE on a single letter). Person-like queries
     # don't need address fallback at all.
+    #
+    # TODO: once `migrations/2026-04-26_address_trgm.sql` is applied,
+    # this gate can drop to ≥4 — the GIN indexes turn the full-scan
+    # into a bitmap scan and short queries no longer stall.
     addr_like = (
         f"%{ilike_escape(raw)}%"
         if len(raw) >= 6 and qtype != "person_like"

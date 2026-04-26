@@ -1373,7 +1373,17 @@ export interface AiInsights {
   customers: string;
   market_position: string;
   history: string;
-  key_management?: { name: string; role: string; linkedin_url: string }[];
+  key_management?: {
+    name: string;
+    role: string;
+    linkedin_url: string;
+    /** Server-annotated source/freshness signal; lets the UI render a
+     *  trust chip without re-querying the administrator table.
+     *   - kbo_active   = name corroborated by an open KBO mandate.
+     *   - kbo_resigned = name matches a historical KBO mandate (resigned).
+     *   - website_only = no KBO match (could be stale or a non-board hire). */
+    mandate_status?: "kbo_active" | "kbo_resigned" | "website_only";
+  }[];
   group_context?: string;
   confidence?: string;
   source_attribution?: Record<string, string>;

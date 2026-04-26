@@ -14,10 +14,11 @@ import re
 import time
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from db import fetch_all, fetch_one, execute
 from auth import optional_user
+from cache import ttl_cache
 from ai_routing import (
     SIMILAR_COMPANIES_ROUTING,
     estimate_cost_usd,
@@ -64,123 +65,158 @@ MIN_REASONABLE_REVENUE_PER_FTE = 5_000
 
 
 # ── Sector Benchmarking ──────────────────────────────────────────
+#
+# The percentile query is expensive on high-cardinality NACEs (retail,
+# consulting can exceed 50k peers): seven PERCENTILE_CONT window functions
+# in a single CROSS JOIN. The data only changes when an NBB filing for
+# THIS company or its peers lands — at most once a day. We cache the
+# whole response per CBE for 24h in-process, plus set a private
+# Cache-Control so the browser doesn't even round-trip on tab switches.
+
+
+@ttl_cache(ttl_seconds=86400, maxsize=8192)
+def _sector_benchmark_cached(cbe: str) -> dict:
+    """Compute the benchmark for one CBE. Pure read — safe to cache.
+
+    Cache key is the cleaned CBE; result is the full JSON dict the
+    endpoint returns. 8192 ≈ a typical week's worth of unique benchmark
+    views; eviction policy in `cache.py` drops oldest expirations first
+    when we go over.
+    """
+    info = fetch_one(
+        "SELECT nace_code FROM company_info WHERE enterprise_number = %s", (cbe,),
+    )
+    if not info or not info.get("nace_code"):
+        return {"error": "no_nace", "benchmarks": []}
+
+    nace = info["nace_code"]
+    return _sector_benchmark_compute(cbe, nace)
+
+
+def _sector_benchmark_compute(cbe: str, nace: str) -> dict:
+    """Inner: build the benchmark dict for a (cbe, nace). Pure read.
+
+    Extracted from the original handler so the cache wrapper has a
+    clean call site. Handler-level exception logging stays on the
+    handler so a misbehaving SQL plan doesn't poison the cache.
+    """
+    # Single query: get company values + all percentiles in one shot
+    row = fetch_one("""
+        WITH company AS (
+            SELECT revenue, ebitda, net_profit, equity, total_assets, fte_total, fiscal_year,
+                   CASE WHEN revenue > 0 THEN ebitda / revenue * 100 END AS ebitda_margin,
+                   CASE WHEN total_assets > 0 THEN equity / total_assets * 100 END AS equity_ratio
+            FROM financial_latest WHERE enterprise_number = %s
+        ),
+        peers AS (
+            SELECT fl.*,
+                   CASE WHEN fl.revenue > 0 THEN fl.ebitda / fl.revenue * 100 END AS ebitda_margin,
+                   CASE WHEN fl.total_assets > 0 THEN fl.equity / fl.total_assets * 100 END AS equity_ratio
+            FROM financial_latest fl
+            JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
+            WHERE ci.nace_code = %s
+        )
+        SELECT
+            c.fiscal_year, c.revenue, c.ebitda, c.net_profit, c.equity, c.total_assets, c.fte_total,
+            c.ebitda_margin, c.equity_ratio,
+            COUNT(*) FILTER (WHERE p.revenue IS NOT NULL) AS peer_count,
+            -- Revenue
+            COUNT(*) FILTER (WHERE p.revenue < c.revenue AND p.revenue IS NOT NULL) AS rev_below,
+            COUNT(*) FILTER (WHERE p.revenue IS NOT NULL) AS rev_total,
+            PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY p.revenue) FILTER (WHERE p.revenue IS NOT NULL) AS rev_p25,
+            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.revenue) FILTER (WHERE p.revenue IS NOT NULL) AS rev_med,
+            PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY p.revenue) FILTER (WHERE p.revenue IS NOT NULL) AS rev_p75,
+            -- EBITDA
+            COUNT(*) FILTER (WHERE p.ebitda < c.ebitda AND p.ebitda IS NOT NULL) AS ebitda_below,
+            COUNT(*) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_total,
+            PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY p.ebitda) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_p25,
+            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.ebitda) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_med,
+            PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY p.ebitda) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_p75,
+            -- Net Profit
+            COUNT(*) FILTER (WHERE p.net_profit < c.net_profit AND p.net_profit IS NOT NULL) AS np_below,
+            COUNT(*) FILTER (WHERE p.net_profit IS NOT NULL) AS np_total,
+            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.net_profit) FILTER (WHERE p.net_profit IS NOT NULL) AS np_med,
+            -- FTE
+            COUNT(*) FILTER (WHERE p.fte_total < c.fte_total AND p.fte_total IS NOT NULL) AS fte_below,
+            COUNT(*) FILTER (WHERE p.fte_total IS NOT NULL) AS fte_total_cnt,
+            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.fte_total) FILTER (WHERE p.fte_total IS NOT NULL) AS fte_med,
+            -- Total Assets
+            COUNT(*) FILTER (WHERE p.total_assets < c.total_assets AND p.total_assets IS NOT NULL) AS ta_below,
+            COUNT(*) FILTER (WHERE p.total_assets IS NOT NULL) AS ta_total,
+            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.total_assets) FILTER (WHERE p.total_assets IS NOT NULL) AS ta_med,
+            -- EBITDA Margin
+            COUNT(*) FILTER (WHERE p.ebitda_margin < c.ebitda_margin AND p.ebitda_margin IS NOT NULL) AS em_below,
+            COUNT(*) FILTER (WHERE p.ebitda_margin IS NOT NULL) AS em_total,
+            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.ebitda_margin) FILTER (WHERE p.ebitda_margin IS NOT NULL) AS em_med,
+            -- Equity Ratio
+            COUNT(*) FILTER (WHERE p.equity_ratio < c.equity_ratio AND p.equity_ratio IS NOT NULL) AS er_below,
+            COUNT(*) FILTER (WHERE p.equity_ratio IS NOT NULL) AS er_total,
+            PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.equity_ratio) FILTER (WHERE p.equity_ratio IS NOT NULL) AS er_med
+        FROM company c
+        CROSS JOIN peers p
+        GROUP BY
+            c.fiscal_year, c.revenue, c.ebitda, c.net_profit, c.equity,
+            c.total_assets, c.fte_total, c.ebitda_margin, c.equity_ratio
+    """, (cbe, nace))
+
+    if not row or not row.get("fiscal_year"):
+        return {"error": "no_financials", "benchmarks": []}
+
+    nace_label = _resolve_nace_label(nace, "2008")
+
+    def pct(below, total):
+        return round((below / total) * 100, 1) if total and total > 0 else None
+
+    def fv(v):
+        return float(v) if v is not None else None
+
+    benchmarks = []
+    defs = [
+        ("Revenue", "eur", "revenue", "rev_below", "rev_total", "rev_p25", "rev_med", "rev_p75"),
+        ("EBITDA", "eur", "ebitda", "ebitda_below", "ebitda_total", "ebitda_p25", "ebitda_med", "ebitda_p75"),
+        ("Net Profit", "eur", "net_profit", "np_below", "np_total", None, "np_med", None),
+        ("FTE", "num", "fte_total", "fte_below", "fte_total_cnt", None, "fte_med", None),
+        ("Total Assets", "eur", "total_assets", "ta_below", "ta_total", None, "ta_med", None),
+        ("EBITDA Margin", "pct", "ebitda_margin", "em_below", "em_total", None, "em_med", None),
+        ("Equity Ratio", "pct", "equity_ratio", "er_below", "er_total", None, "er_med", None),
+    ]
+    for label, fmt, val_key, below_key, total_key, p25_key, med_key, p75_key in defs:
+        val = row.get(val_key)
+        total = row.get(total_key)
+        if val is None or not total:
+            continue
+        benchmarks.append({
+            "metric": label, "format": fmt,
+            "value": fv(val),
+            "percentile": pct(row.get(below_key, 0), total),
+            "p25": fv(row.get(p25_key)) if p25_key else None,
+            "median": fv(row.get(med_key)) if med_key else None,
+            "p75": fv(row.get(p75_key)) if p75_key else None,
+            "peer_count": total,
+        })
+
+    return {
+        "nace_code": nace,
+        "nace_label": nace_label or nace,
+        "fiscal_year": row["fiscal_year"],
+        "peer_count": row.get("peer_count", 0),
+        "benchmarks": benchmarks,
+    }
+
 
 @router.get("/{cbe}/sector-benchmark")
-async def sector_benchmark(cbe: str):
-    """Return percentile rankings for a company within its NACE sector (single batched query)."""
+async def sector_benchmark(cbe: str, response: Response):
+    """Return percentile rankings for a company within its NACE sector.
+
+    Backed by a 24h in-process cache (`_sector_benchmark_cached`) +
+    24h browser cache so tab-switches and back-button navigation are
+    instant. Cache key is the cleaned CBE; underlying NBB filings
+    update at most daily, so a stale value is at worst 24h behind.
+    """
     cbe = clean_cbe(cbe)
-
+    response.headers["Cache-Control"] = "private, max-age=86400, stale-while-revalidate=86400"
     try:
-        info = fetch_one(
-            "SELECT nace_code FROM company_info WHERE enterprise_number = %s", (cbe,),
-        )
-        if not info or not info.get("nace_code"):
-            return {"error": "no_nace", "benchmarks": []}
-
-        nace = info["nace_code"]
-
-        # Single query: get company values + all percentiles in one shot
-        row = fetch_one("""
-            WITH company AS (
-                SELECT revenue, ebitda, net_profit, equity, total_assets, fte_total, fiscal_year,
-                       CASE WHEN revenue > 0 THEN ebitda / revenue * 100 END AS ebitda_margin,
-                       CASE WHEN total_assets > 0 THEN equity / total_assets * 100 END AS equity_ratio
-                FROM financial_latest WHERE enterprise_number = %s
-            ),
-            peers AS (
-                SELECT fl.*,
-                       CASE WHEN fl.revenue > 0 THEN fl.ebitda / fl.revenue * 100 END AS ebitda_margin,
-                       CASE WHEN fl.total_assets > 0 THEN fl.equity / fl.total_assets * 100 END AS equity_ratio
-                FROM financial_latest fl
-                JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-                WHERE ci.nace_code = %s
-            )
-            SELECT
-                c.fiscal_year, c.revenue, c.ebitda, c.net_profit, c.equity, c.total_assets, c.fte_total,
-                c.ebitda_margin, c.equity_ratio,
-                COUNT(*) FILTER (WHERE p.revenue IS NOT NULL) AS peer_count,
-                -- Revenue
-                COUNT(*) FILTER (WHERE p.revenue < c.revenue AND p.revenue IS NOT NULL) AS rev_below,
-                COUNT(*) FILTER (WHERE p.revenue IS NOT NULL) AS rev_total,
-                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY p.revenue) FILTER (WHERE p.revenue IS NOT NULL) AS rev_p25,
-                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.revenue) FILTER (WHERE p.revenue IS NOT NULL) AS rev_med,
-                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY p.revenue) FILTER (WHERE p.revenue IS NOT NULL) AS rev_p75,
-                -- EBITDA
-                COUNT(*) FILTER (WHERE p.ebitda < c.ebitda AND p.ebitda IS NOT NULL) AS ebitda_below,
-                COUNT(*) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_total,
-                PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY p.ebitda) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_p25,
-                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.ebitda) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_med,
-                PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY p.ebitda) FILTER (WHERE p.ebitda IS NOT NULL) AS ebitda_p75,
-                -- Net Profit
-                COUNT(*) FILTER (WHERE p.net_profit < c.net_profit AND p.net_profit IS NOT NULL) AS np_below,
-                COUNT(*) FILTER (WHERE p.net_profit IS NOT NULL) AS np_total,
-                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.net_profit) FILTER (WHERE p.net_profit IS NOT NULL) AS np_med,
-                -- FTE
-                COUNT(*) FILTER (WHERE p.fte_total < c.fte_total AND p.fte_total IS NOT NULL) AS fte_below,
-                COUNT(*) FILTER (WHERE p.fte_total IS NOT NULL) AS fte_total_cnt,
-                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.fte_total) FILTER (WHERE p.fte_total IS NOT NULL) AS fte_med,
-                -- Total Assets
-                COUNT(*) FILTER (WHERE p.total_assets < c.total_assets AND p.total_assets IS NOT NULL) AS ta_below,
-                COUNT(*) FILTER (WHERE p.total_assets IS NOT NULL) AS ta_total,
-                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.total_assets) FILTER (WHERE p.total_assets IS NOT NULL) AS ta_med,
-                -- EBITDA Margin
-                COUNT(*) FILTER (WHERE p.ebitda_margin < c.ebitda_margin AND p.ebitda_margin IS NOT NULL) AS em_below,
-                COUNT(*) FILTER (WHERE p.ebitda_margin IS NOT NULL) AS em_total,
-                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.ebitda_margin) FILTER (WHERE p.ebitda_margin IS NOT NULL) AS em_med,
-                -- Equity Ratio
-                COUNT(*) FILTER (WHERE p.equity_ratio < c.equity_ratio AND p.equity_ratio IS NOT NULL) AS er_below,
-                COUNT(*) FILTER (WHERE p.equity_ratio IS NOT NULL) AS er_total,
-                PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY p.equity_ratio) FILTER (WHERE p.equity_ratio IS NOT NULL) AS er_med
-            FROM company c
-            CROSS JOIN peers p
-            GROUP BY
-                c.fiscal_year, c.revenue, c.ebitda, c.net_profit, c.equity,
-                c.total_assets, c.fte_total, c.ebitda_margin, c.equity_ratio
-        """, (cbe, nace))
-
-        if not row or not row.get("fiscal_year"):
-            return {"error": "no_financials", "benchmarks": []}
-
-        nace_label = _resolve_nace_label(nace, "2008")
-
-        def pct(below, total):
-            return round((below / total) * 100, 1) if total and total > 0 else None
-
-        def fv(v):
-            return float(v) if v is not None else None
-
-        benchmarks = []
-        defs = [
-            ("Revenue", "eur", "revenue", "rev_below", "rev_total", "rev_p25", "rev_med", "rev_p75"),
-            ("EBITDA", "eur", "ebitda", "ebitda_below", "ebitda_total", "ebitda_p25", "ebitda_med", "ebitda_p75"),
-            ("Net Profit", "eur", "net_profit", "np_below", "np_total", None, "np_med", None),
-            ("FTE", "num", "fte_total", "fte_below", "fte_total_cnt", None, "fte_med", None),
-            ("Total Assets", "eur", "total_assets", "ta_below", "ta_total", None, "ta_med", None),
-            ("EBITDA Margin", "pct", "ebitda_margin", "em_below", "em_total", None, "em_med", None),
-            ("Equity Ratio", "pct", "equity_ratio", "er_below", "er_total", None, "er_med", None),
-        ]
-        for label, fmt, val_key, below_key, total_key, p25_key, med_key, p75_key in defs:
-            val = row.get(val_key)
-            total = row.get(total_key)
-            if val is None or not total:
-                continue
-            benchmarks.append({
-                "metric": label, "format": fmt,
-                "value": fv(val),
-                "percentile": pct(row.get(below_key, 0), total),
-                "p25": fv(row.get(p25_key)) if p25_key else None,
-                "median": fv(row.get(med_key)) if med_key else None,
-                "p75": fv(row.get(p75_key)) if p75_key else None,
-                "peer_count": total,
-            })
-
-        return {
-            "nace_code": nace,
-            "nace_label": nace_label or nace,
-            "fiscal_year": row["fiscal_year"],
-            "peer_count": row.get("peer_count", 0),
-            "benchmarks": benchmarks,
-        }
+        return _sector_benchmark_cached(cbe)
     except Exception:
         logger.exception("Sector benchmark failed for %s", cbe)
         raise HTTPException(status_code=500, detail="Internal server error")

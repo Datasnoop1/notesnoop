@@ -145,6 +145,7 @@ async def stripe_webhook(request: Request):
                    ON CONFLICT (email) DO UPDATE SET role = 'pro'""",
                 (email,),
             )
+            _drop_tier_cache(email)
             logger.info("User %s upgraded to pro", email)
 
     elif event_type in ("customer.subscription.deleted", "customer.subscription.updated"):
@@ -155,9 +156,24 @@ async def stripe_webhook(request: Request):
                 """UPDATE user_roles SET role = 'user' WHERE email = %s AND role = 'pro'""",
                 (email,),
             )
+            _drop_tier_cache(email)
             logger.info("User %s downgraded from pro", email)
 
     return {"status": "ok"}
+
+
+def _drop_tier_cache(email: str) -> None:
+    """Drop the tier-role cache entry so the next request sees the new role
+    immediately instead of waiting up to 60s for the TTL to lapse.
+
+    Lazy-import keeps stripe_pay independent from main.py at module load.
+    Failures are non-fatal — the cache will refresh on its own TTL.
+    """
+    try:
+        from main import invalidate_tier_role_cache
+        invalidate_tier_role_cache(email)
+    except Exception:
+        pass
 
 
 @router.get("/status")

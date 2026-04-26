@@ -1050,6 +1050,99 @@ def _apply_review_diff(insights: dict, diff_items: list[dict]) -> dict:
     return insights
 
 
+def _annotate_key_management(
+    insights: dict,
+    fetch_all,
+    cbe: str,
+) -> None:
+    """Cross-check `insights["key_management"]` against the `administrator` table.
+
+    The LLM extracts management names from website / LinkedIn text, which can
+    be stale (someone retired three years ago but is still on the website
+    "team" page). We don't want to silently drop those — that would hide a
+    real signal — but a PE analyst defending a name to an IC needs to know
+    whether the name is corroborated by a current KBO mandate.
+
+    Each entry is annotated in-place with `mandate_status`:
+      * `kbo_active`   — name fuzzy-matches an admin with mandate_end IS NULL
+      * `kbo_resigned` — name matches a historical admin (mandate_end < today)
+      * `website_only` — no name match in administrator at all
+
+    The frontend renders these as a coloured badge so the user can weigh
+    each name's freshness without needing to cross-check by hand.
+
+    Pure side-effect on the dict; safe to call without changing call sites.
+    """
+    if not isinstance(insights, dict):
+        return
+    raw_list = insights.get("key_management")
+    if not isinstance(raw_list, list) or not raw_list:
+        return
+
+    try:
+        from search_normalization import reversed_key
+    except Exception:
+        # If normalisation utility isn't available we can't do a meaningful
+        # match — silently leave entries unannotated rather than crash.
+        return
+
+    try:
+        admin_rows = fetch_all(
+            """
+            SELECT name, mandate_end
+              FROM administrator
+             WHERE enterprise_number = %s
+               AND name IS NOT NULL
+            """,
+            (cbe,),
+        ) or []
+    except Exception:
+        # Read-only failure — leave entries unannotated. Don't fail the
+        # whole insights pipeline over a metadata enrichment.
+        return
+
+    if not admin_rows:
+        # Without any administrators on file we can't tell which path the
+        # name should fall into — flag everything as website_only so the
+        # frontend at least knows we couldn't corroborate.
+        for entry in raw_list:
+            if isinstance(entry, dict):
+                entry.setdefault("mandate_status", "website_only")
+        return
+
+    # Build two lookup sets so the per-entry classification stays O(1).
+    # `kbo_active_keys` are normalised reversed names with mandate_end
+    # NULL; `kbo_all_keys` is the union of active + resigned. The check
+    # therefore picks the most-positive label that fits.
+    kbo_active_keys: set[str] = set()
+    kbo_all_keys: set[str] = set()
+    for r in admin_rows:
+        nm = r.get("name") if isinstance(r, dict) else None
+        if not nm:
+            continue
+        k = reversed_key(nm)
+        if not k:
+            continue
+        kbo_all_keys.add(k)
+        if r.get("mandate_end") is None:
+            kbo_active_keys.add(k)
+
+    for entry in raw_list:
+        if not isinstance(entry, dict):
+            continue
+        person_name = entry.get("name") or ""
+        key = reversed_key(person_name)
+        if not key:
+            entry["mandate_status"] = "website_only"
+            continue
+        if key in kbo_active_keys:
+            entry["mandate_status"] = "kbo_active"
+        elif key in kbo_all_keys:
+            entry["mandate_status"] = "kbo_resigned"
+        else:
+            entry["mandate_status"] = "website_only"
+
+
 async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = None) -> dict:
     """Multi-step AI pipeline to generate structured company insights.
 
@@ -1523,6 +1616,11 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
         insights["website_url"] = website_url
     if not insights.get("linkedin_url"):
         insights["linkedin_url"] = linkedin_url
+
+    # Cross-check key_management names against the administrator table so the
+    # frontend can flag stale entries (e.g. someone listed on the website who
+    # actually resigned three years ago). Pure annotation — never drops names.
+    _annotate_key_management(insights, conn_helpers["fetch_all"], cbe)
 
     # ══════════════════════════════════════════════════════════════
     # STEP 4: Conditional Review
