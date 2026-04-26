@@ -83,6 +83,11 @@ NEW_BLOCK=$(cat <<'EOF'
 # Search V2 popularity refresh — click-count ranking signal from activity_log.
 # Runs at 03:15 UTC (off-peak, after daily KBO updates finish).
 15 3 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/refresh_popularity.py --lookback-days 28 >> /opt/leadpeek/scripts/_watchdog_state/refresh_popularity.log 2>&1
+# Supabase keepalive — daily ping to prevent free-tier auto-pause.
+# Supabase pauses inactive free-tier projects after 7 days. DataSnoop only
+# uses Supabase for auth (DB is on Hetzner), so live users do not generate
+# Supabase API traffic. A pause breaks login for everyone.
+30 2 * * * /opt/leadpeek/scripts/supabase_keepalive.sh
 # DATASNOOP-MANAGED-END
 EOF
 )
