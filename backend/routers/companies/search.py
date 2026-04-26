@@ -29,13 +29,55 @@ def _search_with_trgm_threshold(sql: str, params: dict, threshold: float) -> lis
     `fetch_all` would otherwise re-acquire a (potentially different)
     pool connection for each call, losing the `SET` that has to share
     the session with the search query.
+
+    `set_limit()` mutates the session-wide pg_trgm.similarity_threshold,
+    which survives transaction rollback. We MUST reset it before returning
+    the connection to the pool — otherwise the next caller borrowing this
+    connection inherits our threshold and either over-recalls (slow) or
+    under-recalls (misses results).
+
+    Subtlety: when the inner query raises, the connection is in an
+    aborted-transaction state and any further cur.execute() will fail
+    with InFailedSqlTransaction. So we explicitly rollback first on the
+    error path, then issue the reset on a clean session.
     """
+    DEFAULT_THRESHOLD = 0.3  # Postgres pg_trgm default
     with get_conn() as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SELECT set_limit(%s::real)", (threshold,))
-            cur.execute(sql, params)
-            rows = cur.fetchall()
-        conn.commit()
+            raised = False
+            try:
+                cur.execute("SELECT set_limit(%s::real)", (threshold,))
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+            except Exception:
+                raised = True
+                # Clear the aborted transaction state so the reset below
+                # actually executes. set_limit() is session-scoped, not
+                # transactional — rollback does NOT undo it.
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                raise
+            finally:
+                # Restore the default. set_limit() works across all pg_trgm
+                # versions we deploy on, vs RESET which can fail on older
+                # builds. After a rollback this runs on a clean session.
+                try:
+                    cur.execute("SELECT set_limit(%s::real)", (DEFAULT_THRESHOLD,))
+                except Exception:
+                    # Last-ditch: if the connection is too broken to reset,
+                    # discard it on the way out so the pool throws it away
+                    # instead of handing the leaked threshold to the next
+                    # caller. close() flips conn.closed=1, which the
+                    # get_conn() context manager checks before putconn().
+                    if raised:
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+        if not raised:
+            conn.commit()
         return rows
 from search_normalization import (
     detect_query_type,

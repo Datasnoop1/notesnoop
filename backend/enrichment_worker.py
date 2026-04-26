@@ -228,8 +228,12 @@ def _load_kbo_context(cbe: str) -> dict:
     except Exception:
         shareholders = []
     try:
+        # Fetch ownership percentage so the LLM can distinguish between
+        # "subsidiary of" (≥75%), "majority-owned by" (50-74%), and
+        # "controlled by" (significant minority). Without the percentage
+        # the model previously had to guess from the parent name alone.
         subsidiaries = fetch_all(
-            """SELECT name FROM participating_interest
+            """SELECT name, ownership_pct FROM participating_interest
                 WHERE enterprise_number = %s
                 ORDER BY ownership_pct DESC NULLS LAST LIMIT 5""",
             (cbe,),
@@ -248,14 +252,27 @@ def _load_kbo_context(cbe: str) -> dict:
         admins = []
 
     parent = ""
+    parent_pct: float | None = None
     majority = []
     for sh in shareholders:
         name = sh.get("name") or ""
         pct = sh.get("ownership_pct") or 0
         if pct and pct >= 50 and not parent:
             parent = name
+            parent_pct = float(pct)
         elif name:
             majority.append(f"{name} ({pct:.0f}%)" if pct else name)
+
+    # Subsidiaries with their ownership percentages, e.g. "Acme Holding (100%)".
+    # The downstream prompt uses these to decide how to describe the corporate
+    # graph (e.g. "wholly owns" vs "holds a stake in").
+    key_subsidiaries = []
+    for s in subsidiaries:
+        sname = s.get("name") or ""
+        if not sname:
+            continue
+        spct = s.get("ownership_pct") or 0
+        key_subsidiaries.append(f"{sname} ({spct:.0f}%)" if spct else sname)
 
     return {
         "name": info.get("name") or "",
@@ -267,9 +284,10 @@ def _load_kbo_context(cbe: str) -> dict:
         "revenue_band": _revenue_band(info.get("revenue")),
         "fte_band": _fte_band(info.get("fte_total")),
         "majority_shareholders": majority[:5],
-        "key_subsidiaries": [s.get("name") for s in subsidiaries if s.get("name")],
+        "key_subsidiaries": key_subsidiaries,
         "admins_top3": [a.get("name") for a in admins if a.get("name")],
         "parent": parent,
+        "parent_ownership_pct": parent_pct,
         "notes": "",
         "kbo_website": info.get("kbo_website"),
         "_revenue_eur": info.get("revenue"),

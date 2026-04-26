@@ -5,7 +5,7 @@ from collections import OrderedDict
 from time import time as _time
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 
 from db import fetch_all, fetch_one, get_conn, get_connection, put_connection
 from utils import clean_cbe
@@ -55,7 +55,7 @@ def _admin_extract_cache_record(cbe: str, count: int) -> None:
 
 
 @router.get("/{cbe}/structure")
-async def get_company_structure(cbe: str):
+async def get_company_structure(cbe: str, response: Response):
     """Admins, shareholders, participating interests, and Staatsblad publications.
 
     Phase 3b change: the `administrators` list is now a merged view
@@ -71,6 +71,10 @@ async def get_company_structure(cbe: str):
     changes-over-time view.
     """
     cbe = clean_cbe(cbe)
+    # Structure changes when staatsblad publishes appointment / resignation
+    # notices — daily at most. 5 min browser cache + long SWR keeps the
+    # tab switch + back-button paths instant.
+    response.headers["Cache-Control"] = "private, max-age=300, stale-while-revalidate=86400"
 
     try:
         # NBB snapshot — latest deposit per company.

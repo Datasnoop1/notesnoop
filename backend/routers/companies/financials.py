@@ -6,7 +6,7 @@ import os
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from db import fetch_all, fetch_one, get_connection, put_connection
 from auth import optional_user
@@ -591,12 +591,15 @@ def _refresh_materialized_for_company(cur, conn, cbe: str):
 # ---------------------------------------------------------------------------
 
 @router.get("/{cbe}/financials")
-async def get_company_financials(cbe: str):
+async def get_company_financials(cbe: str, response: Response):
     """Financial history from financial_summary.
 
     SQL extracted from app/pages/2_company.py load_company_detail() hist query.
     """
     cbe = clean_cbe(cbe)
+    # NBB filings land at most once per fiscal year. 5 min browser cache
+    # with long SWR keeps tab-switching instant.
+    response.headers["Cache-Control"] = "private, max-age=300, stale-while-revalidate=86400"
 
     try:
         hist = fetch_all("""

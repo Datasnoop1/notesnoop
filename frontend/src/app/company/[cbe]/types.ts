@@ -4,7 +4,12 @@ export interface CompanyDetail {
   enterprise_number: string;
   status: string;
   start_date: string | null;
+  jf_code: string | null;
   jf_label: string | null;
+  jf_label_nl: string | null;
+  jf_label_fr: string | null;
+  jf_short: string | null;
+  jf_category: string | null;
   name: string | null;
   zipcode: string | null;
   city: string | null;
