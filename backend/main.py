@@ -15,7 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api, admin_phase22
 from auth import ensure_jwks_bootstrapped
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
-from db import ensure_trgm_setup
+from db import ensure_trgm_setup, ensure_phase22_schema
 
 load_dotenv()
 
@@ -969,6 +969,13 @@ async def startup_migrations():
         ensure_trgm_setup()
     except Exception:
         logger.exception("pg_trgm startup migration failed (non-fatal)")
+    try:
+        # Phase-22 schema (sessions on activity_log, invoice taxonomy
+        # depth, vendor-pattern table). Independent of trgm/V2 detection
+        # so it always runs.
+        ensure_phase22_schema()
+    except Exception:
+        logger.exception("Phase-22 schema migration failed (non-fatal)")
 
 
 @app.on_event("startup")

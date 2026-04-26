@@ -216,11 +216,6 @@ def ensure_trgm_setup():
     if _trgm_migrated:
         return
 
-    # Default false; the inner block flips it to True once the
-    # invoice_vendor_pattern table has been CREATEd. We then run the
-    # actual seed AFTER the outer transaction commits.
-    _seed_invoice_patterns_pending = False
-
     conn = get_connection()
     try:
         cur = conn.cursor()
@@ -398,152 +393,6 @@ def ensure_trgm_setup():
             ON platform_invoice(invoice_date DESC);
         """)
 
-        # 7a-bis. platform_invoice — Phase-22 columns for richer
-        #         classification (parent/child taxonomy, model confidence,
-        #         human-readable reason, vendor-pattern attribution, free-form
-        #         line-item JSON). All ALTERs are idempotent so the rollout
-        #         can land before any code that reads them.
-        cur.execute(
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS parent_category TEXT;"
-        )
-        cur.execute(
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS child_category TEXT;"
-        )
-        cur.execute(
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS confidence REAL;"
-        )
-        cur.execute(
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS reason TEXT;"
-        )
-        cur.execute(
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS vendor_pattern_id INTEGER;"
-        )
-        cur.execute(
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS line_items JSONB;"
-        )
-        cur.execute(
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS classified_at TIMESTAMPTZ;"
-        )
-        cur.execute(
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS classifier_model TEXT;"
-        )
-
-        # 7a-ter. invoice_vendor_pattern — operator-curated regex/glob hints
-        #         that short-circuit the LLM. Each pattern carries a parent
-        #         + child category. When an inbound invoice's sender or
-        #         subject hits a pattern, the classifier uses the pattern's
-        #         category and skips the LLM (fast, deterministic, free).
-        #         Auto-seeded from existing confirmed invoices below.
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS invoice_vendor_pattern (
-                id              SERIAL PRIMARY KEY,
-                -- 2..200 char substring match (case-insensitive). The cap
-                -- guards a DoS where an admin (or compromised admin) drops
-                -- a 1MB pattern and stalls the classifier on every invoice.
-                pattern         TEXT NOT NULL CHECK (length(pattern) BETWEEN 2 AND 200),
-                vendor_canonical TEXT,                   -- canonical short name shown in UI
-                parent_category TEXT NOT NULL,
-                child_category  TEXT,
-                priority        INTEGER NOT NULL DEFAULT 0,
-                created_by      TEXT,
-                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                last_used_at    TIMESTAMPTZ,
-                hit_count       INTEGER NOT NULL DEFAULT 0
-            );
-        """)
-        # Add the CHECK constraint to environments where the table predates
-        # this guard. ALTER ADD CONSTRAINT IF NOT EXISTS isn't a thing in
-        # Postgres, so we use a DO block to test pg_constraint first.
-        cur.execute("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conname = 'invoice_vendor_pattern_pattern_len'
-                ) THEN
-                    BEGIN
-                        ALTER TABLE invoice_vendor_pattern
-                            ADD CONSTRAINT invoice_vendor_pattern_pattern_len
-                            CHECK (length(pattern) BETWEEN 2 AND 200);
-                    EXCEPTION WHEN check_violation THEN
-                        -- pre-existing oversize / undersize row; skip silently
-                        NULL;
-                    END;
-                END IF;
-            END$$;
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_invoice_vendor_pattern_priority
-            ON invoice_vendor_pattern(priority DESC);
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_platform_invoice_classified
-            ON platform_invoice(classified_at DESC);
-        """)
-
-        # 7a-quater. invoice_misclassification_log — captures operator
-        #            corrections so the operator can audit drift and
-        #            promising vendor patterns can be surfaced.
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS invoice_misclassification_log (
-                id              SERIAL PRIMARY KEY,
-                invoice_id      INTEGER REFERENCES platform_invoice(id) ON DELETE CASCADE,
-                old_parent      TEXT,
-                old_child       TEXT,
-                new_parent      TEXT,
-                new_child       TEXT,
-                old_vendor      TEXT,
-                new_vendor      TEXT,
-                old_amount_cents BIGINT,
-                new_amount_cents BIGINT,
-                corrected_by    TEXT,
-                corrected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_invoice_misclass_invoice
-            ON invoice_misclassification_log(invoice_id);
-        """)
-
-        # 7a-sexies. Seed the vendor-pattern table on a fresh deploy so the
-        #            classifier has a starter set without operator input.
-        #            Deferred until AFTER the outer transaction commits below
-        #            (`conn.commit()` near the sector_percentiles block) —
-        #            seed_default_patterns grabs a fresh pooled connection,
-        #            so the just-CREATEd `invoice_vendor_pattern` table is
-        #            invisible until this transaction lands.
-        _seed_invoice_patterns_pending = True
-
-        # 7a-quinquies. activity_log — Phase-22 traction columns.
-        #               Sessions are derived from a session_id cookie set by
-        #               the SessionMiddleware (random UUID, no PII). UA
-        #               family (Chrome / Firefox / Safari / mobile / bot) is
-        #               bucketed at insert time so we never store raw UAs
-        #               (GDPR — fingerprinting concerns). All columns are
-        #               nullable so older rows continue to work.
-        cur.execute(
-            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS session_id TEXT;"
-        )
-        cur.execute(
-            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS ua_family TEXT;"
-        )
-        cur.execute(
-            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS device_type TEXT;"
-        )
-        cur.execute(
-            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS country_code VARCHAR(2);"
-        )
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_activity_log_session
-            ON activity_log(session_id, created_at DESC)
-            WHERE session_id IS NOT NULL;
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_activity_log_ua_date
-            ON activity_log(ua_family, created_at DESC)
-            WHERE ua_family IS NOT NULL;
-        """)
-
         # 7. company_view_history — per-user "last visit" log, for the
         #    "what changed since last visit" banner on company profiles.
         cur.execute("""
@@ -621,17 +470,150 @@ def ensure_trgm_setup():
     finally:
         put_connection(conn)
 
-    # Post-commit step: seed the invoice vendor-pattern table now that the
-    # CREATE TABLE has actually landed in a committed transaction. The
-    # seed function uses its own pooled connection — running it inside
-    # the DDL transaction made the new table invisible to it on first
-    # boot (the seed silently skipped, then ran on next restart).
-    if _seed_invoice_patterns_pending:
+
+# ---------------------------------------------------------------------------
+# Phase-22 schema additions
+# ---------------------------------------------------------------------------
+# These run UNCONDITIONALLY at startup, regardless of whether the search V2
+# migration has been applied. They were originally added inside
+# ``ensure_trgm_setup`` but the V2 detection in that function returns early,
+# which silently skipped every Phase-22 ALTER on prod environments where V2
+# was already in place. Pulling them into a separate function decouples
+# them from the trgm migration and makes the boot path explicit.
+
+_phase22_migrated = False
+
+
+def ensure_phase22_schema():
+    """Apply Phase-22 schema additions: traction columns on activity_log,
+    invoice_vendor_pattern + invoice_misclassification_log tables, deeper
+    columns on platform_invoice. Idempotent — safe to call on every
+    startup.
+    """
+    global _phase22_migrated
+    if _phase22_migrated:
+        return
+
+    conn = get_connection()
+    seed_pending = False
+    try:
+        cur = conn.cursor()
+
+        # --- platform_invoice: parent/child taxonomy + classifier metadata ---
+        for stmt in (
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS parent_category TEXT",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS child_category TEXT",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS confidence REAL",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS reason TEXT",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS vendor_pattern_id INTEGER",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS line_items JSONB",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS classified_at TIMESTAMPTZ",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS classifier_model TEXT",
+        ):
+            cur.execute(stmt)
+
+        # --- invoice_vendor_pattern (operator-curated short-circuits) ---
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_vendor_pattern (
+                id              SERIAL PRIMARY KEY,
+                pattern         TEXT NOT NULL CHECK (length(pattern) BETWEEN 2 AND 200),
+                vendor_canonical TEXT,
+                parent_category TEXT NOT NULL,
+                child_category  TEXT,
+                priority        INTEGER NOT NULL DEFAULT 0,
+                created_by      TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_used_at    TIMESTAMPTZ,
+                hit_count       INTEGER NOT NULL DEFAULT 0
+            );
+        """)
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'invoice_vendor_pattern_pattern_len'
+                ) THEN
+                    BEGIN
+                        ALTER TABLE invoice_vendor_pattern
+                            ADD CONSTRAINT invoice_vendor_pattern_pattern_len
+                            CHECK (length(pattern) BETWEEN 2 AND 200);
+                    EXCEPTION WHEN check_violation THEN
+                        NULL;
+                    END;
+                END IF;
+            END$$;
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_invoice_vendor_pattern_priority
+            ON invoice_vendor_pattern(priority DESC);
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_platform_invoice_classified
+            ON platform_invoice(classified_at DESC);
+        """)
+
+        # --- invoice_misclassification_log (operator correction trail) ---
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_misclassification_log (
+                id              SERIAL PRIMARY KEY,
+                invoice_id      INTEGER REFERENCES platform_invoice(id) ON DELETE CASCADE,
+                old_parent      TEXT,
+                old_child       TEXT,
+                new_parent      TEXT,
+                new_child       TEXT,
+                old_vendor      TEXT,
+                new_vendor      TEXT,
+                old_amount_cents BIGINT,
+                new_amount_cents BIGINT,
+                corrected_by    TEXT,
+                corrected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_invoice_misclass_invoice
+            ON invoice_misclassification_log(invoice_id);
+        """)
+
+        # --- activity_log: traction columns (sessions, UA bucket, country) ---
+        for stmt in (
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS session_id TEXT",
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS ua_family TEXT",
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS device_type TEXT",
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS country_code VARCHAR(2)",
+        ):
+            cur.execute(stmt)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_activity_log_session
+            ON activity_log(session_id, created_at DESC)
+            WHERE session_id IS NOT NULL;
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_activity_log_ua_date
+            ON activity_log(ua_family, created_at DESC)
+            WHERE ua_family IS NOT NULL;
+        """)
+
+        conn.commit()
+        cur.close()
+        seed_pending = True
+        _phase22_migrated = True
+        logger.info("Phase-22 schema ensured")
+    except Exception:
+        conn.rollback()
+        logger.exception("Phase-22 schema migration failed (non-fatal)")
+    finally:
+        put_connection(conn)
+
+    # Post-commit: seed default vendor patterns (uses a fresh pooled
+    # connection, so the table must already be visible — i.e. the
+    # transaction above must have committed first).
+    if seed_pending:
         try:
             from invoice_classifier import seed_default_patterns
-            seeded = seed_default_patterns()
-            if seeded:
-                logger.info("Seeded %d invoice vendor patterns", seeded)
+            n = seed_default_patterns()
+            if n:
+                logger.info("Seeded %d invoice vendor patterns", n)
         except Exception:
             logger.exception("seed_default_patterns failed (non-fatal)")
 
