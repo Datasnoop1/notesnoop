@@ -393,6 +393,129 @@ def ensure_trgm_setup():
             ON platform_invoice(invoice_date DESC);
         """)
 
+        # 7a-bis. platform_invoice — Phase-22 columns for richer
+        #         classification (parent/child taxonomy, model confidence,
+        #         human-readable reason, vendor-pattern attribution, free-form
+        #         line-item JSON). All ALTERs are idempotent so the rollout
+        #         can land before any code that reads them.
+        cur.execute(
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS parent_category TEXT;"
+        )
+        cur.execute(
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS child_category TEXT;"
+        )
+        cur.execute(
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS confidence REAL;"
+        )
+        cur.execute(
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS reason TEXT;"
+        )
+        cur.execute(
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS vendor_pattern_id INTEGER;"
+        )
+        cur.execute(
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS line_items JSONB;"
+        )
+        cur.execute(
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS classified_at TIMESTAMPTZ;"
+        )
+        cur.execute(
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS classifier_model TEXT;"
+        )
+
+        # 7a-ter. invoice_vendor_pattern — operator-curated regex/glob hints
+        #         that short-circuit the LLM. Each pattern carries a parent
+        #         + child category. When an inbound invoice's sender or
+        #         subject hits a pattern, the classifier uses the pattern's
+        #         category and skips the LLM (fast, deterministic, free).
+        #         Auto-seeded from existing confirmed invoices below.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_vendor_pattern (
+                id              SERIAL PRIMARY KEY,
+                pattern         TEXT NOT NULL,           -- case-insensitive substring match
+                vendor_canonical TEXT,                   -- canonical short name shown in UI
+                parent_category TEXT NOT NULL,
+                child_category  TEXT,
+                priority        INTEGER NOT NULL DEFAULT 0,
+                created_by      TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_used_at    TIMESTAMPTZ,
+                hit_count       INTEGER NOT NULL DEFAULT 0
+            );
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_invoice_vendor_pattern_priority
+            ON invoice_vendor_pattern(priority DESC);
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_platform_invoice_classified
+            ON platform_invoice(classified_at DESC);
+        """)
+
+        # 7a-quater. invoice_misclassification_log — captures operator
+        #            corrections so the operator can audit drift and
+        #            promising vendor patterns can be surfaced.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_misclassification_log (
+                id              SERIAL PRIMARY KEY,
+                invoice_id      INTEGER REFERENCES platform_invoice(id) ON DELETE CASCADE,
+                old_parent      TEXT,
+                old_child       TEXT,
+                new_parent      TEXT,
+                new_child       TEXT,
+                old_vendor      TEXT,
+                new_vendor      TEXT,
+                old_amount_cents BIGINT,
+                new_amount_cents BIGINT,
+                corrected_by    TEXT,
+                corrected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_invoice_misclass_invoice
+            ON invoice_misclassification_log(invoice_id);
+        """)
+
+        # 7a-sexies. Seed the vendor-pattern table on a fresh deploy so the
+        #            classifier has a starter set without operator input.
+        try:
+            from invoice_classifier import seed_default_patterns
+            seeded = seed_default_patterns()
+            if seeded:
+                logger.info("Seeded %d invoice vendor patterns", seeded)
+        except Exception:
+            logger.debug("seed_default_patterns skipped (table may be missing)")
+
+        # 7a-quinquies. activity_log — Phase-22 traction columns.
+        #               Sessions are derived from a session_id cookie set by
+        #               the SessionMiddleware (random UUID, no PII). UA
+        #               family (Chrome / Firefox / Safari / mobile / bot) is
+        #               bucketed at insert time so we never store raw UAs
+        #               (GDPR — fingerprinting concerns). All columns are
+        #               nullable so older rows continue to work.
+        cur.execute(
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS session_id TEXT;"
+        )
+        cur.execute(
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS ua_family TEXT;"
+        )
+        cur.execute(
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS device_type TEXT;"
+        )
+        cur.execute(
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS country_code VARCHAR(2);"
+        )
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_activity_log_session
+            ON activity_log(session_id, created_at DESC)
+            WHERE session_id IS NOT NULL;
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_activity_log_ua_date
+            ON activity_log(ua_family, created_at DESC)
+            WHERE ua_family IS NOT NULL;
+        """)
+
         # 7. company_view_history — per-user "last visit" log, for the
         #    "what changed since last visit" banner on company profiles.
         cur.execute("""

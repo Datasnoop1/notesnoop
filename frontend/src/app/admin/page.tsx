@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase";
 import { EnrichmentDashboard } from "@/components/admin/enrichment-dashboard";
+import { ReadinessPanel } from "@/components/admin/readiness-panel";
+import { TractionDeep } from "@/components/admin/traction-deep";
 import {
   LineChart,
   Line,
@@ -210,7 +212,14 @@ interface PnlPeriod {
   window_end: string;
   revenue_eur: number;
   openrouter_eur: number;
-  invoices_by_category: { category: string; eur: number }[];
+  // Phase-22: each entry is now a parent row with optional children for
+  // drill-down. Older rows without children render as a single row.
+  invoices_by_category: {
+    category: string;
+    eur: number;
+    n_invoices?: number;
+    children?: { child: string; eur: number; n_invoices: number }[];
+  }[];
   invoices_total_eur: number;
   net_eur: number;
 }
@@ -709,6 +718,9 @@ export default function AdminPanel() {
   const [invoicesData, setInvoicesData] = useState<InvoicesData | null>(null);
   const [pnlData, setPnlData] = useState<PnlSummary | null>(null);
   const [classifying, setClassifying] = useState(false);
+  // Tracks which P&L parent categories the operator has expanded to
+  // see child-level breakdown. Phase-22 — parent/child taxonomy.
+  const [expandedPnlCats, setExpandedPnlCats] = useState<Set<string>>(new Set());
   // Lazy-load guard — commerce endpoints (Stripe list + iter, OpenRouter
   // API call, pnl-summary) only fire when the Revenue tab is actually
   // visited. Keeps initial admin load snappy (<500ms DB-only) instead of
@@ -1700,6 +1712,12 @@ export default function AdminPanel() {
             ) : (
               <div className="text-center py-8 text-sm text-slate-400">Loading traction data...</div>
             )}
+
+            {/* Phase-22 deep traction: sessions, retention cohorts, hourly
+                heatmap, navigation paths, device/browser/country mix.
+                Gated on activeTab so the analytics CTE only fires for
+                operators actually viewing this tab. */}
+            {activeTab === "traction" && <TractionDeep fetcher={adminFetch} />}
           </div>
         </TabsContent>
 
@@ -1708,6 +1726,14 @@ export default function AdminPanel() {
             ================================================================ */}
         <TabsContent value="readiness">
           <div className="space-y-8 pt-2">
+            {/* Phase-22: unified pipeline readiness (NBB + semantic + Staatsblad).
+                Lives above the existing data-coverage hero so operators see
+                pipeline health first; the coverage gauge below is the
+                "where's the corpus" view. Gated on activeTab to avoid
+                firing the analytics queries when the operator is sitting
+                on a different tab. */}
+            {activeTab === "readiness" && <ReadinessPanel fetcher={adminFetch} />}
+
             {/* Platform Readiness — Hero metric */}
             <Card className={`bg-white ${!loading && readiness ? bgReadiness(readiness.score) : ""}`}>
               <CardContent>
@@ -3783,20 +3809,88 @@ export default function AdminPanel() {
                               </TableCell>
                             ))}
                           </TableRow>
-                          {/* Per-category invoice rows */}
-                          {allCats.map((cat) => (
-                            <TableRow key={cat}>
-                              <TableCell className="text-xs text-slate-600 py-1 pl-4">{cat}</TableCell>
-                              {COLS.map((c) => {
-                                const v = catAmount(c.key, cat);
-                                return (
-                                  <TableCell key={c.key} className="text-xs font-mono text-right text-rose-500 py-1">
-                                    {v > 0 ? `-${eur(v)}` : "—"}
+                          {/* Per-category invoice rows.
+                              Phase-22: when the API includes children
+                              (parent → child taxonomy), render the
+                              parent as a click-to-expand row and indent
+                              child lines under it. */}
+                          {allCats.map((cat) => {
+                            // Pull children from any period; parents
+                            // without children render as a single row.
+                            const childMap = new Map<string, Record<string, number>>();
+                            COLS.forEach((c) => {
+                              const entry = pnlData[c.key].invoices_by_category.find(
+                                (r) => r.category === cat
+                              );
+                              for (const ch of entry?.children || []) {
+                                if (!childMap.has(ch.child)) childMap.set(ch.child, {});
+                                childMap.get(ch.child)![c.key as string] = ch.eur;
+                              }
+                            });
+                            const isExpandable = childMap.size > 1;
+                            const isExpanded = expandedPnlCats.has(cat);
+                            return (
+                              <>
+                                <TableRow
+                                  key={cat}
+                                  className={isExpandable ? "cursor-pointer hover:bg-slate-50" : ""}
+                                  onClick={() => {
+                                    if (!isExpandable) return;
+                                    setExpandedPnlCats((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(cat)) next.delete(cat); else next.add(cat);
+                                      return next;
+                                    });
+                                  }}
+                                >
+                                  <TableCell className="text-xs text-slate-600 py-1 pl-4">
+                                    {isExpandable && (
+                                      <ChevronRight
+                                        className={`inline-block h-3 w-3 mr-1 transition-transform ${
+                                          isExpanded ? "rotate-90" : ""
+                                        }`}
+                                      />
+                                    )}
+                                    {cat}
                                   </TableCell>
-                                );
-                              })}
-                            </TableRow>
-                          ))}
+                                  {COLS.map((c) => {
+                                    const v = catAmount(c.key, cat);
+                                    return (
+                                      <TableCell key={c.key} className="text-xs font-mono text-right text-rose-500 py-1">
+                                        {v > 0 ? `-${eur(v)}` : "—"}
+                                      </TableCell>
+                                    );
+                                  })}
+                                </TableRow>
+                                {isExpanded &&
+                                  Array.from(childMap.entries())
+                                    .sort((a, b) => {
+                                      // Sort children by their largest cell across the 3 periods.
+                                      const maxA = Math.max(...Object.values(a[1]));
+                                      const maxB = Math.max(...Object.values(b[1]));
+                                      return maxB - maxA;
+                                    })
+                                    .map(([childName, vals]) => (
+                                      <TableRow key={`${cat}-${childName}`} className="bg-slate-50/40">
+                                        <TableCell className="text-[11px] text-slate-500 py-0.5 pl-10">
+                                          {childName}
+                                        </TableCell>
+                                        {COLS.map((c) => {
+                                          const v = vals[c.key as string] || 0;
+                                          return (
+                                            <TableCell
+                                              key={c.key}
+                                              className="text-[11px] font-mono text-right text-rose-400 py-0.5"
+                                            >
+                                              {v > 0 ? `-${eur(v)}` : "—"}
+                                            </TableCell>
+                                          );
+                                        })}
+                                      </TableRow>
+                                    ))}
+                              </>
+                            );
+                          })}
                           {/* Total costs */}
                           <TableRow className="border-t-2 border-slate-200">
                             <TableCell className="text-xs font-semibold text-slate-700 py-1">Total costs</TableCell>

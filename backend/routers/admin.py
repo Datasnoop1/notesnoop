@@ -1262,35 +1262,65 @@ async def admin_invoices(user=Depends(_require_admin)):
     """Return the last 50 invoices ingested from invoice@datasnoop.be plus
     rolling monthly totals so the admin page can render a cost column next
     to the ARR card.
+
+    Phase-22: now also returns parent/child categories, model confidence,
+    classifier reason, and line items when the v2 classifier captured
+    them. Old rows (pre-Phase-22) keep their flat ``category`` field —
+    the UI falls back to that when ``parent_category`` is NULL.
     """
     try:
         rows = fetch_all(
             """SELECT id, sender, subject, received_at, invoice_date,
-                      amount_cents, currency, vendor, category, confirmed
+                      amount_cents, currency, vendor, category,
+                      parent_category, child_category, confidence,
+                      reason, vendor_pattern_id, line_items,
+                      classified_at, classifier_model,
+                      confirmed
                FROM platform_invoice
                ORDER BY COALESCE(invoice_date, received_at::date) DESC
                LIMIT 50"""
         )
         for r in rows:
-            for key in ("received_at", "invoice_date"):
+            for key in ("received_at", "invoice_date", "classified_at"):
                 if r.get(key):
                     r[key] = r[key].isoformat() if hasattr(r[key], "isoformat") else str(r[key])
 
-        # Monthly totals for the last 6 calendar months
+        # Monthly totals for the last 6 calendar months — by parent category
+        # so the P&L page can render a stacked breakdown rather than just
+        # the flat total. Older rows where parent_category is NULL fall
+        # back to the legacy `category` field.
         monthly = fetch_all(
             """SELECT to_char(date_trunc('month', COALESCE(invoice_date, received_at::date)), 'YYYY-MM') AS ym,
+                      COALESCE(parent_category, category, 'Other') AS parent,
                       SUM(amount_cents) AS cents_total,
                       COUNT(*) AS invoices
                FROM platform_invoice
                WHERE amount_cents IS NOT NULL
                  AND COALESCE(invoice_date, received_at::date) >= (CURRENT_DATE - INTERVAL '6 months')
-               GROUP BY 1
-               ORDER BY 1 DESC"""
+               GROUP BY 1, 2
+               ORDER BY 1 DESC, 3 DESC"""
         )
         for m in monthly:
             m["eur_total"] = round(float(m.get("cents_total") or 0) / 100.0, 2)
 
-        return {"invoices": rows, "monthly": monthly}
+        # Confidence histogram so the operator sees how trustworthy the
+        # classifier has been. Rows without confidence (legacy) appear
+        # under "unknown".
+        confidence = fetch_all(
+            """SELECT
+                CASE
+                    WHEN confidence IS NULL THEN 'unknown'
+                    WHEN confidence >= 0.9 THEN 'high'
+                    WHEN confidence >= 0.6 THEN 'medium'
+                    ELSE 'low'
+                END AS bucket,
+                COUNT(*) AS n
+               FROM platform_invoice
+               GROUP BY 1
+               ORDER BY 1"""
+        )
+
+        return {"invoices": rows, "monthly": monthly, "confidence": confidence}
     except Exception as e:
         logger.exception("Admin invoices failed")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1298,20 +1328,105 @@ async def admin_invoices(user=Depends(_require_admin)):
 
 @router.post("/invoices/{invoice_id}/confirm")
 async def admin_confirm_invoice(invoice_id: int, body: dict, user=Depends(_require_admin)):
-    """Operator override: set confirmed=true, optionally override
-    amount_cents / category / vendor."""
+    """Operator override: set ``confirmed=true``, optionally overriding
+    ``amount_cents`` / ``category`` / ``vendor`` / ``parent_category`` /
+    ``child_category``. When the operator changes the category, the prior
+    classification is logged to ``invoice_misclassification_log`` so we
+    keep an audit trail of LLM drift. The new (vendor, parent, child)
+    is also offered as a vendor-pattern candidate when the operator opts
+    in via ``add_pattern=true`` in the body.
+    """
+    # Pull existing row first so we can log the diff if the operator
+    # corrected anything.
+    existing = fetch_one(
+        "SELECT vendor, category, parent_category, child_category, "
+        "amount_cents FROM platform_invoice WHERE id = %s",
+        (invoice_id,),
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
     fields = []
     params: list = []
-    for key in ("amount_cents", "category", "vendor"):
+    legacy_category_set = False
+    for key in (
+        "amount_cents",
+        "category",
+        "vendor",
+        "parent_category",
+        "child_category",
+    ):
         if key in body and body[key] is not None:
             fields.append(f"{key} = %s")
             params.append(body[key])
+            if key == "category":
+                legacy_category_set = True
+    # When the operator updated parent_category but not the legacy
+    # `category` column, mirror it across so old aggregations keep
+    # showing the right value.
+    if "parent_category" in body and body.get("parent_category") and not legacy_category_set:
+        fields.append("category = %s")
+        params.append(body["parent_category"])
     fields.append("confirmed = TRUE")
     params.append(invoice_id)
     sql = f"UPDATE platform_invoice SET {', '.join(fields)} WHERE id = %s"
     try:
         execute(sql, tuple(params))
+
+        # Log the correction (best-effort).
+        try:
+            old_parent = existing.get("parent_category") or existing.get("category")
+            new_parent = body.get("parent_category") or body.get("category") or old_parent
+            old_child = existing.get("child_category")
+            new_child = body.get("child_category") or old_child
+            old_vendor = existing.get("vendor")
+            new_vendor = body.get("vendor") or old_vendor
+            old_amount = existing.get("amount_cents")
+            new_amount = body.get("amount_cents") or old_amount
+            if (
+                old_parent != new_parent
+                or old_child != new_child
+                or old_vendor != new_vendor
+                or old_amount != new_amount
+            ):
+                op_email = (user or {}).get("email") if isinstance(user, dict) else None
+                execute(
+                    """INSERT INTO invoice_misclassification_log
+                       (invoice_id, old_parent, old_child, new_parent, new_child,
+                        old_vendor, new_vendor, old_amount_cents, new_amount_cents,
+                        corrected_by)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (
+                        invoice_id, old_parent, old_child, new_parent, new_child,
+                        old_vendor, new_vendor, old_amount, new_amount, op_email,
+                    ),
+                )
+        except Exception:
+            logger.debug("misclassification log write failed (non-fatal)")
+
+        # Optional: turn this correction into a vendor pattern.
+        if body.get("add_pattern") and body.get("pattern"):
+            try:
+                execute(
+                    """INSERT INTO invoice_vendor_pattern
+                       (pattern, vendor_canonical, parent_category,
+                        child_category, priority, created_by)
+                       VALUES (%s, %s, %s, %s, %s, %s)""",
+                    (
+                        str(body["pattern"]).lower().strip(),
+                        body.get("vendor"),
+                        body.get("parent_category") or "Other",
+                        body.get("child_category"),
+                        50,
+                        (user or {}).get("email") if isinstance(user, dict) else None,
+                    ),
+                )
+            except Exception:
+                logger.debug("vendor-pattern insert failed (non-fatal)")
+
         return {"status": "confirmed"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Confirm invoice failed")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1319,28 +1434,35 @@ async def admin_confirm_invoice(invoice_id: int, body: dict, user=Depends(_requi
 
 @router.post("/invoices/classify-all")
 async def admin_classify_all_invoices(user=Depends(_require_admin)):
-    """Backfill vendor, category, amount_cents, invoice_date on rows where
-    any of them are NULL and the row hasn't been manually confirmed.
+    """Backfill classification fields on rows that are still un-classified
+    or that pre-date the v2 classifier.
 
-    Runs the invoice classifier+extractor (OpenRouter) against each row's
-    sender/subject/raw_body. Useful after deploying the classifier for
-    the first time, after a taxonomy change, or when the regex amount
-    parser missed many invoices (LLM now fills those gaps).
+    Phase-22: switches to ``classify_invoice_v2`` so every (re-)classified
+    invoice picks up parent/child categories, confidence, reason,
+    line-items, and vendor-pattern attribution. Confirmed rows are still
+    skipped — operator overrides win.
 
-    Skips `confirmed=TRUE` rows — the operator has reviewed those and
-    their values shouldn't be silently overwritten.
+    Targeted set:
+      * confirmed IS NOT TRUE, AND
+      * (parent_category IS NULL  -- never v2-classified
+         OR vendor IS NULL
+         OR category IN (NULL, '', 'Other')
+         OR amount_cents IS NULL
+         OR invoice_date IS NULL)
 
-    Safe to re-run — fully-filled rows aren't revisited.
+    Safe to re-run; trims at 500 rows per call. Designed to be invoked
+    repeatedly from the admin UI until the queue drains.
     """
     import asyncio
-    from invoice_classifier import classify_invoice
+    from invoice_classifier import classify_invoice_v2, _DEFAULT_MODEL
 
     rows = fetch_all(
         """SELECT id, sender, subject, raw_body, vendor, category,
-                  amount_cents, invoice_date
+                  parent_category, child_category, amount_cents, invoice_date
            FROM platform_invoice
            WHERE confirmed IS NOT TRUE
-             AND (vendor IS NULL
+             AND (parent_category IS NULL
+                  OR vendor IS NULL
                   OR category IS NULL
                   OR category = 'Other'
                   OR amount_cents IS NULL
@@ -1349,12 +1471,15 @@ async def admin_classify_all_invoices(user=Depends(_require_admin)):
            LIMIT 500"""
     )
     classified = 0
-    updated_fields = {"vendor": 0, "category": 0, "amount_cents": 0, "invoice_date": 0}
+    updated_fields = {
+        "vendor": 0, "parent_category": 0, "child_category": 0,
+        "amount_cents": 0, "invoice_date": 0, "line_items": 0,
+    }
     errors = 0
     for r in rows:
         try:
             result = await asyncio.to_thread(
-                classify_invoice,
+                classify_invoice_v2,
                 r.get("sender"),
                 r.get("subject"),
                 r.get("raw_body"),
@@ -1365,16 +1490,35 @@ async def admin_classify_all_invoices(user=Depends(_require_admin)):
                 sets.append("vendor = %s")
                 params.append(result["vendor"])
                 updated_fields["vendor"] += 1
-            # Replace an existing "Other" category only if the LLM gave something better.
-            new_cat = result.get("category")
-            if new_cat and new_cat != "Other" and (r.get("category") in (None, "", "Other")):
-                sets.append("category = %s")
-                params.append(new_cat)
-                updated_fields["category"] += 1
-            elif r.get("category") is None and new_cat:
-                sets.append("category = %s")
-                params.append(new_cat)
-                updated_fields["category"] += 1
+
+            new_parent = result.get("parent_category")
+            new_child = result.get("child_category")
+            # Always (re-)write parent/child if we have a real answer that
+            # isn't strictly worse than what's there.
+            current_parent = r.get("parent_category") or r.get("category")
+            if new_parent and new_parent != "Other":
+                if current_parent in (None, "", "Other"):
+                    sets.append("parent_category = %s"); params.append(new_parent)
+                    sets.append("category = %s"); params.append(new_parent)
+                    updated_fields["parent_category"] += 1
+            elif new_parent and current_parent is None:
+                sets.append("parent_category = %s"); params.append(new_parent)
+                sets.append("category = %s"); params.append(new_parent)
+                updated_fields["parent_category"] += 1
+
+            if new_child and (r.get("child_category") in (None, "")):
+                sets.append("child_category = %s"); params.append(new_child)
+                updated_fields["child_category"] += 1
+
+            # Always store confidence/reason — they're per-classification metadata.
+            sets.append("confidence = %s"); params.append(result.get("confidence"))
+            sets.append("reason = %s"); params.append(result.get("reason"))
+            if result.get("vendor_pattern_id"):
+                sets.append("vendor_pattern_id = %s"); params.append(result["vendor_pattern_id"])
+            sets.append("classifier_model = %s")
+            params.append(result.get("model") or _DEFAULT_MODEL)
+            sets.append("classified_at = NOW()")
+
             if r.get("amount_cents") is None and isinstance(result.get("amount_cents"), int):
                 sets.append("amount_cents = %s")
                 params.append(result["amount_cents"])
@@ -1383,6 +1527,12 @@ async def admin_classify_all_invoices(user=Depends(_require_admin)):
                 sets.append("invoice_date = %s")
                 params.append(result["invoice_date"])
                 updated_fields["invoice_date"] += 1
+            line_items = result.get("line_items") or []
+            if line_items:
+                sets.append("line_items = %s::jsonb")
+                params.append(json.dumps(line_items))
+                updated_fields["line_items"] += 1
+
             if sets:
                 params.append(r["id"])
                 execute(
@@ -1398,6 +1548,119 @@ async def admin_classify_all_invoices(user=Depends(_require_admin)):
         "errors": errors,
         "rows_scanned": len(rows),
         "updated_fields": updated_fields,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Vendor-pattern + misclassification log management (Phase-22)
+# ---------------------------------------------------------------------------
+
+@router.get("/invoices/patterns")
+async def admin_invoice_patterns(user=Depends(_require_admin)):
+    """List all vendor-pattern rules with their hit counts."""
+    try:
+        rows = fetch_all(
+            """SELECT id, pattern, vendor_canonical AS vendor,
+                      parent_category AS parent, child_category AS child,
+                      priority, created_by, created_at, last_used_at,
+                      hit_count
+               FROM invoice_vendor_pattern
+               ORDER BY priority DESC, hit_count DESC, id ASC"""
+        )
+        for r in rows:
+            for k in ("created_at", "last_used_at"):
+                if r.get(k) and hasattr(r[k], "isoformat"):
+                    r[k] = r[k].isoformat()
+        return {"patterns": rows, "taxonomy": _taxonomy_payload()}
+    except Exception as e:
+        logger.exception("Admin invoice-patterns list failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/invoices/patterns")
+async def admin_invoice_patterns_add(body: dict, user=Depends(_require_admin)):
+    """Add a vendor pattern. Body: {pattern, vendor, parent_category,
+    child_category, priority?}."""
+    try:
+        from invoice_classifier import TAXONOMY
+        pattern = (body.get("pattern") or "").lower().strip()
+        if not pattern:
+            raise HTTPException(status_code=400, detail="pattern is required")
+        parent = body.get("parent_category") or "Other"
+        child = body.get("child_category")
+        if parent not in TAXONOMY:
+            parent = "Other"
+        if child and child not in TAXONOMY[parent]:
+            child = (TAXONOMY[parent] or ["Other"])[0]
+        op = (user or {}).get("email") if isinstance(user, dict) else None
+        execute(
+            """INSERT INTO invoice_vendor_pattern
+               (pattern, vendor_canonical, parent_category, child_category,
+                priority, created_by)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (
+                pattern, body.get("vendor"), parent, child,
+                int(body.get("priority") or 50), op,
+            ),
+        )
+        return {"status": "ok"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Admin invoice-patterns add failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/invoices/patterns/{pattern_id}")
+async def admin_invoice_patterns_delete(pattern_id: int, user=Depends(_require_admin)):
+    """Delete a vendor pattern."""
+    try:
+        execute(
+            "DELETE FROM invoice_vendor_pattern WHERE id = %s",
+            (pattern_id,),
+        )
+        return {"status": "ok"}
+    except Exception as e:
+        logger.exception("Admin invoice-patterns delete failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/invoices/misclassifications")
+async def admin_invoice_misclassifications(user=Depends(_require_admin)):
+    """Recent operator corrections — useful for tuning the classifier."""
+    try:
+        rows = fetch_all(
+            """SELECT m.id, m.invoice_id, m.old_parent, m.old_child,
+                      m.new_parent, m.new_child, m.old_vendor, m.new_vendor,
+                      m.old_amount_cents, m.new_amount_cents,
+                      m.corrected_by, m.corrected_at,
+                      i.sender, i.subject
+               FROM invoice_misclassification_log m
+               LEFT JOIN platform_invoice i ON i.id = m.invoice_id
+               ORDER BY m.corrected_at DESC
+               LIMIT 100"""
+        )
+        for r in rows:
+            if r.get("corrected_at") and hasattr(r["corrected_at"], "isoformat"):
+                r["corrected_at"] = r["corrected_at"].isoformat()
+        return {"corrections": rows}
+    except Exception as e:
+        logger.exception("Admin misclassifications list failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/invoices/taxonomy")
+async def admin_invoice_taxonomy(user=Depends(_require_admin)):
+    """Return the active classification taxonomy so the UI can render
+    parent/child dropdowns without hardcoding the list."""
+    return _taxonomy_payload()
+
+
+def _taxonomy_payload() -> dict:
+    from invoice_classifier import TAXONOMY
+    return {
+        "parents": list(TAXONOMY.keys()),
+        "tree": TAXONOMY,
     }
 
 
@@ -1484,21 +1747,42 @@ async def admin_pnl_summary(user=Depends(_require_admin)):
         ) or {}
         openrouter_eur = float(llm_row.get("total_usd", 0) or 0) * USD_TO_EUR
 
-        # Invoices grouped by category, allocated by invoice_date (fallback
-        # received_at::date if invoice_date is NULL).
+        # Invoices grouped by parent category (Phase-22). Falls back to
+        # the legacy `category` column when parent_category is NULL so
+        # rows that pre-date the v2 classifier still appear in the right
+        # bucket. Within each parent we also pull the child breakdown so
+        # the UI can drill down on a click.
         inv_rows = fetch_all(
-            """SELECT COALESCE(NULLIF(category, ''), 'Other') AS category,
-                      COALESCE(SUM(amount_cents), 0) AS cents
+            """SELECT COALESCE(NULLIF(parent_category,''), NULLIF(category,''), 'Other') AS parent,
+                      COALESCE(NULLIF(child_category,''), 'Unspecified') AS child,
+                      COALESCE(SUM(amount_cents), 0) AS cents,
+                      COUNT(*) AS n_invoices
                FROM platform_invoice
                WHERE amount_cents IS NOT NULL
                  AND COALESCE(invoice_date, received_at::date) BETWEEN %s AND %s
-               GROUP BY 1
-               ORDER BY 2 DESC""",
+               GROUP BY 1, 2
+               ORDER BY 1, 3 DESC""",
             (start, end),
         )
+
+        # Re-shape into [{parent, eur, children: [{child, eur, n}]}]
+        by_parent: dict[str, dict] = {}
+        for r in inv_rows:
+            p = r["parent"]
+            entry = by_parent.setdefault(
+                p, {"category": p, "eur": 0.0, "n_invoices": 0, "children": []}
+            )
+            child_eur = float(r.get("cents", 0) or 0) / 100.0
+            entry["eur"] += child_eur
+            entry["n_invoices"] += int(r.get("n_invoices") or 0)
+            entry["children"].append({
+                "child": r["child"],
+                "eur": round(child_eur, 2),
+                "n_invoices": int(r.get("n_invoices") or 0),
+            })
         invoices_by_category = [
-            {"category": r["category"], "eur": float(r.get("cents", 0) or 0) / 100.0}
-            for r in inv_rows
+            {**v, "eur": round(v["eur"], 2)}
+            for v in sorted(by_parent.values(), key=lambda x: x["eur"], reverse=True)
         ]
 
         invoices_total_eur = sum(row["eur"] for row in invoices_by_category)
