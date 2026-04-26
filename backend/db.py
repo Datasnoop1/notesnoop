@@ -216,6 +216,11 @@ def ensure_trgm_setup():
     if _trgm_migrated:
         return
 
+    # Default false; the inner block flips it to True once the
+    # invoice_vendor_pattern table has been CREATEd. We then run the
+    # actual seed AFTER the outer transaction commits.
+    _seed_invoice_patterns_pending = False
+
     conn = get_connection()
     try:
         cur = conn.cursor()
@@ -432,7 +437,10 @@ def ensure_trgm_setup():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS invoice_vendor_pattern (
                 id              SERIAL PRIMARY KEY,
-                pattern         TEXT NOT NULL,           -- case-insensitive substring match
+                -- 2..200 char substring match (case-insensitive). The cap
+                -- guards a DoS where an admin (or compromised admin) drops
+                -- a 1MB pattern and stalls the classifier on every invoice.
+                pattern         TEXT NOT NULL CHECK (length(pattern) BETWEEN 2 AND 200),
                 vendor_canonical TEXT,                   -- canonical short name shown in UI
                 parent_category TEXT NOT NULL,
                 child_category  TEXT,
@@ -442,6 +450,27 @@ def ensure_trgm_setup():
                 last_used_at    TIMESTAMPTZ,
                 hit_count       INTEGER NOT NULL DEFAULT 0
             );
+        """)
+        # Add the CHECK constraint to environments where the table predates
+        # this guard. ALTER ADD CONSTRAINT IF NOT EXISTS isn't a thing in
+        # Postgres, so we use a DO block to test pg_constraint first.
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'invoice_vendor_pattern_pattern_len'
+                ) THEN
+                    BEGIN
+                        ALTER TABLE invoice_vendor_pattern
+                            ADD CONSTRAINT invoice_vendor_pattern_pattern_len
+                            CHECK (length(pattern) BETWEEN 2 AND 200);
+                    EXCEPTION WHEN check_violation THEN
+                        -- pre-existing oversize / undersize row; skip silently
+                        NULL;
+                    END;
+                END IF;
+            END$$;
         """)
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_invoice_vendor_pattern_priority
@@ -478,13 +507,12 @@ def ensure_trgm_setup():
 
         # 7a-sexies. Seed the vendor-pattern table on a fresh deploy so the
         #            classifier has a starter set without operator input.
-        try:
-            from invoice_classifier import seed_default_patterns
-            seeded = seed_default_patterns()
-            if seeded:
-                logger.info("Seeded %d invoice vendor patterns", seeded)
-        except Exception:
-            logger.debug("seed_default_patterns skipped (table may be missing)")
+        #            Deferred until AFTER the outer transaction commits below
+        #            (`conn.commit()` near the sector_percentiles block) —
+        #            seed_default_patterns grabs a fresh pooled connection,
+        #            so the just-CREATEd `invoice_vendor_pattern` table is
+        #            invisible until this transaction lands.
+        _seed_invoice_patterns_pending = True
 
         # 7a-quinquies. activity_log — Phase-22 traction columns.
         #               Sessions are derived from a session_id cookie set by
@@ -592,6 +620,20 @@ def ensure_trgm_setup():
         logger.exception("pg_trgm migration failed (non-fatal, will retry next startup)")
     finally:
         put_connection(conn)
+
+    # Post-commit step: seed the invoice vendor-pattern table now that the
+    # CREATE TABLE has actually landed in a committed transaction. The
+    # seed function uses its own pooled connection — running it inside
+    # the DDL transaction made the new table invisible to it on first
+    # boot (the seed silently skipped, then ran on next restart).
+    if _seed_invoice_patterns_pending:
+        try:
+            from invoice_classifier import seed_default_patterns
+            seeded = seed_default_patterns()
+            if seeded:
+                logger.info("Seeded %d invoice vendor patterns", seeded)
+        except Exception:
+            logger.exception("seed_default_patterns failed (non-fatal)")
 
 
 def normalize_name(name: str) -> str:

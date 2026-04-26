@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -3830,9 +3830,8 @@ export default function AdminPanel() {
                             const isExpandable = childMap.size > 1;
                             const isExpanded = expandedPnlCats.has(cat);
                             return (
-                              <>
+                              <Fragment key={cat}>
                                 <TableRow
-                                  key={cat}
                                   className={isExpandable ? "cursor-pointer hover:bg-slate-50" : ""}
                                   onClick={() => {
                                     if (!isExpandable) return;
@@ -3888,7 +3887,7 @@ export default function AdminPanel() {
                                         })}
                                       </TableRow>
                                     ))}
-                              </>
+                              </Fragment>
                             );
                           })}
                           {/* Total costs */}

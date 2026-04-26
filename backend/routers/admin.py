@@ -1580,12 +1580,19 @@ async def admin_invoice_patterns(user=Depends(_require_admin)):
 @router.post("/invoices/patterns")
 async def admin_invoice_patterns_add(body: dict, user=Depends(_require_admin)):
     """Add a vendor pattern. Body: {pattern, vendor, parent_category,
-    child_category, priority?}."""
+    child_category, priority?}.
+
+    Pattern length is capped at 200 chars (matches the DB CHECK
+    constraint) to defend against DoS via huge substring matches on
+    every uncached invoice classification.
+    """
     try:
         from invoice_classifier import TAXONOMY
         pattern = (body.get("pattern") or "").lower().strip()
-        if not pattern:
-            raise HTTPException(status_code=400, detail="pattern is required")
+        if not pattern or len(pattern) < 2:
+            raise HTTPException(status_code=400, detail="pattern must be at least 2 characters")
+        if len(pattern) > 200:
+            raise HTTPException(status_code=400, detail="pattern must be 200 characters or fewer")
         parent = body.get("parent_category") or "Other"
         child = body.get("child_category")
         if parent not in TAXONOMY:

@@ -38,6 +38,24 @@ browser. Joined with the (hashed) user identifier, it lets the admin
 panel compute "average session duration" without ever knowing _who_
 was in that session.
 
+### Trust boundary on `CF-IPCountry`
+
+The `country_code` column is populated from the `CF-IPCountry` request
+header, which Cloudflare sets on every edge request. **If a request
+ever reaches the origin without going through Cloudflare** (e.g. a
+direct hit to `:8000` on the host network, or staging port 8080) a
+hostile client can spoof this header. The blast radius is analytics
+noise only — it cannot bypass auth or escalate privilege — but
+operators reading the country mix should remember this. Hardening
+option: strip `CF-IPCountry` at nginx and re-add only when
+`CF-Connecting-IP` is in a Cloudflare-published source range.
+
+### Cookie scope: host-only by design
+
+`ds_sid` is set without a `Domain` attribute, so it is host-only. That
+means `staging.datasnoop.be` and `datasnoop.be` keep separate sessions.
+We don't merge staging analytics into prod, so the split is desirable.
+
 ---
 
 ## Cookie attributes

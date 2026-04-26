@@ -350,18 +350,22 @@ async def admin_analytics(user=Depends(_require_admin)):
         )
 
         # ---- Top registered + top guests last 7d (2 queries) ------------
+        # N4 fix: exclude admin emails so the operator's own traffic
+        # doesn't dominate the "top users" leaderboard.
         top_registered = fetch_all(
-            """
+            f"""
             SELECT user_email, COUNT(*) AS reqs,
                    COUNT(DISTINCT endpoint) AS pages,
                    MAX(created_at) AS last_seen
             FROM activity_log
             WHERE user_email NOT LIKE 'anon:%%'
               AND created_at >= NOW() - INTERVAL '7 days'
+              AND {admin_clause}
             GROUP BY user_email
             ORDER BY reqs DESC
             LIMIT 15
             """,
+            tuple(admin_params),
         )
         top_guests = fetch_all(
             """
@@ -378,14 +382,19 @@ async def admin_analytics(user=Depends(_require_admin)):
         )
 
         # ---- Dormant accounts (registered users with NO activity 30d) ---
+        # N4 fix: skip admins so the operator doesn't appear in their own
+        # dormant list. We swap the column name in admin_clause from
+        # user_email → u.email since this query joins user_roles u.
+        dormant_clause = admin_clause.replace("user_email", "u.email")
         dormant = fetch_all(
-            """
+            f"""
             SELECT u.email,
                    u.created_at,
                    (SELECT MAX(created_at) FROM activity_log
                     WHERE user_email = u.email) AS last_active
             FROM user_roles u
             WHERE u.role IN ('user', 'pro')
+              AND {dormant_clause}
               AND NOT EXISTS (
                   SELECT 1 FROM activity_log
                   WHERE user_email = u.email
@@ -394,6 +403,7 @@ async def admin_analytics(user=Depends(_require_admin)):
             ORDER BY u.created_at DESC
             LIMIT 25
             """,
+            tuple(admin_params),
         )
 
         # ---- Failed actions (5xx) last 24h (1 query) --------------------

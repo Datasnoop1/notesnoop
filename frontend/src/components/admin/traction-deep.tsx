@@ -8,7 +8,7 @@
  * /api/admin/sessions/paths.
  */
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -236,8 +236,8 @@ export function TractionDeep({ fetcher }: Props) {
                 </div>
               ))}
               {hourGrid.map((row, dow) => (
-                <>
-                  <div key={`l-${dow}`} className="text-[10px] text-muted-foreground pr-1 self-center">
+                <Fragment key={`row-${dow}`}>
+                  <div className="text-[10px] text-muted-foreground pr-1 self-center">
                     {DOW_LABEL[dow]}
                   </div>
                   {row.map((v, h) => {
@@ -253,7 +253,7 @@ export function TractionDeep({ fetcher }: Props) {
                       />
                     );
                   })}
-                </>
+                </Fragment>
               ))}
             </div>
           </div>
