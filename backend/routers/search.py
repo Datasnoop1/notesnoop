@@ -297,10 +297,10 @@ cbe_match AS (
 ),
 addresses AS (
     -- The 4-OR ILIKE produces tens of thousands of candidates for common
-    -- prefixes ("antwer%" → 65k+). DISTINCT ON over that whole set was the
-    -- main hot-path cost (~600 ms). Take a hard 200-row pre-cap, then
-    -- DISTINCT ON in an outer SELECT — same 3-row output, ~50× fewer rows
-    -- through the sort.
+    -- prefixes (e.g. "antwer" + wildcard → 65k+). DISTINCT ON over that
+    -- whole set was the main hot-path cost (~600 ms). Take a hard 200-row
+    -- pre-cap, then DISTINCT ON in an outer SELECT — same 3-row output,
+    -- ~50x fewer rows through the sort.
     SELECT DISTINCT ON (street, city) street, city, zipcode, cbe
     FROM (
         SELECT COALESCE(ad.street_nl, ad.street_fr) AS street,
