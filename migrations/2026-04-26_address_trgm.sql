@@ -1,11 +1,13 @@
 -- Migration: trigram indexes on address.street_* / municipality_* (REGO only)
 -- ----------------------------------------------------------------------------
--- Why: company search's address-fallback arm (`backend/routers/companies/
--- search.py:348-360`) does ILIKE on a 3M-row address table without a
--- trigram index, which produces a sequential scan and a documented 1-2 s
--- floor on address-typed queries (e.g. "Rue Neuve"). GIN trigram indexes
--- on street_nl / street_fr / municipality_nl / municipality_fr drop that
--- floor to ~50-200 ms.
+-- Why: company search's `addr_match` CTE (in `_SEARCH_SQL` inside
+-- `backend/routers/companies/search.py`) does four ILIKE clauses on a
+-- 3M-row `address` table without a trigram index, which produces a
+-- sequential scan and a documented 1-2 s floor on address-typed queries
+-- (e.g. "Rue Neuve"). The same scan also gates the optional location
+-- filter (`loc_filter` CTE) used by the search UI's address fields.
+-- GIN trigram indexes on street_nl / street_fr / municipality_nl /
+-- municipality_fr drop that floor to ~50-200 ms.
 --
 -- Why partial: the existing search arm filters on `type_of_address = 'REGO'`
 -- (registered office), so the index only needs to cover REGO rows. That
