@@ -572,10 +572,10 @@ export function CompanyPageClient({
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
-      if (msg.includes("401") || msg.includes("403")) {
-        setAiError("Please sign in to use AI enrichment.");
+      if (msg.includes("429")) {
+        setAiError("You've hit the daily AI limit. Sign in for higher limits, or try again tomorrow.");
       } else if (msg.includes("503")) {
-        setAiError("AI service unavailable. Please check your API key configuration.");
+        setAiError("AI service unavailable. Please try again in a moment.");
       } else {
         setAiError(`AI enrichment failed: ${msg}`);
       }
@@ -594,8 +594,8 @@ export function CompanyPageClient({
       const msg = err instanceof Error ? err.message : "Unknown error";
       if (msg.includes("404")) {
         setWebsiteError("No website found for this company.");
-      } else if (msg.includes("401") || msg.includes("403")) {
-        setWebsiteError("Please sign in to use this feature.");
+      } else if (msg.includes("429")) {
+        setWebsiteError("You've hit the daily AI limit. Sign in for higher limits, or try again tomorrow.");
       } else {
         setWebsiteError(`Website insights failed: ${msg}`);
       }
@@ -614,8 +614,8 @@ export function CompanyPageClient({
       const msg = err instanceof Error ? err.message : "Unknown error";
       if (msg.includes("404")) {
         setLinkedinError("No LinkedIn profile found for this company.");
-      } else if (msg.includes("401") || msg.includes("403")) {
-        setLinkedinError("Please sign in to use this feature.");
+      } else if (msg.includes("429")) {
+        setLinkedinError("You've hit the daily AI limit. Sign in for higher limits, or try again tomorrow.");
       } else {
         setLinkedinError(`LinkedIn insights failed: ${msg}`);
       }
@@ -636,6 +636,8 @@ export function CompanyPageClient({
       console.error("AI insights generation failed:", msg);
       if (msg.includes("404")) {
         setAiInsightsError("AI insights are not available for this company yet. Please try again.");
+      } else if (msg.includes("429")) {
+        setAiInsightsError("You've hit the daily AI limit. Sign in for higher limits, or try again tomorrow.");
       } else if (msg.includes("503")) {
         setAiInsightsError("AI insights are temporarily unavailable. Please try again in a moment.");
       } else {
@@ -658,6 +660,8 @@ export function CompanyPageClient({
       console.error("AI insights regeneration failed:", msg);
       if (msg.includes("404")) {
         setAiInsightsError("AI insights are not available for this company yet. Please try again.");
+      } else if (msg.includes("429")) {
+        setAiInsightsError("You've hit the daily AI limit. Sign in for higher limits, or try again tomorrow.");
       } else if (msg.includes("503")) {
         setAiInsightsError("AI insights are temporarily unavailable. Please try again in a moment.");
       } else {

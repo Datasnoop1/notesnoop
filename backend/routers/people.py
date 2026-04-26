@@ -687,12 +687,15 @@ def _ensure_people_enrichment_table():
 # ---------------------------------------------------------------------------
 
 @router.post("/{name}/enrich")
-async def enrich_person(name: str, lang: str | None = None, user=Depends(get_current_user)):
+async def enrich_person(name: str, lang: str | None = None, user=Depends(optional_user)):
     """Generate an AI professional profile summary for a person.
 
     Looks up their admin roles and holdings from the database,
     builds a prompt, and calls the AI to write a 2-3 sentence profile.
     ``lang`` (``nl``/``fr``/``en``) controls the output language.
+
+    Anonymous-friendly per operator policy. Tier-bucketed under
+    ``ai_enrichments_per_day``.
     """
     _ensure_people_enrichment_table()
 

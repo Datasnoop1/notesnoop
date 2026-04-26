@@ -89,7 +89,7 @@ async def summarize_publications(
     cbe: str,
     body: Optional[SummarizePublicationsBody] = None,
     lang: str | None = None,
-    user=Depends(get_current_user),
+    user=Depends(optional_user),
 ):
     """Generate structured AI analysis of recent Staatsblad events.
 
@@ -358,13 +358,18 @@ def _ensure_enrichment_table():
 async def enrich_company(
     cbe: str,
     lang: str | None = None,
-    user=Depends(get_current_user),
+    user=Depends(optional_user),
 ):
     """Generate an AI company profile summary via OpenRouter.
 
     Gathers existing company data (name, sector, city, financials) and asks
     the LLM to write a concise 2-3 sentence company profile in ``lang``
     (``nl``/``fr``/``en``) — defaults to English.
+
+    Open to anonymous callers — operator policy is that AI features have
+    no sign-in wall. Cost protection comes from TierLimitMiddleware
+    classifying this endpoint into the ``ai_enrichments_per_day`` bucket
+    (anon tier capped per day) plus the global per-IP rate limiter.
     """
     _ensure_enrichment_table()
 
@@ -494,12 +499,15 @@ async def get_enrichment(cbe: str, lang: str | None = None, user=Depends(optiona
 # ---------------------------------------------------------------------------
 
 @router.post("/{cbe}/scrape-website")
-async def scrape_company_website(cbe: str, user=Depends(get_current_user)):
+async def scrape_company_website(cbe: str, user=Depends(optional_user)):
     """Scrape company website via Zenrows and extract structured data with AI.
 
     Looks up the company website from the contact table (contact_type='WEB'),
     scrapes it, then uses AI to extract a description, products/services,
     employee mentions, and key people.
+
+    Anonymous-friendly per operator policy. Tier-bucketed under
+    ``ai_enrichments_per_day``.
     """
     from scraper import scrape_url, _strip_html
 
@@ -593,12 +601,15 @@ async def scrape_company_website(cbe: str, user=Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 
 @router.post("/{cbe}/scrape-linkedin")
-async def scrape_company_linkedin(cbe: str, user=Depends(get_current_user)):
+async def scrape_company_linkedin(cbe: str, user=Depends(optional_user)):
     """Scrape company LinkedIn profile via Zenrows and extract data with AI.
 
     Constructs a LinkedIn company URL from the company name, scrapes it
     with JS rendering and premium proxies, then uses AI to extract
     description, employee count, industry, and specialties.
+
+    Anonymous-friendly per operator policy. Tier-bucketed under
+    ``ai_enrichments_per_day``.
     """
     from scraper import scrape_url, _strip_html, slugify_company_name
 

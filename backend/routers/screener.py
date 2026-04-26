@@ -432,8 +432,12 @@ class NLScreenerBody(BaseModel):
 
 
 @router.post("/nl")
-async def nl_screener(body: NLScreenerBody, user=Depends(get_current_user)):
-    """Translate a natural language query into screener filters via LLM."""
+async def nl_screener(body: NLScreenerBody, user=Depends(optional_user)):
+    """Translate a natural language query into screener filters via LLM.
+
+    Anonymous-friendly per operator policy. Tier-bucketed under
+    ``ai_enrichments_per_day`` so anon abuse stays cost-bounded.
+    """
     from ai_client import ai_complete
 
     system = (
