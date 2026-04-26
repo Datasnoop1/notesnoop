@@ -11,6 +11,14 @@
  *   - Enter opens the highlighted item OR navigates to /search?q=… if none
  *   - Escape closes; Tab closes and moves focus on
  *
+ * Google-style instant-search additions (2026-04-26):
+ *   - Top result is auto-highlighted the moment a suggest payload
+ *     lands, so Enter on raw typed text navigates straight to the
+ *     top match (Chrome address-bar style).
+ *   - Inline ghost-text completion of the top company name. Tab or
+ *     Right-arrow at end of input accepts the completion (fills the
+ *     input).
+ *
  * Data: /api/search/suggest returns `{companies, people, cbe_match,
  * addresses}`. We debounce keystrokes to 150ms and cancel in-flight
  * requests with AbortController.
@@ -72,6 +80,20 @@ export default function HeaderSearch() {
 
   const options = useMemo(() => buildOptions(results), [results]);
 
+  // Inline ghost-text completion of the top company name. Only fires on a
+  // true case-insensitive prefix match against `companies[0].name` so we
+  // never show misleading completions for trigram / fuzzy matches.
+  const ghostSuffix = useMemo(() => {
+    const q = query;
+    if (!q) return "";
+    const top = results?.companies?.[0]?.name;
+    if (!top) return "";
+    if (top.length > q.length && top.toLowerCase().startsWith(q.toLowerCase())) {
+      return top.slice(q.length);
+    }
+    return "";
+  }, [query, results]);
+
   // Debounced fetch.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -89,7 +111,10 @@ export default function HeaderSearch() {
         const r = await suggestSearch(q, ac.signal);
         if (!ac.signal.aborted) {
           setResults(r);
-          setActiveIdx(-1);
+          // Auto-highlight the top result so Enter navigates straight
+          // to it (Google / Chrome address-bar pattern).
+          const opts = buildOptions(r);
+          setActiveIdx(opts.length > 0 ? 0 : -1);
         }
       } catch {
         // Network/abort — leave state as-is.
@@ -133,6 +158,15 @@ export default function HeaderSearch() {
     [activeIdx, options, query, router],
   );
 
+  // Accept the inline ghost completion: fill the input with the top
+  // company's full name. Returns true if a completion was accepted.
+  const acceptGhost = useCallback(() => {
+    const top = results?.companies?.[0]?.name;
+    if (!top || !ghostSuffix) return false;
+    setQuery(top);
+    return true;
+  }, [ghostSuffix, results]);
+
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -143,6 +177,16 @@ export default function HeaderSearch() {
       setActiveIdx((i) =>
         options.length === 0 ? -1 : (i - 1 + options.length) % options.length,
       );
+    } else if (e.key === "ArrowRight") {
+      // Only intercept if the cursor sits at the end of the input, so we
+      // don't interfere with normal cursor movement mid-string.
+      const inp = e.currentTarget;
+      const atEnd =
+        inp.selectionStart === inp.value.length &&
+        inp.selectionEnd === inp.value.length;
+      if (atEnd && ghostSuffix && acceptGhost()) {
+        e.preventDefault();
+      }
     } else if (e.key === "Enter") {
       e.preventDefault();
       submit();
@@ -150,6 +194,10 @@ export default function HeaderSearch() {
       setOpen(false);
       setActiveIdx(-1);
     } else if (e.key === "Tab") {
+      if (ghostSuffix && acceptGhost()) {
+        e.preventDefault();
+        return;
+      }
       setOpen(false);
     }
   };
@@ -163,6 +211,15 @@ export default function HeaderSearch() {
           className="absolute left-3 w-3.5 h-3.5 text-gray-400 pointer-events-none"
           aria-hidden
         />
+        {ghostSuffix && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-9 right-3 top-0 bottom-0 flex items-center text-base md:text-[13px] overflow-hidden whitespace-pre"
+          >
+            <span className="invisible">{query}</span>
+            <span className="text-gray-400">{ghostSuffix}</span>
+          </div>
+        )}
         <input
           ref={inputRef}
           type="text"
@@ -182,7 +239,7 @@ export default function HeaderSearch() {
           aria-controls={listboxId}
           aria-autocomplete="list"
           aria-activedescendant={activeId}
-          className="w-full h-11 md:h-9 pl-9 pr-3 text-base md:text-[13px] rounded-full bg-transparent focus:outline-none placeholder:text-gray-400 text-gray-900"
+          className="relative w-full h-11 md:h-9 pl-9 pr-3 text-base md:text-[13px] rounded-full bg-transparent focus:outline-none placeholder:text-gray-400 text-gray-900"
           enterKeyHint="search"
           autoCapitalize="off"
           autoCorrect="off"
