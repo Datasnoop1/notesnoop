@@ -443,7 +443,11 @@
       "layers": "Couches :",
       "layer_shareholders": "Actionnaires",
       "layer_directors": "Administrateurs",
-      "layer_subsidiaries": "Filiales"
+      "layer_subsidiaries": "Filiales",
+      "showHistorical": "Afficher historique",
+      "hideHistorical": "Masquer historique",
+      "showHistoricalTitle": "Inclure les mandats passes et les anciens actionnaires / participations",
+      "hideHistoricalTitle": "Afficher uniquement les mandats actuels et le dernier instantane du capital"
     }
   },
 

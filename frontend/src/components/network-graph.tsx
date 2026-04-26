@@ -103,6 +103,11 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
   // the operator jump back to the original.
   const [centerNodeId, setCenterNodeId] = useState<string>(cbe);
   const [centerLabel, setCenterLabel] = useState<string>(companyName);
+  // When false (the default) the backend trims the graph to current
+  // directorships and the latest cap-table / participation snapshot.
+  // The "Show historical" toggle re-fetches with every past tie included
+  // so the operator can audit prior ownership / board changes.
+  const [includeHistorical, setIncludeHistorical] = useState(false);
   // Role-based layer visibility. Each toggle hides edges of that role; nodes
   // that are only reachable via hidden edges are removed in a second pass so
   // the graph stays visually consistent. Center stays anchored regardless.
@@ -136,7 +141,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   useEffect(() => {
     setLoading(true);
-    getDeepNetwork(centerNodeId, depth)
+    getDeepNetwork(centerNodeId, depth, includeHistorical)
       .then((resp: DeepNetworkResponse) => {
         const adapted: NetworkData = {
           nodes: resp.nodes.map((n) => ({
@@ -158,7 +163,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
       })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [centerNodeId, depth]);
+  }, [centerNodeId, depth, includeHistorical]);
 
   // Close fullscreen on Escape
   useEffect(() => {
@@ -415,6 +420,24 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
               );
             })}
             <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={() => setIncludeHistorical((v) => !v)}
+                aria-pressed={includeHistorical}
+                title={
+                  includeHistorical
+                    ? t("company.networkTab.hideHistoricalTitle")
+                    : t("company.networkTab.showHistoricalTitle")
+                }
+                className={`px-3 py-2 md:px-2.5 md:py-1 text-xs rounded-md font-medium transition-colors inline-flex items-center gap-1 ${
+                  includeHistorical
+                    ? "bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-200"
+                    : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                {includeHistorical
+                  ? t("company.networkTab.hideHistorical")
+                  : t("company.networkTab.showHistorical")}
+              </button>
               <button
                 onClick={() => {
                   if (graphRef.current) {

@@ -1,6 +1,6 @@
 # DataSnoop — To-Do List
 
-Last updated: 2026-04-24
+Last updated: 2026-04-26
 
 ---
 
@@ -85,3 +85,5 @@ Last updated: 2026-04-24
 |---|------|---------|
 | 5 | Search strips legal form suffix (BV / NV / etc.) | 2026-04-24 |
 | 16 | Write use cases page / section | 2026-04-24 |
+| 24 | Spiderweb: current-only by default + "Show historical" toggle | 2026-04-26 |
+| 25 | Removed misleading "merged" provenance badge from people pages | 2026-04-26 |

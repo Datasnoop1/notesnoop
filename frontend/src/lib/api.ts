@@ -631,8 +631,19 @@ export interface DeepNetworkResponse {
   depth_reached: number;
 }
 
-export const getDeepNetwork = (cbe: string, depth?: number) =>
-  apiFetch<DeepNetworkResponse>(`/api/companies/${encodeURIComponent(cbe)}/deep-network${depth ? `?depth=${depth}` : ''}`);
+export const getDeepNetwork = (
+  cbe: string,
+  depth?: number,
+  includeHistorical?: boolean,
+) => {
+  const params = new URLSearchParams();
+  if (depth) params.set("depth", String(depth));
+  if (includeHistorical) params.set("include_historical", "true");
+  const qs = params.toString();
+  return apiFetch<DeepNetworkResponse>(
+    `/api/companies/${encodeURIComponent(cbe)}/deep-network${qs ? `?${qs}` : ""}`,
+  );
+};
 
 // ── Stats ──────────────────────────────────────────────────
 export interface StatsOverview {

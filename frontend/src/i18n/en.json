@@ -461,7 +461,11 @@
       "layers": "Layers:",
       "layer_shareholders": "Shareholders",
       "layer_directors": "Directors",
-      "layer_subsidiaries": "Subsidiaries"
+      "layer_subsidiaries": "Subsidiaries",
+      "showHistorical": "Show historical",
+      "hideHistorical": "Hide historical",
+      "showHistoricalTitle": "Include past directorships and prior-filing shareholders / participations",
+      "hideHistoricalTitle": "Show only current directorships and the latest cap-table snapshot"
     }
   },
 

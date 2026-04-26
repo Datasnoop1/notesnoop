@@ -103,10 +103,13 @@ def _resolve_nace_label(
     return row["description"] if row else nace_code
 
 
-def _fetch_connections(cbes: list) -> tuple:
+def _fetch_connections(cbes: list, include_historical: bool = False) -> tuple:
     """Batch-fetch subsidiaries and shareholders for a set of CBEs.
 
-    SQL extracted from app/pages/2_company.py fetch_connections().
+    When ``include_historical`` is False (the default) we keep only rows
+    from each enterprise's most recent fiscal_year — so the spider web
+    shows only the present cap-table / participation list. Older filings
+    represent past ownership snapshots and just clutter the graph.
     """
     if not cbes:
         return [], []
@@ -114,18 +117,48 @@ def _fetch_connections(cbes: list) -> tuple:
         ph = ",".join(["%s"] * len(cbes))
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        cur.execute(
-            f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, country "
-            f"FROM participating_interest WHERE enterprise_number IN ({ph})",
-            list(cbes),
-        )
+        if include_historical:
+            cur.execute(
+                f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, country "
+                f"FROM participating_interest WHERE enterprise_number IN ({ph})",
+                list(cbes),
+            )
+        else:
+            cur.execute(
+                f"WITH latest AS ("
+                f"  SELECT enterprise_number, MAX(fiscal_year) AS fy "
+                f"  FROM participating_interest WHERE enterprise_number IN ({ph}) "
+                f"  GROUP BY enterprise_number"
+                f") "
+                f"SELECT DISTINCT pi.enterprise_number, pi.name, pi.identifier, "
+                f"       pi.ownership_pct, pi.country "
+                f"FROM participating_interest pi "
+                f"JOIN latest l ON l.enterprise_number = pi.enterprise_number "
+                f"             AND l.fy = pi.fiscal_year",
+                list(cbes),
+            )
         subs = [dict(r) for r in cur.fetchall()]
 
-        cur.execute(
-            f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, shareholder_type "
-            f"FROM shareholder WHERE enterprise_number IN ({ph})",
-            list(cbes),
-        )
+        if include_historical:
+            cur.execute(
+                f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, shareholder_type "
+                f"FROM shareholder WHERE enterprise_number IN ({ph})",
+                list(cbes),
+            )
+        else:
+            cur.execute(
+                f"WITH latest AS ("
+                f"  SELECT enterprise_number, MAX(fiscal_year) AS fy "
+                f"  FROM shareholder WHERE enterprise_number IN ({ph}) "
+                f"  GROUP BY enterprise_number"
+                f") "
+                f"SELECT DISTINCT s.enterprise_number, s.name, s.identifier, "
+                f"       s.ownership_pct, s.shareholder_type "
+                f"FROM shareholder s "
+                f"JOIN latest l ON l.enterprise_number = s.enterprise_number "
+                f"             AND l.fy = s.fiscal_year",
+                list(cbes),
+            )
         shs = [dict(r) for r in cur.fetchall()]
 
         cur.close()

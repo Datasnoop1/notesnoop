@@ -26,7 +26,16 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 @router.get("/{cbe}/network")
-async def get_company_network(cbe: str, max_depth: int = Query(1, ge=1, le=3)):
+async def get_company_network(
+    cbe: str,
+    max_depth: int = Query(1, ge=1, le=3),
+    include_historical: bool = Query(
+        False,
+        description="If true, include past directorships and prior-filing "
+                    "shareholders/participations. Default keeps only present-day "
+                    "links so the spider web isn't cluttered with stale ties.",
+    ),
+):
     """BFS network graph data for the corporate spider-web.
 
     Logic extracted from app/pages/2_company.py bfs_build_graph().
@@ -44,24 +53,51 @@ async def get_company_network(cbe: str, max_depth: int = Query(1, ge=1, le=3)):
         """, (cbe,))
         central_name = header["name"] if header else cbe
 
-        # Get direct relationships — admins filtered to current mandates only
-        # (mandate_end NULL = open-ended, >= today = ends in the future).
-        # Past mandates clutter the spider web with stale connections.
+        # Direct relationships. By default we keep only "current" links:
+        #  - admins with no mandate_end OR an end date in the future,
+        #  - shareholders / participating_interests from each enterprise's
+        #    most recent fiscal_year (older filings are past snapshots).
+        # The `include_historical=true` flag drops these filters so the
+        # frontend toggle can reveal prior ties.
         today_str = date.today().isoformat()
-        admins = fetch_all(
-            "SELECT * FROM administrator "
-            "WHERE enterprise_number = %s "
-            "  AND (mandate_end IS NULL OR mandate_end >= %s)",
-            (cbe, today_str),
-        )
-        shareholders_rows = fetch_all(
-            "SELECT * FROM shareholder WHERE enterprise_number = %s",
-            (cbe,),
-        )
-        pis_rows = fetch_all(
-            "SELECT * FROM participating_interest WHERE enterprise_number = %s",
-            (cbe,),
-        )
+        if include_historical:
+            admins = fetch_all(
+                "SELECT * FROM administrator WHERE enterprise_number = %s",
+                (cbe,),
+            )
+            shareholders_rows = fetch_all(
+                "SELECT * FROM shareholder WHERE enterprise_number = %s",
+                (cbe,),
+            )
+            pis_rows = fetch_all(
+                "SELECT * FROM participating_interest WHERE enterprise_number = %s",
+                (cbe,),
+            )
+        else:
+            admins = fetch_all(
+                "SELECT * FROM administrator "
+                "WHERE enterprise_number = %s "
+                "  AND (mandate_end IS NULL OR mandate_end >= %s)",
+                (cbe, today_str),
+            )
+            shareholders_rows = fetch_all(
+                "SELECT * FROM shareholder "
+                "WHERE enterprise_number = %s "
+                "  AND fiscal_year = ("
+                "    SELECT MAX(fiscal_year) FROM shareholder "
+                "    WHERE enterprise_number = %s"
+                "  )",
+                (cbe, cbe),
+            )
+            pis_rows = fetch_all(
+                "SELECT * FROM participating_interest "
+                "WHERE enterprise_number = %s "
+                "  AND fiscal_year = ("
+                "    SELECT MAX(fiscal_year) FROM participating_interest "
+                "    WHERE enterprise_number = %s"
+                "  )",
+                (cbe, cbe),
+            )
 
         # Build graph via BFS
         nodes = []
@@ -278,7 +314,10 @@ async def get_company_network(cbe: str, max_depth: int = Query(1, ge=1, le=3)):
                     truncated = True
                 break
 
-            sub_recs, sh_recs = _fetch_connections(list(sorted(batch_cbes)))
+            sub_recs, sh_recs = _fetch_connections(
+                list(sorted(batch_cbes)),
+                include_historical=include_historical,
+            )
 
             new_cbes = set()
             for rec in sub_recs + sh_recs:
@@ -408,7 +447,16 @@ async def get_company_network(cbe: str, max_depth: int = Query(1, ge=1, le=3)):
 # ---------------------------------------------------------------------------
 
 @router.get("/{cbe}/deep-network")
-async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
+async def get_deep_network(
+    cbe: str,
+    depth: int = Query(3, ge=1, le=4),
+    include_historical: bool = Query(
+        False,
+        description="If true, include past directorships and prior-filing "
+                    "shareholders/participations in the BFS expansion. "
+                    "Default keeps only present-day links.",
+    ),
+):
     """Deep corporate network graph — traverse administrator, shareholder,
     and participating_interest links up to 4 hops to find hidden connections.
 
@@ -460,19 +508,41 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
 
             # Person seed: only show companies where this person currently
             # serves. Past mandates produce dead spider-web edges.
-            seed_admin_rows = fetch_all(
-                "SELECT enterprise_number, role "
-                "FROM administrator "
-                "WHERE name = %s "
-                "  AND (mandate_end IS NULL OR mandate_end >= %s) "
-                "GROUP BY enterprise_number, role",
-                [person_name, today_str],
-            )
-            seed_sh_rows = fetch_all(
-                "SELECT DISTINCT enterprise_number, ownership_pct "
-                "FROM shareholder WHERE name = %s",
-                (person_name,),
-            )
+            if include_historical:
+                seed_admin_rows = fetch_all(
+                    "SELECT enterprise_number, role "
+                    "FROM administrator "
+                    "WHERE name = %s "
+                    "GROUP BY enterprise_number, role",
+                    [person_name],
+                )
+                seed_sh_rows = fetch_all(
+                    "SELECT DISTINCT enterprise_number, ownership_pct "
+                    "FROM shareholder WHERE name = %s",
+                    (person_name,),
+                )
+            else:
+                seed_admin_rows = fetch_all(
+                    "SELECT enterprise_number, role "
+                    "FROM administrator "
+                    "WHERE name = %s "
+                    "  AND (mandate_end IS NULL OR mandate_end >= %s) "
+                    "GROUP BY enterprise_number, role",
+                    [person_name, today_str],
+                )
+                # Person-as-shareholder restricted to each company's most
+                # recent fiscal_year so a 2018 ownership stake the person
+                # has since exited doesn't seed a stale spider web.
+                seed_sh_rows = fetch_all(
+                    "SELECT DISTINCT s.enterprise_number, s.ownership_pct "
+                    "FROM shareholder s "
+                    "WHERE s.name = %s "
+                    "  AND s.fiscal_year = ("
+                    "    SELECT MAX(fiscal_year) FROM shareholder "
+                    "    WHERE enterprise_number = s.enterprise_number"
+                    "  )",
+                    (person_name,),
+                )
 
             seed_company_ids = sorted(
                 {
@@ -543,57 +613,138 @@ async def get_deep_network(cbe: str, depth: int = Query(3, ge=1, le=4)):
             # ── Fetch all relationships for the current batch ──────────
             ph = ",".join(["%s"] * len(batch))
 
-            # 1. Administrators OF these companies — current mandates only
-            #    (mandate_end NULL = open-ended, >= today = future end-date).
-            #    Past mandates are excluded so the spider web shows only
-            #    live links/relations.
+            # Administrator queries: by default current mandates only
+            # (mandate_end NULL = open-ended, >= today = future end-date).
+            # `include_historical=True` keeps every past mandate for the
+            # archival spider-web view.
+            admin_filter_sql = (
+                "" if include_historical
+                else "  AND (mandate_end IS NULL OR mandate_end >= %s) "
+            )
+            admin_filter_args = [] if include_historical else [today_str]
+
+            # 1. Administrators OF these companies
             admin_rows = fetch_all(
                 f"SELECT enterprise_number, name, role, person_type, identifier "
                 f"FROM administrator "
                 f"WHERE enterprise_number IN ({ph}) "
-                f"  AND (mandate_end IS NULL OR mandate_end >= %s) "
+                f"{admin_filter_sql}"
                 f"GROUP BY enterprise_number, name, role, person_type, identifier",
-                batch + [today_str],
+                batch + admin_filter_args,
             )
 
-            # 2. Companies where these entities serve as administrator (reverse) —
-            #    same current-mandate filter.
+            # 2. Companies where these entities serve as administrator (reverse)
             admin_reverse_rows = fetch_all(
                 f"SELECT enterprise_number, name, role, person_type, identifier "
                 f"FROM administrator "
                 f"WHERE identifier IN ({ph}) "
-                f"  AND (mandate_end IS NULL OR mandate_end >= %s) "
+                f"{admin_filter_sql}"
                 f"GROUP BY enterprise_number, name, role, person_type, identifier",
-                batch + [today_str],
+                batch + admin_filter_args,
             )
 
-            # 3. Shareholders OF these companies
-            sh_rows = fetch_all(
-                f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, shareholder_type "
-                f"FROM shareholder WHERE enterprise_number IN ({ph})",
-                batch,
-            )
-
-            # 4. Companies where these entities are shareholders (reverse)
-            sh_reverse_rows = fetch_all(
-                f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, shareholder_type "
-                f"FROM shareholder WHERE identifier IN ({ph})",
-                batch,
-            )
-
-            # 5. Participating interests (subsidiaries) OF these companies
-            pi_rows = fetch_all(
-                f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, country "
-                f"FROM participating_interest WHERE enterprise_number IN ({ph})",
-                batch,
-            )
-
-            # 6. Companies that hold participating interests IN these entities (parent lookup)
-            pi_reverse_rows = fetch_all(
-                f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, country "
-                f"FROM participating_interest WHERE identifier IN ({ph})",
-                batch,
-            )
+            # 3-6. Shareholders / participating-interest queries. By default
+            # we restrict to each enterprise's most recent fiscal_year per
+            # JOIN side so prior ownership snapshots don't leak into the
+            # graph. `include_historical=True` drops the filter.
+            if include_historical:
+                sh_rows = fetch_all(
+                    f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, shareholder_type "
+                    f"FROM shareholder WHERE enterprise_number IN ({ph})",
+                    batch,
+                )
+                sh_reverse_rows = fetch_all(
+                    f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, shareholder_type "
+                    f"FROM shareholder WHERE identifier IN ({ph})",
+                    batch,
+                )
+                pi_rows = fetch_all(
+                    f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, country "
+                    f"FROM participating_interest WHERE enterprise_number IN ({ph})",
+                    batch,
+                )
+                pi_reverse_rows = fetch_all(
+                    f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, country "
+                    f"FROM participating_interest WHERE identifier IN ({ph})",
+                    batch,
+                )
+            else:
+                # Forward direction: latest fiscal_year per source enterprise.
+                sh_rows = fetch_all(
+                    f"WITH latest AS ("
+                    f"  SELECT enterprise_number, MAX(fiscal_year) AS fy "
+                    f"  FROM shareholder WHERE enterprise_number IN ({ph}) "
+                    f"  GROUP BY enterprise_number"
+                    f") "
+                    f"SELECT DISTINCT s.enterprise_number, s.name, s.identifier, "
+                    f"       s.ownership_pct, s.shareholder_type "
+                    f"FROM shareholder s "
+                    f"JOIN latest l ON l.enterprise_number = s.enterprise_number "
+                    f"             AND l.fy = s.fiscal_year",
+                    batch,
+                )
+                pi_rows = fetch_all(
+                    f"WITH latest AS ("
+                    f"  SELECT enterprise_number, MAX(fiscal_year) AS fy "
+                    f"  FROM participating_interest WHERE enterprise_number IN ({ph}) "
+                    f"  GROUP BY enterprise_number"
+                    f") "
+                    f"SELECT DISTINCT pi.enterprise_number, pi.name, pi.identifier, "
+                    f"       pi.ownership_pct, pi.country "
+                    f"FROM participating_interest pi "
+                    f"JOIN latest l ON l.enterprise_number = pi.enterprise_number "
+                    f"             AND l.fy = pi.fiscal_year",
+                    batch,
+                )
+                # Reverse direction: "which OTHER enterprises currently
+                # name one of `batch` as a shareholder / participation?"
+                #
+                # Two-step CTE so `latest` reflects each enterprise's most
+                # recent filing in absolute terms, NOT just the latest
+                # filing in which `batch` happened to appear. Otherwise an
+                # enterprise that DROPPED a member of `batch` from its
+                # cap table would still surface the prior filing as if
+                # it were current. The `relevant` CTE narrows the MAX
+                # scan to enterprises that have ever filed a member of
+                # `batch`, so we don't scan the whole table for nothing.
+                sh_reverse_rows = fetch_all(
+                    f"WITH relevant AS ("
+                    f"  SELECT DISTINCT enterprise_number "
+                    f"  FROM shareholder WHERE identifier IN ({ph})"
+                    f"), "
+                    f"latest AS ("
+                    f"  SELECT s.enterprise_number, MAX(s.fiscal_year) AS fy "
+                    f"  FROM shareholder s "
+                    f"  JOIN relevant r ON r.enterprise_number = s.enterprise_number "
+                    f"  GROUP BY s.enterprise_number"
+                    f") "
+                    f"SELECT DISTINCT s.enterprise_number, s.name, s.identifier, "
+                    f"       s.ownership_pct, s.shareholder_type "
+                    f"FROM shareholder s "
+                    f"JOIN latest l ON l.enterprise_number = s.enterprise_number "
+                    f"             AND l.fy = s.fiscal_year "
+                    f"WHERE s.identifier IN ({ph})",
+                    batch + batch,
+                )
+                pi_reverse_rows = fetch_all(
+                    f"WITH relevant AS ("
+                    f"  SELECT DISTINCT enterprise_number "
+                    f"  FROM participating_interest WHERE identifier IN ({ph})"
+                    f"), "
+                    f"latest AS ("
+                    f"  SELECT pi.enterprise_number, MAX(pi.fiscal_year) AS fy "
+                    f"  FROM participating_interest pi "
+                    f"  JOIN relevant r ON r.enterprise_number = pi.enterprise_number "
+                    f"  GROUP BY pi.enterprise_number"
+                    f") "
+                    f"SELECT DISTINCT pi.enterprise_number, pi.name, pi.identifier, "
+                    f"       pi.ownership_pct, pi.country "
+                    f"FROM participating_interest pi "
+                    f"JOIN latest l ON l.enterprise_number = pi.enterprise_number "
+                    f"             AND l.fy = pi.fiscal_year "
+                    f"WHERE pi.identifier IN ({ph})",
+                    batch + batch,
+                )
 
             # Collect all new CBE numbers we discover so we can batch-resolve names
             new_cbes: set[str] = set()

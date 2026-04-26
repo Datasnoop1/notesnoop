@@ -443,7 +443,11 @@
       "layers": "Lagen:",
       "layer_shareholders": "Aandeelhouders",
       "layer_directors": "Bestuurders",
-      "layer_subsidiaries": "Dochters"
+      "layer_subsidiaries": "Dochters",
+      "showHistorical": "Toon historisch",
+      "hideHistorical": "Verberg historisch",
+      "showHistoricalTitle": "Voeg vroegere bestuurders en oudere aandeelhouders / deelnemingen toe",
+      "hideHistoricalTitle": "Toon alleen huidige bestuurders en de meest recente kapitaalstructuur"
     }
   },
 

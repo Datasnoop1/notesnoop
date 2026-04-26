@@ -39,17 +39,14 @@ function formatYear(date: string | null | undefined): string {
 }
 
 function sourceBadge(source: string | null) {
+  // The "merged" provenance badge was removed: operators were reading it
+  // as a status on the *company* (e.g. "company has merged") rather than
+  // the data-quality marker it really was. The fresh / NBB pills carry
+  // the same provenance signal without the misleading verb.
   if (source === "staatsblad") {
     return (
       <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
         fresh
-      </span>
-    );
-  }
-  if (source === "merged") {
-    return (
-      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-brand-soft text-[color:var(--brand-ink)] border border-brand/20">
-        merged
       </span>
     );
   }
