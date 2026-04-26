@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Search, Grid3X3, Sparkles, ArrowRight, BookOpen, Lightbulb } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
+import { useInstantSearch } from "@/components/use-instant-search";
 
 const SMART_CHIPS = [
   { label: "High growth", href: "/screener?rev_growth_min=20", tone: "blue" },
@@ -77,8 +78,9 @@ function HeroIllustration() {
 export default function Home() {
   const router = useRouter();
   const { t } = useTranslation();
-  const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const { query, setQuery, results, ghostSuffix, acceptGhost } =
+    useInstantSearch();
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -88,7 +90,28 @@ export default function Home() {
     e.preventDefault();
     const q = query.trim();
     if (q.length < 2) return;
+    // If a true prefix match exists, jump straight to that company —
+    // otherwise fall through to the full /search results page.
+    const topCbe = ghostSuffix ? results?.companies?.[0]?.cbe : null;
+    if (topCbe) {
+      router.push(`/company/${topCbe}`);
+      return;
+    }
     router.push(`/search?q=${encodeURIComponent(q)}`);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Tab" && ghostSuffix) {
+      if (acceptGhost()) e.preventDefault();
+      return;
+    }
+    if (e.key === "ArrowRight" && ghostSuffix) {
+      const inp = e.currentTarget;
+      const atEnd =
+        inp.selectionStart === inp.value.length &&
+        inp.selectionEnd === inp.value.length;
+      if (atEnd && acceptGhost()) e.preventDefault();
+    }
   }
 
   return (
@@ -133,11 +156,21 @@ export default function Home() {
               <form onSubmit={handleSubmit} className="w-full max-w-[460px] mb-4 sm:mb-5">
                 <div className="relative flex items-center rounded-xl border border-[#E3EAF4] bg-white shadow-[0_1px_8px_rgba(15,23,42,0.03)] hover:shadow-[0_3px_14px_rgba(11,92,255,0.06)] focus-within:border-[#0B5CFF] focus-within:shadow-[0_3px_14px_rgba(11,92,255,0.1)] transition-all duration-200">
                   <Search className="absolute left-3.5 sm:left-4 w-[18px] h-[18px] sm:w-[16px] sm:h-[16px] text-[#7B8498] pointer-events-none" aria-hidden />
+                  {ghostSuffix && (
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute left-[42px] sm:left-[40px] right-[104px] top-0 bottom-0 flex items-center text-[16px] sm:text-[14px] overflow-hidden whitespace-pre"
+                    >
+                      <span className="invisible">{query}</span>
+                      <span className="text-[#7B8498]">{ghostSuffix}</span>
+                    </div>
+                  )}
                   <input
                     ref={inputRef}
                     type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={handleKeyDown}
                     placeholder="Search company, sector, VAT or publication"
                     aria-label="Search companies"
                     /* h-[52px] mobile / h-[48px] desktop — the input
@@ -145,7 +178,7 @@ export default function Home() {
                        phones with a thumb covering half the row need a
                        larger landing zone. Right padding (104px) leaves
                        space for the floating Search pill. */
-                    className="w-full h-[52px] sm:h-[48px] pl-[42px] sm:pl-[40px] pr-[104px] text-[16px] sm:text-[14px] rounded-xl bg-transparent focus:outline-none placeholder:text-[#7B8498] text-[#07142F]"
+                    className="relative w-full h-[52px] sm:h-[48px] pl-[42px] sm:pl-[40px] pr-[104px] text-[16px] sm:text-[14px] rounded-xl bg-transparent focus:outline-none placeholder:text-[#7B8498] text-[#07142F]"
                     enterKeyHint="search"
                     autoCapitalize="off"
                     autoCorrect="off"

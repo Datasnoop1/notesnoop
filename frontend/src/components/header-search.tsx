@@ -26,106 +26,32 @@
 
 import { Search, Building, Users, MapPin, Hash } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type {
-  SuggestAddress,
-  SuggestCbeMatch,
-  SuggestCompany,
-  SuggestPerson,
-  SuggestResponse,
-} from "@/lib/api";
-import { suggestSearch } from "@/lib/api";
-
-type FlatOption =
-  | { kind: "company"; index: number; data: SuggestCompany }
-  | { kind: "person"; index: number; data: SuggestPerson }
-  | { kind: "cbe"; index: number; data: SuggestCbeMatch }
-  | { kind: "address"; index: number; data: SuggestAddress };
-
-function buildOptions(r: SuggestResponse | null): FlatOption[] {
-  if (!r) return [];
-  const out: FlatOption[] = [];
-  r.companies.forEach((c, i) => out.push({ kind: "company", index: i, data: c }));
-  r.people.forEach((p, i) => out.push({ kind: "person", index: i, data: p }));
-  if (r.cbe_match) out.push({ kind: "cbe", index: 0, data: r.cbe_match });
-  r.addresses.forEach((a, i) => out.push({ kind: "address", index: i, data: a }));
-  return out;
-}
-
-function optionHref(opt: FlatOption, fallbackQuery: string): string {
-  switch (opt.kind) {
-    case "company":
-      return `/company/${opt.data.cbe}`;
-    case "person":
-      return `/people?q=${encodeURIComponent(opt.data.name)}`;
-    case "cbe":
-      return `/company/${opt.data.cbe}`;
-    case "address":
-      return `/search?q=${encodeURIComponent(fallbackQuery)}`;
-  }
-}
+import { useCallback, useEffect, useId, useRef } from "react";
+import {
+  optionHref,
+  useInstantSearch,
+  type FlatOption,
+} from "@/components/use-instant-search";
 
 export default function HeaderSearch() {
   const router = useRouter();
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
 
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<SuggestResponse | null>(null);
-  const [open, setOpen] = useState(false);
-  const [activeIdx, setActiveIdx] = useState<number>(-1);
-
-  const options = useMemo(() => buildOptions(results), [results]);
-
-  // Inline ghost-text completion of the top company name. Only fires on a
-  // true case-insensitive prefix match against `companies[0].name` so we
-  // never show misleading completions for trigram / fuzzy matches.
-  const ghostSuffix = useMemo(() => {
-    const q = query;
-    if (!q) return "";
-    const top = results?.companies?.[0]?.name;
-    if (!top) return "";
-    if (top.length > q.length && top.toLowerCase().startsWith(q.toLowerCase())) {
-      return top.slice(q.length);
-    }
-    return "";
-  }, [query, results]);
-
-  // Debounced fetch.
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (abortRef.current) abortRef.current.abort();
-    const q = query.trim();
-    if (q.length < 2) {
-      setResults(null);
-      setActiveIdx(-1);
-      return;
-    }
-    debounceRef.current = setTimeout(async () => {
-      const ac = new AbortController();
-      abortRef.current = ac;
-      try {
-        const r = await suggestSearch(q, ac.signal);
-        if (!ac.signal.aborted) {
-          setResults(r);
-          // Auto-highlight the top result so Enter navigates straight
-          // to it (Google / Chrome address-bar pattern).
-          const opts = buildOptions(r);
-          setActiveIdx(opts.length > 0 ? 0 : -1);
-        }
-      } catch {
-        // Network/abort — leave state as-is.
-      }
-    }, 150);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      // Abort any in-flight request — prevents setResults on unmount.
-      if (abortRef.current) abortRef.current.abort();
-    };
-  }, [query]);
+  const {
+    query,
+    setQuery,
+    results,
+    options,
+    activeIdx,
+    setActiveIdx,
+    open,
+    setOpen,
+    ghostSuffix,
+    acceptGhost,
+    reset,
+  } = useInstantSearch();
 
   // Click-outside → close dropdown.
   useEffect(() => {
@@ -136,7 +62,7 @@ export default function HeaderSearch() {
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
-  }, []);
+  }, [setOpen]);
 
   const submit = useCallback(
     (explicit?: FlatOption) => {
@@ -144,28 +70,16 @@ export default function HeaderSearch() {
       const q = query.trim();
       if (opt) {
         router.push(optionHref(opt, q));
-        setOpen(false);
-        setQuery("");
-        setResults(null);
+        reset();
         return;
       }
       if (q.length >= 2) {
         router.push(`/search?q=${encodeURIComponent(q)}`);
-        setOpen(false);
-        setQuery("");
+        reset();
       }
     },
-    [activeIdx, options, query, router],
+    [activeIdx, options, query, reset, router],
   );
-
-  // Accept the inline ghost completion: fill the input with the top
-  // company's full name. Returns true if a completion was accepted.
-  const acceptGhost = useCallback(() => {
-    const top = results?.companies?.[0]?.name;
-    if (!top || !ghostSuffix) return false;
-    setQuery(top);
-    return true;
-  }, [ghostSuffix, results]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "ArrowDown") {
