@@ -540,9 +540,10 @@ async def get_deep_network(
                     (person_name,),
                 )
             else:
-                # See get_company_network — NBB mandate_end is the scheduled
-                # term, not the real-world end date; combine with Staatsblad
-                # resignations to filter out people who have left the board.
+                # NBB admins (resignation-filtered) UNION Staatsblad-only
+                # fresh appointments for this person. Same convention as the
+                # forward batch query in the BFS loop below — see comments
+                # there for the full rationale.
                 seed_admin_rows = fetch_all(
                     "SELECT a.enterprise_number, a.role "
                     "FROM administrator a "
@@ -558,8 +559,31 @@ async def get_deep_network(
                     "      AND (a.mandate_start IS NULL "
                     "           OR se.pub_date > a.mandate_start::date)"
                     "  ) "
-                    "GROUP BY a.enterprise_number, a.role",
-                    [person_name, today_str],
+                    "GROUP BY a.enterprise_number, a.role "
+                    "UNION ALL "
+                    "SELECT DISTINCT se.enterprise_number, "
+                    "       COALESCE(se.person_role, '') AS role "
+                    "FROM staatsblad_event se "
+                    "WHERE se.event_type = 'admin_event' "
+                    "  AND LOWER(COALESCE(se.sub_type, '')) NOT IN ('resignation','end','termination') "
+                    "  AND LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g')) "
+                    "      = LOWER(REGEXP_REPLACE(%s, '[.,]', '', 'g')) "
+                    "  AND NOT EXISTS ("
+                    "    SELECT 1 FROM administrator a "
+                    "    WHERE a.enterprise_number = se.enterprise_number "
+                    "      AND LOWER(REGEXP_REPLACE(a.name, '[.,]', '', 'g')) "
+                    "          = LOWER(REGEXP_REPLACE(%s, '[.,]', '', 'g'))"
+                    "  ) "
+                    "  AND NOT EXISTS ("
+                    "    SELECT 1 FROM staatsblad_event se2 "
+                    "    WHERE se2.enterprise_number = se.enterprise_number "
+                    "      AND se2.event_type = 'admin_event' "
+                    "      AND LOWER(se2.sub_type) IN ('resignation','end','termination') "
+                    "      AND LOWER(REGEXP_REPLACE(COALESCE(se2.person_name, se2.entity_name), '[.,]', '', 'g')) "
+                    "          = LOWER(REGEXP_REPLACE(%s, '[.,]', '', 'g')) "
+                    "      AND se2.pub_date > se.pub_date"
+                    "  )",
+                    [person_name, today_str, person_name, person_name, person_name],
                 )
                 # Person-as-shareholder restricted to each company's most
                 # recent fiscal_year so a 2018 ownership stake the person
@@ -672,15 +696,57 @@ async def get_deep_network(
                 )
                 admin_filter_args = [today_str]
 
-            # 1. Administrators OF these companies
-            admin_rows = fetch_all(
-                f"SELECT a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
-                f"FROM administrator a "
-                f"WHERE a.enterprise_number IN ({ph}) "
-                f"{admin_filter_sql}"
-                f"GROUP BY a.enterprise_number, a.name, a.role, a.person_type, a.identifier",
-                batch + admin_filter_args,
-            )
+            # 1. Administrators OF these companies. UNION the NBB admin
+            # snapshot (post-resignation filter) with Staatsblad-only fresh
+            # appointments — appointments that haven't landed in NBB yet
+            # AND haven't been subsequently resigned. This makes the spider
+            # web reflect the freshest available board state regardless of
+            # which source had it first. Skipped when include_historical
+            # is true (historical view shows the raw NBB log only).
+            if include_historical:
+                admin_rows = fetch_all(
+                    f"SELECT a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
+                    f"FROM administrator a "
+                    f"WHERE a.enterprise_number IN ({ph}) "
+                    f"GROUP BY a.enterprise_number, a.name, a.role, a.person_type, a.identifier",
+                    batch,
+                )
+            else:
+                admin_rows = fetch_all(
+                    f"SELECT a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
+                    f"FROM administrator a "
+                    f"WHERE a.enterprise_number IN ({ph}) "
+                    f"{admin_filter_sql}"
+                    f"GROUP BY a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
+                    f"UNION ALL "
+                    f"SELECT DISTINCT "
+                    f"  se.enterprise_number, "
+                    f"  COALESCE(se.person_name, se.entity_name) AS name, "
+                    f"  COALESCE(se.person_role, '') AS role, "
+                    f"  CASE WHEN se.person_name IS NOT NULL THEN 'natural' ELSE 'legal' END AS person_type, "
+                    f"  NULL::text AS identifier "
+                    f"FROM staatsblad_event se "
+                    f"WHERE se.enterprise_number IN ({ph}) "
+                    f"  AND se.event_type = 'admin_event' "
+                    f"  AND LOWER(COALESCE(se.sub_type, '')) NOT IN ('resignation','end','termination') "
+                    f"  AND COALESCE(se.person_name, se.entity_name) IS NOT NULL "
+                    f"  AND NOT EXISTS ("
+                    f"    SELECT 1 FROM administrator a "
+                    f"    WHERE a.enterprise_number = se.enterprise_number "
+                    f"      AND LOWER(REGEXP_REPLACE(a.name, '[.,]', '', 'g')) "
+                    f"          = LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g'))"
+                    f"  ) "
+                    f"  AND NOT EXISTS ("
+                    f"    SELECT 1 FROM staatsblad_event se2 "
+                    f"    WHERE se2.enterprise_number = se.enterprise_number "
+                    f"      AND se2.event_type = 'admin_event' "
+                    f"      AND LOWER(se2.sub_type) IN ('resignation','end','termination') "
+                    f"      AND LOWER(REGEXP_REPLACE(COALESCE(se2.person_name, se2.entity_name), '[.,]', '', 'g')) "
+                    f"          = LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g')) "
+                    f"      AND se2.pub_date > se.pub_date"
+                    f"  )",
+                    batch + admin_filter_args + batch,
+                )
 
             # 2. Companies where these entities serve as administrator (reverse)
             admin_reverse_rows = fetch_all(
