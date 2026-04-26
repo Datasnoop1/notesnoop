@@ -471,6 +471,153 @@ def ensure_trgm_setup():
         put_connection(conn)
 
 
+# ---------------------------------------------------------------------------
+# Phase-22 schema additions
+# ---------------------------------------------------------------------------
+# These run UNCONDITIONALLY at startup, regardless of whether the search V2
+# migration has been applied. They were originally added inside
+# ``ensure_trgm_setup`` but the V2 detection in that function returns early,
+# which silently skipped every Phase-22 ALTER on prod environments where V2
+# was already in place. Pulling them into a separate function decouples
+# them from the trgm migration and makes the boot path explicit.
+
+_phase22_migrated = False
+
+
+def ensure_phase22_schema():
+    """Apply Phase-22 schema additions: traction columns on activity_log,
+    invoice_vendor_pattern + invoice_misclassification_log tables, deeper
+    columns on platform_invoice. Idempotent — safe to call on every
+    startup.
+    """
+    global _phase22_migrated
+    if _phase22_migrated:
+        return
+
+    conn = get_connection()
+    seed_pending = False
+    try:
+        cur = conn.cursor()
+
+        # --- platform_invoice: parent/child taxonomy + classifier metadata ---
+        for stmt in (
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS parent_category TEXT",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS child_category TEXT",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS confidence REAL",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS reason TEXT",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS vendor_pattern_id INTEGER",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS line_items JSONB",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS classified_at TIMESTAMPTZ",
+            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS classifier_model TEXT",
+        ):
+            cur.execute(stmt)
+
+        # --- invoice_vendor_pattern (operator-curated short-circuits) ---
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_vendor_pattern (
+                id              SERIAL PRIMARY KEY,
+                pattern         TEXT NOT NULL CHECK (length(pattern) BETWEEN 2 AND 200),
+                vendor_canonical TEXT,
+                parent_category TEXT NOT NULL,
+                child_category  TEXT,
+                priority        INTEGER NOT NULL DEFAULT 0,
+                created_by      TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_used_at    TIMESTAMPTZ,
+                hit_count       INTEGER NOT NULL DEFAULT 0
+            );
+        """)
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'invoice_vendor_pattern_pattern_len'
+                ) THEN
+                    BEGIN
+                        ALTER TABLE invoice_vendor_pattern
+                            ADD CONSTRAINT invoice_vendor_pattern_pattern_len
+                            CHECK (length(pattern) BETWEEN 2 AND 200);
+                    EXCEPTION WHEN check_violation THEN
+                        NULL;
+                    END;
+                END IF;
+            END$$;
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_invoice_vendor_pattern_priority
+            ON invoice_vendor_pattern(priority DESC);
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_platform_invoice_classified
+            ON platform_invoice(classified_at DESC);
+        """)
+
+        # --- invoice_misclassification_log (operator correction trail) ---
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS invoice_misclassification_log (
+                id              SERIAL PRIMARY KEY,
+                invoice_id      INTEGER REFERENCES platform_invoice(id) ON DELETE CASCADE,
+                old_parent      TEXT,
+                old_child       TEXT,
+                new_parent      TEXT,
+                new_child       TEXT,
+                old_vendor      TEXT,
+                new_vendor      TEXT,
+                old_amount_cents BIGINT,
+                new_amount_cents BIGINT,
+                corrected_by    TEXT,
+                corrected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_invoice_misclass_invoice
+            ON invoice_misclassification_log(invoice_id);
+        """)
+
+        # --- activity_log: traction columns (sessions, UA bucket, country) ---
+        for stmt in (
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS session_id TEXT",
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS ua_family TEXT",
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS device_type TEXT",
+            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS country_code VARCHAR(2)",
+        ):
+            cur.execute(stmt)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_activity_log_session
+            ON activity_log(session_id, created_at DESC)
+            WHERE session_id IS NOT NULL;
+        """)
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_activity_log_ua_date
+            ON activity_log(ua_family, created_at DESC)
+            WHERE ua_family IS NOT NULL;
+        """)
+
+        conn.commit()
+        cur.close()
+        seed_pending = True
+        _phase22_migrated = True
+        logger.info("Phase-22 schema ensured")
+    except Exception:
+        conn.rollback()
+        logger.exception("Phase-22 schema migration failed (non-fatal)")
+    finally:
+        put_connection(conn)
+
+    # Post-commit: seed default vendor patterns (uses a fresh pooled
+    # connection, so the table must already be visible — i.e. the
+    # transaction above must have committed first).
+    if seed_pending:
+        try:
+            from invoice_classifier import seed_default_patterns
+            n = seed_default_patterns()
+            if n:
+                logger.info("Seeded %d invoice vendor patterns", n)
+        except Exception:
+            logger.exception("seed_default_patterns failed (non-fatal)")
+
+
 def normalize_name(name: str) -> str:
     """Normalize a company name for trigram matching (Python-side).
 

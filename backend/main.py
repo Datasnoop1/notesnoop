@@ -12,10 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api
+from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api, admin_phase22
 from auth import ensure_jwks_bootstrapped
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
-from db import ensure_trgm_setup
+from db import ensure_trgm_setup, ensure_phase22_schema
 
 load_dotenv()
 
@@ -96,6 +96,108 @@ class EndpointContextMiddleware(BaseHTTPMiddleware):
 
 
 # ---------------------------------------------------------------------------
+# Session-id middleware (GDPR-compliant)
+# ---------------------------------------------------------------------------
+# Sets a host-only `ds_sid` cookie carrying a random UUID. The value carries
+# zero PII — it is only used to derive session-level metrics (session
+# duration, pages/session, bounce rate, retention) by GROUP BY in the admin
+# analytics queries. Cookie attributes:
+#   - HttpOnly (no JS access — defends against XSS exfiltration)
+#   - Secure (HTTPS only — set unconditionally; staging is HTTP-on-port-8080
+#     but the operator only runs admin analytics from prod)
+#   - SameSite=Lax (no cross-site attribution; required for OAuth flows)
+#   - Path=/ (entire app)
+#   - Max-Age 30 days (idle timeout = 30 min — see _session_idle_minutes)
+# Documented in `docs/sessions.md`.
+
+import re as _re
+import uuid as _uuid
+
+_SESSION_COOKIE = "ds_sid"
+_SESSION_MAX_AGE_S = 30 * 24 * 3600  # 30 days hard ceiling
+
+_BOT_RE = _re.compile(
+    r"bot|crawler|spider|slurp|facebookexternalhit|preview|lighthouse|"
+    r"semrush|ahrefs|googlebot|bingbot|duckduckbot|yandex|baidu|petalbot",
+    _re.IGNORECASE,
+)
+_MOBILE_RE = _re.compile(r"android|iphone|ipod|mobile|opera mini", _re.IGNORECASE)
+_TABLET_RE = _re.compile(r"ipad|tablet|kindle|silk", _re.IGNORECASE)
+
+
+def _ua_family(ua: str) -> str:
+    """Bucket a User-Agent into a coarse family. We never store the raw UA."""
+    if not ua:
+        return "unknown"
+    if _BOT_RE.search(ua):
+        return "bot"
+    ua_l = ua.lower()
+    if "edg/" in ua_l or "edge/" in ua_l:
+        return "edge"
+    if "opr/" in ua_l or "opera" in ua_l:
+        return "opera"
+    if "firefox" in ua_l:
+        return "firefox"
+    if "chrome" in ua_l and "safari" in ua_l:
+        return "chrome"
+    if "safari" in ua_l:
+        return "safari"
+    return "other"
+
+
+def _device_type(ua: str) -> str:
+    if not ua:
+        return "unknown"
+    if _BOT_RE.search(ua):
+        return "bot"
+    if _TABLET_RE.search(ua):
+        return "tablet"
+    if _MOBILE_RE.search(ua):
+        return "mobile"
+    return "desktop"
+
+
+class SessionMiddleware(BaseHTTPMiddleware):
+    """Set a `ds_sid` cookie if the request doesn't already carry one.
+
+    The cookie value is a random UUIDv4 — no PII, no fingerprinting.
+    Stamps a `request.state.session_id` so downstream middleware (the
+    activity log) can record it without having to re-parse cookies.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        existing = request.cookies.get(_SESSION_COOKIE)
+        is_new = not existing
+        sid = existing or _uuid.uuid4().hex
+        # Stash for downstream middleware/handlers.
+        request.state.session_id = sid
+        response = await call_next(request)
+        if is_new:
+            # Only set the cookie when we minted it. Re-setting on every
+            # request would be wasteful (Set-Cookie header on every
+            # response).
+            #
+            # Secure flag must follow the actual scheme. Production is
+            # HTTPS (Secure=True); staging serves HTTP on port 8080
+            # (Secure=False, otherwise the cookie is silently dropped by
+            # the browser and analytics goes blank on staging).
+            # X-Forwarded-Proto trumps url.scheme because nginx
+            # terminates TLS in front of uvicorn.
+            forwarded = (request.headers.get("x-forwarded-proto") or "").lower()
+            scheme = forwarded or request.url.scheme
+            response.set_cookie(
+                key=_SESSION_COOKIE,
+                value=sid,
+                max_age=_SESSION_MAX_AGE_S,
+                httponly=True,
+                secure=(scheme == "https"),
+                samesite="lax",
+                path="/",
+            )
+        return response
+
+
+# ---------------------------------------------------------------------------
 # Activity logging middleware
 # ---------------------------------------------------------------------------
 
@@ -134,16 +236,40 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
                 # Log for both authenticated and anonymous users
                 # Anonymous: store a salted hash of the IP, never the raw IP (GDPR)
                 user_label = email or _hash_client_id(get_client_ip(request))
+                # Pull session id + UA family stamped by SessionMiddleware /
+                # request headers. UA is bucketed at insert time so the raw
+                # string never lands in the database.
+                sid = getattr(request.state, "session_id", None)
+                ua_raw = request.headers.get("user-agent", "")
+                ua_fam = _ua_family(ua_raw)
+                device = _device_type(ua_raw)
+                # Cloudflare populates CF-IPCountry on every edge request;
+                # absent in dev. Two-letter ISO code or "XX" for unknown.
+                country = (
+                    request.headers.get("cf-ipcountry", "") or ""
+                ).strip().upper()[:2] or None
+
                 execute(
-                    "INSERT INTO activity_log (user_email, endpoint, method) VALUES (%s, %s, %s)",
-                    (user_label, path, request.method),
+                    """
+                    INSERT INTO activity_log
+                        (user_email, endpoint, method, session_id, ua_family,
+                         device_type, country_code)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (user_label, path, request.method, sid, ua_fam, device, country),
                 )
             except Exception:
                 logger.debug("ActivityLog insert failed")
         return response
 
+# Middleware insertion order matters: Starlette runs middleware in REVERSE
+# of registration. `add_middleware` prepends, so the LAST `add_middleware`
+# call ends up OUTERMOST. We want SessionMiddleware to run first (so the
+# session id is already set when ActivityLog reads it) — so register it
+# LAST.
 app.add_middleware(ActivityLogMiddleware)
 app.add_middleware(EndpointContextMiddleware)
+app.add_middleware(SessionMiddleware)
 
 # ---------------------------------------------------------------------------
 # Tier-based usage limit middleware
@@ -718,6 +844,7 @@ app.include_router(open_data.router)
 app.include_router(staatsblad_events.router)
 app.include_router(search.router)
 app.include_router(admin_enrichment.router)
+app.include_router(admin_phase22.router)
 app.include_router(public_api.router)
 
 # ---------------------------------------------------------------------------
@@ -842,6 +969,13 @@ async def startup_migrations():
         ensure_trgm_setup()
     except Exception:
         logger.exception("pg_trgm startup migration failed (non-fatal)")
+    try:
+        # Phase-22 schema (sessions on activity_log, invoice taxonomy
+        # depth, vendor-pattern table). Independent of trgm/V2 detection
+        # so it always runs.
+        ensure_phase22_schema()
+    except Exception:
+        logger.exception("Phase-22 schema migration failed (non-fatal)")
 
 
 @app.on_event("startup")
