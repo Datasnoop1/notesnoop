@@ -268,7 +268,7 @@ async def admin_analytics(user=Depends(_require_admin)):
         # given session_id. Duration = last - first event in the cookie
         # window; bounce = sessions with exactly 1 request. Sessions older
         # than 7 days are discarded.
-        sess = fetch_one(
+        sess_row = fetch_one(
             f"""
             WITH s AS (
                 SELECT session_id,
@@ -292,6 +292,15 @@ async def admin_analytics(user=Depends(_require_admin)):
             """,
             tuple(admin_params),
         )
+        # Normalise Decimal → float so the JSON response stays scalar.
+        sess = dict(sess_row or {})
+        for k in ("pages_per_session", "bounce_rate_pct"):
+            v = sess.get(k)
+            if v is not None and not isinstance(v, (int, float)):
+                try:
+                    sess[k] = float(v)
+                except (TypeError, ValueError):
+                    sess[k] = None
 
         # ---- Retention cohorts (weekly, last 8 weeks, 1 query) ----------
         # Cohort = first-seen week. Week N retention = % of cohort that
@@ -594,30 +603,30 @@ async def admin_readiness(user=Depends(_require_admin)):
     out: dict[str, Any] = {}
 
     # ---- NBB pipeline -------------------------------------------------------
+    # nbb_load_log.loaded_at is TEXT (legacy) — cast to timestamptz for
+    # range comparisons. No `error` column exists; the loader stores
+    # NO_FILINGS / PDF_ONLY sentinels in deposit_key instead.
     try:
         nbb_row = fetch_one(
             """
             SELECT
                 (SELECT COUNT(*) FROM financial_latest) AS loaded_companies,
-                (SELECT MAX(loaded_at) FROM nbb_load_log) AS latest_load_at,
+                (SELECT MAX(loaded_at::timestamptz) FROM nbb_load_log) AS latest_load_at,
                 (SELECT COUNT(*) FROM nbb_load_log
-                 WHERE loaded_at >= NOW() - INTERVAL '24 hours'
+                 WHERE loaded_at::timestamptz >= NOW() - INTERVAL '24 hours'
                    AND COALESCE(deposit_key,'') NOT LIKE 'NO_FILINGS%%') AS loads_24h,
                 (SELECT COUNT(*) FROM nbb_load_log
-                 WHERE loaded_at >= NOW() - INTERVAL '7 days'
+                 WHERE loaded_at::timestamptz >= NOW() - INTERVAL '7 days'
                    AND COALESCE(deposit_key,'') NOT LIKE 'NO_FILINGS%%') AS loads_7d,
                 (SELECT COUNT(DISTINCT enterprise_number) FROM enterprise
                  WHERE status = 'AC' AND type_of_enterprise = '2') AS target_universe,
                 (SELECT COUNT(*) FROM nbb_load_log
-                 WHERE deposit_key LIKE 'NO_FILINGS%%') AS no_filings,
-                (SELECT MAX(error) FROM nbb_load_log
-                 WHERE error IS NOT NULL
-                   AND loaded_at >= NOW() - INTERVAL '24 hours') AS recent_error
+                 WHERE deposit_key LIKE 'NO_FILINGS%%') AS no_filings
             """
         )
+        nbb_row = dict(nbb_row or {})
+        nbb_row["recent_error"] = None
     except Exception:
-        # Older nbb_load_log schemas may be missing the `error` column;
-        # treat the lookup as best-effort.
         logger.exception("nbb readiness query failed; falling back")
         nbb_row = {
             "loaded_companies": 0,
@@ -685,9 +694,11 @@ async def admin_readiness(user=Depends(_require_admin)):
                    AND ts >= date_trunc('day', NOW())) AS spend_today_usd
             """
         )
+        # enrichment_job stores last_error (TEXT). last_failed_at is the
+        # finished_at column for failed/dead rows.
         sem_recent_failures = fetch_all(
             """
-            SELECT enterprise_number, error, finished_at
+            SELECT enterprise_number, last_error AS error, finished_at
             FROM enrichment_job
             WHERE status IN ('failed','dead')
               AND finished_at >= NOW() - INTERVAL '24 hours'
@@ -743,6 +754,8 @@ async def admin_readiness(user=Depends(_require_admin)):
     }
 
     # ---- Staatsblad pipeline ------------------------------------------------
+    # staatsblad_publication.loaded_at is TEXT (legacy); cast to timestamptz.
+    # pub_date is also TEXT (YYYY-MM-DD); we surface the raw string.
     try:
         st = fetch_one(
             """
@@ -750,16 +763,16 @@ async def admin_readiness(user=Depends(_require_admin)):
                 (SELECT COUNT(*) FROM staatsblad_publication
                  WHERE reference <> 'NO_DATA') AS pubs_total,
                 (SELECT COUNT(*) FROM staatsblad_publication
-                 WHERE loaded_at >= NOW() - INTERVAL '24 hours') AS pubs_24h,
+                 WHERE loaded_at::timestamptz >= NOW() - INTERVAL '24 hours') AS pubs_24h,
                 (SELECT COUNT(*) FROM staatsblad_publication
-                 WHERE loaded_at >= NOW() - INTERVAL '7 days') AS pubs_7d,
+                 WHERE loaded_at::timestamptz >= NOW() - INTERVAL '7 days') AS pubs_7d,
                 (SELECT COUNT(*) FROM staatsblad_event) AS events_total,
                 (SELECT COUNT(*) FROM staatsblad_event
                  WHERE extracted_at >= NOW() - INTERVAL '24 hours') AS events_24h,
                 (SELECT COUNT(*) FROM staatsblad_event
                  WHERE extracted_at >= NOW() - INTERVAL '7 days') AS events_7d,
                 (SELECT MAX(extracted_at) FROM staatsblad_event) AS last_extraction,
-                (SELECT MAX(loaded_at) FROM staatsblad_publication) AS last_pub_load,
+                (SELECT MAX(loaded_at::timestamptz) FROM staatsblad_publication) AS last_pub_load,
                 (SELECT MAX(pub_date) FROM staatsblad_publication) AS data_freshness_date
             """
         )
@@ -820,8 +833,11 @@ async def admin_readiness(user=Depends(_require_admin)):
         "throughput_7d": int(st.get("events_7d") or 0),
         "publications_total": int(st.get("pubs_total") or 0),
         "publications_24h": int(st.get("pubs_24h") or 0),
-        "data_freshness_date": (st["data_freshness_date"].isoformat()
-                                if st.get("data_freshness_date") else None),
+        "data_freshness_date": (
+            st["data_freshness_date"].isoformat()
+            if st.get("data_freshness_date") and hasattr(st["data_freshness_date"], "isoformat")
+            else (str(st["data_freshness_date"]) if st.get("data_freshness_date") else None)
+        ),
         "queue": st_queue,
         "notes": (
             "Producer on RunPod (5y backfill via Anthropic batch), "
