@@ -11,14 +11,6 @@
  *   - Enter opens the highlighted item OR navigates to /search?q=… if none
  *   - Escape closes; Tab closes and moves focus on
  *
- * Google-style instant-search additions (2026-04-26):
- *   - Top result is auto-highlighted the moment a suggest payload
- *     lands, so Enter on raw typed text navigates straight to the
- *     top match (Chrome address-bar style).
- *   - Inline ghost-text completion of the top company name. Tab or
- *     Right-arrow at end of input accepts the completion (fills the
- *     input).
- *
  * Data: /api/search/suggest returns `{companies, people, cbe_match,
  * addresses}`. We debounce keystrokes to 150ms and cancel in-flight
  * requests with AbortController.
@@ -26,32 +18,89 @@
 
 import { Search, Building, Users, MapPin, Hash } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useRef } from "react";
-import {
-  optionHref,
-  useInstantSearch,
-  type FlatOption,
-} from "@/components/use-instant-search";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import type {
+  SuggestAddress,
+  SuggestCbeMatch,
+  SuggestCompany,
+  SuggestPerson,
+  SuggestResponse,
+} from "@/lib/api";
+import { suggestSearch } from "@/lib/api";
+
+type FlatOption =
+  | { kind: "company"; index: number; data: SuggestCompany }
+  | { kind: "person"; index: number; data: SuggestPerson }
+  | { kind: "cbe"; index: number; data: SuggestCbeMatch }
+  | { kind: "address"; index: number; data: SuggestAddress };
+
+function buildOptions(r: SuggestResponse | null): FlatOption[] {
+  if (!r) return [];
+  const out: FlatOption[] = [];
+  r.companies.forEach((c, i) => out.push({ kind: "company", index: i, data: c }));
+  r.people.forEach((p, i) => out.push({ kind: "person", index: i, data: p }));
+  if (r.cbe_match) out.push({ kind: "cbe", index: 0, data: r.cbe_match });
+  r.addresses.forEach((a, i) => out.push({ kind: "address", index: i, data: a }));
+  return out;
+}
+
+function optionHref(opt: FlatOption, fallbackQuery: string): string {
+  switch (opt.kind) {
+    case "company":
+      return `/company/${opt.data.cbe}`;
+    case "person":
+      return `/people?q=${encodeURIComponent(opt.data.name)}`;
+    case "cbe":
+      return `/company/${opt.data.cbe}`;
+    case "address":
+      return `/search?q=${encodeURIComponent(fallbackQuery)}`;
+  }
+}
 
 export default function HeaderSearch() {
   const router = useRouter();
   const listboxId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const {
-    query,
-    setQuery,
-    results,
-    options,
-    activeIdx,
-    setActiveIdx,
-    open,
-    setOpen,
-    ghostSuffix,
-    acceptGhost,
-    reset,
-  } = useInstantSearch();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SuggestResponse | null>(null);
+  const [open, setOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState<number>(-1);
+
+  const options = useMemo(() => buildOptions(results), [results]);
+
+  // Debounced fetch.
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (abortRef.current) abortRef.current.abort();
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults(null);
+      setActiveIdx(-1);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      const ac = new AbortController();
+      abortRef.current = ac;
+      try {
+        const r = await suggestSearch(q, ac.signal);
+        if (!ac.signal.aborted) {
+          setResults(r);
+          setActiveIdx(-1);
+        }
+      } catch {
+        // Network/abort — leave state as-is.
+      }
+    }, 150);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      // Abort any in-flight request — prevents setResults on unmount.
+      if (abortRef.current) abortRef.current.abort();
+    };
+  }, [query]);
 
   // Click-outside → close dropdown.
   useEffect(() => {
@@ -62,7 +111,7 @@ export default function HeaderSearch() {
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
-  }, [setOpen]);
+  }, []);
 
   const submit = useCallback(
     (explicit?: FlatOption) => {
@@ -70,15 +119,18 @@ export default function HeaderSearch() {
       const q = query.trim();
       if (opt) {
         router.push(optionHref(opt, q));
-        reset();
+        setOpen(false);
+        setQuery("");
+        setResults(null);
         return;
       }
       if (q.length >= 2) {
         router.push(`/search?q=${encodeURIComponent(q)}`);
-        reset();
+        setOpen(false);
+        setQuery("");
       }
     },
-    [activeIdx, options, query, reset, router],
+    [activeIdx, options, query, router],
   );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -91,16 +143,6 @@ export default function HeaderSearch() {
       setActiveIdx((i) =>
         options.length === 0 ? -1 : (i - 1 + options.length) % options.length,
       );
-    } else if (e.key === "ArrowRight") {
-      // Only intercept if the cursor sits at the end of the input, so we
-      // don't interfere with normal cursor movement mid-string.
-      const inp = e.currentTarget;
-      const atEnd =
-        inp.selectionStart === inp.value.length &&
-        inp.selectionEnd === inp.value.length;
-      if (atEnd && ghostSuffix && acceptGhost()) {
-        e.preventDefault();
-      }
     } else if (e.key === "Enter") {
       e.preventDefault();
       submit();
@@ -108,10 +150,6 @@ export default function HeaderSearch() {
       setOpen(false);
       setActiveIdx(-1);
     } else if (e.key === "Tab") {
-      if (ghostSuffix && acceptGhost()) {
-        e.preventDefault();
-        return;
-      }
       setOpen(false);
     }
   };
@@ -125,15 +163,6 @@ export default function HeaderSearch() {
           className="absolute left-3 w-3.5 h-3.5 text-gray-400 pointer-events-none"
           aria-hidden
         />
-        {ghostSuffix && (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute left-9 right-3 top-0 bottom-0 flex items-center text-base md:text-[13px] overflow-hidden whitespace-pre"
-          >
-            <span className="invisible">{query}</span>
-            <span className="text-gray-400">{ghostSuffix}</span>
-          </div>
-        )}
         <input
           ref={inputRef}
           type="text"
@@ -153,7 +182,7 @@ export default function HeaderSearch() {
           aria-controls={listboxId}
           aria-autocomplete="list"
           aria-activedescendant={activeId}
-          className="relative w-full h-11 md:h-9 pl-9 pr-3 text-base md:text-[13px] rounded-full bg-transparent focus:outline-none placeholder:text-gray-400 text-gray-900"
+          className="w-full h-11 md:h-9 pl-9 pr-3 text-base md:text-[13px] rounded-full bg-transparent focus:outline-none placeholder:text-gray-400 text-gray-900"
           enterKeyHint="search"
           autoCapitalize="off"
           autoCorrect="off"
