@@ -74,10 +74,28 @@ async def get_company_network(
                 (cbe,),
             )
         else:
+            # NBB stores the *scheduled* mandate end (often years out per
+            # statutory term). A real-world resignation lands first in the
+            # Staatsblad as an admin_event with sub_type=resignation/end/
+            # termination. Exclude any NBB row whose name (case- and
+            # punctuation-tolerant compare) has a Staatsblad resignation
+            # published AFTER the recorded mandate_start — that's how the
+            # admins-tab reconciles the two sources, see
+            # backend/routers/companies/structure_merge.py.
             admins = fetch_all(
-                "SELECT * FROM administrator "
-                "WHERE enterprise_number = %s "
-                "  AND (mandate_end IS NULL OR mandate_end >= %s)",
+                "SELECT * FROM administrator a "
+                "WHERE a.enterprise_number = %s "
+                "  AND (a.mandate_end IS NULL OR a.mandate_end >= %s) "
+                "  AND NOT EXISTS ("
+                "    SELECT 1 FROM staatsblad_event se "
+                "    WHERE se.enterprise_number = a.enterprise_number "
+                "      AND se.event_type = 'admin_event' "
+                "      AND LOWER(se.sub_type) IN ('resignation','end','termination') "
+                "      AND LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g')) "
+                "          = LOWER(REGEXP_REPLACE(a.name, '[.,]', '', 'g')) "
+                "      AND (a.mandate_start IS NULL "
+                "           OR se.pub_date > a.mandate_start::date)"
+                "  )",
                 (cbe, today_str),
             )
             shareholders_rows = fetch_all(
@@ -522,12 +540,25 @@ async def get_deep_network(
                     (person_name,),
                 )
             else:
+                # See get_company_network — NBB mandate_end is the scheduled
+                # term, not the real-world end date; combine with Staatsblad
+                # resignations to filter out people who have left the board.
                 seed_admin_rows = fetch_all(
-                    "SELECT enterprise_number, role "
-                    "FROM administrator "
-                    "WHERE name = %s "
-                    "  AND (mandate_end IS NULL OR mandate_end >= %s) "
-                    "GROUP BY enterprise_number, role",
+                    "SELECT a.enterprise_number, a.role "
+                    "FROM administrator a "
+                    "WHERE a.name = %s "
+                    "  AND (a.mandate_end IS NULL OR a.mandate_end >= %s) "
+                    "  AND NOT EXISTS ("
+                    "    SELECT 1 FROM staatsblad_event se "
+                    "    WHERE se.enterprise_number = a.enterprise_number "
+                    "      AND se.event_type = 'admin_event' "
+                    "      AND LOWER(se.sub_type) IN ('resignation','end','termination') "
+                    "      AND LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g')) "
+                    "          = LOWER(REGEXP_REPLACE(a.name, '[.,]', '', 'g')) "
+                    "      AND (a.mandate_start IS NULL "
+                    "           OR se.pub_date > a.mandate_start::date)"
+                    "  ) "
+                    "GROUP BY a.enterprise_number, a.role",
                     [person_name, today_str],
                 )
                 # Person-as-shareholder restricted to each company's most
@@ -613,33 +644,51 @@ async def get_deep_network(
             # ── Fetch all relationships for the current batch ──────────
             ph = ",".join(["%s"] * len(batch))
 
-            # Administrator queries: by default current mandates only
-            # (mandate_end NULL = open-ended, >= today = future end-date).
-            # `include_historical=True` keeps every past mandate for the
+            # Administrator queries. By default we want only currently-
+            # serving directors. NBB stores the *scheduled* mandate end
+            # (often years out), so a real-world resignation only shows
+            # up in the staatsblad_event log. The NOT EXISTS clause drops
+            # rows whose name matches a Staatsblad resignation event
+            # published after the recorded mandate_start. Same name-match
+            # convention as backend/routers/companies/structure_merge.py.
+            # `include_historical=True` skips both filters for the
             # archival spider-web view.
-            admin_filter_sql = (
-                "" if include_historical
-                else "  AND (mandate_end IS NULL OR mandate_end >= %s) "
-            )
-            admin_filter_args = [] if include_historical else [today_str]
+            if include_historical:
+                admin_filter_sql = ""
+                admin_filter_args: list = []
+            else:
+                admin_filter_sql = (
+                    "  AND (a.mandate_end IS NULL OR a.mandate_end >= %s) "
+                    "  AND NOT EXISTS ("
+                    "    SELECT 1 FROM staatsblad_event se "
+                    "    WHERE se.enterprise_number = a.enterprise_number "
+                    "      AND se.event_type = 'admin_event' "
+                    "      AND LOWER(se.sub_type) IN ('resignation','end','termination') "
+                    "      AND LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g')) "
+                    "          = LOWER(REGEXP_REPLACE(a.name, '[.,]', '', 'g')) "
+                    "      AND (a.mandate_start IS NULL "
+                    "           OR se.pub_date > a.mandate_start::date)"
+                    "  ) "
+                )
+                admin_filter_args = [today_str]
 
             # 1. Administrators OF these companies
             admin_rows = fetch_all(
-                f"SELECT enterprise_number, name, role, person_type, identifier "
-                f"FROM administrator "
-                f"WHERE enterprise_number IN ({ph}) "
+                f"SELECT a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
+                f"FROM administrator a "
+                f"WHERE a.enterprise_number IN ({ph}) "
                 f"{admin_filter_sql}"
-                f"GROUP BY enterprise_number, name, role, person_type, identifier",
+                f"GROUP BY a.enterprise_number, a.name, a.role, a.person_type, a.identifier",
                 batch + admin_filter_args,
             )
 
             # 2. Companies where these entities serve as administrator (reverse)
             admin_reverse_rows = fetch_all(
-                f"SELECT enterprise_number, name, role, person_type, identifier "
-                f"FROM administrator "
-                f"WHERE identifier IN ({ph}) "
+                f"SELECT a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
+                f"FROM administrator a "
+                f"WHERE a.identifier IN ({ph}) "
                 f"{admin_filter_sql}"
-                f"GROUP BY enterprise_number, name, role, person_type, identifier",
+                f"GROUP BY a.enterprise_number, a.name, a.role, a.person_type, a.identifier",
                 batch + admin_filter_args,
             )
 
