@@ -116,7 +116,7 @@ function CompanyCard({
   return (
     <Link
       href={`/company/${company.enterprise_number}`}
-      className={`flex items-center gap-3 px-4 py-3 min-h-[44px] rounded-xl bg-white border ${topRing} ${hoverBorder} hover:shadow-md transition-all group`}
+      className={`flex items-center gap-3 px-3 sm:px-4 py-3 min-h-[56px] rounded-xl bg-white border ${topRing} ${hoverBorder} hover:shadow-md active:bg-slate-50 transition-all group`}
     >
       <div className={`p-2 rounded-lg ${iconBg} shrink-0`}>
         <Icon className="w-4 h-4" />
@@ -125,11 +125,38 @@ function CompanyCard({
         <div className={`text-sm font-semibold text-slate-800 ${hoverText} truncate`}>
           {company.name || fmtCbe(company.enterprise_number)}
         </div>
-        <div className="text-[11px] text-slate-400 truncate">
-          {fmtCbe(company.enterprise_number)}
-          {company.city && <span> · {company.city}</span>}
+        <div className="text-[11px] text-slate-400 truncate flex items-center gap-1 flex-wrap">
+          <span>{fmtCbe(company.enterprise_number)}</span>
+          {company.city && <span aria-hidden>·</span>}
+          {company.city && <span className="truncate">{company.city}</span>}
           {company.sector && tone === "primary" && (
-            <span className="hidden sm:inline"> · {company.sector}</span>
+            <>
+              <span aria-hidden className="hidden sm:inline">·</span>
+              <span className="hidden sm:inline truncate">{company.sector}</span>
+            </>
+          )}
+          {/* Mobile: revenue inline below the name so the financial signal
+              is still visible when the right-hand column is hidden. */}
+          {company.revenue != null && (
+            <>
+              <span aria-hidden className="sm:hidden">·</span>
+              <span className="sm:hidden font-mono text-slate-500">
+                {fmtEur(company.revenue)}
+                {company.ebitda_margin_pct != null && (
+                  <span
+                    className={`ml-1 ${
+                      company.ebitda_margin_pct >= 15
+                        ? "text-emerald-500"
+                        : company.ebitda_margin_pct >= 5
+                          ? "text-amber-500"
+                          : "text-rose-400"
+                    }`}
+                  >
+                    ({fmtPct(company.ebitda_margin_pct)})
+                  </span>
+                )}
+              </span>
+            </>
           )}
         </div>
       </div>
@@ -154,7 +181,7 @@ function CompanyCard({
       <button
         onClick={(e) => onToggleFav(company.enterprise_number, e)}
         aria-label={isFav ? "Remove favourite" : "Add favourite"}
-        className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 transition-colors shrink-0"
+        className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-md hover:bg-slate-100 active:bg-slate-200 transition-colors shrink-0"
       >
         <Star
           className={`w-4 h-4 ${

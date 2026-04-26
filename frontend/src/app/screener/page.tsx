@@ -371,7 +371,10 @@ function Sparkline({
 
 function HoverCard({ row, t }: { row: ScreenerRow; t: (key: string) => string }) {
   return (
-    <div className="absolute z-50 left-0 top-full mt-1 w-72 rounded-lg border border-slate-200 bg-white p-3 shadow-lg pointer-events-none">
+    // Hidden on touch devices — `:hover` on touch leaves the card stuck
+    // on screen until the user taps elsewhere, blocking other rows.
+    // `@media (hover: hover)` only matches a fine pointer (mouse).
+    <div className="hidden [@media(hover:hover)]:block absolute z-50 left-0 top-full mt-1 w-72 rounded-lg border border-slate-200 bg-white p-3 shadow-lg pointer-events-none">
       <div className="text-xs font-semibold text-slate-800 mb-2 truncate">
         {row.name}
       </div>
@@ -474,6 +477,23 @@ export default function ScreenerPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [nlQuery, setNlQuery] = useState("");
   const [nlLoading, setNlLoading] = useState(false);
+
+  /* Mobile sidebar UX: ESC closes, and we lock background scroll while
+     it's open so the underlying table doesn't bleed-scroll on iOS. The
+     desktop sidebar is always visible (md:block) so this only affects
+     phones. */
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSidebarOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.documentElement.classList.add("ds-no-scroll");
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.documentElement.classList.remove("ds-no-scroll");
+    };
+  }, [sidebarOpen]);
 
   // Collapsible filter groups. Company is open by default; the others
   // collapse so the sidebar isn't a wall of inputs on first load.
@@ -760,11 +780,15 @@ export default function ScreenerPage() {
   const activeFilterCount = groupCounts.company + groupCounts.financials + groupCounts.trend;
 
   return (
-    <div className="flex h-[calc(100dvh-116px)] md:h-[calc(100vh-64px)] overflow-hidden relative">
-      {/* Mobile filter toggle — positioned above the ad banner */}
+    <div className="flex h-[calc(100dvh-116px)] md:h-[calc(100dvh-64px)] overflow-hidden relative">
+      {/* Mobile filter toggle — positioned above the ad banner. The
+          `bottom-[calc(...)]` calculation respects iOS home-indicator
+          safe area so the FAB doesn't sit on top of the gesture bar. */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
-        className="md:hidden fixed bottom-20 right-4 z-40 bg-brand text-white rounded-full p-3 shadow-lg hover:bg-[color:var(--brand-ink)] transition-colors"
+        aria-label="Toggle filters"
+        aria-expanded={sidebarOpen}
+        className="md:hidden fixed bottom-[calc(env(safe-area-inset-bottom,0)+5rem)] right-4 z-40 bg-brand text-white rounded-full p-3.5 shadow-lg hover:bg-[color:var(--brand-ink)] active:scale-95 transition-all"
       >
         {sidebarOpen ? <X className="w-5 h-5" /> : <SlidersHorizontal className="w-5 h-5" />}
         {!sidebarOpen && activeFilterCount > 0 && (
@@ -774,20 +798,60 @@ export default function ScreenerPage() {
         )}
       </button>
 
-      {/* Mobile overlay */}
+      {/* Mobile overlay — backdrop-blur under the sheet so the page
+          fades away behind the filters. Tap-to-close. z-[55] sits above
+          the global nav (z-50) so the filter view feels like a focused
+          modal: the user is "in filter mode" and the rest of the chrome
+          gracefully fades. Desktop ignores both (md:hidden / md:static). */}
       {sidebarOpen && (
-        <div className="md:hidden fixed inset-0 bg-black/20 z-30" onClick={() => setSidebarOpen(false)} />
+        <div
+          className="md:hidden fixed inset-0 bg-black/30 backdrop-blur-[2px] z-[55] animate-in fade-in duration-150"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden
+        />
       )}
 
       {/* ================= LEFT SIDEBAR ================= */}
-      <aside className={`w-[85vw] max-w-xs md:w-60 shrink-0 border-r border-[#E3EAF4] bg-[#F8FAFD] overflow-y-auto
-        fixed md:static inset-y-0 left-0 z-30 transition-transform md:translate-x-0
-        ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
-        md:block
-      `}>
+      <aside
+        className={`w-[88vw] max-w-xs md:w-60 shrink-0 border-r border-[#E3EAF4] bg-[#F8FAFD] overflow-y-auto overscroll-contain
+          fixed md:static inset-y-0 left-0 z-[60] md:z-30 transition-transform md:translate-x-0 ds-safe-bottom shadow-xl md:shadow-none
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
+          md:block ds-safe-top
+        `}
+      >
         <div className="p-3 space-y-3">
-          {/* Sidebar header */}
-          <div className="flex items-center justify-between">
+          {/* Sidebar header — on mobile we add a sticky strip with a
+              prominent Close button so users don't have to fish for the
+              floating filter FAB on the opposite side of the screen.
+              `top-0` (not negative) is important: the sidebar already
+              extends past the global nav (`fixed inset-y-0`) and a
+              negative top would pull the header into the nav's layer,
+              poking above it on iOS. */}
+          <div className="md:hidden sticky top-0 -mx-3 -mt-3 mb-1 z-10 bg-[#F8FAFD]/95 backdrop-blur-sm border-b border-[#E3EAF4] px-3 py-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="w-4 h-4 text-brand" />
+              <span className="text-[13px] font-semibold text-[#07142F]">
+                {t("screener.filters")}
+              </span>
+              {activeFilterCount > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="text-[10px] bg-brand-soft text-[color:var(--brand-ink)] px-1.5 py-0"
+                >
+                  {activeFilterCount}
+                </Badge>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(false)}
+              className="text-[12px] font-medium text-brand hover:text-[color:var(--brand-ink)] active:text-[#063AAA] px-3 py-1.5 rounded-lg hover:bg-brand-soft/60 active:bg-brand-soft min-h-[36px]"
+            >
+              {t("screener.done") !== "screener.done" ? t("screener.done") : "Done"}
+            </button>
+          </div>
+          {/* Sidebar header (desktop) */}
+          <div className="hidden md:flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
               {t("screener.filters")}
             </span>
@@ -1443,19 +1507,22 @@ export default function ScreenerPage() {
             </button>
           </div>
 
-          {/* Row 2: Quick filters */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-slate-400 mr-1">{t("screener.quick")}</span>
+          {/* Row 2: Quick filters — horizontal scroll on mobile so the
+              5+ chips don't wrap onto two rows. The trailing edge of
+              the row gets a subtle fade so users see there's more to
+              swipe. */}
+          <div className="flex items-center gap-1.5 overflow-x-auto -mx-2 px-2 md:overflow-visible md:mx-0 md:px-0 pb-0.5">
+            <span className="text-[10px] text-slate-400 mr-1 shrink-0">{t("screener.quick")}</span>
             {QUICK_FILTERS.map((qf) => {
               const active = qf.isActive(filters);
               return (
                 <button
                   key={qf.label}
                   onClick={() => toggleQuickFilter(qf)}
-                  className={`h-8 md:h-5 px-3 md:px-2 text-[11px] md:text-[10px] font-medium rounded-full border transition-all ${
+                  className={`h-8 md:h-5 px-3 md:px-2 text-[11px] md:text-[10px] font-medium rounded-full border transition-all shrink-0 ${
                     active
                       ? "bg-brand text-white border-brand"
-                      : "bg-white text-slate-500 border-slate-200 hover:border-brand/40 hover:text-brand"
+                      : "bg-white text-slate-500 border-slate-200 hover:border-brand/40 hover:text-brand active:bg-brand-soft"
                   }`}
                 >
                   {qf.label}

@@ -870,26 +870,26 @@ export function CompanyPageClient({
   /* -- Render -- */
 
   return (
-    <div className="mx-auto w-full max-w-[1200px] px-4 py-4">
+    <div className="mx-auto w-full max-w-[1200px] px-3 sm:px-4 py-3 sm:py-4">
       {/* Back link */}
       <Link
         href="/company"
-        className="mb-4 inline-flex items-center gap-1.5 text-[12.5px] text-[#5F6B85] hover:text-[#0B5CFF] transition-colors"
+        className="mb-3 sm:mb-4 inline-flex items-center gap-1.5 min-h-[36px] text-[12.5px] text-[#5F6B85] hover:text-[#0B5CFF] active:text-[#063AAA] transition-colors"
       >
         <ArrowLeft className="h-3.5 w-3.5" /> {t("company.backToSearch")}
       </Link>
 
       {/* Company Header */}
-      <div className="mb-5 rounded-2xl border border-[#E3EAF4] bg-white p-5 sm:p-6">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="mb-4 sm:mb-5 rounded-xl sm:rounded-2xl border border-[#E3EAF4] bg-white p-4 sm:p-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 sm:gap-4">
           {/* Left: name + CBE */}
-          <div className="flex items-center gap-4 min-w-0 flex-1">
-            {/* Initials badge */}
-            <div className="w-14 h-14 rounded-2xl bg-[#EEF3FF] flex items-center justify-center text-[#0B5CFF] font-bold text-lg shrink-0 select-none">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1 w-full">
+            {/* Initials badge — slightly smaller on mobile to save horizontal room. */}
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-[#EEF3FF] flex items-center justify-center text-[#0B5CFF] font-bold text-base sm:text-lg shrink-0 select-none">
               {(detail.name || fmtCbe(cbe)).split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("")}
             </div>
             <div className="min-w-0 flex-1">
-            <h1 className="text-[22px] sm:text-[26px] font-bold text-[#07142F] leading-tight">
+            <h1 className="text-[20px] sm:text-[26px] font-bold text-[#07142F] leading-tight break-words">
               <SearchableText text={detail.name || fmtCbe(cbe)} mapsQuery={address || undefined}>
                 {detail.name || fmtCbe(cbe)}
               </SearchableText>
@@ -1152,7 +1152,11 @@ export function CompanyPageClient({
               </TabsList>
 
               <div className="border-b border-[#E3EAF4] flex flex-col md:flex-row md:items-end md:justify-between gap-2 md:gap-3 no-print">
-                <div className="flex flex-wrap">
+                {/* Tabs — horizontal-scroll row on mobile so the 6
+                    primary groups don't wrap. -mx-3 px-3 lets the row
+                    extend edge-to-edge under the parent's padding while
+                    keeping the first/last items visually inside. */}
+                <div className="flex flex-nowrap overflow-x-auto md:flex-wrap md:overflow-visible -mx-3 px-3 md:mx-0 md:px-0 scrollbar-none">
                   {TAB_GROUPS.map((g) => {
                     const active = currentGroup?.id === g.id;
                     return (
@@ -1160,10 +1164,10 @@ export function CompanyPageClient({
                         key={g.id}
                         type="button"
                         onClick={() => handleTabChange(g.subs[0].value)}
-                        className={`text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap border-b-2 transition ${
+                        className={`text-[12px] md:text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap border-b-2 shrink-0 transition ${
                           active
                             ? "border-brand text-brand"
-                            : "border-transparent text-[#5F6B85] hover:text-[#07142F]"
+                            : "border-transparent text-[#5F6B85] hover:text-[#07142F] active:text-[#0B5CFF]"
                         }`}
                       >
                         {g.label}
@@ -1171,7 +1175,7 @@ export function CompanyPageClient({
                     );
                   })}
                 </div>
-                <div className="flex items-center gap-1.5 flex-wrap pb-1.5 md:shrink-0">
+                <div className="flex items-center gap-1.5 overflow-x-auto md:overflow-visible -mx-3 px-3 md:mx-0 md:px-0 pb-1.5 md:shrink-0 scrollbar-none">
                   <Button
                     variant="outline"
                     size="sm"
@@ -1261,26 +1265,30 @@ export function CompanyPageClient({
                 </div>
               </div>
 
-              {/* Sub-navigation — only when the current group has multiple sections */}
+              {/* Sub-navigation — only when the current group has multiple
+                  sections. The pill row scrolls horizontally on mobile so
+                  the four financial sub-tabs don't wrap. */}
               {currentGroup && currentGroup.subs.length > 1 && (
-                <div className="mt-3 inline-flex rounded-lg bg-slate-100 p-1 no-print overflow-x-auto max-w-full">
-                  {currentGroup.subs.map((s) => {
-                    const active = activeTab === s.value;
-                    return (
-                      <button
-                        key={s.value}
-                        type="button"
-                        onClick={() => handleTabChange(s.value)}
-                        className={`rounded-md px-3 py-2 md:py-1 text-[11px] font-medium whitespace-nowrap transition ${
-                          active
-                            ? "bg-white text-slate-800 shadow-sm"
-                            : "text-slate-500 hover:text-slate-700"
-                        }`}
-                      >
-                        {s.label}
-                      </button>
-                    );
-                  })}
+                <div className="mt-3 -mx-3 px-3 md:mx-0 md:px-0 overflow-x-auto scrollbar-none no-print">
+                  <div className="inline-flex rounded-lg bg-slate-100 p-1 max-w-full">
+                    {currentGroup.subs.map((s) => {
+                      const active = activeTab === s.value;
+                      return (
+                        <button
+                          key={s.value}
+                          type="button"
+                          onClick={() => handleTabChange(s.value)}
+                          className={`rounded-md px-3 py-2 md:py-1 text-[12px] md:text-[11px] font-medium whitespace-nowrap shrink-0 transition ${
+                            active
+                              ? "bg-white text-slate-800 shadow-sm"
+                              : "text-slate-500 hover:text-slate-700 active:text-slate-900"
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </>

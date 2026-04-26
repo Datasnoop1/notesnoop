@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useState, useEffect, useRef } from "react";
-import { Menu, LogOut, User, Bell } from "lucide-react";
+import { Menu, LogOut, User, Bell, Search } from "lucide-react";
 import HeaderSearch from "@/components/header-search";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +36,7 @@ export default function Nav() {
   const [notifs, setNotifs] = useState<FavNotification[]>([]);
   const [showNotifs, setShowNotifs] = useState(false);
   const notifContainerRef = useRef<HTMLDivElement | null>(null);
+  const notifContainerMobileRef = useRef<HTMLDivElement | null>(null);
   const logoPath = "/logos/datasnoop-brand.png";
 
   const NAV_LINKS = [
@@ -72,15 +73,18 @@ export default function Nav() {
   }, [user]);
 
   // Close notifications dropdown on outside click or Escape.
+  // Both mobile and desktop bells stay mounted (Tailwind's md:hidden /
+  // hidden md:block toggles `display`, not the DOM tree), so we track
+  // whichever node is visible by checking BOTH refs. Without this, the
+  // click-outside test would fail on whichever viewport the second-
+  // assigned ref doesn't represent.
   useEffect(() => {
     if (!showNotifs) return;
+    const isInside = (target: Node) =>
+      (notifContainerRef.current?.contains(target) ?? false) ||
+      (notifContainerMobileRef.current?.contains(target) ?? false);
     const onMouseDown = (e: MouseEvent) => {
-      if (
-        notifContainerRef.current &&
-        !notifContainerRef.current.contains(e.target as Node)
-      ) {
-        setShowNotifs(false);
-      }
+      if (!isInside(e.target as Node)) setShowNotifs(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setShowNotifs(false);
@@ -110,21 +114,25 @@ export default function Nav() {
   const hideHeaderSearch = isLanding || pathname === "/search";
 
   return (
-    <header className="sticky top-0 z-50 glass-chrome border-b border-[#E3EAF4]">
-      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-6 h-[80px]">
+    <header className="sticky top-0 z-50 glass-chrome border-b border-[#E3EAF4] ds-safe-top">
+      <div className="max-w-[1200px] mx-auto px-3 sm:px-6 lg:px-8 ds-safe-px">
+        <div className="flex items-center gap-3 sm:gap-6 h-[64px] md:h-[80px]">
 
           {/* Brand — full wordmark + telescope dog mark. PNG is tightly
              cropped (994x279 — no whitespace), so a modest header box
-             gives a strongly-visible mark. */}
-          <Link href="/" className="flex items-center gap-2 shrink-0 group">
+             gives a strongly-visible mark. Mobile shrinks the mark so it
+             leaves room for the search shortcut + hamburger on a 360px
+             screen. */}
+          <Link href="/" className="flex items-center gap-1.5 sm:gap-2 shrink-0 group min-w-0">
             <img
               src={logoPath}
               alt="DataSnoop"
               onError={(e) => { (e.currentTarget as HTMLImageElement).src = "/logos/dog-telescope-clean.jpeg"; }}
-              className="h-[58px] w-auto shrink-0 group-hover:opacity-90 transition-opacity"
+              className="h-10 sm:h-[58px] w-auto shrink-0 group-hover:opacity-90 transition-opacity"
+              loading="eager"
+              decoding="async"
             />
-            <span className="text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
+            <span className="hidden sm:inline-block text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
           </Link>
 
           {/* Center: inline search (non-landing, non-search pages) */}
@@ -155,9 +163,72 @@ export default function Nav() {
           </nav>
 
           {/* Right side */}
-          <div className="flex items-center gap-2 ml-auto shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 ml-auto shrink-0">
 
-            {/* Notification bell */}
+            {/* Mobile search shortcut — visible everywhere except the
+                /search page itself (where the page already has a big
+                input bar). Tappable target meets WCAG 44px. */}
+            {pathname !== "/search" && (
+              <Link
+                href="/search"
+                aria-label={t("search.placeholder") || "Search"}
+                className="md:hidden inline-flex items-center justify-center rounded-lg w-11 h-11 text-[#5F6B85] hover:bg-[#F3F7FF] active:bg-[#EEF3FF]"
+              >
+                <Search className="h-5 w-5" />
+              </Link>
+            )}
+
+            {/* Mobile notification bell — surfaces the same dropdown
+                that desktop users see. Notifications were previously
+                hidden on phones, hiding fresh-data signals from PE
+                analysts who triage on mobile. */}
+            {user && (
+              <div className="md:hidden relative" ref={notifContainerMobileRef}>
+                <button
+                  onClick={() => {
+                    setShowNotifs(!showNotifs);
+                    if (notifCount > 0) {
+                      markNotificationsRead().then(() => setNotifCount(0)).catch(() => {});
+                    }
+                  }}
+                  aria-label={t("nav.dataUpdates") || "Updates"}
+                  className="relative inline-flex items-center justify-center rounded-lg w-11 h-11 text-[#5F6B85] hover:bg-[#F3F7FF] active:bg-[#EEF3FF]"
+                >
+                  <Bell className="h-5 w-5" />
+                  {notifCount > 0 && (
+                    <span className="absolute top-1.5 right-1.5 bg-rose-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">
+                      {notifCount > 9 ? "9+" : notifCount}
+                    </span>
+                  )}
+                </button>
+                {showNotifs && (
+                  <div className="absolute right-0 mt-2 w-[min(calc(100vw-1rem),20rem)] bg-white border border-[#E3EAF4] rounded-xl shadow-lg z-50 max-h-[60vh] overflow-y-auto">
+                    <div className="px-3 py-2.5 border-b border-[#E3EAF4] text-[11px] font-semibold text-[#5F6B85] uppercase tracking-wider">
+                      {t("nav.dataUpdates")}
+                    </div>
+                    {notifs.length === 0 ? (
+                      <div className="px-3 py-5 text-xs text-[#7B8498] text-center">{t("nav.noNewUpdates")}</div>
+                    ) : (
+                      notifs.map((n, i) => (
+                        <a
+                          key={i}
+                          href={`/company/${n.enterprise_number}`}
+                          className="block px-3 py-3 hover:bg-[#F8FAFD] active:bg-[#EEF3FF] border-b border-[#E3EAF4] last:border-0 transition-colors"
+                          onClick={() => setShowNotifs(false)}
+                        >
+                          <div className="text-[13px] font-medium text-[#07142F] truncate">{n.name}</div>
+                          <div className="text-[11px] text-[#7B8498]">
+                            New FY{n.fiscal_year} data loaded {n.loaded_at?.slice(0, 10)}
+                          </div>
+                        </a>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Notification bell — desktop */}
             {user && (
               <div ref={notifContainerRef} className="hidden md:block relative">
                 <button
@@ -243,11 +314,11 @@ export default function Nav() {
             {/* Mobile hamburger */}
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger>
-                <span className="md:hidden inline-flex items-center justify-center rounded-lg p-2 min-w-[44px] min-h-[44px] text-[#5F6B85] hover:bg-[#F3F7FF]">
+                <span className="md:hidden inline-flex items-center justify-center rounded-lg p-2 min-w-[44px] min-h-[44px] text-[#5F6B85] hover:bg-[#F3F7FF] active:bg-[#EEF3FF]">
                   <Menu className="h-5 w-5" />
                 </span>
               </SheetTrigger>
-              <SheetContent side="left" className="w-72 border-[#E3EAF4]">
+              <SheetContent side="left" className="w-[88vw] max-w-xs sm:w-80 border-[#E3EAF4] p-5 ds-safe-top ds-safe-bottom">
                 <SheetTitle className="flex items-center gap-2 text-[15px] font-semibold">
                   <img
                     src={logoPath}
@@ -287,10 +358,17 @@ export default function Nav() {
                   </div>
 
                   {user && (
-                    <div className="border-t border-[#E3EAF4] mt-3 pt-3">
+                    <div className="border-t border-[#E3EAF4] mt-3 pt-3 space-y-1">
+                      <button
+                        onClick={() => { router.push("/account"); setOpen(false); }}
+                        className="w-full flex items-center px-3 py-3 rounded-lg text-[14px] font-medium text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF] active:bg-[#EEF3FF]"
+                      >
+                        <User className="w-4 h-4 mr-2 text-[#5F6B85]" />
+                        {t("nav.accountSettings")}
+                      </button>
                       <button
                         onClick={() => { handleSignOut(); setOpen(false); }}
-                        className="w-full flex items-center px-3 py-2.5 rounded-lg text-sm font-medium text-rose-600 hover:bg-rose-50"
+                        className="w-full flex items-center px-3 py-3 rounded-lg text-[14px] font-medium text-rose-600 hover:bg-rose-50 active:bg-rose-100"
                       >
                         <LogOut className="w-4 h-4 mr-2" />
                         {t("nav.signOut")}
@@ -311,10 +389,14 @@ export default function Nav() {
           </div>
         </div>
 
-        {/* Mobile dot-nav — visible only on non-landing, non-screener pages */}
-        {!isLanding && !pathname.startsWith("/screener") && (
+        {/* Mobile dot-nav — visible on every page except the landing
+            page (which has its own large nav cards). Previously hidden
+            on /screener too, which forced users into the hamburger
+            menu. The screener has its own filter sidebar so a slim
+            secondary nav row is fine. */}
+        {!isLanding && (
           <div className="md:hidden border-t border-[#E3EAF4]">
-            <nav className="flex items-center gap-0 py-1 text-[13px] overflow-x-auto md:scrollbar-none">
+            <nav className="flex items-center gap-0 py-0.5 text-[13px] overflow-x-auto md:scrollbar-none -mx-1 px-1">
               {NAV_LINKS.slice(0, 4).map((item, idx) => (
                 <React.Fragment key={item.href}>
                   {idx > 0 && <span className="text-[#E3EAF4] select-none shrink-0" aria-hidden>·</span>}
@@ -323,7 +405,7 @@ export default function Nav() {
                     className={`px-3 py-2.5 min-h-[44px] inline-flex items-center rounded-lg transition-colors shrink-0 font-medium ${
                       isActive(item.href)
                         ? "text-[#0B5CFF]"
-                        : "text-[#5F6B85] hover:text-[#07142F]"
+                        : "text-[#5F6B85] hover:text-[#07142F] active:text-[#0B5CFF]"
                     }`}
                   >
                     {item.label}

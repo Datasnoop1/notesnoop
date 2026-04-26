@@ -217,22 +217,43 @@ function UnifiedSearchPageInner() {
 
   return (
     <div className="space-y-6">
-      {/* Search bar */}
-      <div className="max-w-2xl mx-auto">
+      {/* Search bar — sticky on mobile so the input stays in reach as
+          results scroll. Pinned at `top-[108px]` to clear the global
+          nav (64px header + ~44px dot-row). z-30 sits above the page
+          content but below the nav (z-50), so on scroll the search
+          bar lands flush against the nav's lower edge instead of
+          sliding underneath it. Disabled on sm+ where there's enough
+          room not to need it (`sm:static sm:top-auto`). */}
+      <div className="max-w-2xl mx-auto sticky top-[108px] z-30 bg-background/95 backdrop-blur-sm pt-1 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:static sm:top-auto sm:bg-transparent sm:backdrop-blur-none sm:pt-0 sm:pb-0">
         <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 pointer-events-none" />
           <Input
             placeholder={t("search.placeholder")}
             value={query}
             onChange={(e) => doSearch(e.target.value)}
             // text-[16px] avoids iOS Safari's auto-zoom on focus.
-            className="pl-12 h-12 text-[16px] rounded-xl border-slate-200 shadow-sm focus:ring-2 focus:ring-brand/30"
+            className="pl-12 pr-12 h-12 text-[16px] rounded-xl border-slate-200 shadow-sm focus:ring-2 focus:ring-brand/30"
             autoFocus
             aria-label={t("search.placeholder")}
+            enterKeyHint="search"
+            autoCapitalize="off"
+            autoCorrect="off"
           />
-          {loading && (
-            <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-brand/60 animate-spin" />
-          )}
+          {/* Trailing slot — clear button OR loading spinner. Clear
+              gives mobile users a quick way out without reaching for
+              the OS keyboard's backspace. */}
+          {loading ? (
+            <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-brand/60 animate-spin pointer-events-none" />
+          ) : query ? (
+            <button
+              type="button"
+              onClick={() => doSearch("", { postalCode: locPostalCode, municipality: locMunicipality, street: locStreet })}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-8 h-8 rounded-full text-slate-400 hover:bg-slate-100 active:bg-slate-200 transition-colors"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
         {!searched && (
           <p className="text-center text-xs text-slate-400 mt-3">{t("search.hint")}</p>
@@ -320,8 +341,8 @@ function UnifiedSearchPageInner() {
 
       {/* Results */}
       {searched && (
-        <div className="space-y-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-6 sm:space-y-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             {loading && companies === null ? (
               <SectionSkeleton
                 icon={Building}

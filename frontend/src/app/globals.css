@@ -235,6 +235,99 @@
   }
 }
 
+/* ── Mobile-first utilities ─────────────────────────────────────────
+   Cluster of utilities the mobile pass leans on. Kept here (not as
+   one-off Tailwind classnames) so the same rules apply consistently
+   across pages and so iOS-specific quirks live in one place. */
+
+/* Safe-area aware padding helpers (iPhone notch / home indicator).
+   `viewportFit: "cover"` in layout.tsx exposes env(safe-area-inset-*).
+   Use `ds-safe-bottom` on the page wrapper to keep content above the
+   home indicator. `ds-safe-top` exists for sticky overlays sitting
+   right under the status bar. */
+@utility ds-safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+@utility ds-safe-top {
+  padding-top: max(0px, env(safe-area-inset-top));
+}
+@utility ds-safe-px {
+  padding-left: max(0px, env(safe-area-inset-left));
+  padding-right: max(0px, env(safe-area-inset-right));
+}
+
+/* Dynamic viewport height — `100vh` is the *largest* viewport on iOS
+   Safari, which means sticky bottom UI gets hidden under the URL bar.
+   `100dvh` shrinks/grows with the chrome. Use these utilities anywhere
+   we previously wrote inline `h-[100vh]`. */
+@utility h-screen-d {
+  height: 100dvh;
+}
+@utility min-h-screen-d {
+  min-height: 100dvh;
+}
+@utility max-h-screen-d {
+  max-height: 100dvh;
+}
+
+/* Lock body scroll when a fullscreen overlay (sheet, modal) is open.
+   Toggle the class on `<html>` from JS — Base UI's Dialog locks scroll
+   on its own, but the screener mobile sidebar is a hand-rolled overlay
+   and needs this to stop background scroll-bleed. */
+@utility ds-no-scroll {
+  overflow: hidden;
+  touch-action: none;
+}
+
+/* Disable hover-stuck states on touch devices.
+   Touch screens fire :hover on tap and the highlight gets stuck until
+   the next tap elsewhere. The `(hover: hover)` media query is only
+   true for fine-pointer devices (mouse, trackpad). Components opting
+   in via the `ds-hover` modifier only get hover styles there. */
+@media (hover: none) {
+  .ds-hover\:bg-slate-50:hover { background-color: transparent; }
+  .ds-hover\:bg-slate-100:hover { background-color: transparent; }
+}
+
+/* Tap highlight tweak — iOS Safari shows a translucent grey box on
+   tap by default. We replace it with the brand soft tint so taps
+   feel intentional instead of accidental. Applied at the body level. */
+body {
+  -webkit-tap-highlight-color: rgba(11, 92, 255, 0.08);
+}
+
+/* Reduce body::before aura height on mobile — the 320px gradient was
+   designed for desktop hero pages. On mobile it eats into the first
+   fold of every page. */
+@media (max-width: 640px) {
+  body::before {
+    height: 200px !important;
+  }
+}
+
+/* Honor reduced motion for skeleton pulses + animated gradients.
+   Recharts and base-ui handle their own; this is for our custom
+   shimmer + pulse classes. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Inputs default to text-base on mobile, smaller on desktop — applied
+   automatically to <input>, <textarea>, <select> so we don't have to
+   repeat `text-base md:text-sm` everywhere. text-[16px] is the iOS
+   Safari magic threshold below which it auto-zooms on focus. */
+@media (max-width: 767px) {
+  input:where([type="text"], [type="email"], [type="password"], [type="search"], [type="tel"], [type="url"], [type="number"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 /* ── Glass surfaces (Phase 1 of rebrand) ────────────────────────────
    Reserved for chrome, overlays, and hero surfaces. NEVER apply to
    dense data tables (P&L, balance sheet, valuation, screener cells).

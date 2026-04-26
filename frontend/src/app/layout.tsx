@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, DM_Sans } from "next/font/google";
 import { Geist } from "next/font/google";
 import Nav from "@/components/nav";
@@ -48,6 +48,33 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * Mobile viewport configuration.
+ *
+ * - `width: device-width, initial-scale: 1` — standard responsive baseline.
+ * - `maximumScale: 5` — allow accessibility zoom (don't trap users at 1x).
+ * - `viewportFit: "cover"` — let safe-area-inset-* env vars work on iOS
+ *   notched devices, so we can pad sticky bars away from the home indicator.
+ * - `themeColor` — sets the iOS Safari status-bar tint and Android browser
+ *   chrome to match the page top, so the chrome blends with the design
+ *   instead of showing a default white/black slab.
+ * - `interactiveWidget: "resizes-content"` — when the iOS keyboard opens,
+ *   resize the layout viewport instead of overlaying it; otherwise sticky
+ *   footers and bottom-sheet modals get hidden behind the keyboard.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F8FAFD" },
+    { media: "(prefers-color-scheme: dark)", color: "#0B1020" },
+  ],
+  colorScheme: "light",
+  interactiveWidget: "resizes-content",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
@@ -86,7 +113,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-full flex flex-col bg-background font-sans">
+      <body className="min-h-full flex flex-col bg-background font-sans touch-manipulation overscroll-x-none">
         <LanguageProvider>
           <LimitProvider>
             <StagingGate>
@@ -94,7 +121,7 @@ export default function RootLayout({
               <CopyProtection />
               <Nav />
               <main className="flex-1" data-protected>
-                <div className="w-full max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
+                <div className="w-full max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 ds-safe-bottom">
                   {children}
                 </div>
               </main>

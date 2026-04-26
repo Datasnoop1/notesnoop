@@ -271,14 +271,21 @@ export function InsightsOverlay({
     return () => clearInterval(interval);
   }, [startTime]);
 
-  /* Close on Escape key */
+  /* Close on Escape key + lock body scroll while open. Body scroll
+     lock matters mostly on iOS where the bottom-sheet inherits the
+     window's overscroll behaviour and the user ends up scrolling the
+     page underneath instead of the modal content. */
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    document.documentElement.classList.add("ds-no-scroll");
+    return () => {
+      window.removeEventListener("keydown", handler);
+      document.documentElement.classList.remove("ds-no-scroll");
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -291,20 +298,31 @@ export function InsightsOverlay({
         onClick={onClose}
       />
 
-      {/* Modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Modal — centered card on desktop, bottom sheet on mobile so
+          the close button and primary CTA stay within thumb reach. The
+          `dvh` units stay accurate while the iOS URL bar collapses. */}
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
         <div
-          className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+          className="w-full sm:max-w-3xl max-h-[92dvh] sm:max-h-[85vh] overflow-y-auto overscroll-contain rounded-t-2xl sm:rounded-2xl border border-slate-200 bg-white shadow-2xl animate-in fade-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200 ds-safe-bottom"
           onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ai-insights-title"
         >
+          {/* Drag handle — visual affordance for the bottom sheet on
+              mobile. Hidden above sm: where the modal is centered. */}
+          <div className="sm:hidden flex justify-center pt-2 pb-1">
+            <span aria-hidden className="block h-1 w-10 rounded-full bg-slate-200" />
+          </div>
+
           {/* Header */}
-          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 backdrop-blur-sm px-6 py-4 rounded-t-2xl">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 backdrop-blur-sm px-4 sm:px-6 py-3 sm:py-4 rounded-t-2xl">
             <div className="flex items-center gap-2.5">
               <div className="h-8 w-8 rounded-lg bg-brand-soft flex items-center justify-center">
                 <Sparkles className="h-4 w-4 text-brand" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                <h3 id="ai-insights-title" className="text-sm font-semibold text-slate-800 flex items-center gap-2">
                   AI Insights
                   <span className="text-[8px] font-bold bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded-full uppercase tracking-widest">Alpha</span>
                   {insights?.confidence && (
@@ -327,7 +345,8 @@ export function InsightsOverlay({
                 <button
                   onClick={() => { setFeedbackGiven(null); setShowImprovementPicker(false); onRegenerate(); }}
                   disabled={loading}
-                  className="rounded-lg p-1.5 text-slate-400 hover:bg-brand-soft/60 hover:text-brand transition-colors disabled:opacity-50"
+                  aria-label="Regenerate insights"
+                  className="rounded-lg w-10 h-10 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:bg-brand-soft/60 hover:text-brand active:bg-brand-soft transition-colors disabled:opacity-50"
                   title="Regenerate insights"
                 >
                   <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -335,7 +354,8 @@ export function InsightsOverlay({
               )}
               <button
                 onClick={onClose}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+                aria-label="Close"
+                className="rounded-lg w-10 h-10 sm:w-8 sm:h-8 inline-flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:bg-slate-200 transition-colors"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -343,7 +363,7 @@ export function InsightsOverlay({
           </div>
 
           {/* Content */}
-          <div className="p-6">
+          <div className="p-4 sm:p-6">
             {/* ── Feedback bar (top of content, only when insights exist) ── */}
             {insights && !loading && (
               <div className="mb-4 rounded-lg border border-slate-100 bg-slate-50/50 p-3">
@@ -370,19 +390,19 @@ export function InsightsOverlay({
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="text-xs text-slate-500">Is this correct?</span>
                           <button
                             onClick={() => { setFeedbackGiven("up"); onFeedback?.({ overall: "up", websiteCorrect: true, linkedinCorrect: true, insightCorrect: true }); }}
-                            className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 transition-colors"
+                            className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] font-medium text-emerald-700 hover:bg-emerald-100 active:bg-emerald-200 transition-colors min-h-[36px]"
                           >
-                            <ThumbsUp className="h-3 w-3" /> Looks good
+                            <ThumbsUp className="h-3.5 w-3.5" /> Looks good
                           </button>
                           <button
                             onClick={() => setShowImprovementPicker(true)}
-                            className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700 hover:bg-rose-100 transition-colors"
+                            className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] font-medium text-rose-700 hover:bg-rose-100 active:bg-rose-200 transition-colors min-h-[36px]"
                           >
-                            <ThumbsDown className="h-3 w-3" /> Needs improvement
+                            <ThumbsDown className="h-3.5 w-3.5" /> Needs improvement
                           </button>
                         </div>
                       </div>

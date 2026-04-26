@@ -95,8 +95,8 @@ export default function Home() {
     <div className="relative isolate flex flex-col items-center w-full">
 
       {/* ── Hero card ────────────────────────────────────────────────── */}
-      <section className="w-full max-w-[1200px] mx-auto px-4 pt-6">
-        <div className="rounded-[28px] border border-[#E3EAF4] bg-white p-6 sm:p-10 lg:p-12 overflow-hidden relative shadow-[0_8px_40px_rgba(15,23,42,0.04)]">
+      <section className="w-full max-w-[1200px] mx-auto px-3 sm:px-4 pt-4 sm:pt-6">
+        <div className="rounded-2xl sm:rounded-[28px] border border-[#E3EAF4] bg-white p-5 sm:p-10 lg:p-12 overflow-hidden relative shadow-[0_8px_40px_rgba(15,23,42,0.04)]">
 
           {/* Subtle accent gradient — top-right corner wash */}
           <div
@@ -110,26 +110,29 @@ export default function Home() {
             {/* Left: text + search */}
             <div className="text-left">
               {/* Eyebrow */}
-              <div className="text-[11.5px] font-bold text-[#0B5CFF] uppercase tracking-[0.14em] mb-5">
+              <div className="text-[11px] sm:text-[11.5px] font-bold text-[#0B5CFF] uppercase tracking-[0.14em] mb-3 sm:mb-5">
                 Belgian Company Intelligence
               </div>
 
-              {/* Headline — serif-flavoured weight, refined on desktop */}
-              <h1 className="text-[30px] sm:text-[38px] lg:text-[44px] font-bold text-[#07142F] leading-[1.1] tracking-tight mb-4">
-                Find, screen and<br />
-                understand companies faster.
+              {/* Headline — serif-flavoured weight, refined on desktop.
+                  The explicit `<br />` was producing an awkward line
+                  break on narrow phones (split mid-thought); replaced
+                  with a soft break that only kicks in on sm+. */}
+              <h1 className="text-[26px] sm:text-[38px] lg:text-[44px] font-bold text-[#07142F] leading-[1.15] tracking-tight mb-3 sm:mb-4">
+                Find, screen and{" "}
+                <span className="block sm:inline">understand companies faster.</span>
               </h1>
 
               {/* Subtitle */}
-              <p className="text-[14.5px] sm:text-[15.5px] text-[#5F6B85] leading-relaxed mb-6 max-w-[480px]">
+              <p className="text-[14px] sm:text-[15.5px] text-[#5F6B85] leading-relaxed mb-5 sm:mb-6 max-w-[480px]">
                 A cleaner workspace for company discovery, financial benchmarking,
                 publications and AI-assisted signals.
               </p>
 
               {/* Search bar */}
-              <form onSubmit={handleSubmit} className="w-full max-w-[460px] mb-5">
+              <form onSubmit={handleSubmit} className="w-full max-w-[460px] mb-4 sm:mb-5">
                 <div className="relative flex items-center rounded-xl border border-[#E3EAF4] bg-white shadow-[0_1px_8px_rgba(15,23,42,0.03)] hover:shadow-[0_3px_14px_rgba(11,92,255,0.06)] focus-within:border-[#0B5CFF] focus-within:shadow-[0_3px_14px_rgba(11,92,255,0.1)] transition-all duration-200">
-                  <Search className="absolute left-4 w-[16px] h-[16px] text-[#7B8498] pointer-events-none" aria-hidden />
+                  <Search className="absolute left-3.5 sm:left-4 w-[18px] h-[18px] sm:w-[16px] sm:h-[16px] text-[#7B8498] pointer-events-none" aria-hidden />
                   <input
                     ref={inputRef}
                     type="text"
@@ -137,27 +140,36 @@ export default function Home() {
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Search company, sector, VAT or publication"
                     aria-label="Search companies"
-                    className="w-full h-[44px] pl-[40px] pr-[88px] text-[14px] rounded-xl bg-transparent focus:outline-none placeholder:text-[#7B8498] text-[#07142F]"
+                    /* h-[52px] mobile / h-[48px] desktop — the input
+                       previously sat at 44px which is the WCAG floor;
+                       phones with a thumb covering half the row need a
+                       larger landing zone. Right padding (104px) leaves
+                       space for the floating Search pill. */
+                    className="w-full h-[52px] sm:h-[48px] pl-[42px] sm:pl-[40px] pr-[104px] text-[16px] sm:text-[14px] rounded-xl bg-transparent focus:outline-none placeholder:text-[#7B8498] text-[#07142F]"
                     enterKeyHint="search"
                     autoCapitalize="off"
                     autoCorrect="off"
                   />
                   <button
                     type="submit"
-                    className="absolute right-1.5 h-[36px] px-4 rounded-lg bg-[#0B5CFF] hover:bg-[#084ED8] text-white text-[13px] font-semibold transition-colors"
+                    aria-label="Search"
+                    className="absolute right-1.5 h-[44px] sm:h-[40px] px-4 rounded-lg bg-[#0B5CFF] hover:bg-[#084ED8] active:bg-[#063AAA] text-white text-[14px] sm:text-[13px] font-semibold transition-colors"
                   >
                     Search
                   </button>
                 </div>
               </form>
 
-              {/* Smart chips */}
-              <div className="flex flex-wrap items-center gap-2">
+              {/* Smart chips — horizontal-scroll row on mobile so we
+                  don't reflow into 3+ rows on narrow phones. Snap-aligns
+                  individual chips so a quick swipe parks the next one
+                  near the leading edge instead of mid-chip. */}
+              <div className="flex sm:flex-wrap items-center gap-2 overflow-x-auto sm:overflow-visible -mx-3 sm:mx-0 px-3 sm:px-0 snap-x snap-mandatory sm:snap-none pb-1 sm:pb-0">
                 {SMART_CHIPS.map((chip) => (
                   <Link
                     key={chip.label}
                     href={chip.href}
-                    className={`inline-flex items-center px-3.5 py-1.5 rounded-full border text-[12.5px] font-medium transition-all ${CHIP_TONES[chip.tone] ?? CHIP_TONES.neutral}`}
+                    className={`inline-flex items-center px-3.5 py-2 sm:py-1.5 rounded-full border text-[13px] sm:text-[12.5px] font-medium transition-all shrink-0 snap-start min-h-[36px] ${CHIP_TONES[chip.tone] ?? CHIP_TONES.neutral}`}
                   >
                     {chip.label}
                   </Link>
@@ -193,13 +205,13 @@ export default function Home() {
       </section>
 
       {/* ── Feature cards ────────────────────────────────────────────── */}
-      <section className="w-full max-w-[1200px] mx-auto px-4 pt-6 pb-16">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <section className="w-full max-w-[1200px] mx-auto px-3 sm:px-4 pt-4 sm:pt-6 pb-12 sm:pb-16">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           {FEATURE_CARDS.map(({ icon: Icon, title, desc, href, cta }) => (
             <Link
               key={href}
               href={href}
-              className="group flex flex-col gap-4 p-6 rounded-2xl border border-[#E3EAF4] bg-white hover:border-[#0B5CFF] hover:shadow-[0_8px_32px_rgba(11,92,255,0.08)] transition-all duration-200"
+              className="group flex flex-col gap-3 sm:gap-4 p-5 sm:p-6 rounded-2xl border border-[#E3EAF4] bg-white hover:border-[#0B5CFF] hover:shadow-[0_8px_32px_rgba(11,92,255,0.08)] active:bg-[#F8FAFD] transition-all duration-200"
             >
               <div className="w-11 h-11 rounded-xl bg-[#EEF3FF] flex items-center justify-center group-hover:bg-[#0B5CFF] transition-colors">
                 <Icon className="w-5 h-5 text-[#0B5CFF] group-hover:text-white transition-colors" />
