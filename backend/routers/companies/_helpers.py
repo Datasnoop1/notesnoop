@@ -1,11 +1,12 @@
 """Companies routers — shared helpers, constants, and prompt templates."""
 
 import logging
+from collections import defaultdict
 from typing import Optional
 
 import psycopg2.extras
 
-from db import fetch_one, get_conn
+from db import fetch_all, fetch_one, get_conn
 from utils import clean_cbe
 
 logger = logging.getLogger(__name__)
@@ -164,6 +165,186 @@ def _fetch_connections(cbes: list, include_historical: bool = False) -> tuple:
         cur.close()
         conn.commit()
         return subs, shs
+
+
+def _fetch_latest_nbb_admins_batch(
+    cbes: list[str], by_identifier: bool = False
+) -> dict[str, list[dict]]:
+    """For each CBE in `cbes`, return its admins from the LATEST NBB
+    annual-filing snapshot.
+
+    "Latest" = highest financial_summary.deposit_date for the company,
+    falling back to lexicographic deposit_key when deposit_date is
+    missing. Mirrors the snapshot logic in
+    backend/routers/companies/structure.py — the admins tab.
+
+    `sb_*` deposit_keys (legacy Staatsblad-sourced rows from the old
+    /extract-admins endpoint) are excluded so the snapshot is NBB-only.
+
+    With ``by_identifier=True`` the WHERE clause filters by
+    administrator.identifier instead of enterprise_number — used for the
+    reverse-direction BFS lookup ("which companies currently name this
+    CBE as an admin"). Returns dict keyed by enterprise_number either way.
+    """
+    if not cbes:
+        return {}
+    ph = ",".join(["%s"] * len(cbes))
+    scope = f"a.identifier IN ({ph})" if by_identifier else f"a.enterprise_number IN ({ph})"
+    rows = fetch_all(
+        rf"""
+        WITH candidates AS (
+            SELECT a.enterprise_number, a.deposit_key
+            FROM administrator a
+            WHERE {scope}
+              AND a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
+        ),
+        latest AS (
+            SELECT DISTINCT ON (a.enterprise_number)
+                   a.enterprise_number,
+                   a.deposit_key AS dk,
+                   MAX(fs.deposit_date) AS deposit_date
+            FROM administrator a
+            JOIN candidates c
+              ON c.enterprise_number = a.enterprise_number
+            LEFT JOIN financial_summary fs
+              ON fs.enterprise_number = a.enterprise_number
+             AND fs.deposit_key = a.deposit_key
+            WHERE a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
+            GROUP BY a.enterprise_number, a.deposit_key
+            ORDER BY a.enterprise_number,
+                     MAX(fs.deposit_date) DESC NULLS LAST,
+                     a.deposit_key DESC
+        )
+        SELECT DISTINCT ON (a.enterprise_number, a.name, a.role)
+               a.enterprise_number, a.name, a.role, a.person_type,
+               a.identifier, a.mandate_start, a.mandate_end,
+               a.fiscal_year, a.deposit_key, l.deposit_date
+        FROM administrator a
+        JOIN latest l ON l.enterprise_number = a.enterprise_number
+                     AND l.dk = a.deposit_key
+        ORDER BY a.enterprise_number, a.name, a.role
+        """,
+        list(cbes),
+    )
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        grouped[row["enterprise_number"]].append(row)
+    return grouped
+
+
+def _fetch_admin_events_batch(cbes: list[str]) -> dict[str, list[dict]]:
+    """Fetch all admin_event rows from staatsblad_event for the batch,
+    grouped by enterprise_number. Returns events in chronological order
+    (the merge logic in structure_merge.py re-sorts anyway, but the order
+    keeps debugging readable)."""
+    if not cbes:
+        return {}
+    ph = ",".join(["%s"] * len(cbes))
+    rows = fetch_all(
+        f"""
+        SELECT enterprise_number, id, pub_reference, pub_date, event_type,
+               sub_type, event_date, person_name, person_role, entity_name,
+               summary
+        FROM staatsblad_event
+        WHERE enterprise_number IN ({ph})
+          AND event_type = 'admin_event'
+        ORDER BY enterprise_number, pub_date ASC, id ASC
+        """,
+        list(cbes),
+    )
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        grouped[row["enterprise_number"]].append(row)
+    return grouped
+
+
+def fetch_current_admins_for_batch(cbes: list[str]) -> list[dict]:
+    """Return the merged "current admin" list for each CBE in the batch.
+
+    Logic mirrors GET /api/companies/{cbe}/structure (the admins tab):
+    the latest NBB filing is the baseline snapshot; later Staatsblad
+    appointment / resignation / renewal events are layered on top.
+    Older Staatsblad events that pre-date the NBB snapshot are ignored
+    (they're already reflected in NBB).
+
+    Returns a flat list of admin dicts, each shaped like the NBB
+    administrator row (enterprise_number, name, role, person_type,
+    identifier, mandate_start, mandate_end, fiscal_year, deposit_key)
+    plus extra annotations (source, as_of, role_label) from the merge.
+    """
+    if not cbes:
+        return []
+    # Local import to avoid circular module load — structure_merge has
+    # no project deps but _helpers is imported very early in the routers
+    # package init chain.
+    from .structure_merge import merge_admins_with_staatsblad
+
+    nbb_by_ent = _fetch_latest_nbb_admins_batch(cbes)
+    sb_by_ent = _fetch_admin_events_batch(cbes)
+
+    result: list[dict] = []
+    for ent_cbe in cbes:
+        nbb_for_ent = nbb_by_ent.get(ent_cbe, [])
+        sb_for_ent = sb_by_ent.get(ent_cbe, [])
+        if not nbb_for_ent and not sb_for_ent:
+            continue
+        merged, _ = merge_admins_with_staatsblad(
+            nbb_for_ent, sb_for_ent, role_labels=ROLE_LABELS
+        )
+        for admin in merged:
+            # SB-only rows (created from events) lack enterprise_number —
+            # the merge helper preserves it from the NBB seed but doesn't
+            # set it for events. Stamp it here so downstream BFS code can
+            # treat every row uniformly.
+            admin.setdefault("enterprise_number", ent_cbe)
+            result.append(admin)
+    return result
+
+
+def fetch_current_admin_companies_for_person(name: str) -> list[dict]:
+    """Return enterprises where `name` is currently a director.
+
+    Looks up every enterprise where the person/entity has an NBB row OR
+    a Staatsblad admin_event, then runs the same NBB-snapshot + Staatsblad
+    merge per enterprise to confirm the mandate is still active. Returns
+    one row per (enterprise, role) with at least
+    {enterprise_number, role}.
+    """
+    if not name:
+        return []
+    # Find candidate enterprises — anywhere this name appears as an admin
+    # (NBB or Staatsblad). Case- and punctuation-insensitive match keeps
+    # the spelling differences between the two sources from hiding rows.
+    candidates = fetch_all(
+        r"""
+        SELECT DISTINCT enterprise_number
+        FROM administrator
+        WHERE LOWER(REGEXP_REPLACE(name, '[.,]', '', 'g'))
+            = LOWER(REGEXP_REPLACE(%s, '[.,]', '', 'g'))
+          AND deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
+        UNION
+        SELECT DISTINCT enterprise_number
+        FROM staatsblad_event
+        WHERE event_type = 'admin_event'
+          AND LOWER(REGEXP_REPLACE(COALESCE(person_name, entity_name), '[.,]', '', 'g'))
+            = LOWER(REGEXP_REPLACE(%s, '[.,]', '', 'g'))
+        """,
+        (name, name),
+    )
+    cbes = [c["enterprise_number"] for c in candidates if c.get("enterprise_number")]
+    if not cbes:
+        return []
+    merged = fetch_current_admins_for_batch(cbes)
+    # Filter to rows that match the queried name (case- and punctuation-
+    # insensitive), since the merged list contains every admin of every
+    # candidate company.
+    import re
+
+    def _norm(value: str) -> str:
+        return re.sub(r"[.,]", "", (value or "")).lower()
+
+    needle = _norm(name)
+    return [row for row in merged if _norm(row.get("name", "")) == needle]
 
 
 def _fetch_entity_names(cbes: list) -> dict:

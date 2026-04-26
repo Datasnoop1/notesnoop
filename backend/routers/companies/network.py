@@ -12,6 +12,9 @@ from ._helpers import (
     _clean_cbe,
     _fetch_connections,
     _fetch_entity_names,
+    _fetch_latest_nbb_admins_batch,
+    fetch_current_admins_for_batch,
+    fetch_current_admin_companies_for_person,
     ROLE_LABELS,
     MAX_NETWORK_NODES,
     MAX_DEEP_NETWORK_NODES,
@@ -74,30 +77,12 @@ async def get_company_network(
                 (cbe,),
             )
         else:
-            # NBB stores the *scheduled* mandate end (often years out per
-            # statutory term). A real-world resignation lands first in the
-            # Staatsblad as an admin_event with sub_type=resignation/end/
-            # termination. Exclude any NBB row whose name (case- and
-            # punctuation-tolerant compare) has a Staatsblad resignation
-            # published AFTER the recorded mandate_start — that's how the
-            # admins-tab reconciles the two sources, see
-            # backend/routers/companies/structure_merge.py.
-            admins = fetch_all(
-                "SELECT * FROM administrator a "
-                "WHERE a.enterprise_number = %s "
-                "  AND (a.mandate_end IS NULL OR a.mandate_end >= %s) "
-                "  AND NOT EXISTS ("
-                "    SELECT 1 FROM staatsblad_event se "
-                "    WHERE se.enterprise_number = a.enterprise_number "
-                "      AND se.event_type = 'admin_event' "
-                "      AND LOWER(se.sub_type) IN ('resignation','end','termination') "
-                "      AND LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g')) "
-                "          = LOWER(REGEXP_REPLACE(a.name, '[.,]', '', 'g')) "
-                "      AND (a.mandate_start IS NULL "
-                "           OR se.pub_date > a.mandate_start::date)"
-                "  )",
-                (cbe, today_str),
-            )
+            # Use the same NBB-snapshot + Staatsblad merge as the admins
+            # tab: latest NBB filing is the baseline (anyone not in it
+            # has already left), then layer Staatsblad events. See
+            # backend/routers/companies/structure_merge.py for the merge
+            # algorithm.
+            admins = fetch_current_admins_for_batch([cbe])
             shareholders_rows = fetch_all(
                 "SELECT * FROM shareholder "
                 "WHERE enterprise_number = %s "
@@ -540,51 +525,20 @@ async def get_deep_network(
                     (person_name,),
                 )
             else:
-                # NBB admins (resignation-filtered) UNION Staatsblad-only
-                # fresh appointments for this person. Same convention as the
-                # forward batch query in the BFS loop below — see comments
-                # there for the full rationale.
-                seed_admin_rows = fetch_all(
-                    "SELECT a.enterprise_number, a.role "
-                    "FROM administrator a "
-                    "WHERE a.name = %s "
-                    "  AND (a.mandate_end IS NULL OR a.mandate_end >= %s) "
-                    "  AND NOT EXISTS ("
-                    "    SELECT 1 FROM staatsblad_event se "
-                    "    WHERE se.enterprise_number = a.enterprise_number "
-                    "      AND se.event_type = 'admin_event' "
-                    "      AND LOWER(se.sub_type) IN ('resignation','end','termination') "
-                    "      AND LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g')) "
-                    "          = LOWER(REGEXP_REPLACE(a.name, '[.,]', '', 'g')) "
-                    "      AND (a.mandate_start IS NULL "
-                    "           OR se.pub_date > a.mandate_start::date)"
-                    "  ) "
-                    "GROUP BY a.enterprise_number, a.role "
-                    "UNION ALL "
-                    "SELECT DISTINCT se.enterprise_number, "
-                    "       COALESCE(se.person_role, '') AS role "
-                    "FROM staatsblad_event se "
-                    "WHERE se.event_type = 'admin_event' "
-                    "  AND LOWER(COALESCE(se.sub_type, '')) NOT IN ('resignation','end','termination') "
-                    "  AND LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g')) "
-                    "      = LOWER(REGEXP_REPLACE(%s, '[.,]', '', 'g')) "
-                    "  AND NOT EXISTS ("
-                    "    SELECT 1 FROM administrator a "
-                    "    WHERE a.enterprise_number = se.enterprise_number "
-                    "      AND LOWER(REGEXP_REPLACE(a.name, '[.,]', '', 'g')) "
-                    "          = LOWER(REGEXP_REPLACE(%s, '[.,]', '', 'g'))"
-                    "  ) "
-                    "  AND NOT EXISTS ("
-                    "    SELECT 1 FROM staatsblad_event se2 "
-                    "    WHERE se2.enterprise_number = se.enterprise_number "
-                    "      AND se2.event_type = 'admin_event' "
-                    "      AND LOWER(se2.sub_type) IN ('resignation','end','termination') "
-                    "      AND LOWER(REGEXP_REPLACE(COALESCE(se2.person_name, se2.entity_name), '[.,]', '', 'g')) "
-                    "          = LOWER(REGEXP_REPLACE(%s, '[.,]', '', 'g')) "
-                    "      AND se2.pub_date > se.pub_date"
-                    "  )",
-                    [person_name, today_str, person_name, person_name, person_name],
-                )
+                # Use the same NBB-snapshot + Staatsblad merge logic the
+                # admins tab uses. The helper finds every enterprise where
+                # this person appears in EITHER source, then for each
+                # enterprise rebuilds the current board state from the
+                # latest NBB filing layered with subsequent Staatsblad
+                # events. Returns one row per (enterprise, role) where
+                # the person is still in office.
+                seed_admin_rows = [
+                    {
+                        "enterprise_number": row["enterprise_number"],
+                        "role": row.get("role") or "",
+                    }
+                    for row in fetch_current_admin_companies_for_person(person_name)
+                ]
                 # Person-as-shareholder restricted to each company's most
                 # recent fiscal_year so a 2018 ownership stake the person
                 # has since exited doesn't seed a stale spider web.
@@ -668,41 +622,17 @@ async def get_deep_network(
             # ── Fetch all relationships for the current batch ──────────
             ph = ",".join(["%s"] * len(batch))
 
-            # Administrator queries. By default we want only currently-
-            # serving directors. NBB stores the *scheduled* mandate end
-            # (often years out), so a real-world resignation only shows
-            # up in the staatsblad_event log. The NOT EXISTS clause drops
-            # rows whose name matches a Staatsblad resignation event
-            # published after the recorded mandate_start. Same name-match
-            # convention as backend/routers/companies/structure_merge.py.
-            # `include_historical=True` skips both filters for the
-            # archival spider-web view.
-            if include_historical:
-                admin_filter_sql = ""
-                admin_filter_args: list = []
-            else:
-                admin_filter_sql = (
-                    "  AND (a.mandate_end IS NULL OR a.mandate_end >= %s) "
-                    "  AND NOT EXISTS ("
-                    "    SELECT 1 FROM staatsblad_event se "
-                    "    WHERE se.enterprise_number = a.enterprise_number "
-                    "      AND se.event_type = 'admin_event' "
-                    "      AND LOWER(se.sub_type) IN ('resignation','end','termination') "
-                    "      AND LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g')) "
-                    "          = LOWER(REGEXP_REPLACE(a.name, '[.,]', '', 'g')) "
-                    "      AND (a.mandate_start IS NULL "
-                    "           OR se.pub_date > a.mandate_start::date)"
-                    "  ) "
-                )
-                admin_filter_args = [today_str]
-
-            # 1. Administrators OF these companies. UNION the NBB admin
-            # snapshot (post-resignation filter) with Staatsblad-only fresh
-            # appointments — appointments that haven't landed in NBB yet
-            # AND haven't been subsequently resigned. This makes the spider
-            # web reflect the freshest available board state regardless of
-            # which source had it first. Skipped when include_historical
-            # is true (historical view shows the raw NBB log only).
+            # Administrator queries. By default ("current admins") we
+            # follow the same logic as the company profile's admins tab:
+            #   1. Take the LATEST NBB annual filing as the baseline
+            #      snapshot — anyone not in that filing has already left
+            #      the board (they're omitted from the cap-table the
+            #      company itself files).
+            #   2. Layer Staatsblad appointment / resignation / renewal
+            #      events on top, but only those that post-date the NBB
+            #      snapshot (older events are already reflected in NBB).
+            # `include_historical=True` skips this and dumps the full
+            # NBB administrator log so users can audit prior boards.
             if include_historical:
                 admin_rows = fetch_all(
                     f"SELECT a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
@@ -712,51 +642,36 @@ async def get_deep_network(
                     batch,
                 )
             else:
-                admin_rows = fetch_all(
+                admin_rows = fetch_current_admins_for_batch(batch)
+
+            # Reverse direction — "which other companies currently name
+            # any of `batch` as an administrator?" Pragmatic approach:
+            # find every enterprise that has had the batch member as an
+            # admin (NBB), then run the same NBB-snapshot + Staatsblad
+            # merge per enterprise to confirm the link is still live.
+            # Staatsblad-only legal-person admin appointments aren't
+            # caught here (the event log doesn't carry the admin's CBE);
+            # name-resolution is a separate enhancement.
+            if include_historical:
+                admin_reverse_rows = fetch_all(
                     f"SELECT a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
                     f"FROM administrator a "
-                    f"WHERE a.enterprise_number IN ({ph}) "
-                    f"{admin_filter_sql}"
-                    f"GROUP BY a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
-                    f"UNION ALL "
-                    f"SELECT DISTINCT "
-                    f"  se.enterprise_number, "
-                    f"  COALESCE(se.person_name, se.entity_name) AS name, "
-                    f"  COALESCE(se.person_role, '') AS role, "
-                    f"  CASE WHEN se.person_name IS NOT NULL THEN 'natural' ELSE 'legal' END AS person_type, "
-                    f"  NULL::text AS identifier "
-                    f"FROM staatsblad_event se "
-                    f"WHERE se.enterprise_number IN ({ph}) "
-                    f"  AND se.event_type = 'admin_event' "
-                    f"  AND LOWER(COALESCE(se.sub_type, '')) NOT IN ('resignation','end','termination') "
-                    f"  AND COALESCE(se.person_name, se.entity_name) IS NOT NULL "
-                    f"  AND NOT EXISTS ("
-                    f"    SELECT 1 FROM administrator a "
-                    f"    WHERE a.enterprise_number = se.enterprise_number "
-                    f"      AND LOWER(REGEXP_REPLACE(a.name, '[.,]', '', 'g')) "
-                    f"          = LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g'))"
-                    f"  ) "
-                    f"  AND NOT EXISTS ("
-                    f"    SELECT 1 FROM staatsblad_event se2 "
-                    f"    WHERE se2.enterprise_number = se.enterprise_number "
-                    f"      AND se2.event_type = 'admin_event' "
-                    f"      AND LOWER(se2.sub_type) IN ('resignation','end','termination') "
-                    f"      AND LOWER(REGEXP_REPLACE(COALESCE(se2.person_name, se2.entity_name), '[.,]', '', 'g')) "
-                    f"          = LOWER(REGEXP_REPLACE(COALESCE(se.person_name, se.entity_name), '[.,]', '', 'g')) "
-                    f"      AND se2.pub_date > se.pub_date"
-                    f"  )",
-                    batch + admin_filter_args + batch,
+                    f"WHERE a.identifier IN ({ph}) "
+                    f"GROUP BY a.enterprise_number, a.name, a.role, a.person_type, a.identifier",
+                    batch,
                 )
-
-            # 2. Companies where these entities serve as administrator (reverse)
-            admin_reverse_rows = fetch_all(
-                f"SELECT a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
-                f"FROM administrator a "
-                f"WHERE a.identifier IN ({ph}) "
-                f"{admin_filter_sql}"
-                f"GROUP BY a.enterprise_number, a.name, a.role, a.person_type, a.identifier",
-                batch + admin_filter_args,
-            )
+            else:
+                # candidate enterprises: anywhere a batch member ever
+                # appears as an admin in NBB.
+                candidate_rev = _fetch_latest_nbb_admins_batch(
+                    batch, by_identifier=True
+                )
+                candidate_ents = sorted(candidate_rev.keys())
+                merged_rev = fetch_current_admins_for_batch(candidate_ents)
+                admin_reverse_rows = [
+                    row for row in merged_rev
+                    if (row.get("identifier") or "").strip() in set(batch)
+                ]
 
             # 3-6. Shareholders / participating-interest queries. By default
             # we restrict to each enterprise's most recent fiscal_year per
