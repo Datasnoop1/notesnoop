@@ -503,12 +503,27 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_
     # auto-releases when the underlying Postgres connection closes (i.e.
     # when this Python process exits and the connection pool tears down).
     _lock_conn = get_connection()
-    with _lock_conn.cursor() as _cur:
-        _cur.execute("SELECT pg_try_advisory_lock(8888, 1)")
-        if not _cur.fetchone()[0]:
-            log.info("another backload holds advisory lock(8888, 1) — exiting cleanly")
+    try:
+        with _lock_conn.cursor() as _cur:
+            _cur.execute("SELECT pg_try_advisory_lock(8888, 1)")
+            _acquired = _cur.fetchone()[0]
+        # End the implicit transaction psycopg2 opened on execute(). Without
+        # this, the conn sits in `idle in transaction` for the full daemon
+        # lifetime, and a `idle_in_transaction_session_timeout` (Supabase
+        # pooler enables this by default) would silently kill the session
+        # and release the lock mid-run.
+        _lock_conn.commit()
+    except Exception:
+        # Don't leak _lock_conn if cursor/execute raises on a transient blip.
+        try:
             put_connection(_lock_conn)
-            return
+        except Exception:
+            pass
+        raise
+    if not _acquired:
+        log.info("another backload holds advisory lock(8888, 1) — exiting cleanly")
+        put_connection(_lock_conn)
+        return
     # Deliberately keep _lock_conn checked out for the duration of run() —
     # putting it back would expose it to the pool's idle-timeout, which
     # could close the conn and silently release the lock mid-run.

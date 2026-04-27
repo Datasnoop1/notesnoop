@@ -11,13 +11,15 @@
 #
 # New jobs installed:
 #   - daily_update.sh at 03:00 (tracked wrapper; replaces legacy host-only entry)
-#   - nbb_nightly_backload.py at 02:00 (5000 calls/run, locked wrapper)
-#   - nbb daytime backload hourly 06:00-22:00 UTC (1500 calls/run, locked wrapper)
 #   - invoice_ingest.py at 04:00
 #   - open_data_ted.py at 05:00
 #   - open_data_staatsblad_events.py at 04:30
 #   - open_data_regsol.py at 03:30 (batch 200)
 #   - alert_digest.py weekly Mondays 07:00
+#
+# NOTE: the NBB historical backload now runs as the `nbb-backload-worker`
+# compose service (continuously), not as a cron entry. See
+# docs/nbb-loader-operations.md.
 
 set -euo pipefail
 
