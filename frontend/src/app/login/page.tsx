@@ -105,7 +105,7 @@ export default function LoginPage() {
             "radial-gradient(ellipse 560px 400px at center, rgba(22,135,232,0.06), transparent 60%)",
         }}
       />
-      <Card className="w-full max-w-sm rounded-[20px] border-[#E2E8F2] bg-white shadow-[0_12px_48px_rgba(15,23,42,0.08)]">
+      <Card className="w-full max-w-sm rounded-[20px] glass-card ring-0 bg-transparent">
         <CardContent className="pt-7 pb-6 px-7">
           {/* Header */}
           <div className="text-center mb-6">

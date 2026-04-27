@@ -96,13 +96,15 @@ export default function Home() {
 
       {/* ── Hero card ────────────────────────────────────────────────── */}
       <section className="w-full max-w-[1200px] mx-auto px-3 sm:px-4 pt-4 sm:pt-6">
-        <div className="rounded-2xl sm:rounded-[28px] border border-[#E2E8F2] bg-white p-5 sm:p-10 lg:p-12 overflow-hidden relative shadow-[0_8px_40px_rgba(15,23,42,0.04)]">
+        <div className="glass-card rounded-2xl sm:rounded-[28px] p-5 sm:p-10 lg:p-12 overflow-hidden relative">
 
-          {/* Subtle accent gradient — top-right corner wash */}
+          {/* Subtle accent gradient — top-right corner wash. Sits inside
+              the frosted hero so the corner picks up a touch of sky-blue
+              tint behind the glass. */}
           <div
             aria-hidden
-            className="pointer-events-none absolute -top-20 -right-20 w-[420px] h-[420px] rounded-full opacity-60"
-            style={{ background: "radial-gradient(circle, rgba(238,243,255,0.9) 0%, rgba(248,250,253,0) 60%)" }}
+            className="pointer-events-none absolute -top-20 -right-20 w-[420px] h-[420px] rounded-full opacity-70"
+            style={{ background: "radial-gradient(circle, rgba(234,245,255,0.95) 0%, rgba(247,249,252,0) 60%)" }}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-[1.3fr_1fr] gap-8 lg:gap-12 items-center relative">
