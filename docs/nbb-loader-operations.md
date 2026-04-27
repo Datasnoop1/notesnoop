@@ -45,7 +45,7 @@ separate credential.
 
 ---
 
-## Pipeline 2 — Historical backload (`nbb_nightly_backload.py`)
+## Pipeline 2 — Historical backload (`nbb-backload-worker` service)
 
 **Purpose:** Fills coverage gaps for companies that have never been loaded —
 works backwards from the most recent fiscal year to 2022. Older fiscal years
@@ -53,26 +53,55 @@ are intentionally out of scope: the loader skips any filing with
 `end_date < 2022-04-01` (NBB only publishes JSON-XBRL from April 2022 onward),
 so probing FY2021 and earlier burns API quota for zero data.
 
-**Schedule:** Two cron slots, both via `nbb_backload_cron.sh`:
+**Runtime:** Long-running container (`nbb-backload-worker` service in
+`docker-compose.yml`) — same image as `backend`, but runs an infinite loop:
+
 ```
-*/30 6-22 * * *  MAX_CALLS=3500 PER_YEAR_CAP=3500 SKIP_REBUILD=1 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
-0 2    * * *     MAX_CALLS=5000 PER_YEAR_CAP=5000 SKIP_REBUILD=0 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+scripts/nbb_backload_loop.sh
+  → python /app/scripts/nbb_nightly_backload.py
+        --max-calls 3500 --per-year-cap 3500 --skip-rebuild
+  → sleep 30 s
+  → repeat
 ```
 
-- **Daytime:** Runs every 30 minutes, 06:00–22:00. Each run is 3,500 calls × 1.25 s/call ≈ 73 min.
-  The host-side `flock` lock means only ~2 runs complete per hour (one finishes before the
-  next start, the other start is skipped). Roughly 26–28 daytime run-slots complete per day.
-- **Nightly:** 02:00 run with 5,000 calls and full materialized table rebuild.
-- **Skip-rebuild on daytime:** Daytime runs pass `--skip-rebuild` so they don't spend 2.5 min
-  on a rebuild that the next run would immediately undo. The nightly 02:00 run always rebuilds,
-  so screener data is fresh by morning.
-- **Effective throughput:** ~35,000 API calls/day.
+Each iteration takes ~73 min (3,500 calls × 1.25 s/call), so the daemon
+runs near-continuously (~19 iterations/day = ~67k API calls/day theoretical
+ceiling, well above the older cron-based ~35k/day target).
 
-**Year order:** `start_year` (2025) → `end_year` (2022), most recent first.
-Older years are only reached once the recent year's candidate pool is exhausted.
-FY2021 and earlier are not backfilled — see purpose note above.
+If an iteration finishes in under 5 min — meaning the script tripped 401
+(key revocation), 429 (rate-limit), or an empty queue — the daemon sleeps
+`BACKLOAD_BACKOFF_S` (default 600 s) before retrying, so we don't spam
+NBB during outages or while waiting for the watchdog to rotate keys.
 
-**Log:** `/opt/leadpeek/scripts/_watchdog_state/nightly.log`
+**Why a daemon, not cron?** The previous design (`docker exec leadpeek-backend-1`
+fired by cron) was SIGKILLed every time auto-deploy rebuilt the backend
+container, losing up to a full 73-min run on every push to master.
+The worker container is independent of `backend` and `frontend`, so deploys
+no longer interrupt it — same isolation pattern as `enrichment-worker` and
+`staatsblad-bulk-worker`.
+
+**Materialised-table rebuild:** Always runs in the daily 01:00 batch
+(`nbb_batch_pipeline.py`). The daemon always passes `--skip-rebuild`.
+
+**Year order:** `BACKLOAD_START_YEAR` (default 2025) → `BACKLOAD_END_YEAR`
+(default 2022), most recent first. Older years are only reached once the
+recent year's candidate pool is exhausted. FY2021 and earlier are not
+backfilled — see purpose note above.
+
+**Tunables (env vars on the `nbb-backload-worker` service):**
+
+| Var | Default | Notes |
+|---|---|---|
+| `BACKLOAD_MAX_CALLS` | 3500 | Per-iteration call budget |
+| `BACKLOAD_START_YEAR` | 2025 | Reverse-chrono start year |
+| `BACKLOAD_END_YEAR` | 2022 | Reverse-chrono end year |
+| `BACKLOAD_PER_YEAR_CAP` | 3500 | Per-fiscal-year cap per iteration |
+| `BACKLOAD_SLEEP_S` | 30 | Sleep between normal iterations |
+| `BACKLOAD_BACKOFF_S` | 600 | Sleep after a short (<5 min) iteration |
+
+**Logs:** `docker logs leadpeek-nbb-backload-worker-1`. The legacy
+`/opt/leadpeek/scripts/_watchdog_state/nightly.log` is no longer written —
+historical entries from the cron era stay there for reference.
 
 ---
 
@@ -286,26 +315,32 @@ Daytime backload runs skip rebuild (`--skip-rebuild`) to avoid blocking overlap.
 | File | Pipeline |
 |---|---|
 | `/var/log/nbb_batch.log` | Daily batch |
-| `/opt/leadpeek/scripts/_watchdog_state/nightly.log` | Backload cron |
+| `docker logs leadpeek-nbb-backload-worker-1` | Backload daemon (live) |
+| `/opt/leadpeek/scripts/_watchdog_state/nightly.log` | **Dead** — backload cron-era log, kept for reference |
 | `/var/log/nbb_backfill.log` | One-off backfill runs (manual) |
-| `/var/log/nbb_continuous.log` | **Dead** — old continuous loader, crashed 2026-04-15 during disk incident, not restarted (replaced by cron-based backload) |
+| `/var/log/nbb_continuous.log` | **Dead** — old continuous loader, crashed 2026-04-15 during disk incident |
 
 ---
 
-## Cron config location
+## Configuration location
 
-`/opt/leadpeek/scripts/nbb_backload_cron.sh` — edit `START_YEAR` / `END_YEAR`
-/ `MAX_CALLS` / `PER_YEAR_CAP` / `SKIP_REBUILD` here to adjust backload scope and speed.
-The script is volume-mounted into the container, so a `git pull` on the server
-is sufficient to deploy changes — no Docker rebuild needed.
+The backload daemon's behaviour is controlled by env vars on the
+`nbb-backload-worker` service in `docker-compose.yml` (see Tunables table
+above). Loop body lives in `scripts/nbb_backload_loop.sh`, mounted
+read-only into the container — `git pull` on the server picks up loop
+changes; tunable changes require a `docker compose up -d nbb-backload-worker`
+to recreate the service with new env values.
 
-The actual cron entries live in `crontab -e` on the server host (not in the repo).
-Current entries:
+The remaining NBB-related cron entries live in `crontab -e` on the server
+host (not in the repo):
 ```
-*/30 6-22 * * * MAX_CALLS=3500 PER_YEAR_CAP=3500 SKIP_REBUILD=1 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
-0 2 * * *      MAX_CALLS=5000 PER_YEAR_CAP=5000 SKIP_REBUILD=0 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
-0 4 * * *      docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/backfill_affiliation.py --max-filings 5000   # affiliation catch-up for pre-inline-extraction filings
+0 1 * * * docker exec leadpeek-backend-1 python nbb_batch_pipeline.py >> /var/log/nbb_batch.log 2>&1
+0 4 * * * docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/backfill_affiliation.py --max-filings 5000   # affiliation catch-up for pre-inline-extraction filings
+*/15 * * * * cd /opt/leadpeek && bash scripts/nbb_watchdog.sh >> scripts/_watchdog_state/cron.log 2>&1
 ```
+
+The two backload cron entries (`*/30 6-22` and `0 2`) were removed when the
+daemon shipped — see change history below.
 
 ---
 
@@ -328,3 +363,5 @@ Current entries:
 | 2026-04-24 | Combined throughput improvement: ~26,000 → ~35,000 API calls/day (+35%) |
 | 2026-04-25 | Backload scope contracted from end_year=2016 back to end_year=2022. Pre-April-2022 filings are PDF-only and skipped by the loader, so older candidate pools were burning quota for zero gain. |
 | 2026-04-25 | Doc clarified: the backload populates governance tables (`administrator`, `shareholder`, `participating_interest`, `affiliation`) inline via `store_governance_snapshot()` for every filing — not just `financial_data`. The 04:00 `backfill_affiliation.py` cron is a catch-up for filings loaded before inline extraction existed, not part of normal flow. |
+| 2026-04-27 | **Crontab cleanup:** removed two duplicate pre-2026-04-24 backload entries (`0 2 * * * MAX_CALLS=5000 PER_YEAR_CAP=3000` and `0 6-22 * * * MAX_CALLS=1500 PER_YEAR_CAP=1500`) that were colliding with the post-04-24 entries via `flock` and starving the half-hour drip-feed. Backup: `/opt/leadpeek/scripts/_watchdog_state/crontab.bak.20260427T152633Z`. |
+| 2026-04-27 | **Backload moved from cron to long-running daemon (`nbb-backload-worker` service).** Cron-fired `docker exec leadpeek-backend-1` was being SIGKILLed every time auto-deploy rebuilt the backend container (~1 hour of in-progress run lost per push). New service runs `scripts/nbb_backload_loop.sh` continuously, isolated from backend rebuilds — same pattern as `enrichment-worker` / `staatsblad-bulk-worker`. Both backload cron entries removed. |
