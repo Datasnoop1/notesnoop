@@ -1,23 +1,25 @@
 """Embedding utilities — generate and store vector embeddings for semantic search.
 
-Uses OpenRouter's embeddings API with a free or cheap model.
-Stores vectors in PostgreSQL via pgvector extension.
+Provider-selectable backend. Stores vectors in PostgreSQL via pgvector.
 
-Scale target: 2M companies at ~5 GB total storage.
-  - 256 dimensions (not 1536) → 1 KB per vector instead of 6 KB
-  - No source_text stored (derivable from company_enrichment.ai_insights)
-  - HNSW index for fast approximate nearest-neighbor at scale
+Provider selection (env-driven):
+  - EMBEDDING_PROVIDER=nvidia → NVIDIA NIM (build.nvidia.com).
+    Default model nvidia/nv-embedqa-e5-v5 at 1024 dims. Asymmetric — pass
+    input_type='query' for search queries, 'passage' for corpus documents.
+  - EMBEDDING_PROVIDER=openrouter → OpenRouter, default
+    openai/text-embedding-3-small at 256 dims (legacy path).
 
-Models (change EMBEDDING_MODEL env var to switch):
-  - openai/text-embedding-3-small  ($0.02/1M tokens, supports dim reduction to 256)
-  - nvidia/llama-nemotron-embed-vl-1b-v2:free  (free, logs data, trial only)
+Auto-default: 'nvidia' when NVIDIA_API_KEY is set, else 'openrouter'.
+
+HNSW index for fast approximate nearest-neighbour at scale. No source_text
+stored — derivable from company_enrichment.bulk_summary / ai_insights.
 """
 
 import hashlib
 import json
 import logging
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from db import get_connection, put_connection, execute, fetch_one, fetch_all
@@ -25,8 +27,26 @@ from db import get_connection, put_connection, execute, fetch_one, fetch_all
 logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "openai/text-embedding-3-small")
-EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", "256"))
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
+NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
+
+
+def _resolve_provider() -> str:
+    p = os.getenv("EMBEDDING_PROVIDER", "").strip().lower()
+    if p in ("nvidia", "openrouter"):
+        return p
+    return "nvidia" if NVIDIA_API_KEY else "openrouter"
+
+
+EMBEDDING_PROVIDER = _resolve_provider()
+
+_PROVIDER_DEFAULTS = {
+    "nvidia": ("nvidia/nv-embedqa-e5-v5", 1024),
+    "openrouter": ("openai/text-embedding-3-small", 256),
+}
+_DEF_MODEL, _DEF_DIMS = _PROVIDER_DEFAULTS[EMBEDDING_PROVIDER]
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", _DEF_MODEL)
+EMBEDDING_DIMS = int(os.getenv("EMBEDDING_DIMS", str(_DEF_DIMS)))
 
 # Query-embedding cache TTL. 30 days matches the plan; the daily
 # admin-page view plus recurring screener searches mean most popular
@@ -74,11 +94,60 @@ def ensure_embedding_table():
         put_connection(conn)
 
 
-async def generate_embedding(text: str) -> list[float] | None:
-    """Generate an embedding vector for a text string via OpenRouter."""
-    if not OPENROUTER_API_KEY or not text:
+async def generate_embedding(
+    text: str,
+    *,
+    input_type: Literal["query", "passage"] = "passage",
+) -> list[float] | None:
+    """Generate an embedding for a text string via the configured provider.
+
+    `input_type` is only meaningful for asymmetric models like NVIDIA's
+    nv-embedqa-e5-v5: pass 'query' when embedding a search query, 'passage'
+    for corpus documents. OpenRouter's symmetric models ignore it.
+    """
+    if not text:
+        return None
+    if EMBEDDING_PROVIDER == "nvidia":
+        return await _nvidia_embed_one(text, input_type)
+    return await _openrouter_embed_one(text)
+
+
+async def _nvidia_embed_one(text: str, input_type: str) -> list[float] | None:
+    if not NVIDIA_API_KEY:
+        logger.warning("NVIDIA_API_KEY not set; cannot embed via NVIDIA NIM")
+        return None
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{NVIDIA_BASE_URL}/embeddings",
+                headers={
+                    "Authorization": f"Bearer {NVIDIA_API_KEY}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json={
+                    "model": EMBEDDING_MODEL,
+                    "input": text[:8000],
+                    "input_type": input_type,
+                    "truncate": "END",
+                    "encoding_format": "float",
+                },
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                logger.warning("NVIDIA embedding API returned %d: %s",
+                               resp.status_code, resp.text[:200])
+                return None
+            data = resp.json()
+            return data["data"][0]["embedding"]
+    except Exception as e:
+        logger.error("NVIDIA embedding generation failed: %s", e)
         return None
 
+
+async def _openrouter_embed_one(text: str) -> list[float] | None:
+    if not OPENROUTER_API_KEY:
+        return None
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -89,18 +158,19 @@ async def generate_embedding(text: str) -> list[float] | None:
                 },
                 json={
                     "model": EMBEDDING_MODEL,
-                    "input": text[:8000],  # Truncate to avoid token limits
-                    "dimensions": EMBEDDING_DIMS,  # Reduce dims for storage efficiency
+                    "input": text[:8000],
+                    "dimensions": EMBEDDING_DIMS,
                 },
                 timeout=30,
             )
             if resp.status_code != 200:
-                logger.warning("Embedding API returned %d: %s", resp.status_code, resp.text[:200])
+                logger.warning("OpenRouter embedding returned %d: %s",
+                               resp.status_code, resp.text[:200])
                 return None
             data = resp.json()
             return data["data"][0]["embedding"]
     except Exception as e:
-        logger.error("Embedding generation failed: %s", e)
+        logger.error("OpenRouter embedding generation failed: %s", e)
         return None
 
 
@@ -256,22 +326,68 @@ async def batch_embed_all(limit: int = 500) -> dict:
 # ── Bulk embedder used by the Phase 1 enrichment worker ──────────────
 
 
-async def generate_embeddings_batch(texts: list[str]) -> list[list[float] | None]:
-    """Embed a batch of texts in a single OpenRouter call.
+async def generate_embeddings_batch(
+    texts: list[str],
+    *,
+    input_type: Literal["query", "passage"] = "passage",
+) -> list[list[float] | None]:
+    """Embed a batch of texts in a single provider call.
 
-    OpenAI's embedding endpoint accepts up to 2048 inputs per request.
-    We conservatively cap at 64 per call since the caller-side batching
-    in the worker tops out there anyway. Returns a list aligned with
-    `texts` — entries are None when the API returned a malformed result.
+    Returns a list aligned with `texts` — entries are None when the API
+    returned a malformed result or the input was empty.
     """
-    if not OPENROUTER_API_KEY or not texts:
+    if not texts:
+        return []
+    if EMBEDDING_PROVIDER == "nvidia":
+        return await _nvidia_embed_batch(texts, input_type)
+    return await _openrouter_embed_batch(texts)
+
+
+async def _nvidia_embed_batch(texts: list[str], input_type: str) -> list[list[float] | None]:
+    if not NVIDIA_API_KEY:
+        return [None] * len(texts)
+    cleaned: list[str] = [(t or "")[:8000] or "empty" for t in texts]
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{NVIDIA_BASE_URL}/embeddings",
+                headers={
+                    "Authorization": f"Bearer {NVIDIA_API_KEY}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json={
+                    "model": EMBEDDING_MODEL,
+                    "input": cleaned,
+                    "input_type": input_type,
+                    "truncate": "END",
+                    "encoding_format": "float",
+                },
+                timeout=60,
+            )
+            if resp.status_code != 200:
+                logger.warning("NVIDIA batch embedding returned %d: %s",
+                               resp.status_code, resp.text[:200])
+                return [None] * len(texts)
+            data = resp.json().get("data") or []
+            out: list[list[float] | None] = [None] * len(texts)
+            for item in data:
+                i = item.get("index")
+                emb = item.get("embedding")
+                if isinstance(i, int) and 0 <= i < len(out) and isinstance(emb, list):
+                    if not (texts[i] or "").strip():
+                        continue
+                    out[i] = emb
+            return out
+    except Exception as e:
+        logger.error("NVIDIA batch embedding failed: %s", e)
         return [None] * len(texts)
 
-    # OpenAI rejects empty strings in a batch; replace them with a
-    # placeholder and null-out the result so the caller can skip
-    # storing anything. Truncate each input to the documented 8k limit.
-    cleaned: list[str] = [(t or "")[:8000] or "empty" for t in texts]
 
+async def _openrouter_embed_batch(texts: list[str]) -> list[list[float] | None]:
+    if not OPENROUTER_API_KEY:
+        return [None] * len(texts)
+    cleaned: list[str] = [(t or "")[:8000] or "empty" for t in texts]
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -288,27 +404,21 @@ async def generate_embeddings_batch(texts: list[str]) -> list[list[float] | None
                 timeout=60,
             )
             if resp.status_code != 200:
-                logger.warning(
-                    "Batch embedding API returned %d: %s",
-                    resp.status_code, resp.text[:200],
-                )
+                logger.warning("OpenRouter batch embedding returned %d: %s",
+                               resp.status_code, resp.text[:200])
                 return [None] * len(texts)
-            data = resp.json()
-            rows = data.get("data") or []
-            # OpenAI returns items with `index` so they can be shuffled;
-            # be robust to that.
+            data = resp.json().get("data") or []
             out: list[list[float] | None] = [None] * len(texts)
-            for item in rows:
+            for item in data:
                 i = item.get("index")
                 emb = item.get("embedding")
                 if isinstance(i, int) and 0 <= i < len(out) and isinstance(emb, list):
-                    # Null-out the placeholder we substituted.
                     if not (texts[i] or "").strip():
                         continue
                     out[i] = emb
             return out
     except Exception as e:
-        logger.error("Batch embedding generation failed: %s", e)
+        logger.error("OpenRouter batch embedding failed: %s", e)
         return [None] * len(texts)
 
 
@@ -394,7 +504,7 @@ async def embed_query(q: str) -> list[float] | None:
             except Exception:
                 pass  # fall through to regenerate
 
-    embedding = await generate_embedding(text)
+    embedding = await generate_embedding(text, input_type="query")
     if not embedding:
         return None
 

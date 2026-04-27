@@ -105,11 +105,11 @@ async def company_timeline(cbe: str, limit: int = 200):
         # Administrator mandate starts and ends.
         adm_rows = fetch_all(
             """
-            SELECT DISTINCT name, mandate_start, mandate_end, role_label
+            SELECT DISTINCT name, mandate_start, mandate_end, role
             FROM administrator
             WHERE enterprise_number = %s
               AND name IS NOT NULL
-            ORDER BY COALESCE(mandate_start::date, '1900-01-01'::date) DESC
+            ORDER BY mandate_start DESC NULLS LAST
             LIMIT 100
             """,
             (cbe,),
@@ -117,7 +117,7 @@ async def company_timeline(cbe: str, limit: int = 200):
         for r in adm_rows or []:
             ms = r.get("mandate_start")
             me = r.get("mandate_end")
-            role = r.get("role_label") or "Administrator"
+            role = r.get("role") or "Administrator"
             name = r.get("name")
             if ms:
                 try:
