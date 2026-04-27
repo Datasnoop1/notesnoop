@@ -145,14 +145,22 @@ async def search_events(
     # Delegate to the blended search.  If no embeddings exist yet, the
     # function will fall back to FTS+trigram only.
     try:
-        emb = await generate_embedding(q.strip())
+        # `input_type="query"` matters for asymmetric embedders like
+        # NVIDIA's nv-embedqa-e5-v5: corpus rows in
+        # `staatsblad_event_embedding` were stored with the implicit
+        # "passage" mode, so search queries must use "query" mode for
+        # their vectors to live in the matching half of the latent space.
+        emb = await generate_embedding(q.strip(), input_type="query")
     except Exception:
         logger.exception("Embedding call for query failed — falling back to keyword-only")
         emb = None
     try:
+        # Accept any non-empty list — let the pgvector cast in
+        # `_blended_search` enforce the dim. Hardcoding 256 silently
+        # disabled semantic on NVIDIA (1024-dim) in 2026-04 onwards.
         results = _blended_search(
             q=q.strip(),
-            emb=emb if (isinstance(emb, list) and len(emb) == 256) else None,
+            emb=emb if (isinstance(emb, list) and len(emb) > 0) else None,
             event_type=event_type,
             since=since,
             enterprise_number=enterprise_number,

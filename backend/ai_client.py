@@ -749,9 +749,15 @@ async def _nvidia_complete_with_meta(
     except httpx.TimeoutException:
         meta["error"] = "timeout"
         logger.warning("NVIDIA timeout for model %s after %.1fs", model, timeout_s)
-    except Exception:
+    except Exception as e:
+        # Avoid logger.exception here: some httpx errors carry the request
+        # object (with Authorization: Bearer …) attached to the traceback,
+        # which would otherwise be serialised into log files.
         meta["error"] = "exception"
-        logger.exception("NVIDIA request failed for model %s", model)
+        logger.warning(
+            "NVIDIA request failed for model %s: %s: %s",
+            model, type(e).__name__, str(e)[:200],
+        )
     meta["latency_ms"] = int((time.monotonic() - started) * 1000)
     return meta
 
