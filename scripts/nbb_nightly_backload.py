@@ -35,6 +35,7 @@ import argparse
 import importlib.util
 import logging
 import os
+import re
 import sys
 import time
 import uuid
@@ -116,6 +117,51 @@ USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence)"
 # handles key rotation — so this is safe to tune.
 REQUEST_DELAY = 1.25
 
+_STALE_CONN_MARKERS = (
+    "connection already closed",
+    "ssl syscall error",
+    "server closed the connection",
+    "connection is bad",
+    "no connection",
+    "ssl connection has been closed",
+)
+
+
+def _is_stale_conn_error(exc: BaseException) -> bool:
+    """Detect pooled-connection-died errors that recover on reconnect.
+    Mirrors backend/db.py._is_stale_conn_error so a long-running script
+    holding its own conn can recognise the same failure modes."""
+    if not isinstance(exc, (psycopg2.InterfaceError, psycopg2.OperationalError)):
+        return False
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _STALE_CONN_MARKERS)
+
+
+def _reconnect(conn):
+    """Drop a broken connection and return a fresh one from the pool."""
+    try:
+        put_connection(conn)
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return get_connection()
+
+
+def _safe_exc(exc: BaseException) -> str:
+    """Format an exception for logging without leaking credentials.
+    psycopg2 OperationalError messages don't normally include the
+    DATABASE_URL, but be defensive: strip anything that looks like a
+    `user:pass@host` fragment."""
+    msg = str(exc)
+    # Drop any postgres URL-style credential prefix
+    sanitised = re.sub(r"\b\w+://[^@\s]+@", "<credentials-redacted>@", msg)
+    # Cap length so a stray traceback doesn't bloat the log
+    if len(sanitised) > 240:
+        sanitised = sanitised[:240] + "...[truncated]"
+    return f"{type(exc).__name__}: {sanitised}"
+
 
 def _headers() -> dict:
     return {
@@ -128,9 +174,17 @@ def _headers() -> dict:
 
 def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
     """Companies that don't yet have fiscal_year loaded in financial_latest
-    AND haven't been marked NO_FILINGS / PDF_ONLY for any prior attempt.
+    AND haven't been marked NO_FILINGS / PDF_ONLY / NO_NEW_FILINGS for any
+    prior attempt.
 
     NO_FILINGS is the global "never filed anything at NBB" sentinel.
+    PDF_ONLY marks companies that file under an abbreviated scheme that
+    NBB does not expose as JSON-XBRL.
+    NO_NEW_FILINGS marks companies we visited but found no new deposits to
+    load (NBB returned only refs already in nbb_load_log, or refs from
+    pre-2022 PDF-only era). Re-querying them produces zero new data — the
+    daily batch will pick up any future filing they make.
+
     Any legacy NO_FILINGS_FY{year} rows (written briefly on 2026-04-20
     before we confirmed NBB's fiscalYear param is a no-op) also exclude
     via the LIKE match, so we never re-probe those CBEs either.
@@ -182,8 +236,10 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
               SELECT 1
               FROM nbb_load_log ll
               WHERE ll.enterprise_number = e.enterprise_number
-                AND (ll.deposit_key LIKE 'NO_FILINGS%%'
-                     OR ll.deposit_key = 'PDF_ONLY')
+                AND (
+                    ll.deposit_key LIKE 'NO_FILINGS%%'
+                    OR ll.deposit_key IN ('PDF_ONLY', 'NO_NEW_FILINGS')
+                )
           )
         ORDER BY (
             SELECT fl.total_assets
@@ -282,11 +338,8 @@ def _pick(d: dict, *keys):
     return None
 
 
-def store_filing(conn, cbe: str, filing_json: dict, ref_meta: dict) -> int:
-    """Insert rubrics + load_log row. Returns number of rubric rows stored.
-
-    Accepts NBB ref_meta in either PascalCase (legacy) or camelCase (2026 schema).
-    """
+def _store_filing_once(conn, cbe: str, filing_json: dict, ref_meta: dict) -> int:
+    """Single attempt at inserting rubrics + load_log row. Caller handles retry."""
     deposit_key = _pick(ref_meta, "ReferenceNumber", "referenceNumber")
     if not deposit_key:
         return 0
@@ -335,14 +388,44 @@ def store_filing(conn, cbe: str, filing_json: dict, ref_meta: dict) -> int:
             log.warning("governance store failed for %s filing %s: %s", cbe, deposit_key, gov_err)
         return len(rows)
     except Exception:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         raise
     finally:
-        cur.close()
+        try:
+            cur.close()
+        except Exception:
+            pass
 
 
-def mark_no_filings(conn, cbe: str, sentinel: str) -> None:
-    """Record NO_FILINGS or PDF_ONLY so we don't keep retrying this CBE."""
+def store_filing(conn, cbe: str, filing_json: dict, ref_meta: dict) -> tuple[int, object]:
+    """Insert rubrics + load_log row. Returns (rubrics_stored, conn).
+
+    On a stale-connection failure we reconnect once and retry; the caller
+    must use the returned conn for subsequent operations because the prior
+    one was closed.
+
+    Accepts NBB ref_meta in either PascalCase (legacy) or camelCase (2026 schema).
+    """
+    try:
+        n = _store_filing_once(conn, cbe, filing_json, ref_meta)
+        return n, conn
+    except Exception as exc:
+        if not _is_stale_conn_error(exc):
+            raise
+        log.warning("store_filing %s: stale conn (%s) — reconnecting", cbe, _safe_exc(exc))
+        conn = _reconnect(conn)
+        try:
+            n = _store_filing_once(conn, cbe, filing_json, ref_meta)
+            return n, conn
+        except Exception as exc2:
+            log.warning("store_filing %s: retry after reconnect also failed: %s", cbe, _safe_exc(exc2))
+            return 0, conn
+
+
+def _mark_no_filings_once(conn, cbe: str, sentinel: str) -> None:
     cur = conn.cursor()
     try:
         cur.execute(
@@ -352,9 +435,37 @@ def mark_no_filings(conn, cbe: str, sentinel: str) -> None:
         )
         conn.commit()
     except Exception:
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
     finally:
-        cur.close()
+        try:
+            cur.close()
+        except Exception:
+            pass
+
+
+def mark_no_filings(conn, cbe: str, sentinel: str) -> object:
+    """Record NO_FILINGS / PDF_ONLY / NO_NEW_FILINGS so we don't re-query this CBE.
+
+    Returns the (possibly reconnected) conn for the caller to use.
+    """
+    try:
+        _mark_no_filings_once(conn, cbe, sentinel)
+        return conn
+    except Exception as exc:
+        if not _is_stale_conn_error(exc):
+            log.warning("mark_no_filings %s sentinel=%s failed: %s", cbe, sentinel, _safe_exc(exc))
+            return conn
+        log.warning("mark_no_filings %s: stale conn (%s) — reconnecting", cbe, _safe_exc(exc))
+        conn = _reconnect(conn)
+        try:
+            _mark_no_filings_once(conn, cbe, sentinel)
+        except Exception as exc2:
+            log.warning("mark_no_filings %s: retry after reconnect also failed: %s", cbe, _safe_exc(exc2))
+        return conn
 
 
 def is_pdf_only(refs: list[dict]) -> bool:
@@ -392,6 +503,7 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_
     rubrics_total = 0
     no_filings = 0
     pdf_only = 0
+    no_new_filings = 0
     errors = 0
 
     conn = get_connection()
@@ -399,7 +511,10 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_
     try:
         def _cycle_connection():
             nonlocal conn, since_reconnect
-            put_connection(conn)
+            try:
+                put_connection(conn)
+            except Exception:
+                pass
             conn = get_connection()
             since_reconnect = 0
 
@@ -437,14 +552,14 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_
                     # query param and always returns the full history, so an
                     # empty response is global, not year-specific. Retire the
                     # CBE permanently with the unqualified NO_FILINGS sentinel.
-                    mark_no_filings(conn, cbe, "NO_FILINGS")
+                    conn = mark_no_filings(conn, cbe, "NO_FILINGS")
                     no_filings += 1
                     time.sleep(REQUEST_DELAY)
                     continue
 
                 # Detect PDF-only filer via model codes
                 if is_pdf_only(refs):
-                    mark_no_filings(conn, cbe, "PDF_ONLY")
+                    conn = mark_no_filings(conn, cbe, "PDF_ONLY")
                     pdf_only += 1
                     time.sleep(REQUEST_DELAY)
                     continue
@@ -460,6 +575,8 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_
                 )
                 time.sleep(REQUEST_DELAY)
 
+                loaded_this_visit = 0
+                errors_this_visit = 0
                 for ref_meta in refs_sorted:
                     if calls >= max_calls:
                         break
@@ -473,10 +590,18 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_
                     if end_date < "2022-04-01" or model in {"m120", "m211", "m212"}:
                         continue
 
-                    already = fetch_one(
-                        "SELECT 1 FROM nbb_load_log WHERE enterprise_number=%s AND deposit_key=%s",
-                        (cbe, reference_number),
-                    )
+                    try:
+                        already = fetch_one(
+                            "SELECT 1 FROM nbb_load_log WHERE enterprise_number=%s AND deposit_key=%s",
+                            (cbe, reference_number),
+                        )
+                    except Exception as e:
+                        log.warning("fetch_one nbb_load_log failed for %s/%s: %s",
+                                    cbe, reference_number, _safe_exc(e))
+                        errors += 1
+                        errors_this_visit += 1
+                        time.sleep(REQUEST_DELAY)
+                        continue
                     if already:
                         continue
 
@@ -487,24 +612,41 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_
                     filing = fetch_filing(cbe, reference_number, session)
                     if not filing:
                         errors += 1
+                        errors_this_visit += 1
                         time.sleep(REQUEST_DELAY)
                         continue
 
                     try:
-                        n = store_filing(conn, cbe, filing, ref_meta)
+                        n, conn = store_filing(conn, cbe, filing, ref_meta)
                     except Exception as e:
-                        log.warning("store_filing failed for %s: %s", cbe, e)
+                        log.warning("store_filing failed for %s: %s", cbe, _safe_exc(e))
                         errors += 1
+                        errors_this_visit += 1
+                        if _is_stale_conn_error(e):
+                            _cycle_connection()
                         time.sleep(REQUEST_DELAY)
                         continue
 
                     if n > 0:
                         loaded += 1
+                        loaded_this_visit += 1
                         rubrics_total += n
                         since_reconnect += 1
-                        if since_reconnect >= 100:
+                        if since_reconnect >= 50:
                             _cycle_connection()
                     time.sleep(REQUEST_DELAY)
+
+                # If the visit produced no new loads AND no errors, the CBE
+                # genuinely has nothing left to fetch (every ref was already
+                # in nbb_load_log, or all refs were pre-2022 / PDF-only).
+                # Mark NO_NEW_FILINGS so we don't burn another call next run.
+                # Skip if any error occurred — we may have missed real data,
+                # let the next run retry.
+                if (loaded_this_visit == 0
+                        and errors_this_visit == 0
+                        and calls < max_calls):
+                    conn = mark_no_filings(conn, cbe, "NO_NEW_FILINGS")
+                    no_new_filings += 1
 
                 if loaded % 50 == 0 and loaded > 0:
                     log.info("progress FY%d: %d loaded, %d rubrics, %d calls",
@@ -531,8 +673,8 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_
 
     elapsed = time.time() - start_ts
     log.info("=" * 60)
-    log.info("Backload done in %.0fs: %d calls, %d loaded, %d rubrics, %d pdf-only, %d no-filings, %d errors",
-             elapsed, calls, loaded, rubrics_total, pdf_only, no_filings, errors)
+    log.info("Backload done in %.0fs: %d calls, %d loaded, %d rubrics, %d pdf-only, %d no-filings, %d no-new-filings, %d errors",
+             elapsed, calls, loaded, rubrics_total, pdf_only, no_filings, no_new_filings, errors)
     log.info("=" * 60)
 
     # Write a summary to meta for the admin page
@@ -541,7 +683,7 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_
             "INSERT INTO meta (variable, value) VALUES (%s, %s) "
             "ON CONFLICT (variable) DO UPDATE SET value = EXCLUDED.value",
             ("nbb_nightly_backload_last",
-             f"{datetime.now(timezone.utc).isoformat()}: {loaded} loaded, {rubrics_total} rubrics, {pdf_only} pdf-only, {no_filings} no-filings, {errors} errors, {calls} calls"),
+             f"{datetime.now(timezone.utc).isoformat()}: {loaded} loaded, {rubrics_total} rubrics, {pdf_only} pdf-only, {no_filings} no-filings, {no_new_filings} no-new-filings, {errors} errors, {calls} calls"),
         )
     except Exception:
         pass
