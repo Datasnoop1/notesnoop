@@ -161,7 +161,12 @@ services:
     environment:
       PYTHONPATH: "/app"
       BACKLOAD_MAX_CALLS: "${BACKLOAD_MAX_CALLS:-3500}"
-      BACKLOAD_START_YEAR: "${BACKLOAD_START_YEAR:-2025}"
+      # Default 2024 because most companies haven't filed FY2025 yet
+      # (Belgian filing deadline lands end-July). Visiting FY2025 candidates
+      # produces NO_NEW_FILINGS for known filers since their historical
+      # data is already loaded. Rotate to 2025 around 2026-07-01 once
+      # FY2025 filings have arrived. See docs/nbb-loader-operations.md.
+      BACKLOAD_START_YEAR: "${BACKLOAD_START_YEAR:-2024}"
       BACKLOAD_END_YEAR: "${BACKLOAD_END_YEAR:-2022}"
       BACKLOAD_PER_YEAR_CAP: "${BACKLOAD_PER_YEAR_CAP:-3500}"
       BACKLOAD_SLEEP_S: "${BACKLOAD_SLEEP_S:-30}"

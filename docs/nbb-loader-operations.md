@@ -93,11 +93,36 @@ backfilled — see purpose note above.
 | Var | Default | Notes |
 |---|---|---|
 | `BACKLOAD_MAX_CALLS` | 3500 | Per-iteration call budget |
-| `BACKLOAD_START_YEAR` | 2025 | Reverse-chrono start year |
+| `BACKLOAD_START_YEAR` | **2024** | Reverse-chrono start year. See "Year-rotation policy" below. |
 | `BACKLOAD_END_YEAR` | 2022 | Reverse-chrono end year |
 | `BACKLOAD_PER_YEAR_CAP` | 3500 | Per-fiscal-year cap per iteration |
 | `BACKLOAD_SLEEP_S` | 30 | Sleep between normal iterations |
 | `BACKLOAD_BACKOFF_S` | 600 | Sleep after a short (<5 min) iteration |
+| `NBB_BACKLOAD_TIER2` | unset | Set to `1` to include Tier-2 low-yield juridical forms (CommV, VOF, etc.) — see Tier 1/Tier 2 table below. |
+
+### Year-rotation policy
+
+`BACKLOAD_START_YEAR` is the most-recent year the loader will look at; it
+walks backwards to `BACKLOAD_END_YEAR` (default 2022). Setting it too high
+wastes API calls on companies that haven't filed that year yet — verified
+empirically on 2026-04-27 when the daemon ran with start=2025 and produced
+0 loads / 1200+ `NO_NEW_FILINGS` because most large filers hadn't yet
+submitted FY2025 (Belgian filing deadline is 7 months after fiscal close,
+landing end-July for calendar-year filers).
+
+**Operational rule of thumb:** set `BACKLOAD_START_YEAR` to (current_year - 1)
+until ~July of (current_year), then bump to current_year. So:
+
+| Period | `BACKLOAD_START_YEAR` |
+|---|---|
+| Now → 2026-07-01 | **2024** (FY2025 filings still trickling in) |
+| 2026-07-01 → 2027-07-01 | 2025 |
+| 2027-07-01 → 2028-07-01 | 2026 |
+| ... | ... |
+
+A scheduled remote agent fires on 2026-07-01 to flip the default and update
+this table. After each annual rotation the daemon will sweep the new year's
+candidate pool, then naturally fall back to fill in older years.
 
 **Logs:** `docker logs leadpeek-nbb-backload-worker-1`. The legacy
 `/opt/leadpeek/scripts/_watchdog_state/nightly.log` is no longer written —
@@ -399,3 +424,4 @@ daemon shipped — see change history below.
 | 2026-04-27 | **Backload moved from cron to long-running daemon (`nbb-backload-worker` service).** Cron-fired `docker exec leadpeek-backend-1` was being SIGKILLed every time auto-deploy rebuilt the backend container (~1 hour of in-progress run lost per push). New service runs `scripts/nbb_backload_loop.sh` continuously, isolated from backend rebuilds — same pattern as `enrichment-worker` / `staatsblad-bulk-worker`. Both backload cron entries removed. |
 | 2026-04-27 | **Priority flipped: known filers first.** ORDER BY changed from `total_assets DESC NULLS FIRST` → `NULLS LAST`. Companies already in `financial_latest` (proven NBB filers in a prior year) now sit at the front of the queue; unknowns follow. The previous policy (unknowns first) was rational while the unknown pool was rich, but by 04-27 the front of the queue had degraded into a long tail of registered-but-non-filing companies; recent runs were producing 0 loads / >1000 `no_new_filings`. ~127k FY2025-missing known filers now go first, then ~571k unknowns. |
 | 2026-04-27 | **Tier 2 forms dropped from primary backload.** `REQUIRED_FILER_FORMS` tightened from 25 → 16 juridical-form codes. Removed `612` CommV (51k active, 0.3% filing rate), `011` VOF (25k, 0.4%), `012` GewComV (15k, 0.3%), `016` CV oud statuut (7k, 97.6% confirmed non-filer), `006` CVOA, `060`/`065` ESV/EESV, `116`, `001`. Total active-KBO pool drops ~101k companies. The deferred forms are documented as `TIER_2_DEFERRED_FORMS` for a future one-off backfill, but don't burn primary-pass quota. See Juridical-form yield table above. |
+| 2026-04-27 | **Default `BACKLOAD_START_YEAR` changed 2025 → 2024.** Empirical run with start=2025 produced 0 actual loads / 1200+ `NO_NEW_FILINGS` because most companies hadn't yet filed FY2025 (Belgian deadline lands end-July). Changed compose-file default + scheduled a remote agent on 2026-07-01 to roll it forward to 2025. Documented as the "Year-rotation policy" section above. |
