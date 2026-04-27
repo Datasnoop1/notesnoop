@@ -185,9 +185,12 @@ signal. These are what `candidates_for_year` checks today.
 
 Forms whose empirical filing rate is so low (0.3–10%) that backloading
 them burns API quota for trickle yield. They sit in a `TIER_2_DEFERRED_FORMS`
-constant in the script as documentation, but are NOT included in the
-primary candidate query. Backfill them with a one-off pass (override
-`REQUIRED_FILER_FORMS`) once the primary set is complete.
+constant in the script and are NOT included in the primary candidate query.
+To run a one-off backfill on these once the primary set is complete, set
+`NBB_BACKLOAD_TIER2=1` on the `nbb-backload-worker` service (in the env or
+`docker compose run`) — the script will then add the Tier 2 codes to the
+candidate-form list and log a warning at start-up so it's obvious the
+expanded set is in effect.
 
 | Code | Form | KBO active | % filed | % NO_FILINGS confirmed |
 |------|------|-----------:|--------:|-----------------------:|

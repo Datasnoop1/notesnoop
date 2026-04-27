@@ -117,6 +117,43 @@ USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence)"
 # handles key rotation — so this is safe to tune.
 REQUEST_DELAY = 1.25
 
+# Juridical-form sets used by candidates_for_year() — module-scope so they
+# can be referenced by tools/tests and so the env-var gate below is the only
+# place these tuples are combined. See docs/nbb-loader-operations.md for
+# the empirical filing-rate table that justifies the split.
+PRIMARY_FILER_FORMS = (
+    '610', '615', '616',        # BV / BV met sociaal oogmerk / BV van publiek recht
+    '014', '114', '614',        # NV / NV van publiek recht / NV met sociaal oogmerk
+    '015', '010', '515',        # BVBA (legacy) / Eenpersoons BVBA / BVBA met SO
+    '706', '716',               # CV (new) / CV van publiek recht
+    '008', '108', '508',        # CVBA / CVBA van publiek recht / CVBA met SO
+    '013',                      # CommVA (Commanditaire vennootschap op aandelen)
+    '027',                      # SE (Societas Europaea)
+)
+# Forms whose empirical filing rate is so low (0.3–9%) that backloading
+# them burns API quota for trickle yield. Excluded from the primary pass.
+# Set NBB_BACKLOAD_TIER2=1 in the worker env to include them — expect a
+# huge candidate-pool expansion (~101k more active companies) with very
+# low hit rate.
+TIER_2_DEFERRED_FORMS = (
+    '612',                      # CommV (51k active, 0.3% file)
+    '011',                      # VOF (25k active, 0.4% file)
+    '012',                      # GewComV (15k active, 0.3% file)
+    '016',                      # CV oud statuut (97% confirmed NO_FILINGS)
+    '116',                      # CV oud statuut van publiek recht (5% file)
+    '006',                      # CVOA (61% confirmed NO_FILINGS)
+    '060', '065',               # ESV / EESV (~9% file)
+    '001',                      # Europese Coöperatieve Vennootschap (rare)
+)
+if os.environ.get("NBB_BACKLOAD_TIER2") == "1":
+    REQUIRED_FILER_FORMS = PRIMARY_FILER_FORMS + TIER_2_DEFERRED_FORMS
+    log.warning(
+        "NBB_BACKLOAD_TIER2=1 — including %d low-yield forms in the candidate query",
+        len(TIER_2_DEFERRED_FORMS),
+    )
+else:
+    REQUIRED_FILER_FORMS = PRIMARY_FILER_FORMS
+
 _STALE_CONN_MARKERS = (
     "connection already closed",
     "ssl syscall error",
@@ -213,37 +250,11 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
     type_of_enterprise = '2' selects legal persons; '1' is natural persons
     (sole traders) who never file with NBB.
     """
-    # PRIMARY filer forms — limited to juridical forms that empirically file
-    # annual accounts with NBB at >10% rate (per the 2026-04-27 measurement;
-    # see "Juridical-form yield" table in docs/nbb-loader-operations.md).
-    # The other technically-required forms (CommV 612, VOF 011, GewComV 012,
-    # CV oud 016, CVOA 006, ESV/EESV 060/065, etc.) are deliberately
-    # EXCLUDED from the primary backload because their actual filing rate
-    # is 0.3–9% — the loader would burn quota for trickle yield. They can
-    # be backfilled by a separate one-off pass once the primary set is
-    # complete; see TIER_2_DEFERRED_FORMS below.
-    PRIMARY_FILER_FORMS = (
-        '610', '615', '616',        # BV / BV met sociaal oogmerk / BV van publiek recht
-        '014', '114', '614',        # NV / NV van publiek recht / NV met sociaal oogmerk
-        '015', '010', '515',        # BVBA (legacy) / Eenpersoons BVBA / BVBA met SO
-        '706', '716',               # CV (new) / CV van publiek recht
-        '008', '108', '508',        # CVBA / CVBA van publiek recht / CVBA met SO
-        '013',                      # CommVA (Commanditaire vennootschap op aandelen)
-        '027',                      # SE (Societas Europaea)
-    )
-    # Documented for future reference; NOT used by the primary backload pass.
-    # To run a one-off backfill on these, override REQUIRED_FILER_FORMS to
-    # include them — but expect 0–10% hit rate.
-    TIER_2_DEFERRED_FORMS = (   # noqa: F841 — kept as documentation
-        '612',                      # CommV (51k active, 0.3% file)
-        '011',                      # VOF (25k active, 0.4% file)
-        '012',                      # GewComV (15k active, 0.3% file)
-        '016', '116',               # CV oud statuut (97% NO_FILINGS)
-        '006',                      # CVOA (61% NO_FILINGS)
-        '060', '065',               # ESV / EESV (~9% file)
-        '001',                      # Europese Coöperatieve Vennootschap (rare)
-    )
-    REQUIRED_FILER_FORMS = PRIMARY_FILER_FORMS
+    # PRIMARY_FILER_FORMS / TIER_2_DEFERRED_FORMS / REQUIRED_FILER_FORMS are
+    # defined at module scope (~line 120) so the env-var override
+    # (NBB_BACKLOAD_TIER2=1) is the single place that controls which forms
+    # the candidate query uses. See docs/nbb-loader-operations.md for the
+    # empirical filing-rate table behind the split.
     rows = fetch_all(
         """
         SELECT e.enterprise_number
