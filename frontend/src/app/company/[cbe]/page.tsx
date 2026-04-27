@@ -1,5 +1,5 @@
 import { CompanyPageClient } from "./company-page-client";
-import type { CompanyDetail, FinancialsData, StructureData } from "./types";
+import type { CompanyDetail, StructureData } from "./types";
 
 // Server components need an absolute URL for fetch — use internal Docker URL if available
 const API_BASE = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "";
@@ -22,10 +22,13 @@ export default async function CompanyDetailPage({
   const { cbe } = await params;
   const cleanCbe = cbe.replace(/\./g, "").padStart(10, "0");
 
-  // Server-side parallel fetch — data available in initial HTML for SEO
-  const [detail, financials, structure] = await Promise.all([
+  // Server-side parallel fetch — detail + structure in initial HTML for SEO.
+  // Financials are intentionally excluded here: they can be slow (5-15 s for
+  // large companies) and blocking them would delay above-the-fold render for
+  // every visitor. FinancialsSection (a client component) fetches them after
+  // mount with a 15 s deadline and a retry fallback.
+  const [detail, structure] = await Promise.all([
     fetchJson<CompanyDetail>(`${API_BASE}/api/companies/${cleanCbe}`),
-    fetchJson<FinancialsData>(`${API_BASE}/api/companies/${cleanCbe}/financials`),
     fetchJson<StructureData>(`${API_BASE}/api/companies/${cleanCbe}/structure`),
   ]);
 
@@ -34,7 +37,7 @@ export default async function CompanyDetailPage({
       key={cleanCbe}
       cbe={cleanCbe}
       initialDetail={detail}
-      initialFinancials={financials}
+      initialFinancials={null}
       initialStructure={structure}
     />
   );

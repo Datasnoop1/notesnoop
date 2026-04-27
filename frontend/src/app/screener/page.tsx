@@ -16,6 +16,7 @@ import {
 import { getScreener, getNaceSuggestions } from "@/lib/api";
 import type { NaceSuggestion, ScreenerRow } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
+import { useColumnWidths } from "@/lib/use-column-widths";
 import {
   Download,
   Search,
@@ -229,7 +230,7 @@ function SkeletonRows({ count }: { count: number }) {
     <>
       {Array.from({ length: count }).map((_, i) => (
         <tr key={i} className="border-b border-slate-100">
-          <td className="py-2 px-3" colSpan={8}>
+          <td className="py-2 px-3" colSpan={10}>
             <div className="h-3 w-3/4 animate-pulse rounded bg-slate-200 mb-1" />
             <div className="h-2.5 w-1/2 animate-pulse rounded bg-slate-100" />
           </td>
@@ -238,6 +239,26 @@ function SkeletonRows({ count }: { count: number }) {
     </>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Column-width defaults — keys match the columns rendered below.    */
+/*  User overrides are persisted to localStorage by useColumnWidths.  */
+/* ------------------------------------------------------------------ */
+
+const COLUMN_WIDTHS_STORAGE_KEY = "datasnoop_screener_column_widths_v1";
+
+const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
+  company: 280,
+  keywords: 200,
+  revenue: 110,
+  ebitda: 110,
+  ebit: 110,
+  margin: 80,
+  fte: 70,
+  fixed_assets: 100,
+  trend: 80,
+  fy: 60,
+};
 
 /* ------------------------------------------------------------------ */
 /*  Sortable column header                                             */
@@ -249,17 +270,19 @@ function SortHeader({
   currentSort,
   onSort,
   align = "right",
+  onResizeStart,
 }: {
   label: string;
   sortKey: SortKey;
   currentSort: string;
   onSort: (k: SortKey) => void;
   align?: "left" | "right";
+  onResizeStart?: (e: React.MouseEvent) => void;
 }) {
   const isActive = currentSort === sortKey;
   return (
     <th
-      className={`py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap transition-colors hover:text-brand ${
+      className={`relative py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap transition-colors hover:text-brand ${
         align === "right" ? "text-right" : "text-left"
       } ${isActive ? "text-[color:var(--brand-ink)]" : "text-slate-500"}`}
       onClick={() => onSort(sortKey)}
@@ -272,7 +295,26 @@ function SortHeader({
           <ChevronUp className="w-3 h-3 opacity-30 md:opacity-0 md:group-hover:opacity-30" />
         )}
       </span>
+      {onResizeStart && <ResizeHandle onResizeStart={onResizeStart} />}
     </th>
+  );
+}
+
+/* Drag handle anchored to the right edge of a `<th>`. The parent `<th>`
+   must be `position: relative` for the absolute positioning to work. */
+function ResizeHandle({
+  onResizeStart,
+}: {
+  onResizeStart: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <span
+      onMouseDown={onResizeStart}
+      onClick={(e) => e.stopPropagation()}
+      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize select-none hover:bg-brand/40 active:bg-brand/60"
+      title="Drag to resize column"
+      aria-hidden
+    />
   );
 }
 
@@ -463,6 +505,10 @@ function savePresets(presets: FilterPreset[]) {
 
 export default function ScreenerPage() {
   const { t } = useTranslation();
+  const { widths: columnWidths, startResize } = useColumnWidths(
+    COLUMN_WIDTHS_STORAGE_KEY,
+    DEFAULT_COLUMN_WIDTHS
+  );
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [results, setResults] = useState<ScreenerRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1553,54 +1599,81 @@ export default function ScreenerPage() {
               </div>
             </div>
           )}
-          <table className="w-full border-collapse min-w-[700px]">
+          <table className="w-full border-collapse min-w-[700px] table-fixed">
+            {/* Column widths come from useColumnWidths — user-resizable via
+                the drag handle on each header, persisted to localStorage. */}
+            <colgroup>
+              <col style={{ width: `${columnWidths.company}px` }} />
+              <col style={{ width: `${columnWidths.keywords}px` }} />
+              <col style={{ width: `${columnWidths.revenue}px` }} />
+              <col style={{ width: `${columnWidths.ebitda}px` }} />
+              <col style={{ width: `${columnWidths.ebit}px` }} />
+              <col style={{ width: `${columnWidths.margin}px` }} />
+              <col style={{ width: `${columnWidths.fte}px` }} />
+              <col style={{ width: `${columnWidths.fixed_assets}px` }} />
+              <col style={{ width: `${columnWidths.trend}px` }} />
+              <col style={{ width: `${columnWidths.fy}px` }} />
+            </colgroup>
             {/* Sticky header */}
             <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
               <tr>
-                <th className="py-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-left w-[140px] md:w-[280px] sticky left-0 z-[11] bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">
+                <th className="py-1.5 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-left sticky left-0 z-[11] bg-slate-50 shadow-[1px_0_0_rgba(226,232,240,1)]">
                   {t("screener.company")}
+                  <ResizeHandle onResizeStart={startResize("company")} />
+                </th>
+                <th className="relative py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-left whitespace-nowrap">
+                  Keywords
+                  <ResizeHandle onResizeStart={startResize("keywords")} />
                 </th>
                 <SortHeader
                   label="Revenue"
                   sortKey="revenue_desc"
                   currentSort={filters.sort}
                   onSort={handleSort}
+                  onResizeStart={startResize("revenue")}
                 />
                 <SortHeader
                   label="EBITDA"
                   sortKey="ebitda_desc"
                   currentSort={filters.sort}
                   onSort={handleSort}
+                  onResizeStart={startResize("ebitda")}
                 />
                 <SortHeader
                   label="EBIT"
                   sortKey="ebit_desc"
                   currentSort={filters.sort}
                   onSort={handleSort}
+                  onResizeStart={startResize("ebit")}
                 />
-                <th className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right whitespace-nowrap">
+                <th className="relative py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right whitespace-nowrap">
                   {t("screener.columns.margin")}
+                  <ResizeHandle onResizeStart={startResize("margin")} />
                 </th>
                 <SortHeader
                   label="FTE"
                   sortKey="fte_desc"
                   currentSort={filters.sort}
                   onSort={handleSort}
+                  onResizeStart={startResize("fte")}
                 />
                 <SortHeader
                   label={t("screener.fixedAssetsShort")}
                   sortKey="fixed_assets_desc"
                   currentSort={filters.sort}
                   onSort={handleSort}
+                  onResizeStart={startResize("fixed_assets")}
                 />
                 <th
-                  className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right whitespace-nowrap"
+                  className="relative py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right whitespace-nowrap"
                   title={t("screener.trendHelp")}
                 >
                   {t("screener.ebitdaTrend")}
+                  <ResizeHandle onResizeStart={startResize("trend")} />
                 </th>
-                <th className="py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right">
+                <th className="relative py-1.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500 text-right">
                   {t("screener.fy")}
+                  <ResizeHandle onResizeStart={startResize("fy")} />
                 </th>
               </tr>
             </thead>
@@ -1611,7 +1684,7 @@ export default function ScreenerPage() {
               {!loading && filteredResults.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={10}
                     className="py-20 text-center text-sm text-slate-400"
                   >
                     {t("screener.noMatchFilters")}
@@ -1629,12 +1702,14 @@ export default function ScreenerPage() {
                   {/* Company: 2-line cell — sticky on mobile so the name
                       stays visible when horizontally scrolling the financial
                       columns. */}
-                  <td className="py-1.5 px-3 relative sticky left-0 z-[5] bg-white group-hover:bg-brand-soft/30 shadow-[1px_0_0_rgba(226,232,240,1)] w-[140px] md:w-auto">
+                  <td className="py-1.5 px-3 relative sticky left-0 z-[5] bg-white group-hover:bg-brand-soft/30 shadow-[1px_0_0_rgba(226,232,240,1)]">
                     <div className="leading-tight">
                       <Link
                         href={`/company/${row.cbe}`}
-                        className="text-sm font-semibold text-slate-800 hover:text-brand hover:underline decoration-brand/30 underline-offset-2 truncate block max-w-[160px] md:max-w-[260px]"
-                        title={row.name}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-semibold text-slate-800 hover:text-brand hover:underline decoration-brand/30 underline-offset-2 truncate block"
+                        title={`${row.name} — opens in new tab`}
                       >
                         {row.name || fmtCbe(row.cbe)}
                       </Link>
@@ -1666,6 +1741,27 @@ export default function ScreenerPage() {
                     </div>
                     {/* Hover card */}
                     {hoveredCbe === row.cbe && <HoverCard row={row} t={t} />}
+                  </td>
+
+                  {/* Semantic keywords */}
+                  <td className="py-1.5 px-2 align-middle">
+                    {row.semantic_keywords && row.semantic_keywords.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {row.semantic_keywords.slice(0, 3).map((kw) => (
+                          <span
+                            key={kw}
+                            className="bg-slate-100 text-slate-700 rounded-full px-2 py-0.5 text-xs whitespace-nowrap"
+                          >
+                            {kw}
+                          </span>
+                        ))}
+                        {row.semantic_keywords.length > 3 && (
+                          <span className="bg-slate-100 text-slate-500 rounded-full px-2 py-0.5 text-xs whitespace-nowrap">
+                            +{row.semantic_keywords.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </td>
 
                   {/* Revenue */}
@@ -1812,8 +1908,10 @@ function RecentlyViewedPanel() {
             >
               <Link
                 href={`/company/${it.cbe}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-slate-700 hover:text-brand max-w-[180px] truncate"
-                title={`${it.name}${it.city ? ` · ${it.city}` : ""}`}
+                title={`${it.name}${it.city ? ` · ${it.city}` : ""} — opens in new tab`}
               >
                 {it.name}
               </Link>

@@ -261,6 +261,18 @@ async def screener(
     # and lets the user see the value without setting a filter).
     fixed_assets_col = ', fl.fixed_assets AS "fixed_assets"'
 
+    # Semantic keywords — first 5 items from products_services in bulk_summary.
+    # LEFT JOIN so companies without enrichment still appear; the JSONB
+    # extraction is done in Postgres to avoid any per-row Python overhead.
+    semantic_keywords_col = """,
+               ARRAY(
+                   SELECT jsonb_array_elements_text(
+                       ce.bulk_summary->'products_services'
+                   )
+                   LIMIT 5
+               ) AS "semantic_keywords"
+    """
+
     # Sparkline history — last 5 fiscal years of revenue/EBITDA per row.
     # LATERAL returns an ORDERED array so the frontend can draw a line
     # directly. Skipped unless explicitly requested; adds a small but
@@ -347,6 +359,7 @@ async def screener(
                 LIMIT 1
             ) ac ON TRUE
             LEFT JOIN nace_lookup nl ON nl.nace_code = COALESCE(ci.nace_code, ac.nace_code)
+            LEFT JOIN company_enrichment ce ON ce.enterprise_number = e.enterprise_number
         """
         cbe_col = "e.enterprise_number"
         name_col = "COALESCE(ci.name, dn.denomination)"
@@ -357,6 +370,7 @@ async def screener(
             JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
             LEFT JOIN enterprise e ON e.enterprise_number = fl.enterprise_number
             LEFT JOIN nace_lookup nl ON nl.nace_code = ci.nace_code
+            LEFT JOIN company_enrichment ce ON ce.enterprise_number = fl.enterprise_number
         """
         cbe_col = "fl.enterprise_number"
         name_col = "ci.name"
@@ -384,6 +398,7 @@ async def screener(
                {fixed_assets_col}
                {sparkline_col}
                {percentile_col}
+               {semantic_keywords_col}
         {anchor_from}
         {prev_join}
         {prev3_join}
@@ -416,6 +431,11 @@ async def screener(
                 arr = row.get(arr_key)
                 if isinstance(arr, list):
                     row[arr_key] = [float(v) if v is not None else None for v in arr]
+            # Semantic keywords — coerce empty Postgres arrays to None so the
+            # frontend receives null instead of [] for unenriched companies.
+            kw = row.get("semantic_keywords")
+            if isinstance(kw, list) and len(kw) == 0:
+                row["semantic_keywords"] = None
 
         return rows
     except Exception as e:

@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -733,10 +734,13 @@ async def generate_ai_insights(
         "execute": execute,
     }
 
+    t_total = time.perf_counter()
     try:
+        t0 = time.perf_counter()
         insights = await ai_insights_pipeline(cbe, conn_helpers, lang=lang)
+        logger.info("ai_insights.pipeline cbe=%s ms=%.0f", cbe, (time.perf_counter()-t0)*1000)
     except Exception as e:
-        logger.exception("AI insights pipeline failed for %s", cbe)
+        logger.exception("AI insights pipeline failed for %s ms=%.0f", cbe, (time.perf_counter()-t_total)*1000)
         raise HTTPException(
             status_code=503,
             detail=f"AI insights generation failed: {str(e)}",
@@ -747,12 +751,14 @@ async def generate_ai_insights(
 
     # Auto-generate embedding in background (non-blocking)
     try:
+        t0 = time.perf_counter()
         from embeddings import embed_company
         await embed_company(cbe, force=True)
-        logger.info("Auto-embedded company %s after AI insights generation", cbe)
+        logger.info("ai_insights.embed cbe=%s ms=%.0f", cbe, (time.perf_counter()-t0)*1000)
     except Exception as e:
         logger.warning("Auto-embedding failed for %s (non-fatal): %s", cbe, e)
 
+    logger.info("ai_insights.total cbe=%s ms=%.0f", cbe, (time.perf_counter()-t_total)*1000)
     return insights
 
 

@@ -54,6 +54,179 @@ def _admin_extract_cache_record(cbe: str, count: int) -> None:
     _ADMIN_EXTRACT_CACHE[cbe] = (_time(), count)
 
 
+_CHAIN_MAX_DEPTH = 3
+
+
+def _build_representation_chains(
+    admins: list[dict],
+    affiliation_table_present: bool,
+) -> list[dict]:
+    """Attach `representation_chain` to each legal-entity admin.
+
+    For every admin where person_type='legal' and identifier is set we
+    resolve "who represents that entity" up to MAX depth 3 using two
+    batch queries:
+
+      1. administrator table  — active mandates (mandate_end IS NULL OR
+         mandate_end >= TODAY) for all collected CBEs in one round-trip.
+      2. affiliation table fallback — for CBEs that returned no rows from
+         administrator, we try the affiliation table (most recent row).
+
+    Cycle detection: we track the set of CBEs visited on the current
+    path. If we encounter a CBE already in the path we mark that node
+    with cycle=True and stop descending.
+
+    Each ChainLink shape:
+      { cbe: str|None, name: str, role: str|None,
+        person_type: str, depth: int, cycle: bool }
+    """
+    import datetime
+
+    # Collect the seed CBEs — identifiers of legal-entity admins.
+    seed_cbes: list[str] = []
+    for a in admins:
+        if a.get("person_type") == "legal" and a.get("identifier"):
+            c = (a["identifier"] or "").strip().replace(".", "")
+            if c and c.isdigit():
+                seed_cbes.append(c)
+    if not seed_cbes:
+        return admins  # nothing to do
+
+    today = datetime.date.today().isoformat()
+
+    # ------------------------------------------------------------------
+    # Batch-fetch active administrator rows for all CBEs we will ever
+    # need.  We do BFS level-by-level so we can add newly discovered CBEs
+    # to subsequent fetches.  With depth ≤ 3 this is at most 3 round-
+    # trips total (most companies resolve in 1-2).
+    # ------------------------------------------------------------------
+    # Keyed by enterprise_number → list[dict] (only active mandates)
+    fetched_admins: dict[str, list[dict]] = {}
+    # Keyed by enterprise_number → list[dict] (affiliation fallback)
+    fetched_affil: dict[str, list[dict]] = {}
+
+    def _batch_fetch_admins(cbes: list[str]) -> None:
+        """Populate fetched_admins for any cbes not yet fetched."""
+        to_fetch = [c for c in cbes if c not in fetched_admins]
+        if not to_fetch:
+            return
+        ph = ",".join(["%s"] * len(to_fetch))
+        rows = fetch_all(
+            rf"""
+            SELECT a.enterprise_number,
+                   a.name, a.role, a.person_type, a.identifier,
+                   a.mandate_start, a.mandate_end
+            FROM administrator a
+            WHERE a.enterprise_number IN ({ph})
+              AND a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
+              AND (a.mandate_end IS NULL OR a.mandate_end >= %s)
+            ORDER BY a.enterprise_number, a.name
+            """,
+            to_fetch + [today],
+        )
+        for c in to_fetch:
+            fetched_admins[c] = []
+        for row in rows:
+            fetched_admins[row["enterprise_number"]].append(row)
+
+    def _batch_fetch_affil(cbes: list[str]) -> None:
+        """Populate fetched_affil for any cbes not yet fetched (fallback)."""
+        if not affiliation_table_present:
+            for c in cbes:
+                fetched_affil[c] = []
+            return
+        to_fetch = [c for c in cbes if c not in fetched_affil]
+        if not to_fetch:
+            return
+        ph = ",".join(["%s"] * len(to_fetch))
+        rows = fetch_all(
+            f"""
+            SELECT DISTINCT ON (af.enterprise_number, af.person_name)
+                   af.enterprise_number,
+                   af.person_name AS name,
+                   af.affiliation_type AS role,
+                   'natural' AS person_type,
+                   NULL AS identifier
+            FROM affiliation af
+            WHERE af.enterprise_number IN ({ph})
+            ORDER BY af.enterprise_number, af.person_name,
+                     af.last_seen_at DESC NULLS LAST
+            """,
+            to_fetch,
+        )
+        for c in to_fetch:
+            fetched_affil[c] = []
+        for row in rows:
+            fetched_affil[row["enterprise_number"]].append(row)
+
+    def _resolve_chain(start_cbe: str, visited: frozenset[str], depth: int) -> list[dict]:
+        """Recursively build the chain starting from start_cbe."""
+        if depth > _CHAIN_MAX_DEPTH:
+            return []
+        if start_cbe in visited:
+            # cycle — caller should have already marked the node
+            return []
+
+        # Ensure we have data for this CBE
+        _batch_fetch_admins([start_cbe])
+
+        reps = fetched_admins.get(start_cbe, [])
+        if not reps:
+            # Fallback to affiliation table
+            _batch_fetch_affil([start_cbe])
+            reps = fetched_affil.get(start_cbe, [])
+
+        if not reps:
+            return []
+
+        chain: list[dict] = []
+        new_visited = visited | {start_cbe}
+        for rep in reps:
+            person_type = rep.get("person_type") or "natural"
+            rep_cbe = None
+            if person_type == "legal" and rep.get("identifier"):
+                raw = (rep["identifier"] or "").strip().replace(".", "")
+                if raw and raw.isdigit():
+                    rep_cbe = raw
+
+            is_cycle = rep_cbe is not None and rep_cbe in new_visited
+            link: dict = {
+                "cbe": rep_cbe,
+                "name": rep.get("name") or "",
+                "role": rep.get("role") or None,
+                "person_type": person_type,
+                "depth": depth,
+                "cycle": is_cycle,
+            }
+            chain.append(link)
+
+            # Recurse into legal-entity reps unless cycle or natural person
+            if not is_cycle and rep_cbe and person_type == "legal":
+                sub_chain = _resolve_chain(rep_cbe, new_visited | {rep_cbe}, depth + 1)
+                chain.extend(sub_chain)
+
+        return chain
+
+    # Pre-fetch level-1 in one batch for efficiency
+    _batch_fetch_admins(seed_cbes)
+
+    result: list[dict] = []
+    for admin in admins:
+        if admin.get("person_type") == "legal" and admin.get("identifier"):
+            raw = (admin["identifier"] or "").strip().replace(".", "")
+            if raw and raw.isdigit():
+                chain = _resolve_chain(raw, frozenset(), depth=1)
+                if chain:
+                    logger.info(
+                        "representation_chain for admin %s (%s): %d links",
+                        admin.get("name"), raw, len(chain),
+                    )
+                    admin = dict(admin)  # don't mutate the original
+                    admin["representation_chain"] = chain
+        result.append(admin)
+    return result
+
+
 @router.get("/{cbe}/structure")
 async def get_company_structure(cbe: str, response: Response):
     """Admins, shareholders, participating interests, and Staatsblad publications.
@@ -197,8 +370,19 @@ async def get_company_structure(cbe: str, response: Response):
             if key not in affiliations_dedup:
                 affiliations_dedup[key] = row
 
+        # ------------------------------------------------------------------
+        # Representation chains — for each legal-entity admin that has an
+        # identifier (CBE), look up who represents *that* entity up to
+        # depth 3. Done in two batch queries (one for administrator, one
+        # for affiliation fallback) and stitched in Python; no per-admin
+        # round-trips.
+        # ------------------------------------------------------------------
+        admins_with_chains = _build_representation_chains(
+            admins_merged, affiliation_table_present=_AFFILIATION_TABLE_PRESENT
+        )
+
         return {
-            "administrators": [_serialize_row(r) for r in admins_merged],
+            "administrators": [_serialize_row(r) for r in admins_with_chains],
             "administrator_events": [_serialize_row(r) for r in admin_timeline],
             "participating_interests": [_serialize_row(r) for r in pis],
             "shareholders": [_serialize_row(r) for r in shareholders],

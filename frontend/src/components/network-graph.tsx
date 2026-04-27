@@ -210,9 +210,16 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
 
   // Clicking a node RE-CENTERS the spider web around either a company or a
   // person. Synthetic subsidiary placeholders still do not expand.
+  // Cmd/Ctrl-click opens the entity's profile in a new tab instead.
   const handleNodeClick = useCallback(
-    (node: { id?: string; label?: string; type?: string }) => {
-      if ((isCompanyNodeId(node.id) || isPersonNodeId(node.id)) && node.id !== centerNodeId) {
+    (node: { id?: string; label?: string; type?: string }, event?: MouseEvent) => {
+      if (!isCompanyNodeId(node.id) && !isPersonNodeId(node.id)) return;
+      const openInNewTab = !!event && (event.metaKey || event.ctrlKey);
+      if (openInNewTab && isCompanyNodeId(node.id)) {
+        window.open(`/company/${node.id}`, "_blank", "noopener,noreferrer");
+        return;
+      }
+      if (node.id !== centerNodeId) {
         setCenterNodeId(node.id);
         setCenterLabel(node.label || node.id);
       }
@@ -320,7 +327,7 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
             <h3 className="text-sm font-semibold text-slate-700">
               {t("company.networkTab.title")}
             </h3>
-            <div className="flex flex-wrap gap-3 text-[11px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
               {depthLevels.map((d) => (
                 <span key={d} className="flex items-center gap-1">
                   <span
@@ -330,6 +337,9 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
                   {DEPTH_LABELS[d] || `Depth ${d}`}
                 </span>
               ))}
+              <span className="text-slate-400 italic">
+                ⌘/Ctrl-click a node to open its profile in a new tab
+              </span>
             </div>
           </div>
 
@@ -355,7 +365,10 @@ export default function NetworkGraph({ cbe, companyName }: Props) {
               {centeredCompanyId && (
                 <Link
                   href={`/company/${centeredCompanyId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 px-2 py-1 rounded border border-brand/30 bg-white text-[color:var(--brand-ink)] hover:bg-brand-soft"
+                  title="Open profile in a new tab"
                 >
                   <ExternalLink className="h-3 w-3" /> Open profile
                 </Link>

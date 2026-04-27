@@ -17,7 +17,7 @@ import {
   Link2,
 } from "lucide-react";
 import { GoogleSearchLink } from "@/components/google-search-link";
-import type { Administrator, CompanyDetail, StructureData } from "../types";
+import type { Administrator, CompanyDetail, RepresentationChainLink, StructureData } from "../types";
 import { cleanCbe, downloadCsv } from "../helpers";
 
 /* ---------- props ---------- */
@@ -30,6 +30,51 @@ export interface AdministratorsTabProps {
   personEnrichments: Record<string, { summary: string; loading: boolean }>;
   onEnrichPerson: (name: string) => void;
   onAddPeopleFavourite: (name: string) => void;
+}
+
+/* ---------- representation-chain sub-component ---------- */
+
+function RepresentationChain({ chain }: { chain: RepresentationChainLink[] }) {
+  if (!chain || chain.length === 0) return null;
+
+  return (
+    <div className="mt-2 ml-4 pl-2 border-l border-slate-200">
+      <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
+        ▸ Represented by:
+      </span>
+      <div className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5">
+        {chain.map((link, i) => (
+          <React.Fragment key={`chain-${i}`}>
+            {i > 0 && (
+              <span className="text-slate-300 text-xs select-none">→</span>
+            )}
+            {link.person_type === "legal" && link.cbe && !link.cycle ? (
+              <Link
+                href={`/company/${link.cbe}`}
+                className="text-xs text-brand hover:underline"
+              >
+                {link.name}
+              </Link>
+            ) : link.person_type === "natural" ? (
+              <Link
+                href={`/people?q=${encodeURIComponent(link.name)}`}
+                className="text-xs text-slate-500 hover:text-brand hover:underline"
+              >
+                {link.name}
+              </Link>
+            ) : (
+              <span className="text-xs text-slate-500">{link.name}</span>
+            )}
+            {link.cycle && (
+              <span className="inline-block rounded bg-amber-50 border border-amber-200 text-amber-600 text-[9px] px-1 py-0 leading-4">
+                cycle
+              </span>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /* ---------- component ---------- */
@@ -210,6 +255,9 @@ export function AdministratorsTab({
                           <p className="text-xs text-slate-600 leading-relaxed">{pe.summary}</p>
                         </div>
                       </div>
+                    )}
+                    {admin.representation_chain && admin.representation_chain.length > 0 && (
+                      <RepresentationChain chain={admin.representation_chain} />
                     )}
                   </CardContent>
                 </Card>
@@ -432,6 +480,9 @@ export function AdministratorsTab({
                             <p className="text-xs text-slate-600 leading-relaxed">{pe.summary}</p>
                           </div>
                         </div>
+                      )}
+                      {admin.representation_chain && admin.representation_chain.length > 0 && (
+                        <RepresentationChain chain={admin.representation_chain} />
                       )}
                     </CardContent>
                   </Card>

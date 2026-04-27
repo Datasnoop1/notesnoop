@@ -33,6 +33,12 @@ interface InsightsOverlayProps {
   onGenerate: () => void;
   onRegenerate?: () => void;
   onFeedback?: (feedback: { overall: "up" | "down"; websiteCorrect?: boolean; linkedinCorrect?: boolean; insightCorrect?: boolean; comment?: string }) => void;
+  /** True when the 15 s deadline fired and we're showing a cached version
+   *  while the fresh generation continues in the background. */
+  cachedFallback?: boolean;
+  /** True when the 15 s deadline fired with no cache available — showing
+   *  a placeholder while generation continues in the background. */
+  timedOutNoCache?: boolean;
 }
 
 /* ---------- Step indicator ---------- */
@@ -206,6 +212,8 @@ export function InsightsOverlay({
   onGenerate,
   onRegenerate,
   onFeedback,
+  cachedFallback = false,
+  timedOutNoCache = false,
 }: InsightsOverlayProps) {
   const [feedbackGiven, setFeedbackGiven] = useState<"up" | "down" | null>(null);
   const [showImprovementPicker, setShowImprovementPicker] = useState(false);
@@ -448,6 +456,36 @@ export function InsightsOverlay({
                     <RefreshCw className="h-3.5 w-3.5 animate-spin text-brand" /> Regenerating with your feedback...
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Cached-version notice — shown when 15 s deadline fired and
+                we fell back to the last cached result while the fresh
+                generation continues in the background. */}
+            {cachedFallback && insights && (
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                <Clock className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                <span>
+                  Showing cached version — fresh insights are generating in the background and will appear automatically.
+                </span>
+              </div>
+            )}
+
+            {/* Timed-out, no cache — the 15 s deadline fired before we
+                had any data. Generation is still running in the background. */}
+            {timedOutNoCache && !loading && !insights && (
+              <div className="py-8 flex flex-col items-center gap-3 text-center">
+                <Loader2 className="h-8 w-8 animate-spin text-brand/50" />
+                <p className="text-sm text-slate-600 max-w-xs">
+                  AI insights are still being generated for this company — this can take up to a minute. Check back in a few moments.
+                </p>
+                <button
+                  onClick={onGenerate}
+                  className="inline-flex items-center gap-2 rounded-lg border border-brand/30 bg-brand-soft px-4 py-2 text-xs font-medium text-brand hover:bg-brand-soft/80 transition-colors"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  Retry now
+                </button>
               </div>
             )}
 

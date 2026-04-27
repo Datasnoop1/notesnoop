@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import time
 from typing import Optional
 
 import httpx
@@ -601,7 +602,10 @@ async def get_company_financials(cbe: str, response: Response):
     # with long SWR keeps tab-switching instant.
     response.headers["Cache-Control"] = "private, max-age=300, stale-while-revalidate=86400"
 
+    t_total = time.perf_counter()
+
     try:
+        t0 = time.perf_counter()
         hist = fetch_all("""
             SELECT fiscal_year, deposit_key, filing_model,
                    revenue, gross_margin, ebit, da, ebitda, net_profit,
@@ -615,19 +619,23 @@ async def get_company_financials(cbe: str, response: Response):
             WHERE enterprise_number = %s
             ORDER BY fiscal_year
         """, (cbe,))
+        logger.info("financials.subquery=summary cbe=%s ms=%.0f rows=%d", cbe, (time.perf_counter()-t0)*1000, len(hist) if hist else 0)
 
         # PDF-only flag: set by /load when every recent NBB deposit was
         # 404'd with the "no published json xbrl" diagnostic. Lets the
         # frontend explain WHY a company has no financial rows instead
         # of silently rendering an empty state.
+        t0 = time.perf_counter()
         pdf_only_row = fetch_one(
             "SELECT 1 AS x FROM nbb_load_log "
             "WHERE enterprise_number = %s AND deposit_key = 'PDF_ONLY' LIMIT 1",
             (cbe,),
         )
         pdf_only = bool(pdf_only_row)
+        logger.info("financials.subquery=pdf_only cbe=%s ms=%.0f", cbe, (time.perf_counter()-t0)*1000)
 
         if not hist:
+            logger.info("financials.total cbe=%s ms=%.0f rows=0 (early exit)", cbe, (time.perf_counter()-t_total)*1000)
             return {"summary": [], "pnl": {}, "pdf_only": pdf_only}
 
         # P&L rubric data
@@ -669,6 +677,7 @@ async def get_company_financials(cbe: str, response: Response):
         all_codes = list(dict.fromkeys(pnl_codes + bs_codes))
         placeholders = ",".join(["%s"] * len(all_codes))
 
+        t0 = time.perf_counter()
         rubric_rows = fetch_all(f"""
             SELECT fiscal_year, rubric_code, value
             FROM financial_data
@@ -676,6 +685,7 @@ async def get_company_financials(cbe: str, response: Response):
               AND period = 'N'
               AND rubric_code IN ({placeholders})
         """, [cbe] + all_codes)
+        logger.info("financials.subquery=rubric_data cbe=%s ms=%.0f rows=%d codes=%d", cbe, (time.perf_counter()-t0)*1000, len(rubric_rows) if rubric_rows else 0, len(all_codes))
 
         # Pivot rubric data: {rubric_code: {fiscal_year: value}}
         rubric_pivot = {}
@@ -687,11 +697,12 @@ async def get_company_financials(cbe: str, response: Response):
                 rubric_pivot[code] = {}
             rubric_pivot[code][str(fy)] = float(val) if val is not None else None
 
+        logger.info("financials.total cbe=%s ms=%.0f summary_rows=%d", cbe, (time.perf_counter()-t_total)*1000, len(hist))
         return {
             "summary": [_serialize_row(r) for r in hist],
             "rubric_data": rubric_pivot,
             "pdf_only": pdf_only,
         }
     except Exception as e:
-        logger.exception("Company financials query failed")
+        logger.exception("Company financials query failed cbe=%s ms=%.0f", cbe, (time.perf_counter()-t_total)*1000)
         raise HTTPException(status_code=500, detail="Internal server error")

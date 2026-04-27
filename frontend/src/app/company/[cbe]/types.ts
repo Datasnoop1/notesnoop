@@ -48,6 +48,19 @@ export interface FinancialRow {
   ebitda_margin_pct: number | null;
 }
 
+export interface RepresentationChainLink {
+  /** CBE of the entity (null when the node is a natural person). */
+  cbe: string | null;
+  name: string;
+  role: string | null;
+  /** 'legal' | 'natural' */
+  person_type: string;
+  /** 1-based depth in the chain (1 = direct representative of this admin). */
+  depth: number;
+  /** True when this node was already seen in the path — chain stops here. */
+  cycle: boolean;
+}
+
 export interface Administrator {
   name: string;
   role: string;
@@ -61,6 +74,8 @@ export interface Administrator {
   as_of?: string | null;
   pub_reference?: string | null;
   summary?: string | null;
+  // Representation chain (populated when person_type='legal' and chain exists)
+  representation_chain?: RepresentationChainLink[] | null;
 }
 
 export interface AdministratorEvent {

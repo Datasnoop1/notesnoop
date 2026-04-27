@@ -64,6 +64,7 @@ import type { ExportData } from "@/lib/export/types";
 import dynamic from "next/dynamic";
 
 import type { CompanyDetail, FinancialsData, StructureData } from "./types";
+import { FinancialsSection } from "./financials-section";
 
 /* ---------- Tab components ---------- */
 
@@ -161,6 +162,13 @@ export function CompanyPageClient({
   const [aiInsightsLoading, setAiInsightsLoading] = useState(false);
   const [aiInsightsError, setAiInsightsError] = useState<string | null>(null);
   const [showInsightsOverlay, setShowInsightsOverlay] = useState(false);
+  // "cached" means we timed out but have a cached version to show
+  const [aiInsightsCachedFallback, setAiInsightsCachedFallback] = useState(false);
+  // "timedOutNoCache" means the 15 s deadline fired with NO cached data available
+  const [aiInsightsTimedOutNoCache, setAiInsightsTimedOutNoCache] = useState(false);
+  // Ref so the AI enrichment useEffect can read the latest cached insights
+  // without a stale-closure problem
+  const aiInsightsRef = React.useRef<AiInsights | null>(null);
 
   /* -- Copy-CBE / BTW feedback -- */
   const [copiedCbe, setCopiedCbe] = useState(false);
@@ -188,11 +196,17 @@ export function CompanyPageClient({
     nbbAutoTriggered.current = false;
     nbbAutoInFlight.current = false;
     adminExtractTriggered.current = false;
+    aiPreloadTriggered.current = false;
+    aiInsightsRef.current = null;
     setNbbLoading(false);
     setNbbResult(null);
     setLoadOverlay(false);
     setLoadStages([]);
     setLoadStartTime(null);
+    setAiInsightsCachedFallback(false);
+    setAiInsightsTimedOutNoCache(false);
+    setAiInsightsLoading(false);
+    setAiInsights(null);
   }, [cbe]);
 
   /* Track this profile in localStorage so the screener / dashboard can
@@ -238,7 +252,14 @@ export function CompanyPageClient({
      first paint via requestIdleCallback — operator-requested (#12)
      so the insights panel populates while the profile's loading too.
      Re-runs when `locale` changes so cached AI gets re-fetched
-     translated to the user's new site language. */
+     translated to the user's new site language.
+
+     15-second hard cap:
+     - If the generation call completes in time → show result normally.
+     - If it times out AND we already have cached insights → show cached +
+       "showing cached version" badge; swap to fresh when it arrives.
+     - If it times out with NO cache → show a "still generating" placeholder
+       with a manual Retry button (no timeout on retry). */
   useEffect(() => {
     let cancelled = false;
 
@@ -251,12 +272,61 @@ export function CompanyPageClient({
     if (!aiPreloadTriggered.current) {
       aiPreloadTriggered.current = true;
       setAiInsightsLoading(true);
-      generateAiInsights(cbe)
-        .then((result) => {
-          if (!cancelled) setAiInsights(result);
+      setAiInsightsCachedFallback(false);
+
+      // Keep a reference to the in-flight generation promise so we can
+      // attach a second .then() in the timeout branch without re-starting
+      // the request (the backend deduplicates, but avoiding the extra fetch
+      // is cheaper).
+      const generationP = generateAiInsights(cbe);
+
+      // Race generation against a 15 s deadline
+      const timeoutPromise = new Promise<"timeout">((resolve) =>
+        setTimeout(() => resolve("timeout"), 15_000)
+      );
+
+      Promise.race([
+        generationP.then((r) => ({ result: r })),
+        timeoutPromise,
+      ])
+        .then((outcome) => {
+          if (cancelled) return;
+          if (outcome === "timeout") {
+            // Check if we already have cached data from the enrichP race
+            const cached = aiInsightsRef.current;
+            if (cached) {
+              // Show cached + badge; clear the "no-cache timeout" flag
+              setAiInsightsCachedFallback(true);
+              setAiInsightsTimedOutNoCache(false);
+              setAiInsightsLoading(false);
+            } else {
+              // No cache yet — show "still generating" placeholder
+              setAiInsightsCachedFallback(false);
+              setAiInsightsTimedOutNoCache(true);
+              setAiInsightsLoading(false);
+            }
+            // The original generationP is still in flight — attach to it
+            // so when it resolves the UI swaps silently to fresh content.
+            generationP
+              .then((freshResult) => {
+                if (!cancelled) {
+                  setAiInsights(freshResult);
+                  aiInsightsRef.current = freshResult;
+                  setAiInsightsCachedFallback(false);
+                  setAiInsightsTimedOutNoCache(false);
+                }
+              })
+              .catch(() => {}); // silent — user can retry manually
+          } else {
+            setAiInsights(outcome.result);
+            aiInsightsRef.current = outcome.result;
+            setAiInsightsCachedFallback(false);
+            setAiInsightsTimedOutNoCache(false);
+            setAiInsightsLoading(false);
+          }
         })
-        .catch(() => {}) // fails silently for unauthenticated users
-        .finally(() => {
+        .catch(() => {
+          // fails silently for unauthenticated users
           if (!cancelled) setAiInsightsLoading(false);
         });
     }
@@ -298,6 +368,7 @@ export function CompanyPageClient({
       }
       // Cached insights: apply immediately — the parallel generation
       // will finish later and overwrite with the freshest version.
+      // Also update the ref so the timeout branch can read it.
       if (data.ai_insights) {
         try {
           const parsed = typeof data.ai_insights === "string"
@@ -305,6 +376,7 @@ export function CompanyPageClient({
             : data.ai_insights;
           if (parsed && typeof parsed === "object") {
             setAiInsights(parsed as AiInsights);
+            aiInsightsRef.current = parsed as AiInsights;
           }
         } catch {}
       }
@@ -427,38 +499,35 @@ export function CompanyPageClient({
   }, [cbe]);
 
   /* -- Load company detail, financials, structure --
-     SSR delivered detail/financials/structure on the request that built
-     this page (revalidated server-side per the parent route). We use those
-     directly and skip the historical 150ms client-side refetch — that
-     refetch round-tripped data we already had and never advanced
-     `runAutoLoad` (gated by `nbbAutoTriggered.current`). Dropping it
-     saves two API calls per profile open and shaves visible latency on
-     the (very common) cached-warm path. */
+     SSR now delivers detail + structure only (financials moved to
+     FinancialsSection client component). We apply those directly and
+     skip the historical client-side refetch. runAutoLoad is deferred
+     until FinancialsSection calls onLoaded so it can inspect real data. */
   useEffect(() => {
     let cancelled = false;
     nbbAutoTriggered.current = false;
     if (initialDetail) {
       setDetail(initialDetail);
-      setFinancials(initialFinancials);
+      // initialFinancials is always null (moved to client-side fetch)
+      setFinancials(null);
       setStructure(initialStructure);
       setLoading(false);
-      runAutoLoad(initialFinancials, initialStructure);
+      // runAutoLoad will be called from FinancialsSection.onLoaded once
+      // financials arrive so it has real data to inspect.
       return () => { cancelled = true; };
     }
 
     setLoading(true);
     Promise.all([
       getCompanyDetail(cbe),
-      getCompanyFinancials(cbe),
       getCompanyStructure(cbe),
     ])
-      .then(async ([d, f, s]) => {
+      .then(async ([d, s]) => {
         if (cancelled) return;
         setDetail(d as unknown as CompanyDetail);
-        setFinancials(f as unknown as FinancialsData);
         setStructure(s as unknown as StructureData);
         setLoading(false);
-        await runAutoLoad(f as unknown as FinancialsData, s as unknown as StructureData);
+        // runAutoLoad will be called from FinancialsSection.onLoaded
       })
       .catch((err) => {
         console.error("Failed to load company data:", err);
@@ -1012,6 +1081,8 @@ export function CompanyPageClient({
         onGenerate={handleGenerateInsights}
         onRegenerate={handleRegenerateInsights}
         onFeedback={handleInsightsFeedback}
+        cachedFallback={aiInsightsCachedFallback}
+        timedOutNoCache={aiInsightsTimedOutNoCache}
       />
 
       {/* Auto-load overlay (centered) */}
@@ -1114,6 +1185,25 @@ export function CompanyPageClient({
             ✕
           </button>
         </div>
+      )}
+
+      {/* Financials loader — client-side, with 15 s deadline.
+          Always fetches in the background so data is ready when the user
+          navigates to any financial sub-tab. Only renders skeleton / error
+          UI when the user is actually on a financial tab. */}
+      {!financials && (
+        <FinancialsSection
+          cbe={cbe}
+          onLoaded={(data) => {
+            setFinancials(data);
+            // Trigger the auto-load check now that we have financials
+            if (!nbbAutoTriggered.current) {
+              runAutoLoad(data, structure);
+            }
+          }}
+          initialFinancials={initialFinancials}
+          visible={["pnl", "cashflow", "balancesheet", "credit"].includes(activeTab)}
+        />
       )}
 
       {/* Tabs — grouped primary + sub-nav pattern */}

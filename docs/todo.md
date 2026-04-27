@@ -1,6 +1,6 @@
 # DataSnoop — To-Do List
 
-Last updated: 2026-04-27
+Last updated: 2026-04-27 (intake from email c2aaaaax — 8 new ideas; #31 confirmed fixed)
 
 ---
 
@@ -12,6 +12,9 @@ Last updated: 2026-04-27
 | 2 | ~~FTE references incorrect in several places — audit and fix~~ | Email 2026-04-22 | done |
 | 3 | ~~Company type (legal form) should be shown on the profile page~~ | Email 2026-04-22 | done |
 | 4 | "Add to project" popup should hover/overlay — currently not readable (too little space) | Email 2026-04-22 | in review (branch `ux/add-to-project-popup-readability`) |
+| 26 | Clicking a company in the screener should open its profile in a NEW tab | Email 2026-04-27 | in progress (`feat/screener-spider-perf-2026-04-27`) |
+| 27 | Screener: column widths should be user-adaptable (drag-resize) | Email 2026-04-27 | in progress (`feat/screener-spider-perf-2026-04-27`) |
+| 28 | Screener: add a column showing semantic keywords next to the company name | Email 2026-04-27 | in progress (`feat/screener-spider-perf-2026-04-27`) |
 
 ## Search improvements
 
@@ -35,6 +38,9 @@ Last updated: 2026-04-27
 | # | Item | Source | Status |
 |---|------|---------|--------|
 | 12 | ~~Company profile load is too slow — investigate and speed up~~ | Email 2026-04-22 | done |
+| 29 | Company profile: financials section must finish loading in ≤ 15 sec | Email 2026-04-27 | in progress (`feat/screener-spider-perf-2026-04-27`) |
+| 30 | Company profile: AI-insights section must finish loading in ≤ 15 sec | Email 2026-04-27 | in progress (`feat/screener-spider-perf-2026-04-27`) |
+| 31 | ~~AI insights appear broken — investigate and fix~~ | Email 2026-04-27 | done (operator-confirmed 2026-04-27) |
 
 ## Admin
 
@@ -54,6 +60,7 @@ Last updated: 2026-04-27
 | # | Item | Source | Status |
 |---|------|---------|--------|
 | 19 | Person profile page — companies involved in, timeline of involvement, roles | 2026-04-24 | pending |
+| 33 | When a representative / admin is a legal entity, also surface who represents that entity (recursive lookup) | Email 2026-04-27 | in progress (`feat/screener-spider-perf-2026-04-27`) |
 
 ## Network graph (spiderweb)
 
@@ -61,6 +68,7 @@ Last updated: 2026-04-27
 |---|------|---------|--------|
 | 20 | ~~Add toggle buttons to show/hide shareholders / directors / subsidiaries layers~~ | 2026-04-24 | done |
 | 21 | Spiderweb legibility deep-dive — network graph gets crowded on complex companies; investigate layout algorithm, clustering, label collisions, zoom/focus mode | 2026-04-24 | pending |
+| 32 | Spiderweb: clicking an entity should also offer "open profile in new tab" | Email 2026-04-27 | in progress (`feat/screener-spider-perf-2026-04-27`) |
 
 ## SEO / Discoverability
 

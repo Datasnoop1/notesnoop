@@ -137,6 +137,7 @@ export interface ScreenerRow {
   ebitda_rank_pct?: number | null;
   margin_rank_pct?: number | null;
   peer_count?: number | null;
+  semantic_keywords?: string[] | null;
 }
 
 export interface ScreenerFilters {
