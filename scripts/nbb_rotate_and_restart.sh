@@ -56,14 +56,21 @@ if [ -n "$DRY_RUN_FLAG" ]; then
     exit 0
 fi
 
-echo "==> Force-recreating prod backend + frontend..."
-( cd "$LEADPEEK_DIR" && docker compose up -d --force-recreate backend frontend ) || {
+echo "==> Force-recreating prod backend + frontend + nbb-backload-worker..."
+# nbb-backload-worker reads NBB_AUTHENTIC_KEY at start-up only — it must
+# also be force-recreated after a key rotation, otherwise the daemon keeps
+# the stale key and tight-loops on 401 → backoff until manually restarted.
+( cd "$LEADPEEK_DIR" && docker compose up -d --force-recreate backend frontend nbb-backload-worker ) || {
     echo "!! Prod recreate failed"
     exit 2
 }
 
 if [ -f "$LEADPEEK_DIR/docker-compose.staging.yml" ]; then
     echo "==> Force-recreating staging backend + frontend..."
+    # The staging nbb-backload-worker-staging is profile-gated (`test-backload`)
+    # and not auto-started, so we don't force-recreate it here. If the operator
+    # has explicitly started it for testing, they need to restart it manually
+    # after the rotation.
     ( cd "$LEADPEEK_DIR" && docker compose -f docker-compose.staging.yml -p leadpeek-staging up -d --force-recreate backend-staging frontend-staging ) || {
         echo "!! Staging recreate failed (prod still healthy)"
     }

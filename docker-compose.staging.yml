@@ -143,8 +143,14 @@ services:
     profiles: ["test-backload"]
     build: ./backend
     restart: unless-stopped
+    # See docker-compose.yml for rationale.
+    stop_grace_period: 30s
     env_file: .env.production
     environment:
+      # STAGING_MODE is set for parity with other staging services but is
+      # NOT read by nbb_nightly_backload.py — concurrency safety relies on
+      # the pg_try_advisory_lock(8888, 1) inside the script, which keeps
+      # this worker idle if the prod worker is already running.
       STAGING_MODE: "true"
       PYTHONPATH: "/app"
       BACKLOAD_MAX_CALLS: "${BACKLOAD_MAX_CALLS:-1500}"

@@ -496,6 +496,23 @@ def run(max_calls: int, start_year: int, end_year: int, per_year_cap: int, skip_
         log.error("NBB_AUTHENTIC_KEY not set — aborting")
         sys.exit(2)
 
+    # Mutex against concurrent backload runners. Two processes (e.g. prod
+    # `nbb-backload-worker` + a `--profile test-backload` staging worker)
+    # writing to the same Postgres would race on candidate selection and
+    # waste NBB API quota on duplicate calls. Session-level advisory lock
+    # auto-releases when the underlying Postgres connection closes (i.e.
+    # when this Python process exits and the connection pool tears down).
+    _lock_conn = get_connection()
+    with _lock_conn.cursor() as _cur:
+        _cur.execute("SELECT pg_try_advisory_lock(8888, 1)")
+        if not _cur.fetchone()[0]:
+            log.info("another backload holds advisory lock(8888, 1) — exiting cleanly")
+            put_connection(_lock_conn)
+            return
+    # Deliberately keep _lock_conn checked out for the duration of run() —
+    # putting it back would expose it to the pool's idle-timeout, which
+    # could close the conn and silently release the lock mid-run.
+
     start_ts = time.time()
     session = requests.Session()
     calls = 0

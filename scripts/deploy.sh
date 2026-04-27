@@ -68,20 +68,11 @@ echo ""
 echo "[4/4] Building and starting containers..."
 ssh $SSH_OPTS root@$SERVER_IP << 'START'
 cd /opt/leadpeek
-# Guard deploys so we never kill a running NBB backload mid-hour.
-# We wait for the shared lock and keep it held for the full deploy window.
-STATE_DIR="/opt/leadpeek/scripts/_watchdog_state"
-LOCK_FILE="$STATE_DIR/nbb_backload.lock"
-LOCK_WAIT_SEC="${NBB_DEPLOY_LOCK_WAIT_SEC:-7200}"
-mkdir -p "$STATE_DIR"
-exec 9>"$LOCK_FILE"
-echo "Waiting (up to ${LOCK_WAIT_SEC}s) for NBB backload to finish..."
-if ! flock -w "$LOCK_WAIT_SEC" 9; then
-  echo "ERROR: timed out waiting for NBB backload lock ($LOCK_FILE)"
-  echo "Aborting deploy to avoid interrupting a running backload."
-  exit 1
-fi
-echo "NBB backload lock acquired; holding it during deploy."
+# NBB backload now runs as the long-running `nbb-backload-worker` compose
+# service, so a deploy doesn't interrupt a 73-minute cron run any more.
+# `docker compose down` will SIGTERM it cleanly (per-filing commits roll
+# back safely; lost work is bounded to one in-flight call). The previous
+# flock-on-nbb_backload.lock guard was removed when the daemon shipped.
 # Dated backup of the env file — cheap insurance against fat-finger edits.
 # Keeps one snapshot per deploy; prune with `rm .env.production.bak-*` if needed.
 cp .env.production ".env.production.bak-$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true

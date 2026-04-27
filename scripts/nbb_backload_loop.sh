@@ -29,9 +29,13 @@ BACKOFF_S="${BACKLOAD_BACKOFF_S:-600}"
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-# Forward SIGTERM/SIGINT to the python child so docker stop drains cleanly.
+# Forward SIGTERM/SIGINT to the python child and wait for it to reap before
+# exiting. Without the wait, docker would emit a stop_grace_period warning
+# and SIGKILL the child — fine for an idempotent loader, but noisy. Compose
+# sets stop_grace_period: 30s so the child has plenty of room to finish its
+# current 1.25s API call + DB commit.
 child_pid=
-trap '[ -n "$child_pid" ] && kill -TERM "$child_pid" 2>/dev/null; exit 0' SIGTERM SIGINT
+trap '[ -n "$child_pid" ] && { kill -TERM "$child_pid" 2>/dev/null; wait "$child_pid" 2>/dev/null; }; exit 0' SIGTERM SIGINT
 
 echo "$(ts) nbb-backload-loop starting (max_calls=$MAX_CALLS start=$START_YEAR end=$END_YEAR per_year=$PER_YEAR_CAP sleep=${SLEEP_S}s backoff=${BACKOFF_S}s)"
 

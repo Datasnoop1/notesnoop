@@ -151,6 +151,12 @@ services:
   nbb-backload-worker:
     build: ./backend
     restart: unless-stopped
+    # 30s gives the python child a comfortable window to finish its
+    # current 1.25s API call + DB commit when SIGTERM fires (e.g. on a
+    # `docker compose down` during deploy.sh). Per-filing commits mean
+    # the worst case is a 1-call rollback, but a clean exit is nicer
+    # in the logs and avoids a SIGKILL warning from compose.
+    stop_grace_period: 30s
     env_file: .env.production
     environment:
       PYTHONPATH: "/app"

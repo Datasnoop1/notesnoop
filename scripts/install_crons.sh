@@ -34,6 +34,10 @@ FILTERED=$(echo "$CURRENT" | awk '
   /^# DATASNOOP-MANAGED-END$/ { skip=0; next }
   /\/opt\/leadpeek\/scripts\/daily_update\.sh/ { next }
   /backfill_affiliation\.py/ { next }
+  # Strip pre-2026-04-27 backload cron entries — replaced by the long-running
+  # `nbb-backload-worker` compose service. Keeping the filter idempotent so
+  # operators can re-run install_crons.sh on a host with the legacy crons.
+  /nbb_backload_cron\.sh/ { next }
   !skip { print }
 ')
 
@@ -43,14 +47,10 @@ NEW_BLOCK=$(cat <<'EOF'
 # host-only daily_update.sh that hardcoded DATABASE_URL / NBB keys and could
 # drift out of sync with auto-rotation.
 0 3 * * * bash /opt/leadpeek/scripts/daily_update.sh >> /var/log/datapeak_daily.log 2>&1
-# NBB nightly backload (reverse chronological, FY2024 → FY2022 — newer years
-# are too sparse this early in 2026; re-enable later when filings exist).
-# Uses a host-side lock so daytime drip-feed and nightly run never overlap.
-0 2 * * * MAX_CALLS=5000 PER_YEAR_CAP=3000 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
-# Quiet daytime drip-feed for missing historical NBB data.
-# Larger hourly budget so we use most spare daytime capacity, while still
-# finishing comfortably within an hour on current timings.
-0 6-22 * * * MAX_CALLS=1500 PER_YEAR_CAP=1500 bash /opt/leadpeek/scripts/nbb_backload_cron.sh
+# NBB historical backload runs continuously as the `nbb-backload-worker`
+# compose service (see docker-compose.yml + docs/nbb-loader-operations.md).
+# The two pre-2026-04-27 cron entries that fired nbb_backload_cron.sh were
+# removed because docker-exec'd runs were SIGKILLed by every backend rebuild.
 # Affiliation backfill — re-fetches NBB filings with legal-person admins and
 # extracts the natural-person Representatives into the affiliation table.
 # 5000 filings/run × ~1.1s per NBB call = ~92 min, well within the 2h gap
