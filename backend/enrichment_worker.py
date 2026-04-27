@@ -92,6 +92,20 @@ POLL_INTERVAL_S = float(os.getenv("WORKER_POLL_INTERVAL_S", "2.0"))
 IDLE_SLEEP_S = float(os.getenv("WORKER_IDLE_SLEEP_S", "15.0"))
 STALE_RELEASE_EVERY_N_POLLS = int(os.getenv("WORKER_STALE_RELEASE_EVERY", "60"))
 
+# Hard ceiling on a single job's wall time. The chained pipeline (DDG +
+# scrape + Q2 + entity-collision + Haiku + embed) sums many bounded waits;
+# 5 minutes is far above the realistic worst case but prevents one stuck
+# job from holding a concurrency slot forever.
+JOB_TIMEOUT_S = float(os.getenv("ENRICHMENT_JOB_TIMEOUT_S", "300"))
+
+# In-process watchdog. If the worker should be processing but no job has
+# completed in this window, exit so docker `restart: always` brings it back
+# fresh. On 2026-04-26 the worker silently froze for 20.5h because a sync
+# DB call on the asyncio event loop got stuck on a half-open socket; this
+# is the safety net for any future hang we haven't anticipated.
+WATCHDOG_THRESHOLD_S = float(os.getenv("ENRICHMENT_WATCHDOG_THRESHOLD_S", "600"))
+WATCHDOG_INTERVAL_S = float(os.getenv("ENRICHMENT_WATCHDOG_INTERVAL_S", "60"))
+
 ENDPOINT_LABEL_PREFIX = "/bulk-enrichment/"
 
 
@@ -629,10 +643,17 @@ class Worker:
         self._stop = asyncio.Event()
         self._in_flight = 0
         self._poll_count = 0
+        self._last_progress_at = time.monotonic()
+        self._should_be_working = True
 
     def request_stop(self) -> None:
         logger.info("stop requested — draining in-flight jobs")
         self._stop.set()
+
+    def _mark_progress(self) -> None:
+        """Reset the watchdog clock — called whenever a job terminates
+        (done, excluded, or failed). Any forward motion counts."""
+        self._last_progress_at = time.monotonic()
 
     def _launch_job(
         self,
@@ -657,7 +678,27 @@ class Worker:
                 token = set_current_endpoint(
                     ENDPOINT_LABEL_PREFIX + j["enterprise_number"]
                 )
-                result = await _enrich_one(j["enterprise_number"])
+                try:
+                    result = await asyncio.wait_for(
+                        _enrich_one(j["enterprise_number"]),
+                        timeout=JOB_TIMEOUT_S,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "enrich timed out cbe=%s after %.0fs — marking failed",
+                        j["enterprise_number"], JOB_TIMEOUT_S,
+                    )
+                    try:
+                        mark_failed(
+                            j["enterprise_number"],
+                            f"job_timeout:{int(JOB_TIMEOUT_S)}s",
+                        )
+                    except Exception:
+                        logger.exception("mark_failed after timeout failed")
+                    record_worker_heartbeat(
+                        "error", f"timeout:{j['enterprise_number']}"
+                    )
+                    return
                 if result.get("ok"):
                     if result.get("path") == "excluded_juridical_form":
                         mark_excluded(j["enterprise_number"])
@@ -698,6 +739,7 @@ class Worker:
                 record_worker_heartbeat("error", f"crash:{j['enterprise_number']}")
             finally:
                 self._in_flight -= 1
+                self._mark_progress()
                 if token is not None:
                     reset_current_endpoint(token)
                 sem.release()
@@ -706,9 +748,51 @@ class Worker:
         tasks.add(task)
         task.add_done_callback(tasks.discard)
 
+    async def _watchdog(self) -> None:
+        """Self-restart if no job has terminated in WATCHDOG_THRESHOLD_S
+        while the worker should be doing work.
+
+        "Should be working" = enrichment_enabled AND below daily budget.
+        When the worker is intentionally paused (operator disabled it, or
+        the daily budget is blown) the clock is reset so we don't kill a
+        legitimately idle process. On a real hang we call os._exit(1) so
+        docker `restart: always` brings up a fresh container."""
+        while not self._stop.is_set():
+            await asyncio.sleep(WATCHDOG_INTERVAL_S)
+            if self._stop.is_set():
+                return
+            if not self._should_be_working:
+                self._mark_progress()
+                continue
+            stalled_for = time.monotonic() - self._last_progress_at
+            if stalled_for > WATCHDOG_THRESHOLD_S:
+                logger.error(
+                    "watchdog: no progress for %.0fs (in_flight=%d) — "
+                    "exiting so docker restart brings the worker back fresh",
+                    stalled_for, self._in_flight,
+                )
+                try:
+                    record_worker_heartbeat(
+                        "error", f"watchdog_exit:stalled_{int(stalled_for)}s",
+                    )
+                except Exception:
+                    pass
+                # Hard exit (not sys.exit) — sys.exit raises in the current
+                # task only and may be swallowed; os._exit terminates the
+                # whole process so the supervisor takes over.
+                os._exit(1)
+
     async def run(self) -> None:
         """Main loop. Polls, fans out claims, waits for completions."""
         record_worker_heartbeat("starting", "boot")
+
+        # Spawn the watchdog FIRST so even a hang in boot warm-up
+        # (ensure_*_schema, release_stale) gets caught. The watchdog is a
+        # plain coroutine task — running it before the schema calls is
+        # safe because it only checks `_last_progress_at`, which we
+        # initialised in __init__.
+        watchdog_task = asyncio.create_task(self._watchdog())
+
         ensure_queue_schema()
         ensure_semantic_schema()
         # Warm-up: release any stale claims from a prior crash.
@@ -718,6 +802,10 @@ class Worker:
                 logger.info("released %d stale claims on startup", n)
         except Exception:
             logger.exception("initial stale-release failed (non-fatal)")
+
+        # Boot done — reset the watchdog clock so the schema calls don't
+        # eat into the freshness window once the poll loop starts.
+        self._mark_progress()
 
         sem = asyncio.Semaphore(WORKER_CONCURRENCY)
         tasks: set[asyncio.Task] = set()
@@ -729,6 +817,7 @@ class Worker:
             if not enrichment_enabled():
                 logger.info("meta.enrichment_enabled=false — sleeping")
                 record_worker_heartbeat("paused", "disabled")
+                self._should_be_working = False
                 await asyncio.sleep(IDLE_SLEEP_S)
                 continue
 
@@ -737,6 +826,7 @@ class Worker:
             except BudgetGuardUnavailable:
                 logger.warning("budget guard unavailable, pausing this cycle")
                 record_worker_heartbeat("paused", "budget_guard_unavailable")
+                self._should_be_working = False
                 await asyncio.sleep(IDLE_SLEEP_S)
                 continue
             budget = daily_budget_usd()
@@ -749,8 +839,11 @@ class Worker:
                     "paused",
                     f"budget:{spend:.3f}/{budget:.2f}",
                 )
+                self._should_be_working = False
                 await asyncio.sleep(IDLE_SLEEP_S)
                 continue
+
+            self._should_be_working = True
 
             self._poll_count += 1
             if self._poll_count % STALE_RELEASE_EVERY_N_POLLS == 0:
@@ -800,6 +893,11 @@ class Worker:
             logger.info("waiting for %d in-flight jobs to drain", len(tasks))
             record_worker_heartbeat("draining", f"in_flight={len(tasks)}")
             await asyncio.gather(*tasks, return_exceptions=True)
+        watchdog_task.cancel()
+        try:
+            await watchdog_task
+        except (asyncio.CancelledError, Exception):
+            pass
         record_worker_heartbeat("stopped", "clean_exit")
 
 

@@ -18,6 +18,17 @@ logger = logging.getLogger(__name__)
 
 _DATABASE_URL = os.getenv("DATABASE_URL", "")
 
+# Hard caps so a stalled socket can never hang a caller forever. The
+# enrichment worker froze for ~20.5h on 2026-04-26 because a sync DB call on
+# the asyncio event loop got stuck on a half-open socket — Linux TCP
+# keepalive + retries can take hours to declare the connection dead. These
+# values bound the worst case to seconds.
+DB_CONNECT_TIMEOUT_S = int(os.getenv("DB_CONNECT_TIMEOUT_S", "10"))
+# 120s server-side cap. Backend admin queries are the legitimate long ones;
+# anything longer is almost certainly a stuck connection. The enrichment
+# worker has its own tighter per-job ceiling on top of this.
+DB_STATEMENT_TIMEOUT_MS = int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "120000"))
+
 # Simple pool: min 1, max 3 connections (Supabase session pooler is limited)
 _pool = None
 
@@ -27,7 +38,13 @@ def _get_pool():
     if _pool is None or _pool.closed:
         if not _DATABASE_URL:
             raise RuntimeError("DATABASE_URL not set in environment / .env file")
-        _pool = psycopg2.pool.SimpleConnectionPool(2, 10, _DATABASE_URL)
+        _pool = psycopg2.pool.SimpleConnectionPool(
+            2,
+            10,
+            _DATABASE_URL,
+            connect_timeout=DB_CONNECT_TIMEOUT_S,
+            options=f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}",
+        )
     return _pool
 
 

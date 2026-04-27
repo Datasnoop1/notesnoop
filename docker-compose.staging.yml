@@ -115,11 +115,14 @@ services:
       playwright-scraper-staging:
         condition: service_healthy
     command: ["python", "-m", "enrichment_worker"]
+    # See prod compose for rationale. Same DB-aware healthcheck so staging
+    # exercises the same code path as production.
     healthcheck:
-      test: ["CMD", "python", "-c", "import enrichment_worker"]
-      interval: 60s
-      timeout: 10s
+      test: ["CMD", "python", "/app/healthcheck_worker.py"]
+      interval: 120s
+      timeout: 15s
       retries: 3
+      start_period: 120s
     mem_limit: 1g
     mem_reservation: 256m
     deploy:
