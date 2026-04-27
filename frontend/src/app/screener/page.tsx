@@ -38,7 +38,7 @@ import {
   X,
 } from "lucide-react";
 import { useTranslation } from "@/components/language-provider";
-import AdUnit from "@/components/ad-unit";
+// AdUnit removed from screener 2026-04-27 — see Row 2 below.
 
 /* ------------------------------------------------------------------ */
 /*  Types — ScreenerRow + NaceSuggestion imported from @/lib/api (the   */
@@ -50,12 +50,19 @@ interface Filters {
   nace: string;
   zipcode: string;
   province: string;
+  keyword: string;
   rev_min: string;
   rev_max: string;
   ebit_min: string;
   ebit_max: string;
+  ebitda_min: string;
+  ebitda_max: string;
   fte_min: string;
   fte_max: string;
+  ebitda_margin_min: string;
+  ebit_margin_min: string;
+  /** Legacy alias for ebitda_margin_min — retained so older saved
+   *  presets and quick-filter chips keep working. */
   margin_min: string;
   nd_ebitda_max: string;
   rev_growth_min: string;
@@ -76,12 +83,17 @@ const DEFAULT_FILTERS: Filters = {
   nace: "",
   zipcode: "",
   province: "",
+  keyword: "",
   rev_min: "",
   rev_max: "",
   ebit_min: "",
   ebit_max: "",
+  ebitda_min: "",
+  ebitda_max: "",
   fte_min: "",
   fte_max: "",
+  ebitda_margin_min: "",
+  ebit_margin_min: "",
   margin_min: "",
   nd_ebitda_max: "",
   rev_growth_min: "",
@@ -152,10 +164,12 @@ const QUICK_FILTERS: QuickFilter[] = [
     isActive: (f) => f.fte_min === "50",
   },
   {
-    label: "Margin > 15%",
+    label: "EBITDA margin > 15%",
     apply: (f) =>
-      f.margin_min === "15" ? { margin_min: "" } : { margin_min: "15" },
-    isActive: (f) => f.margin_min === "15",
+      f.ebitda_margin_min === "15"
+        ? { ebitda_margin_min: "", margin_min: "" }
+        : { ebitda_margin_min: "15", margin_min: "" },
+    isActive: (f) => f.ebitda_margin_min === "15" || f.margin_min === "15",
   },
 ];
 
@@ -560,8 +574,10 @@ export default function ScreenerPage() {
       financials: !!(
         f.rev_min || f.rev_max ||
         f.ebit_min || f.ebit_max ||
+        f.ebitda_min || f.ebitda_max ||
         f.fte_min || f.fte_max ||
-        f.margin_min || f.nd_ebitda_max ||
+        f.ebitda_margin_min || f.ebit_margin_min || f.margin_min ||
+        f.nd_ebitda_max ||
         f.fixed_assets_min || f.fixed_assets_max
       ),
       trend: !!(
@@ -654,9 +670,16 @@ export default function ScreenerPage() {
           );
         if (f.ebit_max)
           params.ebit_max = String(Number(f.ebit_max) * multiplier);
+        if (f.ebitda_min)
+          params.ebitda_min = String(Number(f.ebitda_min) * multiplier);
+        if (f.ebitda_max)
+          params.ebitda_max = String(Number(f.ebitda_max) * multiplier);
         if (f.fte_min) params.fte_min = f.fte_min;
         if (f.fte_max) params.fte_max = f.fte_max;
+        if (f.ebitda_margin_min) params.ebitda_margin_min = f.ebitda_margin_min;
+        if (f.ebit_margin_min) params.ebit_margin_min = f.ebit_margin_min;
         if (f.margin_min) params.margin_min = f.margin_min;
+        if (f.keyword.trim()) params.keyword = f.keyword.trim();
         if (f.nd_ebitda_max) params.nd_ebitda_max = f.nd_ebitda_max;
         if (f.rev_growth_min) params.rev_growth_min = f.rev_growth_min;
         if (f.rev_growth_max) params.rev_growth_max = f.rev_growth_max;
@@ -814,8 +837,11 @@ export default function ScreenerPage() {
     if (filters.distress) company++;
     if (filters.rev_min || filters.rev_max) financials++;
     if (filters.ebit_min || filters.ebit_max) financials++;
+    if (filters.ebitda_min || filters.ebitda_max) financials++;
     if (filters.fte_min || filters.fte_max) financials++;
-    if (filters.margin_min) financials++;
+    if (filters.ebitda_margin_min || filters.margin_min) financials++;
+    if (filters.ebit_margin_min) financials++;
+    if (filters.keyword) company++;
     if (filters.nd_ebitda_max) financials++;
     if (filters.fixed_assets_min || filters.fixed_assets_max) financials++;
     if (filters.rev_growth_min || filters.rev_growth_max) trend++;
@@ -1173,6 +1199,27 @@ export default function ScreenerPage() {
             </div>
           </div>
 
+          {/* Semantic keyword filter — substring match against the
+              products_services array on company_enrichment.bulk_summary.
+              Lives directly under the NACE box because both narrow the
+              universe of companies before any financial filter is applied. */}
+          <div className="space-y-1">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              <Tag className="w-3 h-3 inline mr-1" />
+              Semantic keyword
+            </Label>
+            <Input
+              className="h-10 md:h-7 text-base md:text-xs"
+              placeholder='e.g. "geneesmiddelen", "consultancy"'
+              value={filters.keyword}
+              onChange={(e) => updateFilter("keyword", e.target.value)}
+            />
+            <p className="text-[10px] text-slate-400 leading-tight">
+              Filters on AI-generated product / service tags. Companies
+              without an enrichment record are excluded.
+            </p>
+          </div>
+
           {/* Province */}
           <div className="space-y-1">
             <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
@@ -1299,7 +1346,30 @@ export default function ScreenerPage() {
             </div>
           </div>
 
-          {/* EBIT */}
+          {/* EBITDA (absolute) */}
+          <div className="space-y-1 border-t border-slate-200 pt-2">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              EBITDA{unit !== "raw" ? ` (${unit})` : ""}
+            </Label>
+            <div className="grid grid-cols-2 gap-1.5">
+              <Input
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
+                type="number"
+                placeholder="Min"
+                value={filters.ebitda_min}
+                onChange={(e) => updateFilter("ebitda_min", e.target.value)}
+              />
+              <Input
+                className="h-10 md:h-7 text-base md:text-xs font-mono"
+                type="number"
+                placeholder="Max"
+                value={filters.ebitda_max}
+                onChange={(e) => updateFilter("ebitda_max", e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* EBIT (absolute) */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
               {t("screener.ebit")}{unit !== "raw" ? ` (${unit})` : ""}
@@ -1345,17 +1415,37 @@ export default function ScreenerPage() {
             </div>
           </div>
 
-          {/* Margin */}
+          {/* Margin filters — split into EBITDA% and EBIT% so the user
+              knows exactly which margin they're filtering on. The legacy
+              `margin_min` (= EBITDA margin) is hydrated into the
+              EBITDA-margin input on mount for back-compat with stored
+              presets; once the user types a value, ebitda_margin_min
+              owns the canonical state. */}
           <div className="space-y-1 border-t border-slate-200 pt-2">
             <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-              {t("screener.marginMin")}
+              EBITDA margin % min
             </Label>
             <Input
               className="h-10 md:h-7 text-base md:text-xs font-mono"
               type="number"
-              placeholder="0"
-              value={filters.margin_min}
-              onChange={(e) => updateFilter("margin_min", e.target.value)}
+              placeholder="e.g. 15"
+              value={filters.ebitda_margin_min || filters.margin_min}
+              onChange={(e) =>
+                updateFilter("ebitda_margin_min", e.target.value)
+              }
+            />
+          </div>
+
+          <div className="space-y-1 border-t border-slate-200 pt-2">
+            <Label className="text-[11px] md:text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
+              EBIT margin % min
+            </Label>
+            <Input
+              className="h-10 md:h-7 text-base md:text-xs font-mono"
+              type="number"
+              placeholder="e.g. 10"
+              value={filters.ebit_margin_min}
+              onChange={(e) => updateFilter("ebit_margin_min", e.target.value)}
             />
           </div>
 
@@ -1578,10 +1668,10 @@ export default function ScreenerPage() {
           </div>
         </div>
 
-        {/* Ad placement: above results */}
-        <div className="border-b border-slate-100 no-print">
-          <AdUnit slot="3722838377" format="horizontal" className="max-h-[90px] overflow-hidden" />
-        </div>
+        {/* Ad placement removed 2026-04-27 — the AdSense slot reserves
+            ~50px of empty space when the ad is blocked or hasn't filled,
+            creating a visible gap between the filter bar and the table.
+            Re-add elsewhere if/when ad revenue becomes a priority again. */}
 
         {/* Results table. Scrollbar hidden from md+ only; mobile keeps the
             native scrollbar so users know the columns scroll (architecture
@@ -1743,14 +1833,17 @@ export default function ScreenerPage() {
                     {hoveredCbe === row.cbe && <HoverCard row={row} t={t} />}
                   </td>
 
-                  {/* Semantic keywords */}
-                  <td className="py-1.5 px-2 align-middle">
+                  {/* Semantic keywords — pills wrap inside the column when
+                      a single keyword exceeds the cell width, so long
+                      Dutch phrases ("vervaardiging van …") don't bleed
+                      into the next column. */}
+                  <td className="py-1.5 px-2 align-middle overflow-hidden">
                     {row.semantic_keywords && row.semantic_keywords.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-wrap gap-1 min-w-0">
                         {row.semantic_keywords.slice(0, 3).map((kw) => (
                           <span
                             key={kw}
-                            className="bg-slate-100 text-slate-700 rounded-full px-2 py-0.5 text-xs whitespace-nowrap"
+                            className="bg-slate-100 text-slate-700 rounded-full px-2 py-0.5 text-xs leading-tight max-w-full break-words"
                           >
                             {kw}
                           </span>

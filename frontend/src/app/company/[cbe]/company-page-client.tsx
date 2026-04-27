@@ -169,6 +169,10 @@ export function CompanyPageClient({
   // Ref so the AI enrichment useEffect can read the latest cached insights
   // without a stale-closure problem
   const aiInsightsRef = React.useRef<AiInsights | null>(null);
+  // AbortController for the in-flight AI insights fetch — cleaned up on
+  // unmount / locale change / CBE change so rapid navigation doesn't
+  // leak slow OpenRouter calls (security review MEDIUM finding).
+  const aiAbortRef = React.useRef<AbortController | null>(null);
 
   /* -- Copy-CBE / BTW feedback -- */
   const [copiedCbe, setCopiedCbe] = useState(false);
@@ -198,6 +202,10 @@ export function CompanyPageClient({
     adminExtractTriggered.current = false;
     aiPreloadTriggered.current = false;
     aiInsightsRef.current = null;
+    if (aiAbortRef.current) {
+      aiAbortRef.current.abort();
+      aiAbortRef.current = null;
+    }
     setNbbLoading(false);
     setNbbResult(null);
     setLoadOverlay(false);
@@ -278,12 +286,21 @@ export function CompanyPageClient({
       // attach a second .then() in the timeout branch without re-starting
       // the request (the backend deduplicates, but avoiding the extra fetch
       // is cheaper).
-      const generationP = generateAiInsights(cbe);
+      // AbortController is wired so component unmount / locale-change /
+      // CBE-change cancels the request — prevents accumulating long
+      // OpenRouter calls when users navigate rapidly between profiles
+      // (security review MEDIUM finding).
+      const aiAbort = aiAbortRef.current;
+      if (aiAbort) aiAbort.abort();
+      const newAbort = new AbortController();
+      aiAbortRef.current = newAbort;
+      const generationP = generateAiInsights(cbe, newAbort.signal);
 
       // Race generation against a 15 s deadline
-      const timeoutPromise = new Promise<"timeout">((resolve) =>
-        setTimeout(() => resolve("timeout"), 15_000)
-      );
+      const timeoutHandle: { id: ReturnType<typeof setTimeout> | null } = { id: null };
+      const timeoutPromise = new Promise<"timeout">((resolve) => {
+        timeoutHandle.id = setTimeout(() => resolve("timeout"), 15_000);
+      });
 
       Promise.race([
         generationP.then((r) => ({ result: r })),
@@ -326,8 +343,11 @@ export function CompanyPageClient({
           }
         })
         .catch(() => {
-          // fails silently for unauthenticated users
+          // fails silently for unauthenticated users + aborted fetches
           if (!cancelled) setAiInsightsLoading(false);
+        })
+        .finally(() => {
+          if (timeoutHandle.id) clearTimeout(timeoutHandle.id);
         });
     }
 
@@ -384,6 +404,12 @@ export function CompanyPageClient({
 
     return () => {
       cancelled = true;
+      // Abort the in-flight AI insights fetch so unmount / locale-change /
+      // CBE-change doesn't leak a long-running OpenRouter call.
+      if (aiAbortRef.current) {
+        aiAbortRef.current.abort();
+        aiAbortRef.current = null;
+      }
     };
   }, [cbe, locale]);
 

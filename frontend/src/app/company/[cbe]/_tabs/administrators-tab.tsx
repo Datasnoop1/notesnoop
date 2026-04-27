@@ -481,9 +481,11 @@ export function AdministratorsTab({
                           </div>
                         </div>
                       )}
-                      {admin.representation_chain && admin.representation_chain.length > 0 && (
-                        <RepresentationChain chain={admin.representation_chain} />
-                      )}
+                      {/* Representation chain intentionally NOT rendered
+                          on past-admin cards: the chain reflects who
+                          CURRENTLY represents the legal entity, which is
+                          potentially misleading when the admin's mandate
+                          itself has ended (correctness review WARN). */}
                     </CardContent>
                   </Card>
                 );

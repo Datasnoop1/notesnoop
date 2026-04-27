@@ -62,7 +62,10 @@ async def screener(
     rev_max: Optional[float] = Query(None, ge=0),
     fte_min: Optional[float] = Query(None, ge=0),
     fte_max: Optional[float] = Query(None, ge=0),
-    margin_min: Optional[float] = Query(None, ge=0),
+    margin_min: Optional[float] = Query(None, ge=0, description="DEPRECATED alias for ebitda_margin_min — kept for back-compat with stored presets."),
+    ebitda_margin_min: Optional[float] = Query(None, ge=0, description="Min EBITDA margin %  (= ebitda / revenue * 100)"),
+    ebit_margin_min: Optional[float] = Query(None, ge=0, description="Min EBIT margin % (= ebit / revenue * 100)"),
+    keyword: Optional[str] = Query(None, description="Filter by semantic keyword — matches words inside company_enrichment.bulk_summary.products_services (case-insensitive substring)"),
     nd_ebitda_max: Optional[float] = Query(None, description="Max Net Debt / EBITDA ratio"),
     rev_growth_min: Optional[float] = Query(None, description="Min revenue growth % YoY"),
     rev_growth_max: Optional[float] = Query(None, description="Max revenue growth % YoY"),
@@ -143,10 +146,41 @@ async def screener(
     if fte_max is not None:
         conditions.append("fl.fte_total <= %s")
         params.append(fte_max)
-    if margin_min is not None:
+    # margin_min is the legacy EBITDA-margin filter; ebitda_margin_min is
+    # the new explicit name. Both map to the same SQL — caller can use
+    # either. If both are set, the stricter (higher) value wins.
+    effective_ebitda_margin = margin_min if ebitda_margin_min is None else (
+        max(margin_min, ebitda_margin_min) if margin_min is not None else ebitda_margin_min
+    )
+    if effective_ebitda_margin is not None:
         conditions.append("fl.revenue > 0")
         conditions.append("(fl.ebitda / fl.revenue * 100) >= %s")
-        params.append(margin_min)
+        params.append(effective_ebitda_margin)
+    if ebit_margin_min is not None:
+        conditions.append("fl.revenue > 0")
+        conditions.append("(fl.ebit / fl.revenue * 100) >= %s")
+        params.append(ebit_margin_min)
+    if keyword:
+        # Case-insensitive substring match against any of the
+        # products_services array entries. Requires the company to have
+        # an enrichment row; companies without enrichment cannot satisfy
+        # a positive keyword filter (this is the intended UX — the user
+        # is explicitly filtering ON keywords, so absent data should
+        # exclude the row, not include it).
+        conditions.append("""
+            EXISTS (
+                SELECT 1
+                FROM company_enrichment ce_kw
+                WHERE ce_kw.enterprise_number = e.enterprise_number
+                  AND jsonb_typeof(ce_kw.bulk_summary->'products_services') = 'array'
+                  AND EXISTS (
+                      SELECT 1
+                      FROM jsonb_array_elements_text(ce_kw.bulk_summary->'products_services') AS kw
+                      WHERE kw ILIKE %s
+                  )
+            )
+        """)
+        params.append(f"%{keyword}%")
     if nd_ebitda_max is not None:
         conditions.append("""
             fl.ebitda > 0 AND
@@ -264,13 +298,18 @@ async def screener(
     # Semantic keywords — first 5 items from products_services in bulk_summary.
     # LEFT JOIN so companies without enrichment still appear; the JSONB
     # extraction is done in Postgres to avoid any per-row Python overhead.
+    # The jsonb_typeof guard prevents a hard error if any row's
+    # products_services is malformed (e.g. a string or object instead of
+    # an array — review-flagged latent crash risk).
     semantic_keywords_col = """,
-               ARRAY(
-                   SELECT jsonb_array_elements_text(
-                       ce.bulk_summary->'products_services'
+               CASE WHEN jsonb_typeof(ce.bulk_summary->'products_services') = 'array' THEN
+                   ARRAY(
+                       SELECT jsonb_array_elements_text(
+                           ce.bulk_summary->'products_services'
+                       )
+                       LIMIT 5
                    )
-                   LIMIT 5
-               ) AS "semantic_keywords"
+               ELSE ARRAY[]::text[] END AS "semantic_keywords"
     """
 
     # Sparkline history — last 5 fiscal years of revenue/EBITDA per row.

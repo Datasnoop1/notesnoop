@@ -10,7 +10,7 @@
  * without a timeout from there.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { FinancialsData } from "./types";
@@ -91,11 +91,31 @@ export function FinancialsSection({
     "idle" | "loading" | "done" | "timeout" | "error"
   >(initialFinancials ? "done" : "idle");
 
+  // Track the in-flight retry-path AbortController + the mount flag so that
+  // unmounting the component while a (timeout-free) retry is in flight
+  // cancels the fetch instead of writing state on a dead component.
+  const retryAbortRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (retryAbortRef.current) {
+        retryAbortRef.current.abort();
+        retryAbortRef.current = null;
+      }
+    };
+  }, []);
+
   const fetchFinancials = useCallback(
     async (skipTimeout: boolean) => {
-      setState("loading");
+      // Cancel any previous retry that's still running before starting a new one.
+      if (retryAbortRef.current) retryAbortRef.current.abort();
       const controller = new AbortController();
+      retryAbortRef.current = controller;
       let timer: ReturnType<typeof setTimeout> | null = null;
+
+      setState("loading");
 
       if (!skipTimeout) {
         timer = setTimeout(() => {
@@ -111,13 +131,19 @@ export function FinancialsSection({
         if (timer) clearTimeout(timer);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: FinancialsData = await res.json();
+        if (!mountedRef.current) return;
         onLoaded(data);
         setState("done");
       } catch (err: unknown) {
         if (timer) clearTimeout(timer);
+        if (!mountedRef.current) return;
         const isAbort =
           err instanceof DOMException && err.name === "AbortError";
         setState(isAbort ? "timeout" : "error");
+      } finally {
+        if (retryAbortRef.current === controller) {
+          retryAbortRef.current = null;
+        }
       }
     },
     [cbe, onLoaded]

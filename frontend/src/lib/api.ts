@@ -1404,8 +1404,8 @@ export interface AiInsights {
   linkedin_url: string;
 }
 
-export const generateAiInsights = (cbe: string) =>
-  apiFetch<AiInsights>(withLang(`/api/companies/${cbe}/ai-insights`), { method: "POST" });
+export const generateAiInsights = (cbe: string, signal?: AbortSignal) =>
+  apiFetch<AiInsights>(withLang(`/api/companies/${cbe}/ai-insights`), { method: "POST", signal });
 
 export const submitInsightsFeedback = (cbe: string, feedback: { overall: string; websiteCorrect?: boolean; linkedinCorrect?: boolean; insightCorrect?: boolean; comment?: string }) =>
   apiFetch<{ status: string }>(`/api/companies/${cbe}/ai-insights/feedback`, { method: "POST", body: JSON.stringify(feedback) });
