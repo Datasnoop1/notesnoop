@@ -56,73 +56,122 @@
 }
 
 :root {
-  /* ── DataSnoop design tokens (mockup spec) ─────────────────────────
-     These ds-* vars are the single source of truth for the new design
-     system. Components should prefer these over raw Tailwind utilities
-     when matching the mockup spec precisely. */
-  --ds-bg: #F8FAFD;
+  /* ── DataSnoop light-premium design tokens ─────────────────────────
+     Single source of truth. Components should prefer these (or the
+     mapped Tailwind/shadcn aliases below) over raw hex literals.
+
+     Tone: calm, editorial, high-trust. Off-white surfaces, deep navy
+     typography, soft sky-blue primary, restrained teal/green accents. */
+
+  /* Surfaces */
+  --ds-bg: #F7F9FC;
+  --ds-bg-soft: #F3F6FB;
   --ds-surface: #FFFFFF;
-  --ds-surface-soft: #F3F7FF;
-  --ds-border: #E3EAF4;
-  --ds-text: #07142F;
+  --ds-surface-muted: #FAFBFD;
+  --ds-card: #FFFFFF;
+  /* Back-compat alias — older components reference `--ds-surface-soft`. */
+  --ds-surface-soft: #F3F6FB;
+
+  /* Text */
+  --ds-text: #08132B;
+  --ds-text-soft: #18233D;
   --ds-muted: #5F6B85;
-  --ds-subtle: #7B8498;
-  --ds-primary: #0B5CFF;
-  --ds-primary-hover: #084ED8;
+  --ds-subtle: #8791A6;
+  --ds-label: #6B7690;
+
+  /* Borders */
+  --ds-border: #E2E8F2;
+  --ds-border-soft: #EDF1F7;
+  --ds-border-strong: #D4DDEB;
+
+  /* Primary (sky blue) */
+  --ds-primary: #1687E8;
+  --ds-primary-hover: #0F72C8;
+  --ds-primary-soft: #EAF5FF;
+  --ds-primary-border: #CFE7FF;
+
+  /* Teal / insight */
+  --ds-teal: #1F9B8F;
+  --ds-teal-dark: #13796F;
+  --ds-teal-soft: #E8F7F5;
+  --ds-teal-border: #BFE7E2;
+
+  /* Positive */
   --ds-success: #0C9B62;
+  --ds-success-soft: #EAF8F1;
+  --ds-success-border: #BFE9D4;
+
+  /* Warning */
   --ds-warning: #E97912;
+  --ds-warning-soft: #FFF3E7;
+  --ds-warning-border: #FFD8AC;
+
+  /* Info */
+  --ds-info: #2F80ED;
+  --ds-info-soft: #EAF3FF;
+
+  /* Shadows */
+  --ds-shadow-card: 0 16px 40px rgba(15, 23, 42, 0.055);
+  --ds-shadow-soft: 0 8px 24px rgba(15, 23, 42, 0.04);
+  --ds-shadow-button: 0 6px 14px -2px rgba(22, 135, 232, 0.28), 0 2px 4px -1px rgba(22, 135, 232, 0.18);
+  --ds-shadow-button-hover: 0 10px 22px -2px rgba(22, 135, 232, 0.32), 0 3px 6px -1px rgba(22, 135, 232, 0.22);
+
+  /* Radii */
+  --ds-radius-sm: 10px;
   --ds-radius-md: 14px;
   --ds-radius-lg: 18px;
   --ds-radius-xl: 24px;
-  --ds-shadow-card: 0 12px 32px rgba(15,23,42,0.04);
+  --ds-radius-2xl: 28px;
 
-  /* ── Tailwind / shadcn tokens ───────────────────────────────────── */
-  --background: #F8FAFD;
-  --foreground: #07142F;
-  /* Brand primary — blue from mockup spec. Available via `bg-brand`,
-     `text-brand`, `border-brand`, `bg-brand-soft`, `bg-brand-ink`. */
-  --brand: #0B5CFF;
+  /* ── Tailwind / shadcn token aliases ─────────────────────────────
+     Mapped to the ds-* tokens so utility classes (`bg-brand`, `bg-card`,
+     `text-foreground`, `border-border`, …) pick up the new palette
+     automatically. */
+  --background: #F7F9FC;
+  --foreground: #08132B;
+  --brand: #1687E8;
   --brand-foreground: #ffffff;
-  --brand-soft: #EEF3FF;
-  --brand-ink: #084ED8;
-  /* Neutral surfaces */
-  --bg-soft: #F3F7FF;
-  --rule: #E3EAF4;
+  --brand-soft: #EAF5FF;
+  --brand-ink: #0F72C8;
+  --bg-soft: #F3F6FB;
+  --rule: #E2E8F2;
   --ink-soft: #5F6B85;
-  /* Surface shadows — namespace as `--surface-shadow-*` to avoid Tailwind
-     v4 auto-registering them as shadow utilities. */
-  --surface-shadow-card: 0 1px 3px rgba(15, 23, 42, 0.04), 0 12px 32px rgba(15, 23, 42, 0.04);
-  --surface-shadow-elevated: 0 2px 4px rgba(15, 23, 42, 0.06), 0 12px 32px rgba(15, 23, 42, 0.08);
+  /* Surface shadows — namespaced to avoid Tailwind v4 auto-registering
+     them as `shadow-*` utilities. */
+  --surface-shadow-card: 0 1px 3px rgba(15, 23, 42, 0.04), 0 16px 40px rgba(15, 23, 42, 0.055);
+  --surface-shadow-elevated: 0 2px 4px rgba(15, 23, 42, 0.06), 0 16px 40px rgba(15, 23, 42, 0.08);
   --card: #ffffff;
-  --card-foreground: #07142F;
+  --card-foreground: #08132B;
   --popover: #ffffff;
-  --popover-foreground: #07142F;
-  --primary: #0B5CFF;
+  --popover-foreground: #08132B;
+  --primary: #1687E8;
   --primary-foreground: #ffffff;
-  --secondary: #F3F7FF;
-  --secondary-foreground: #07142F;
-  --muted: #F3F7FF;
+  --secondary: #F3F6FB;
+  --secondary-foreground: #08132B;
+  --muted: #F3F6FB;
   --muted-foreground: #5F6B85;
-  --accent: #F3F7FF;
-  --accent-foreground: #07142F;
+  --accent: #EAF5FF;
+  --accent-foreground: #08132B;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: #E3EAF4;
-  --input: #E3EAF4;
-  --ring: #0B5CFF;
-  --chart-1: #0B5CFF;
-  --chart-2: #0C9B62;
+  --border: #E2E8F2;
+  --input: #E2E8F2;
+  --ring: #1687E8;
+  /* Charts: blue primary, teal for comparison/sector, orange for
+     warning/signals, navy + slate for tertiaries. */
+  --chart-1: #1687E8;
+  --chart-2: #1F9B8F;
   --chart-3: #E97912;
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --chart-4: #18233D;
+  --chart-5: #8791A6;
   --radius: 0.875rem;
-  --sidebar: #F8FAFD;
-  --sidebar-foreground: #07142F;
-  --sidebar-primary: #0B5CFF;
+  --sidebar: #F7F9FC;
+  --sidebar-foreground: #08132B;
+  --sidebar-primary: #1687E8;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #F3F7FF;
-  --sidebar-accent-foreground: #07142F;
-  --sidebar-border: #E3EAF4;
-  --sidebar-ring: #0B5CFF;
+  --sidebar-accent: #EAF5FF;
+  --sidebar-accent-foreground: #08132B;
+  --sidebar-border: #E2E8F2;
+  --sidebar-ring: #1687E8;
 }
 
 .dark {
@@ -170,28 +219,36 @@
     font-feature-settings: 'ss01', 'cv11';
     position: relative;
   }
-  /* Page-wide top aura — the teal tint that the glass-chrome nav sits on
-     top of. Continues the brand colour from the nav DOWN into the page so
-     the header doesn't read as a disconnected slab. Fixed so it stays in
-     view as the page scrolls. */
+  /* Page-wide top aura — colorful washes that sit BEHIND glass surfaces
+     so the frosted effect actually has something to blur. Sky-blue blob
+     on the left, teal accent on the right. Visible on its own as a calm
+     editorial wash; through glass-chrome / glass-card it reads as
+     frosted. Fixed so it stays in view as the page scrolls. */
   body::before {
     content: '';
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
-    height: 320px;
+    height: 600px;
     background:
       radial-gradient(
-        ellipse 80% 100% at 50% 0%,
-        rgba(11, 92, 255, 0.04) 0%,
-        rgba(11, 92, 255, 0.015) 45%,
+        ellipse 55% 70% at 18% 12%,
+        rgba(22, 135, 232, 0.14) 0%,
+        rgba(22, 135, 232, 0.05) 40%,
+        transparent 70%
+      ),
+      radial-gradient(
+        ellipse 50% 65% at 82% 18%,
+        rgba(31, 155, 143, 0.12) 0%,
+        rgba(31, 155, 143, 0.04) 45%,
         transparent 75%
       ),
-      linear-gradient(
-        180deg,
-        rgba(243, 247, 255, 0.3) 0%,
-        transparent 100%
+      radial-gradient(
+        ellipse 80% 100% at 50% 0%,
+        rgba(234, 245, 255, 0.55) 0%,
+        rgba(234, 245, 255, 0.15) 50%,
+        transparent 85%
       );
     pointer-events: none;
     z-index: -1;
@@ -293,15 +350,16 @@
    tap by default. We replace it with the brand soft tint so taps
    feel intentional instead of accidental. Applied at the body level. */
 body {
-  -webkit-tap-highlight-color: rgba(11, 92, 255, 0.08);
+  -webkit-tap-highlight-color: rgba(22, 135, 232, 0.08);
 }
 
-/* Reduce body::before aura height on mobile — the 320px gradient was
-   designed for desktop hero pages. On mobile it eats into the first
-   fold of every page. */
+/* Reduce body::before aura height on mobile — the desktop gradient is
+   tuned for a tall hero. On mobile it eats into the first fold of
+   every page, so we shrink it but keep the colour wash strong enough
+   that glass surfaces still have something to frost. */
 @media (max-width: 640px) {
   body::before {
-    height: 200px !important;
+    height: 360px !important;
   }
 }
 
@@ -338,35 +396,37 @@ body {
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.88) 0%,
-      rgba(243, 247, 255, 0.6) 100%
+      rgba(255, 255, 255, 0.74) 0%,
+      rgba(243, 246, 251, 0.42) 100%
     );
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(200%) blur(28px);
+  -webkit-backdrop-filter: saturate(200%) blur(28px);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 1px 0 rgba(227, 234, 244, 0.8),
-    0 4px 16px -10px rgba(11, 92, 255, 0.05),
-    0 12px 32px -16px rgba(15, 23, 42, 0.04);
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 0 rgba(226, 232, 242, 0.6),
+    0 4px 16px -10px rgba(22, 135, 232, 0.08),
+    0 12px 32px -16px rgba(15, 23, 42, 0.05);
 }
 
 @utility glass-card {
-  /* Frosted card with diagonal highlight gradient + soft teal-tinted
-     drop shadow for depth. Used on hero feature tiles and login form. */
+  /* Frosted card with diagonal highlight gradient + soft sky-tinted
+     drop shadow for depth. Used on hero surfaces and login form.
+     Pairs with the colourful body::before so the frost is visible. */
   background:
     linear-gradient(
       135deg,
-      rgba(255, 255, 255, 0.85) 0%,
-      rgba(255, 255, 255, 0.55) 100%
+      rgba(255, 255, 255, 0.66) 0%,
+      rgba(255, 255, 255, 0.34) 100%
     );
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(32px) saturate(210%);
+  -webkit-backdrop-filter: blur(32px) saturate(210%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
     0 1px 2px rgba(15, 23, 42, 0.04),
-    0 12px 32px -8px rgba(11, 92, 255, 0.06),
-    0 24px 48px -16px rgba(15, 23, 42, 0.08);
+    0 14px 36px -8px rgba(22, 135, 232, 0.10),
+    0 28px 52px -16px rgba(15, 23, 42, 0.10);
   border-radius: 20px;
 }
 
@@ -374,15 +434,15 @@ body {
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.85) 0%,
-      rgba(255, 255, 255, 0.65) 100%
+      rgba(255, 255, 255, 0.78) 0%,
+      rgba(255, 255, 255, 0.58) 100%
     );
-  backdrop-filter: blur(12px) saturate(160%);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(14px) saturate(180%);
+  -webkit-backdrop-filter: blur(14px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 1px 4px rgba(13, 115, 119, 0.06);
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 1px 4px rgba(22, 135, 232, 0.08);
   border-radius: 999px;
 }
 
@@ -396,14 +456,14 @@ body {
   background:
     linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.92) 0%,
-      rgba(250, 250, 247, 0.88) 100%
+      rgba(255, 255, 255, 0.86) 0%,
+      rgba(250, 251, 253, 0.78) 100%
     );
-  backdrop-filter: saturate(180%) blur(16px);
-  -webkit-backdrop-filter: saturate(180%) blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
+  backdrop-filter: saturate(200%) blur(20px);
+  -webkit-backdrop-filter: saturate(200%) blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.55);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
     var(--surface-shadow-elevated);
 }
 

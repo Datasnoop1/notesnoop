@@ -97,22 +97,25 @@ export default function LoginPage() {
 
   return (
     <div className="relative isolate flex items-center justify-center min-h-[70vh]">
+      {/* Coloured washes behind the glass login card so the frost reads
+          as glassy rather than just a translucent panel. Sky-blue blob
+          on the left, teal on the right — calm but visible. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10"
         style={{
           background:
-            "radial-gradient(ellipse 560px 400px at center, rgba(11,92,255,0.06), transparent 60%)",
+            "radial-gradient(ellipse 480px 360px at 30% 35%, rgba(22,135,232,0.18), transparent 65%), radial-gradient(ellipse 460px 360px at 75% 60%, rgba(31,155,143,0.14), transparent 65%), radial-gradient(ellipse 720px 520px at 50% 50%, rgba(234,245,255,0.5), transparent 70%)",
         }}
       />
-      <Card className="w-full max-w-sm rounded-[20px] border-[#E3EAF4] bg-white shadow-[0_12px_48px_rgba(15,23,42,0.08)]">
+      <Card className="w-full max-w-sm rounded-[20px] glass-card ring-0 bg-transparent">
         <CardContent className="pt-7 pb-6 px-7">
           {/* Header */}
           <div className="text-center mb-6">
-            <div className="w-10 h-10 rounded-xl bg-[#0B5CFF] flex items-center justify-center text-white font-bold text-lg mx-auto mb-4">
+            <div className="w-10 h-10 rounded-xl bg-[#1687E8] flex items-center justify-center text-white font-bold text-lg mx-auto mb-4">
               D
             </div>
-            <h1 className="text-[20px] font-bold text-[#07142F]">
+            <h1 className="text-[20px] font-bold text-[#08132B]">
               {titles[mode]}
             </h1>
             <p className="text-[13px] text-[#5F6B85] mt-1.5">
@@ -204,7 +207,7 @@ export default function LoginPage() {
 
             <Button
               type="submit"
-              className="w-full bg-[#0B5CFF] hover:bg-[#084ED8] text-white rounded-xl h-11"
+              className="w-full bg-[#1687E8] hover:bg-[#0F72C8] text-white rounded-xl h-11"
               disabled={loading}
             >
               {loading ? t("login.pleaseWait") : buttonLabels[mode]}
