@@ -114,7 +114,7 @@ export default function Nav() {
   const hideHeaderSearch = isLanding || pathname === "/search";
 
   return (
-    <header className="sticky top-0 z-50 glass-chrome border-b border-[#E3EAF4] ds-safe-top">
+    <header className="sticky top-0 z-50 glass-chrome border-b border-[#E2E8F2] ds-safe-top">
       <div className="max-w-[1200px] mx-auto px-3 sm:px-6 lg:px-8 ds-safe-px">
         <div className="flex items-center gap-3 sm:gap-6 h-[64px] md:h-[80px]">
 
@@ -132,7 +132,7 @@ export default function Nav() {
               loading="eager"
               decoding="async"
             />
-            <span className="hidden sm:inline-block text-[9px] font-bold bg-[#EEF3FF] text-[#0B5CFF] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
+            <span className="hidden sm:inline-block text-[9px] font-bold bg-[#EAF5FF] text-[#1687E8] px-1.5 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
           </Link>
 
           {/* Center: inline search (non-landing, non-search pages) */}
@@ -150,13 +150,13 @@ export default function Nav() {
                 href={item.href}
                 className={`relative px-3 py-1.5 text-[13.5px] font-medium rounded-lg transition-colors ${
                   isActive(item.href)
-                    ? "text-[#0B5CFF] bg-[#EEF3FF]"
-                    : "text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF]"
+                    ? "text-[#1687E8] bg-[#EAF5FF]"
+                    : "text-[#5F6B85] hover:text-[#08132B] hover:bg-[#F3F6FB]"
                 }`}
               >
                 {item.label}
                 {isActive(item.href) && (
-                  <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-[#0B5CFF] rounded-full" />
+                  <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-0.5 bg-[#1687E8] rounded-full" />
                 )}
               </Link>
             ))}
@@ -172,7 +172,7 @@ export default function Nav() {
               <Link
                 href="/search"
                 aria-label={t("search.placeholder") || "Search"}
-                className="md:hidden inline-flex items-center justify-center rounded-lg w-11 h-11 text-[#5F6B85] hover:bg-[#F3F7FF] active:bg-[#EEF3FF]"
+                className="md:hidden inline-flex items-center justify-center rounded-lg w-11 h-11 text-[#5F6B85] hover:bg-[#F3F6FB] active:bg-[#EAF5FF]"
               >
                 <Search className="h-5 w-5" />
               </Link>
@@ -192,7 +192,7 @@ export default function Nav() {
                     }
                   }}
                   aria-label={t("nav.dataUpdates") || "Updates"}
-                  className="relative inline-flex items-center justify-center rounded-lg w-11 h-11 text-[#5F6B85] hover:bg-[#F3F7FF] active:bg-[#EEF3FF]"
+                  className="relative inline-flex items-center justify-center rounded-lg w-11 h-11 text-[#5F6B85] hover:bg-[#F3F6FB] active:bg-[#EAF5FF]"
                 >
                   <Bell className="h-5 w-5" />
                   {notifCount > 0 && (
@@ -202,22 +202,22 @@ export default function Nav() {
                   )}
                 </button>
                 {showNotifs && (
-                  <div className="absolute right-0 mt-2 w-[min(calc(100vw-1rem),20rem)] bg-white border border-[#E3EAF4] rounded-xl shadow-lg z-50 max-h-[60vh] overflow-y-auto">
-                    <div className="px-3 py-2.5 border-b border-[#E3EAF4] text-[11px] font-semibold text-[#5F6B85] uppercase tracking-wider">
+                  <div className="absolute right-0 mt-2 w-[min(calc(100vw-1rem),20rem)] bg-white border border-[#E2E8F2] rounded-xl shadow-lg z-50 max-h-[60vh] overflow-y-auto">
+                    <div className="px-3 py-2.5 border-b border-[#E2E8F2] text-[11px] font-semibold text-[#5F6B85] uppercase tracking-wider">
                       {t("nav.dataUpdates")}
                     </div>
                     {notifs.length === 0 ? (
-                      <div className="px-3 py-5 text-xs text-[#7B8498] text-center">{t("nav.noNewUpdates")}</div>
+                      <div className="px-3 py-5 text-xs text-[#8791A6] text-center">{t("nav.noNewUpdates")}</div>
                     ) : (
                       notifs.map((n, i) => (
                         <a
                           key={i}
                           href={`/company/${n.enterprise_number}`}
-                          className="block px-3 py-3 hover:bg-[#F8FAFD] active:bg-[#EEF3FF] border-b border-[#E3EAF4] last:border-0 transition-colors"
+                          className="block px-3 py-3 hover:bg-[#F7F9FC] active:bg-[#EAF5FF] border-b border-[#E2E8F2] last:border-0 transition-colors"
                           onClick={() => setShowNotifs(false)}
                         >
-                          <div className="text-[13px] font-medium text-[#07142F] truncate">{n.name}</div>
-                          <div className="text-[11px] text-[#7B8498]">
+                          <div className="text-[13px] font-medium text-[#08132B] truncate">{n.name}</div>
+                          <div className="text-[11px] text-[#8791A6]">
                             New FY{n.fiscal_year} data loaded {n.loaded_at?.slice(0, 10)}
                           </div>
                         </a>
@@ -238,7 +238,7 @@ export default function Nav() {
                       markNotificationsRead().then(() => setNotifCount(0)).catch(() => {});
                     }
                   }}
-                  className="relative p-2 rounded-lg text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF] transition-colors"
+                  className="relative p-2 rounded-lg text-[#5F6B85] hover:text-[#08132B] hover:bg-[#F3F6FB] transition-colors"
                 >
                   <Bell className="w-4 h-4" />
                   {notifCount > 0 && (
@@ -248,22 +248,22 @@ export default function Nav() {
                   )}
                 </button>
                 {showNotifs && (
-                  <div className="absolute right-0 mt-2 w-72 bg-white border border-[#E3EAF4] rounded-xl shadow-lg z-50 max-h-64 overflow-y-auto">
-                    <div className="px-3 py-2.5 border-b border-[#E3EAF4] text-[11px] font-semibold text-[#5F6B85] uppercase tracking-wider">
+                  <div className="absolute right-0 mt-2 w-72 bg-white border border-[#E2E8F2] rounded-xl shadow-lg z-50 max-h-64 overflow-y-auto">
+                    <div className="px-3 py-2.5 border-b border-[#E2E8F2] text-[11px] font-semibold text-[#5F6B85] uppercase tracking-wider">
                       {t("nav.dataUpdates")}
                     </div>
                     {notifs.length === 0 ? (
-                      <div className="px-3 py-5 text-xs text-[#7B8498] text-center">{t("nav.noNewUpdates")}</div>
+                      <div className="px-3 py-5 text-xs text-[#8791A6] text-center">{t("nav.noNewUpdates")}</div>
                     ) : (
                       notifs.map((n, i) => (
                         <a
                           key={i}
                           href={`/company/${n.enterprise_number}`}
-                          className="block px-3 py-2.5 hover:bg-[#F8FAFD] border-b border-[#E3EAF4] last:border-0 transition-colors"
+                          className="block px-3 py-2.5 hover:bg-[#F7F9FC] border-b border-[#E2E8F2] last:border-0 transition-colors"
                           onClick={() => setShowNotifs(false)}
                         >
-                          <div className="text-xs font-medium text-[#07142F] truncate">{n.name}</div>
-                          <div className="text-[10px] text-[#7B8498]">
+                          <div className="text-xs font-medium text-[#08132B] truncate">{n.name}</div>
+                          <div className="text-[10px] text-[#8791A6]">
                             New FY{n.fiscal_year} data loaded {n.loaded_at?.slice(0, 10)}
                           </div>
                         </a>
@@ -283,16 +283,16 @@ export default function Nav() {
               <LanguageSwitcher />
             </div>
 
-            <div className="hidden md:block w-px h-5 bg-[#E3EAF4]" />
+            <div className="hidden md:block w-px h-5 bg-[#E2E8F2]" />
 
             {user ? (
               <DropdownMenu>
-                <DropdownMenuTrigger className="hidden md:flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-[#F3F7FF] transition-colors">
-                  <div className="w-7 h-7 rounded-full bg-[#0B5CFF] text-white flex items-center justify-center text-[11px] font-bold">
+                <DropdownMenuTrigger className="hidden md:flex items-center gap-1.5 px-2 py-1.5 rounded-lg hover:bg-[#F3F6FB] transition-colors">
+                  <div className="w-7 h-7 rounded-full bg-[#1687E8] text-white flex items-center justify-center text-[11px] font-bold">
                     {initials}
                   </div>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48 border-[#E3EAF4]">
+                <DropdownMenuContent align="end" className="w-48 border-[#E2E8F2]">
                   <DropdownMenuItem onClick={() => router.push("/account")} className="cursor-pointer text-[13px]">
                     <User className="w-4 h-4 mr-2 text-[#5F6B85]" />
                     {t("nav.accountSettings")}
@@ -305,7 +305,7 @@ export default function Nav() {
               </DropdownMenu>
             ) : (
               <Link href="/login">
-                <Button variant="outline" size="sm" className="inline-flex text-[12px] md:text-[13px] h-8 md:h-9 px-2.5 md:px-3 border-[#E3EAF4] text-[#07142F] hover:bg-[#F3F7FF]">
+                <Button variant="outline" size="sm" className="inline-flex text-[12px] md:text-[13px] h-8 md:h-9 px-2.5 md:px-3 border-[#E2E8F2] text-[#08132B] hover:bg-[#F3F6FB]">
                   {t("nav.signIn")}
                 </Button>
               </Link>
@@ -314,11 +314,11 @@ export default function Nav() {
             {/* Mobile hamburger */}
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger>
-                <span className="md:hidden inline-flex items-center justify-center rounded-lg p-2 min-w-[44px] min-h-[44px] text-[#5F6B85] hover:bg-[#F3F7FF] active:bg-[#EEF3FF]">
+                <span className="md:hidden inline-flex items-center justify-center rounded-lg p-2 min-w-[44px] min-h-[44px] text-[#5F6B85] hover:bg-[#F3F6FB] active:bg-[#EAF5FF]">
                   <Menu className="h-5 w-5" />
                 </span>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[88vw] max-w-xs sm:w-80 border-[#E3EAF4] p-5 ds-safe-top ds-safe-bottom">
+              <SheetContent side="left" className="w-[88vw] max-w-xs sm:w-80 border-[#E2E8F2] p-5 ds-safe-top ds-safe-bottom">
                 <SheetTitle className="flex items-center gap-2 text-[15px] font-semibold">
                   <img
                     src={logoPath}
@@ -335,33 +335,33 @@ export default function Nav() {
                       onClick={() => setOpen(false)}
                       className={`flex items-center px-3 py-2.5 rounded-lg text-[14px] font-medium transition-colors ${
                         isActive(item.href)
-                          ? "text-[#0B5CFF] bg-[#EEF3FF]"
-                          : "text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF]"
+                          ? "text-[#1687E8] bg-[#EAF5FF]"
+                          : "text-[#5F6B85] hover:text-[#08132B] hover:bg-[#F3F6FB]"
                       }`}
                     >
                       {item.label}
                     </Link>
                   ))}
 
-                  <div className="border-t border-[#E3EAF4] mt-3 pt-3">
-                    <div className="px-3 mb-2 text-[10px] font-bold text-[#7B8498] uppercase tracking-wider">Language</div>
+                  <div className="border-t border-[#E2E8F2] mt-3 pt-3">
+                    <div className="px-3 mb-2 text-[10px] font-bold text-[#8791A6] uppercase tracking-wider">Language</div>
                     <div className="px-3">
                       <LanguageSwitcher />
                     </div>
                   </div>
 
                   <div className="pt-2">
-                    <div className="px-3 mb-2 text-[10px] font-bold text-[#7B8498] uppercase tracking-wider">Feedback</div>
+                    <div className="px-3 mb-2 text-[10px] font-bold text-[#8791A6] uppercase tracking-wider">Feedback</div>
                     <div className="px-3 flex flex-col items-start gap-1">
                       <FeedbackButtons />
                     </div>
                   </div>
 
                   {user && (
-                    <div className="border-t border-[#E3EAF4] mt-3 pt-3 space-y-1">
+                    <div className="border-t border-[#E2E8F2] mt-3 pt-3 space-y-1">
                       <button
                         onClick={() => { router.push("/account"); setOpen(false); }}
-                        className="w-full flex items-center px-3 py-3 rounded-lg text-[14px] font-medium text-[#5F6B85] hover:text-[#07142F] hover:bg-[#F3F7FF] active:bg-[#EEF3FF]"
+                        className="w-full flex items-center px-3 py-3 rounded-lg text-[14px] font-medium text-[#5F6B85] hover:text-[#08132B] hover:bg-[#F3F6FB] active:bg-[#EAF5FF]"
                       >
                         <User className="w-4 h-4 mr-2 text-[#5F6B85]" />
                         {t("nav.accountSettings")}
@@ -377,9 +377,9 @@ export default function Nav() {
                   )}
 
                   {!user && (
-                    <div className="border-t border-[#E3EAF4] mt-3 pt-3 px-3">
+                    <div className="border-t border-[#E2E8F2] mt-3 pt-3 px-3">
                       <Link href="/login" onClick={() => setOpen(false)}>
-                        <Button variant="outline" className="w-full text-[13px] border-[#E3EAF4]">{t("nav.signIn")}</Button>
+                        <Button variant="outline" className="w-full text-[13px] border-[#E2E8F2]">{t("nav.signIn")}</Button>
                       </Link>
                     </div>
                   )}
@@ -395,17 +395,17 @@ export default function Nav() {
             menu. The screener has its own filter sidebar so a slim
             secondary nav row is fine. */}
         {!isLanding && (
-          <div className="md:hidden border-t border-[#E3EAF4]">
+          <div className="md:hidden border-t border-[#E2E8F2]">
             <nav className="flex items-center gap-0 py-0.5 text-[13px] overflow-x-auto md:scrollbar-none -mx-1 px-1">
               {NAV_LINKS.slice(0, 4).map((item, idx) => (
                 <React.Fragment key={item.href}>
-                  {idx > 0 && <span className="text-[#E3EAF4] select-none shrink-0" aria-hidden>·</span>}
+                  {idx > 0 && <span className="text-[#E2E8F2] select-none shrink-0" aria-hidden>·</span>}
                   <Link
                     href={item.href}
                     className={`px-3 py-2.5 min-h-[44px] inline-flex items-center rounded-lg transition-colors shrink-0 font-medium ${
                       isActive(item.href)
-                        ? "text-[#0B5CFF]"
-                        : "text-[#5F6B85] hover:text-[#07142F] active:text-[#0B5CFF]"
+                        ? "text-[#1687E8]"
+                        : "text-[#5F6B85] hover:text-[#08132B] active:text-[#1687E8]"
                     }`}
                   >
                     {item.label}

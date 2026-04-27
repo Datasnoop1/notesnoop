@@ -15,10 +15,10 @@ const SMART_CHIPS = [
 ];
 
 const CHIP_TONES: Record<string, string> = {
-  blue: "border-[#0B5CFF]/30 bg-[#EEF3FF] text-[#0B5CFF] hover:bg-[#0B5CFF] hover:text-white hover:border-[#0B5CFF]",
+  blue: "border-[#1687E8]/30 bg-[#EAF5FF] text-[#1687E8] hover:bg-[#1687E8] hover:text-white hover:border-[#1687E8]",
   green: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white hover:border-emerald-600",
   amber: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-500 hover:text-white hover:border-amber-500",
-  neutral: "border-[#E3EAF4] bg-white text-[#5F6B85] hover:border-[#0B5CFF] hover:text-[#0B5CFF] hover:bg-[#EEF3FF]",
+  neutral: "border-[#E2E8F2] bg-white text-[#5F6B85] hover:border-[#1687E8] hover:text-[#1687E8] hover:bg-[#EAF5FF]",
 };
 
 const FEATURE_CARDS = [
@@ -51,25 +51,25 @@ const FEATURE_CARDS = [
 function HeroIllustration() {
   return (
     <svg viewBox="0 0 360 280" className="w-full h-auto" aria-hidden>
-      <rect x="40" y="30" width="170" height="115" rx="14" fill="#FFFFFF" stroke="#E3EAF4" strokeWidth="1.5" />
-      <rect x="56" y="48" width="88" height="6" rx="3" fill="#E3EAF4" />
-      <rect x="56" y="62" width="60" height="6" rx="3" fill="#E3EAF4" />
-      <rect x="56" y="80" width="138" height="3" rx="1.5" fill="#F3F7FF" />
-      <rect x="56" y="90" width="138" height="3" rx="1.5" fill="#F3F7FF" />
-      <rect x="56" y="100" width="100" height="3" rx="1.5" fill="#F3F7FF" />
-      <rect x="56" y="110" width="138" height="3" rx="1.5" fill="#F3F7FF" />
-      <circle cx="170" cy="140" r="46" fill="#FFFFFF" stroke="#0B5CFF" strokeWidth="2.5" />
-      <circle cx="170" cy="140" r="46" fill="#EEF3FF" opacity="0.4" />
-      <line x1="205" y1="174" x2="232" y2="201" stroke="#0B5CFF" strokeWidth="6" strokeLinecap="round" />
-      <rect x="180" y="155" width="150" height="110" rx="14" fill="#FFFFFF" stroke="#E3EAF4" strokeWidth="1.5" />
-      <rect x="196" y="173" width="60" height="5" rx="2.5" fill="#E3EAF4" />
-      <rect x="196" y="225" width="14" height="22" rx="2" fill="#0B5CFF" opacity="0.25" />
-      <rect x="216" y="215" width="14" height="32" rx="2" fill="#0B5CFF" opacity="0.4" />
-      <rect x="236" y="200" width="14" height="47" rx="2" fill="#0B5CFF" opacity="0.6" />
-      <rect x="256" y="210" width="14" height="37" rx="2" fill="#0B5CFF" opacity="0.5" />
-      <rect x="276" y="190" width="14" height="57" rx="2" fill="#0B5CFF" opacity="0.85" />
-      <rect x="296" y="195" width="14" height="52" rx="2" fill="#0B5CFF" />
-      <circle cx="306" cy="195" r="14" fill="#FFFFFF" stroke="#0B5CFF" strokeWidth="3" strokeDasharray="40 80" transform="rotate(-90 306 195)" />
+      <rect x="40" y="30" width="170" height="115" rx="14" fill="#FFFFFF" stroke="#E2E8F2" strokeWidth="1.5" />
+      <rect x="56" y="48" width="88" height="6" rx="3" fill="#E2E8F2" />
+      <rect x="56" y="62" width="60" height="6" rx="3" fill="#E2E8F2" />
+      <rect x="56" y="80" width="138" height="3" rx="1.5" fill="#F3F6FB" />
+      <rect x="56" y="90" width="138" height="3" rx="1.5" fill="#F3F6FB" />
+      <rect x="56" y="100" width="100" height="3" rx="1.5" fill="#F3F6FB" />
+      <rect x="56" y="110" width="138" height="3" rx="1.5" fill="#F3F6FB" />
+      <circle cx="170" cy="140" r="46" fill="#FFFFFF" stroke="#1687E8" strokeWidth="2.5" />
+      <circle cx="170" cy="140" r="46" fill="#EAF5FF" opacity="0.4" />
+      <line x1="205" y1="174" x2="232" y2="201" stroke="#1687E8" strokeWidth="6" strokeLinecap="round" />
+      <rect x="180" y="155" width="150" height="110" rx="14" fill="#FFFFFF" stroke="#E2E8F2" strokeWidth="1.5" />
+      <rect x="196" y="173" width="60" height="5" rx="2.5" fill="#E2E8F2" />
+      <rect x="196" y="225" width="14" height="22" rx="2" fill="#1687E8" opacity="0.25" />
+      <rect x="216" y="215" width="14" height="32" rx="2" fill="#1687E8" opacity="0.4" />
+      <rect x="236" y="200" width="14" height="47" rx="2" fill="#1687E8" opacity="0.6" />
+      <rect x="256" y="210" width="14" height="37" rx="2" fill="#1687E8" opacity="0.5" />
+      <rect x="276" y="190" width="14" height="57" rx="2" fill="#1687E8" opacity="0.85" />
+      <rect x="296" y="195" width="14" height="52" rx="2" fill="#1687E8" />
+      <circle cx="306" cy="195" r="14" fill="#FFFFFF" stroke="#1687E8" strokeWidth="3" strokeDasharray="40 80" transform="rotate(-90 306 195)" />
     </svg>
   );
 }
@@ -96,7 +96,7 @@ export default function Home() {
 
       {/* ── Hero card ────────────────────────────────────────────────── */}
       <section className="w-full max-w-[1200px] mx-auto px-3 sm:px-4 pt-4 sm:pt-6">
-        <div className="rounded-2xl sm:rounded-[28px] border border-[#E3EAF4] bg-white p-5 sm:p-10 lg:p-12 overflow-hidden relative shadow-[0_8px_40px_rgba(15,23,42,0.04)]">
+        <div className="rounded-2xl sm:rounded-[28px] border border-[#E2E8F2] bg-white p-5 sm:p-10 lg:p-12 overflow-hidden relative shadow-[0_8px_40px_rgba(15,23,42,0.04)]">
 
           {/* Subtle accent gradient — top-right corner wash */}
           <div
@@ -110,7 +110,7 @@ export default function Home() {
             {/* Left: text + search */}
             <div className="text-left">
               {/* Eyebrow */}
-              <div className="text-[11px] sm:text-[11.5px] font-bold text-[#0B5CFF] uppercase tracking-[0.14em] mb-3 sm:mb-5">
+              <div className="text-[11px] sm:text-[11.5px] font-bold text-[#1687E8] uppercase tracking-[0.14em] mb-3 sm:mb-5">
                 Belgian Company Intelligence
               </div>
 
@@ -118,7 +118,7 @@ export default function Home() {
                   The explicit `<br />` was producing an awkward line
                   break on narrow phones (split mid-thought); replaced
                   with a soft break that only kicks in on sm+. */}
-              <h1 className="text-[26px] sm:text-[38px] lg:text-[44px] font-bold text-[#07142F] leading-[1.15] tracking-tight mb-3 sm:mb-4">
+              <h1 className="text-[26px] sm:text-[38px] lg:text-[44px] font-bold text-[#08132B] leading-[1.15] tracking-tight mb-3 sm:mb-4">
                 Find, screen and{" "}
                 <span className="block sm:inline">understand companies faster.</span>
               </h1>
@@ -131,8 +131,8 @@ export default function Home() {
 
               {/* Search bar */}
               <form onSubmit={handleSubmit} className="w-full max-w-[460px] mb-4 sm:mb-5">
-                <div className="relative flex items-center rounded-xl border border-[#E3EAF4] bg-white shadow-[0_1px_8px_rgba(15,23,42,0.03)] hover:shadow-[0_3px_14px_rgba(11,92,255,0.06)] focus-within:border-[#0B5CFF] focus-within:shadow-[0_3px_14px_rgba(11,92,255,0.1)] transition-all duration-200">
-                  <Search className="absolute left-3.5 sm:left-4 w-[18px] h-[18px] sm:w-[16px] sm:h-[16px] text-[#7B8498] pointer-events-none" aria-hidden />
+                <div className="relative flex items-center rounded-xl border border-[#E2E8F2] bg-white shadow-[0_1px_8px_rgba(15,23,42,0.03)] hover:shadow-[0_3px_14px_rgba(22,135,232,0.06)] focus-within:border-[#1687E8] focus-within:shadow-[0_3px_14px_rgba(22,135,232,0.1)] transition-all duration-200">
+                  <Search className="absolute left-3.5 sm:left-4 w-[18px] h-[18px] sm:w-[16px] sm:h-[16px] text-[#8791A6] pointer-events-none" aria-hidden />
                   <input
                     ref={inputRef}
                     type="text"
@@ -145,7 +145,7 @@ export default function Home() {
                        phones with a thumb covering half the row need a
                        larger landing zone. Right padding (104px) leaves
                        space for the floating Search pill. */
-                    className="w-full h-[52px] sm:h-[48px] pl-[42px] sm:pl-[40px] pr-[104px] text-[16px] sm:text-[14px] rounded-xl bg-transparent focus:outline-none placeholder:text-[#7B8498] text-[#07142F]"
+                    className="w-full h-[52px] sm:h-[48px] pl-[42px] sm:pl-[40px] pr-[104px] text-[16px] sm:text-[14px] rounded-xl bg-transparent focus:outline-none placeholder:text-[#8791A6] text-[#08132B]"
                     enterKeyHint="search"
                     autoCapitalize="off"
                     autoCorrect="off"
@@ -153,7 +153,7 @@ export default function Home() {
                   <button
                     type="submit"
                     aria-label="Search"
-                    className="absolute right-1.5 h-[44px] sm:h-[40px] px-4 rounded-lg bg-[#0B5CFF] hover:bg-[#084ED8] active:bg-[#063AAA] text-white text-[14px] sm:text-[13px] font-semibold transition-colors"
+                    className="absolute right-1.5 h-[44px] sm:h-[40px] px-4 rounded-lg bg-[#1687E8] hover:bg-[#0F72C8] active:bg-[#0A5BA0] text-white text-[14px] sm:text-[13px] font-semibold transition-colors"
                   >
                     Search
                   </button>
@@ -180,7 +180,7 @@ export default function Home() {
               <div className="mt-6 flex flex-wrap items-center gap-y-1 text-[13px] text-[#5F6B85]">
                 <Link
                   href="/guide"
-                  className="px-3 py-2 min-h-[40px] inline-flex items-center gap-1.5 rounded-md hover:bg-[#F3F7FF] hover:text-[#0B5CFF] transition-colors"
+                  className="px-3 py-2 min-h-[40px] inline-flex items-center gap-1.5 rounded-md hover:bg-[#F3F6FB] hover:text-[#1687E8] transition-colors"
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                   User guide
@@ -188,7 +188,7 @@ export default function Home() {
                 <span className="text-[#C3CEDF] mx-1" aria-hidden>·</span>
                 <a
                   href="/use-cases.html"
-                  className="px-3 py-2 min-h-[40px] inline-flex items-center gap-1.5 rounded-md hover:bg-[#F3F7FF] hover:text-[#0B5CFF] transition-colors"
+                  className="px-3 py-2 min-h-[40px] inline-flex items-center gap-1.5 rounded-md hover:bg-[#F3F6FB] hover:text-[#1687E8] transition-colors"
                 >
                   <Lightbulb className="w-3.5 h-3.5" />
                   Use cases
@@ -211,16 +211,16 @@ export default function Home() {
             <Link
               key={href}
               href={href}
-              className="group flex flex-col gap-3 sm:gap-4 p-5 sm:p-6 rounded-2xl border border-[#E3EAF4] bg-white hover:border-[#0B5CFF] hover:shadow-[0_8px_32px_rgba(11,92,255,0.08)] active:bg-[#F8FAFD] transition-all duration-200"
+              className="group flex flex-col gap-3 sm:gap-4 p-5 sm:p-6 rounded-2xl border border-[#E2E8F2] bg-white hover:border-[#1687E8] hover:shadow-[0_8px_32px_rgba(22,135,232,0.08)] active:bg-[#F7F9FC] transition-all duration-200"
             >
-              <div className="w-11 h-11 rounded-xl bg-[#EEF3FF] flex items-center justify-center group-hover:bg-[#0B5CFF] transition-colors">
-                <Icon className="w-5 h-5 text-[#0B5CFF] group-hover:text-white transition-colors" />
+              <div className="w-11 h-11 rounded-xl bg-[#EAF5FF] flex items-center justify-center group-hover:bg-[#1687E8] transition-colors">
+                <Icon className="w-5 h-5 text-[#1687E8] group-hover:text-white transition-colors" />
               </div>
               <div>
-                <div className="text-[15px] font-semibold text-[#07142F] mb-1">{title}</div>
+                <div className="text-[15px] font-semibold text-[#08132B] mb-1">{title}</div>
                 <p className="text-[13px] text-[#5F6B85] leading-relaxed">{desc}</p>
               </div>
-              <div className="flex items-center gap-1 text-[13px] font-semibold text-[#0B5CFF] mt-auto">
+              <div className="flex items-center gap-1 text-[13px] font-semibold text-[#1687E8] mt-auto">
                 {cta} <ArrowRight className="w-3.5 h-3.5" />
               </div>
             </Link>

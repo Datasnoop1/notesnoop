@@ -874,22 +874,22 @@ export function CompanyPageClient({
       {/* Back link */}
       <Link
         href="/company"
-        className="mb-3 sm:mb-4 inline-flex items-center gap-1.5 min-h-[36px] text-[12.5px] text-[#5F6B85] hover:text-[#0B5CFF] active:text-[#063AAA] transition-colors"
+        className="mb-3 sm:mb-4 inline-flex items-center gap-1.5 min-h-[36px] text-[12.5px] text-[#5F6B85] hover:text-[#1687E8] active:text-[#0A5BA0] transition-colors"
       >
         <ArrowLeft className="h-3.5 w-3.5" /> {t("company.backToSearch")}
       </Link>
 
       {/* Company Header */}
-      <div className="mb-4 sm:mb-5 rounded-xl sm:rounded-2xl border border-[#E3EAF4] bg-white p-4 sm:p-6">
+      <div className="mb-4 sm:mb-5 rounded-xl sm:rounded-2xl border border-[#E2E8F2] bg-white p-4 sm:p-6">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 sm:gap-4">
           {/* Left: name + CBE */}
           <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1 w-full">
             {/* Initials badge — slightly smaller on mobile to save horizontal room. */}
-            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-[#EEF3FF] flex items-center justify-center text-[#0B5CFF] font-bold text-base sm:text-lg shrink-0 select-none">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-[#EAF5FF] flex items-center justify-center text-[#1687E8] font-bold text-base sm:text-lg shrink-0 select-none">
               {(detail.name || fmtCbe(cbe)).split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() ?? "").join("")}
             </div>
             <div className="min-w-0 flex-1">
-            <h1 className="text-[20px] sm:text-[26px] font-bold text-[#07142F] leading-tight break-words">
+            <h1 className="text-[20px] sm:text-[26px] font-bold text-[#08132B] leading-tight break-words">
               <SearchableText text={detail.name || fmtCbe(cbe)} mapsQuery={address || undefined}>
                 {detail.name || fmtCbe(cbe)}
               </SearchableText>
@@ -933,7 +933,7 @@ export function CompanyPageClient({
                   }}
                   aria-label={copiedCbe ? t("company.copied") : t("company.copyCbe")}
                   title={copiedCbe ? t("company.copied") : t("company.copyCbe")}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-[#EEF3FF] hover:text-[#0B5CFF] transition-colors"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-[#EAF5FF] hover:text-[#1687E8] transition-colors"
                 >
                   {copiedCbe ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
                 </button>
@@ -950,7 +950,7 @@ export function CompanyPageClient({
                   }}
                   aria-label={copiedBtw ? t("company.copied") : t("company.copyBtw")}
                   title={copiedBtw ? t("company.copied") : t("company.copyBtw")}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-[#EEF3FF] hover:text-[#0B5CFF] transition-colors"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-[#EAF5FF] hover:text-[#1687E8] transition-colors"
                 >
                   {copiedBtw ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
                 </button>
@@ -1151,7 +1151,7 @@ export function CompanyPageClient({
                 ))}
               </TabsList>
 
-              <div className="border-b border-[#E3EAF4] flex flex-col md:flex-row md:items-end md:justify-between gap-2 md:gap-3 no-print">
+              <div className="border-b border-[#E2E8F2] flex flex-col md:flex-row md:items-end md:justify-between gap-2 md:gap-3 no-print">
                 {/* Tabs — horizontal-scroll row on mobile so the 6
                     primary groups don't wrap. -mx-3 px-3 lets the row
                     extend edge-to-edge under the parent's padding while
@@ -1167,7 +1167,7 @@ export function CompanyPageClient({
                         className={`text-[12px] md:text-[11px] uppercase tracking-wider font-medium px-3 py-2.5 md:py-2 whitespace-nowrap border-b-2 shrink-0 transition ${
                           active
                             ? "border-brand text-brand"
-                            : "border-transparent text-[#5F6B85] hover:text-[#07142F] active:text-[#0B5CFF]"
+                            : "border-transparent text-[#5F6B85] hover:text-[#08132B] active:text-[#1687E8]"
                         }`}
                       >
                         {g.label}
@@ -1181,7 +1181,7 @@ export function CompanyPageClient({
                     size="sm"
                     onClick={toggleFavourite}
                     title={isFavourite ? "Remove from favourites" : "Add to favourites"}
-                    className="h-9 w-9 md:h-7 md:w-7 p-0 text-[#7B8498] hover:text-yellow-500 border-[#E3EAF4]"
+                    className="h-9 w-9 md:h-7 md:w-7 p-0 text-[#8791A6] hover:text-yellow-500 border-[#E2E8F2]"
                   >
                     <Star
                       className={`h-4 w-4 md:h-3.5 md:w-3.5 ${

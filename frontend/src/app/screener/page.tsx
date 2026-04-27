@@ -813,7 +813,7 @@ export default function ScreenerPage() {
 
       {/* ================= LEFT SIDEBAR ================= */}
       <aside
-        className={`w-[88vw] max-w-xs md:w-60 shrink-0 border-r border-[#E3EAF4] bg-[#F8FAFD] overflow-y-auto overscroll-contain
+        className={`w-[88vw] max-w-xs md:w-60 shrink-0 border-r border-[#E2E8F2] bg-[#F7F9FC] overflow-y-auto overscroll-contain
           fixed md:static inset-y-0 left-0 z-[60] md:z-30 transition-transform md:translate-x-0 ds-safe-bottom shadow-xl md:shadow-none
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
           md:block ds-safe-top
@@ -827,10 +827,10 @@ export default function ScreenerPage() {
               extends past the global nav (`fixed inset-y-0`) and a
               negative top would pull the header into the nav's layer,
               poking above it on iOS. */}
-          <div className="md:hidden sticky top-0 -mx-3 -mt-3 mb-1 z-10 bg-[#F8FAFD]/95 backdrop-blur-sm border-b border-[#E3EAF4] px-3 py-2.5 flex items-center justify-between">
+          <div className="md:hidden sticky top-0 -mx-3 -mt-3 mb-1 z-10 bg-[#F7F9FC]/95 backdrop-blur-sm border-b border-[#E2E8F2] px-3 py-2.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <SlidersHorizontal className="w-4 h-4 text-brand" />
-              <span className="text-[13px] font-semibold text-[#07142F]">
+              <span className="text-[13px] font-semibold text-[#08132B]">
                 {t("screener.filters")}
               </span>
               {activeFilterCount > 0 && (
@@ -845,7 +845,7 @@ export default function ScreenerPage() {
             <button
               type="button"
               onClick={() => setSidebarOpen(false)}
-              className="text-[12px] font-medium text-brand hover:text-[color:var(--brand-ink)] active:text-[#063AAA] px-3 py-1.5 rounded-lg hover:bg-brand-soft/60 active:bg-brand-soft min-h-[36px]"
+              className="text-[12px] font-medium text-brand hover:text-[color:var(--brand-ink)] active:text-[#0A5BA0] px-3 py-1.5 rounded-lg hover:bg-brand-soft/60 active:bg-brand-soft min-h-[36px]"
             >
               {t("screener.done") !== "screener.done" ? t("screener.done") : "Done"}
             </button>
@@ -1463,7 +1463,7 @@ export default function ScreenerPage() {
       {/* ================= MAIN CONTENT ================= */}
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Top bar: search + quick filters + export */}
-        <div className="border-b border-[#E3EAF4] bg-white px-4 py-2 space-y-2">
+        <div className="border-b border-[#E2E8F2] bg-white px-4 py-2 space-y-2">
           {/* Row 1: Search + Export */}
           <div className="flex items-center gap-3">
             <div className="relative flex-1 max-w-md">
