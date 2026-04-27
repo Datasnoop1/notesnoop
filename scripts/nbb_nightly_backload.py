@@ -194,31 +194,56 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
     never file with NBB or file so rarely it is not worth burning API quota on
     them during the primary backfill pass.
 
-    Within the required-filer set, largest companies by assets first so each
-    API call has maximum deal-sourcing value.
+    Within the required-filer set we prioritise **known filers** — companies
+    already in `financial_latest` from a previous fiscal year — because they
+    have already proven they file with NBB and are therefore the most likely
+    to have a fresh FY filing waiting. Largest by total_assets first so each
+    API call has maximum deal-sourcing value. Unknown companies (no row in
+    `financial_latest`) are queued AFTER, via `NULLS LAST`.
+
+    Earlier (2026-04-24 → 2026-04-27) we used `NULLS FIRST` to prioritise
+    discovery of unknowns. That worked while the unknown pool was rich in
+    easy wins, but by 2026-04-27 the recent cron runs were spending entire
+    1500–3500-call iterations producing 0 loads / >1000 "no_new_filings",
+    because the front of the queue had become a long tail of unknowns that
+    don't actually file FY-current. Flipping to NULLS LAST puts the API
+    quota where it lands new data fastest — see history table in
+    docs/nbb-loader-operations.md.
 
     type_of_enterprise = '2' selects legal persons; '1' is natural persons
     (sole traders) who never file with NBB.
     """
-    # Juridical forms that are legally required to file annual accounts with NBB.
-    # Excludes VZW (017), VME (070), foreign entities (030/230/235),
-    # public bodies, foundations, and other non-filing forms.
-    REQUIRED_FILER_FORMS = (
+    # PRIMARY filer forms — limited to juridical forms that empirically file
+    # annual accounts with NBB at >10% rate (per the 2026-04-27 measurement;
+    # see "Juridical-form yield" table in docs/nbb-loader-operations.md).
+    # The other technically-required forms (CommV 612, VOF 011, GewComV 012,
+    # CV oud 016, CVOA 006, ESV/EESV 060/065, etc.) are deliberately
+    # EXCLUDED from the primary backload because their actual filing rate
+    # is 0.3–9% — the loader would burn quota for trickle yield. They can
+    # be backfilled by a separate one-off pass once the primary set is
+    # complete; see TIER_2_DEFERRED_FORMS below.
+    PRIMARY_FILER_FORMS = (
         '610', '615', '616',        # BV / BV met sociaal oogmerk / BV van publiek recht
         '014', '114', '614',        # NV / NV van publiek recht / NV met sociaal oogmerk
         '015', '010', '515',        # BVBA (legacy) / Eenpersoons BVBA / BVBA met SO
         '706', '716',               # CV (new) / CV van publiek recht
-        '016', '116',               # CV oud statuut / CV oud statuut van publiek recht
         '008', '108', '508',        # CVBA / CVBA van publiek recht / CVBA met SO
-        '006',                      # CVOA
-        '001',                      # Europese Coöperatieve Vennootschap
-        '011',                      # VOF (Vennootschap onder firma)
-        '012',                      # GewComV (Gewone commanditaire vennootschap)
         '013',                      # CommVA (Commanditaire vennootschap op aandelen)
-        '612',                      # CommV (new form)
-        '060', '065',               # ESV / EESV
         '027',                      # SE (Societas Europaea)
     )
+    # Documented for future reference; NOT used by the primary backload pass.
+    # To run a one-off backfill on these, override REQUIRED_FILER_FORMS to
+    # include them — but expect 0–10% hit rate.
+    TIER_2_DEFERRED_FORMS = (   # noqa: F841 — kept as documentation
+        '612',                      # CommV (51k active, 0.3% file)
+        '011',                      # VOF (25k active, 0.4% file)
+        '012',                      # GewComV (15k active, 0.3% file)
+        '016', '116',               # CV oud statuut (97% NO_FILINGS)
+        '006',                      # CVOA (61% NO_FILINGS)
+        '060', '065',               # ESV / EESV (~9% file)
+        '001',                      # Europese Coöperatieve Vennootschap (rare)
+    )
+    REQUIRED_FILER_FORMS = PRIMARY_FILER_FORMS
     rows = fetch_all(
         """
         SELECT e.enterprise_number
@@ -245,7 +270,7 @@ def candidates_for_year(fiscal_year: int, limit: int) -> list[str]:
             SELECT fl.total_assets
             FROM financial_latest fl
             WHERE fl.enterprise_number = e.enterprise_number
-        ) DESC NULLS FIRST, e.enterprise_number
+        ) DESC NULLS LAST, e.enterprise_number
         LIMIT %s
         """,
         (list(REQUIRED_FILER_FORMS), fiscal_year, limit),

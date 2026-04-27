@@ -117,16 +117,27 @@ WHERE e.status = 'AC'
   AND e.type_of_enterprise = '2'          -- legal persons only (see KBO inversion note below)
   AND e.juridical_form = ANY(...)         -- required-filer forms only (see below)
   AND NOT EXISTS (financial_by_year for this fiscal_year)
-  AND NOT EXISTS (nbb_load_log NO_FILINGS% or PDF_ONLY)
+  AND NOT EXISTS (nbb_load_log NO_FILINGS% or PDF_ONLY or NO_NEW_FILINGS)
 ORDER BY (SELECT total_assets FROM financial_latest WHERE enterprise_number = e.enterprise_number)
-         DESC NULLS FIRST, enterprise_number
+         DESC NULLS LAST, enterprise_number
 LIMIT %s
 ```
 
-`NULLS FIRST` is intentional: companies with no prior financial data come
-**first** in the queue. These are the unknown companies we want to discover most.
-Companies already in `financial_latest` (with known assets) follow after, ordered
-by size.
+**Priority — known filers first.** `NULLS LAST` puts companies that already
+have a row in `financial_latest` (i.e. they've filed with NBB at least once
+in a prior year) at the **front** of the queue, ordered by total assets
+descending. Unknowns — companies in KBO that have never filed JSON-XBRL
+with NBB — are queued behind. Rationale: a known filer is much more likely
+to have already filed FY-current than a random unknown, so we land NEW data
+faster by hitting them first. Empirically (2026-04-27 distribution): ~127k
+FY2025-missing known filers vs ~571k FY2025-missing unknowns; the first
+~5 days of daemon time goes into the known-filer pool.
+
+This was previously `NULLS FIRST` (2026-04-24 → 2026-04-27) when the
+unknown pool was still rich in easy wins. After that pool depleted into a
+long tail of "registered but doesn't actually file FY-current" companies,
+runs were producing 0 loads / >1000 `no_new_filings` — which is what
+prompted the flip. See change history below.
 
 ---
 
@@ -144,35 +155,53 @@ sole traders who never file with NBB and produces 0 loaded companies.
 
 ---
 
-## Required-filer juridical forms (Tier 1)
+## Juridical-form yield — Tier 1 (primary) vs Tier 2 (deferred)
 
-Only the following forms are checked. Everything else is excluded — they either never
-file with NBB or file so rarely it wastes quota. The Tier 1 universe is ~787k
-active companies in KBO.
+Although KBO classifies many forms as "required filers", the actual NBB
+filing rate varies enormously between forms. Per the 2026-04-27 measurement
+(% of active KBO companies that have any row in `financial_latest`):
 
-| Code | Form | KBO count (approx) | Notes |
-|------|------|--------------------|-------|
-| 610 | BV (Besloten Vennootschap) | 523k | New form since 2019. **Biggest group.** |
-| 014 | NV (Naamloze Vennootschap) | 79k | |
-| 015 | BVBA (legacy BV form) | 77k | Being phased out post-2019 |
-| 612 | CommV (Commanditaire vennootschap) | 51k | |
-| 011 | VOF (Vennootschap onder firma) | 25k | |
-| 012 | GewComV (old CommV form) | 15k | |
-| 016 | CV oud statuut | 7k | |
-| 008 | CVBA | 4k | |
-| 006 | CVOA | 3k | |
-| 706 | CV (new form) | 2k | |
-| 013 | CommVA | 295 | |
-| 065 | EESV | 269 | |
-| 060 | ESV | 128 | |
-| 508 | CVBA met sociaal oogmerk | 88 | |
-| 114 | NV van publiek recht | 76 | |
-| 616 | BV van publiek recht | 75 | |
-| 615, 614, 515, 010, 108, 116, 716 | Sociaal oogmerk / publiek recht variants | small | |
-| 001 | Europese Coöperatieve Vennootschap | small | |
-| 027 | SE (Societas Europaea) | 14 | |
+### Tier 1 — primary backload set (~685k active KBO companies)
 
-**Deliberately excluded:**
+Forms with empirical filing rates ≥10%, OR small populations with clean
+signal. These are what `candidates_for_year` checks today.
+
+| Code | Form | KBO active | % filed | Notes |
+|------|------|-----------:|--------:|-------|
+| 014 | NV (Naamloze Vennootschap) | 79k | **65.6%** | Highest yield. |
+| 610 | BV (Besloten Vennootschap) | 523k | **20.2%** | Biggest pool — the bulk of the work is here. |
+| 015 | BVBA (legacy BV form) | 77k | 26.2% | Being phased out post-2019 |
+| 008 | CVBA | 4k | 30.3% | |
+| 706 | CV (new form) | 2k | 33.9% | |
+| 716 | CV van publiek recht | 8 | 87.5% | Tiny but clean |
+| 013 | CommVA | 295 | 61.7% | |
+| 114 | NV van publiek recht | 76 | 61.8% | |
+| 108 | CVBA van publiek recht | 6 | 83.3% | |
+| 508 | CVBA met sociaal oogmerk | 88 | 14.8% | |
+| 027 | SE (Societas Europaea) | 14 | 14.3% | |
+| 615, 614, 616, 010, 515 | Sociaal oogmerk / publiek recht variants | small | mixed | Kept as small-pop catch-alls |
+
+### Tier 2 — deferred (~101k active KBO companies)
+
+Forms whose empirical filing rate is so low (0.3–10%) that backloading
+them burns API quota for trickle yield. They sit in a `TIER_2_DEFERRED_FORMS`
+constant in the script as documentation, but are NOT included in the
+primary candidate query. Backfill them with a one-off pass (override
+`REQUIRED_FILER_FORMS`) once the primary set is complete.
+
+| Code | Form | KBO active | % filed | % NO_FILINGS confirmed |
+|------|------|-----------:|--------:|-----------------------:|
+| 612 | CommV (Commanditaire vennootschap) | 51k | **0.3%** | 2.3% sampled |
+| 011 | VOF (Vennootschap onder firma) | 25k | **0.4%** | 8.8% sampled |
+| 012 | GewComV (old CommV form) | 15k | **0.3%** | 10.7% sampled |
+| 016 | CV oud statuut | 7k | 2.3% | **97.6%** confirmed non-filer |
+| 006 | CVOA | 3k | 2.0% | 60.8% confirmed non-filer |
+| 060, 065 | ESV / EESV | <0.5k | 9% | ~30–40% confirmed non-filer |
+| 116 | CV oud publiek recht | small | 5.3% | |
+| 001 | Europese Coöperatieve Vennootschap | small | 0% | |
+
+### Deliberately excluded entirely
+
 - `017` VZW/ASBL — only large non-profits file; added later if needed
 - `070` VME (condominium associations) — never file with NBB CBSO
 - `030` / `230` / `235` Foreign entities
@@ -365,3 +394,5 @@ daemon shipped — see change history below.
 | 2026-04-25 | Doc clarified: the backload populates governance tables (`administrator`, `shareholder`, `participating_interest`, `affiliation`) inline via `store_governance_snapshot()` for every filing — not just `financial_data`. The 04:00 `backfill_affiliation.py` cron is a catch-up for filings loaded before inline extraction existed, not part of normal flow. |
 | 2026-04-27 | **Crontab cleanup:** removed two duplicate pre-2026-04-24 backload entries (`0 2 * * * MAX_CALLS=5000 PER_YEAR_CAP=3000` and `0 6-22 * * * MAX_CALLS=1500 PER_YEAR_CAP=1500`) that were colliding with the post-04-24 entries via `flock` and starving the half-hour drip-feed. Backup: `/opt/leadpeek/scripts/_watchdog_state/crontab.bak.20260427T152633Z`. |
 | 2026-04-27 | **Backload moved from cron to long-running daemon (`nbb-backload-worker` service).** Cron-fired `docker exec leadpeek-backend-1` was being SIGKILLed every time auto-deploy rebuilt the backend container (~1 hour of in-progress run lost per push). New service runs `scripts/nbb_backload_loop.sh` continuously, isolated from backend rebuilds — same pattern as `enrichment-worker` / `staatsblad-bulk-worker`. Both backload cron entries removed. |
+| 2026-04-27 | **Priority flipped: known filers first.** ORDER BY changed from `total_assets DESC NULLS FIRST` → `NULLS LAST`. Companies already in `financial_latest` (proven NBB filers in a prior year) now sit at the front of the queue; unknowns follow. The previous policy (unknowns first) was rational while the unknown pool was rich, but by 04-27 the front of the queue had degraded into a long tail of registered-but-non-filing companies; recent runs were producing 0 loads / >1000 `no_new_filings`. ~127k FY2025-missing known filers now go first, then ~571k unknowns. |
+| 2026-04-27 | **Tier 2 forms dropped from primary backload.** `REQUIRED_FILER_FORMS` tightened from 25 → 16 juridical-form codes. Removed `612` CommV (51k active, 0.3% filing rate), `011` VOF (25k, 0.4%), `012` GewComV (15k, 0.3%), `016` CV oud statuut (7k, 97.6% confirmed non-filer), `006` CVOA, `060`/`065` ESV/EESV, `116`, `001`. Total active-KBO pool drops ~101k companies. The deferred forms are documented as `TIER_2_DEFERRED_FORMS` for a future one-off backfill, but don't burn primary-pass quota. See Juridical-form yield table above. |
