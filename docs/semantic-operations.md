@@ -70,6 +70,7 @@ These files own the current semantic flow:
 - `backend/enrichment_worker.py`
 - `backend/enrichment_routing.py`
 - `backend/enrichment_queue.py`
+- `backend/healthcheck_worker.py`
 - `backend/routers/admin_enrichment.py`
 - `scripts/seed_enrichment_queue.py`
 - `scripts/reclassify_enrichment_queue.py`
@@ -91,29 +92,81 @@ The pipeline is healthy when all of the following are true:
   replaced by the in-network `playwright-scraper` service, which reads its
   Webshare proxy list from `WEBSHARE_PROXIES_FILE` on the host.)
 - The worker heartbeat on `/admin/enrichment` is fresh.
+- `docker compose ps enrichment-worker` reports `(healthy)` (the
+  DB-aware healthcheck script — see "Hang detection" below — is the
+  source of truth, not the previous "is the python process alive" check).
 - `company_enrichment.bulk_summary` has rows.
 - `company_embedding` has rows.
 - Worker logs show believable path mix, not only failures:
   `q2`, `q2+haiku`, `template`, `fastlane_ebitda`, and where relevant
   `excluded_juridical_form`.
 
+## Hang detection and auto-recovery (added 2026-04-27)
+
+Before this date the worker could silently freeze for hours: process
+alive, docker healthcheck green, no jobs completing. The 2026-04-26
+incident was a 20.5h freeze caused by a sync DB call on the asyncio
+event loop getting stuck on a half-open socket — Linux TCP keepalive
+was the only thing eventually unblocking it. Four overlapping defences
+now make a silent multi-hour hang impossible:
+
+1. **`backend/db.py` connection pool**: `connect_timeout=10s` and
+   `statement_timeout=120s` (`DB_CONNECT_TIMEOUT_S`,
+   `DB_STATEMENT_TIMEOUT_MS`). Any DB query that doesn't return inside
+   2 minutes is killed by the server, raising in Python.
+2. **Per-job ceiling**: `_enrich_one()` is wrapped in
+   `asyncio.wait_for(timeout=ENRICHMENT_JOB_TIMEOUT_S)` (default 300s).
+   On timeout the job is `mark_failed("job_timeout:300s")` and the
+   slot frees.
+3. **In-process watchdog**: a sibling task in `Worker.run()` wakes every
+   `ENRICHMENT_WATCHDOG_INTERVAL_S` (default 60s). If `_should_be_working`
+   is true AND no job has terminated in the last
+   `ENRICHMENT_WATCHDOG_THRESHOLD_S` (default 600s), it calls
+   `os._exit(1)` so docker `restart: always` brings up a fresh
+   container. The watchdog is spawned BEFORE schema init / stale-claim
+   release so a startup hang is also caught.
+4. **DB-aware healthcheck**: `backend/healthcheck_worker.py` is the
+   docker `HEALTHCHECK` script for the worker. Returns 0 (healthy) only
+   when the worker is correctly idle (paused, budget blown, queue
+   empty) OR has reached a terminal status (`done` / `excluded` /
+   `failed`) within `ENRICHMENT_HEALTHCHECK_FRESHNESS_S` (default 900s).
+   Returns 1 when the worker should be processing but isn't. The
+   watchdog handles auto-recovery; the healthcheck surfaces the bad
+   state in `docker compose ps`.
+
+When the watchdog fires, look for:
+
+```text
+ERROR __main__ — watchdog: no progress for <N>s (in_flight=<M>) — exiting...
+```
+
+in the worker logs, plus a `record_worker_heartbeat("error",
+"watchdog_exit:stalled_<N>s")` row in `meta`. If you see that more than
+once a day, do NOT just keep restarting — the underlying root cause
+needs investigation (network to Postgres, network to one of the LLM
+providers, deadlock inside `_enrich_one`).
+
 ## One-command status check
 
-From the repo root:
+There is no longer a single status script — `scripts/semantic_status.py`
+referenced in older revisions of this doc was never committed. Use
+either of these from the repo root or the prod backend container:
 
 ```bash
-python scripts/semantic_status.py
+# Worker healthcheck (same script docker uses). Exits 0/1 with a one-
+# line reason on stderr like "healthcheck:ok fresh_within_900s" or
+# "healthcheck:FAIL no_progress_in_900s".
+docker compose -p leadpeek exec enrichment-worker python /app/healthcheck_worker.py
+
+# Queue snapshot via SQL.
+docker compose -p leadpeek exec backend python -c "
+from db import get_conn
+with get_conn() as c:
+    cur = c.cursor()
+    cur.execute('SELECT status, COUNT(*) FROM enrichment_job GROUP BY status ORDER BY 2 DESC')
+    for r in cur.fetchall(): print(r)
+"
 ```
-
-Useful variants:
-
-```bash
-python scripts/semantic_status.py --json
-python scripts/semantic_status.py --env-file .env.production
-python scripts/semantic_status.py --ensure-schema
-```
-
-`--ensure-schema` creates missing semantic tables and default meta rows.
 
 Useful SQL spot-checks:
 
@@ -125,6 +178,14 @@ WHERE variable = 'enrichment_enabled';
 SELECT value
 FROM meta
 WHERE variable = 'enrichment_daily_budget';
+
+-- Last 24h pace and current backlog.
+SELECT
+  (SELECT COUNT(*) FROM enrichment_job
+    WHERE status = 'done'
+      AND finished_at >= NOW() - INTERVAL '24 hours') AS done_24h,
+  (SELECT COUNT(*) FROM enrichment_job
+    WHERE status IN ('queued', 'claimed')) AS remaining;
 ```
 
 ## Routing summary
@@ -155,10 +216,16 @@ staging shell still mutate the live production dataset. Use staging to verify
 code paths and dry-runs only; run real `--apply` actions from the production
 backend container after explicit approval.
 
-1. Ensure schema is present:
+1. Ensure schema is present. Booting the worker is enough — `Worker.run()`
+   calls `ensure_queue_schema()` and `ensure_semantic_schema()` on
+   startup, both idempotent. To check from outside the container:
 
 ```bash
-python scripts/semantic_status.py --ensure-schema
+docker compose -p leadpeek exec backend python -c "
+from semantic_bootstrap import ensure_semantic_schema
+from enrichment_queue import ensure_schema
+ensure_schema(); ensure_semantic_schema(); print('schema OK')
+"
 ```
 
 2. Confirm runtime secrets exist in the environment used by backend and worker:
@@ -385,6 +452,11 @@ Signs quality is degrading:
 - excluding companies from the queue but leaving old embeddings in search
 - reading ETA off a warm-up window right after restart
 - assuming `done` and `excluded` mean the same thing
+- trusting "container is healthy" without verifying recent job
+  completions — the pre-2026-04-27 healthcheck only checked that Python
+  could `import enrichment_worker`, which let a 20.5h silent freeze pass
+  unnoticed. The DB-aware healthcheck and watchdog described above
+  close that gap; if either is removed, this failure mode comes back.
 
 ## Session handoff checklist
 
