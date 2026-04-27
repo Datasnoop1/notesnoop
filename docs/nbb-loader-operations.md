@@ -83,7 +83,7 @@ no longer interrupt it — same isolation pattern as `enrichment-worker` and
 **Materialised-table rebuild:** Always runs in the daily 01:00 batch
 (`nbb_batch_pipeline.py`). The daemon always passes `--skip-rebuild`.
 
-**Year order:** `BACKLOAD_START_YEAR` (default 2025) → `BACKLOAD_END_YEAR`
+**Year order:** `BACKLOAD_START_YEAR` (default 2024) → `BACKLOAD_END_YEAR`
 (default 2022), most recent first. Older years are only reached once the
 recent year's candidate pool is exhausted. FY2021 and earlier are not
 backfilled — see purpose note above.
@@ -123,6 +123,14 @@ until ~July of (current_year), then bump to current_year. So:
 A scheduled remote agent fires on 2026-07-01 to flip the default and update
 this table. After each annual rotation the daemon will sweep the new year's
 candidate pool, then naturally fall back to fill in older years.
+
+> **If the scheduled rotation didn't fire** (Anthropic outage, account state,
+> etc.), bump the year manually: change the default in both
+> `docker-compose.yml` and `docker-compose.staging.yml` (the
+> `BACKLOAD_START_YEAR` env var on the `nbb-backload-worker` service) AND
+> the matching `:-2024` fallback in `scripts/nbb_backload_loop.sh`. The
+> compose value, the loop-script fallback, and this table all need to
+> agree.
 
 **Logs:** `docker logs leadpeek-nbb-backload-worker-1`. The legacy
 `/opt/leadpeek/scripts/_watchdog_state/nightly.log` is no longer written —

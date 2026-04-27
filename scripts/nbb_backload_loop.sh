@@ -12,7 +12,7 @@
 #
 # Tunables (env vars, all optional):
 #   BACKLOAD_MAX_CALLS      per-iteration call budget        (default 3500)
-#   BACKLOAD_START_YEAR     reverse-chrono start fiscal year (default 2025)
+#   BACKLOAD_START_YEAR     reverse-chrono start fiscal year (default 2024)
 #   BACKLOAD_END_YEAR       reverse-chrono end fiscal year   (default 2022)
 #   BACKLOAD_PER_YEAR_CAP   per-fiscal-year cap per run      (default 3500)
 #   BACKLOAD_SLEEP_S        sleep between normal iterations  (default 30)
@@ -21,7 +21,7 @@
 set -uo pipefail
 
 MAX_CALLS="${BACKLOAD_MAX_CALLS:-3500}"
-START_YEAR="${BACKLOAD_START_YEAR:-2025}"
+START_YEAR="${BACKLOAD_START_YEAR:-2024}"
 END_YEAR="${BACKLOAD_END_YEAR:-2022}"
 PER_YEAR_CAP="${BACKLOAD_PER_YEAR_CAP:-3500}"
 SLEEP_S="${BACKLOAD_SLEEP_S:-30}"
