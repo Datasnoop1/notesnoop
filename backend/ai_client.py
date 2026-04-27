@@ -20,6 +20,11 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1/chat/completions"
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "https://ollama.com").rstrip("/")
 OLLAMA_CHAT_URL = f"{OLLAMA_BASE_URL}/api/chat"
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
+NVIDIA_BASE_URL = os.getenv(
+    "NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"
+).rstrip("/")
+NVIDIA_CHAT_URL = f"{NVIDIA_BASE_URL}/chat/completions"
 
 # Request-scoped contextvar holding the current API endpoint path, set by
 # middleware in main.py. Threads the endpoint identifier down to `ai_complete`
@@ -35,6 +40,15 @@ def _is_ollama_model(model: str) -> bool:
 
 
 def _ollama_model_name(model: str) -> str:
+    return model.split(":", 1)[1].strip() if ":" in model else model.strip()
+
+
+def _is_nvidia_model(model: str) -> bool:
+    return isinstance(model, str) and model.startswith("nvidia:")
+
+
+def _nvidia_model_name(model: str) -> str:
+    """Strip the `nvidia:` prefix and return the upstream model id."""
     return model.split(":", 1)[1].strip() if ":" in model else model.strip()
 
 
@@ -473,6 +487,15 @@ async def ai_complete_with_meta(
             temperature=temperature,
             timeout_s=timeout_s,
         )
+    if _is_nvidia_model(model):
+        return await _nvidia_complete_with_meta(
+            prompt=prompt,
+            system=system,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout_s=timeout_s,
+        )
 
     started = time.monotonic()
     meta = {
@@ -637,6 +660,98 @@ async def _ollama_complete_with_meta(
     except Exception:
         meta["error"] = "exception"
         logger.exception("Ollama request failed for model %s", model)
+    meta["latency_ms"] = int((time.monotonic() - started) * 1000)
+    return meta
+
+
+async def _nvidia_complete_with_meta(
+    prompt: str,
+    system: str = "",
+    model: str = "nvidia:qwen/qwen3-coder-480b-a35b-instruct",
+    max_tokens: int = 500,
+    temperature: float | None = None,
+    timeout_s: float = 60.0,
+) -> dict:
+    """Chat completion via NVIDIA NIM (build.nvidia.com), OpenAI-compatible.
+
+    `model` is `nvidia:<upstream-id>`, e.g. `nvidia:qwen/qwen3-coder-480b-a35b-instruct`
+    or `nvidia:nvidia/llama-3.3-nemotron-super-49b-v1.5`. The colon-prefix is
+    stripped before sending; the upstream id is sent as-is to NIM's
+    `/v1/chat/completions` endpoint.
+    """
+    started = time.monotonic()
+    meta = {
+        "text": "",
+        "model": model,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "ok": False,
+        "error": None,
+        "status_code": None,
+        "latency_ms": 0,
+    }
+    if not NVIDIA_API_KEY:
+        meta["error"] = "no_nvidia_api_key"
+        meta["latency_ms"] = int((time.monotonic() - started) * 1000)
+        return meta
+
+    messages: list[dict] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+    payload: dict = {
+        "model": _nvidia_model_name(model),
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "stream": False,
+    }
+    if temperature is not None:
+        payload["temperature"] = temperature
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                NVIDIA_CHAT_URL,
+                headers={
+                    "Authorization": f"Bearer {NVIDIA_API_KEY}",
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json=payload,
+                timeout=timeout_s,
+            )
+            meta["status_code"] = resp.status_code
+            if resp.status_code == 200:
+                data = resp.json()
+                content = (
+                    data.get("choices", [{}])[0].get("message", {}).get("content")
+                    or ""
+                ).strip()
+                usage = data.get("usage") or {}
+                meta["text"] = content
+                meta["input_tokens"] = int(usage.get("prompt_tokens") or 0)
+                meta["output_tokens"] = int(usage.get("completion_tokens") or 0)
+                meta["ok"] = bool(content)
+                if not meta["ok"]:
+                    meta["error"] = "empty_completion"
+                _log_llm_call(
+                    model=model,
+                    prompt_tokens=meta["input_tokens"],
+                    completion_tokens=meta["output_tokens"],
+                    cost_usd=None,
+                )
+            else:
+                meta["error"] = f"http_{resp.status_code}"
+                logger.warning(
+                    "NVIDIA returned %s for model %s: %s",
+                    resp.status_code, model, resp.text[:200],
+                )
+    except httpx.TimeoutException:
+        meta["error"] = "timeout"
+        logger.warning("NVIDIA timeout for model %s after %.1fs", model, timeout_s)
+    except Exception:
+        meta["error"] = "exception"
+        logger.exception("NVIDIA request failed for model %s", model)
     meta["latency_ms"] = int((time.monotonic() - started) * 1000)
     return meta
 
@@ -1776,15 +1891,42 @@ BULK_Q2_FALLBACK_MODEL = os.getenv("BULK_Q2_FALLBACK_MODEL", "").strip()
 BULK_HAIKU_FALLBACK_MODEL = os.getenv("BULK_HAIKU_FALLBACK_MODEL", "").strip()
 
 
+def _resolve_bulk_fallback_chain(
+    primary_model: str, configured_fallback: str, default_model: str
+) -> list[str]:
+    """Build the ordered list of models to try after the primary fails.
+
+    Order: configured_fallback (if set) → default_model (when primary is
+    `ollama:*` and default differs). Duplicates and the primary itself are
+    filtered out. The legacy single-fallback behaviour is preserved when the
+    chain has zero or one entry.
+    """
+    chain: list[str] = []
+    seen = {primary_model}
+    fb = (configured_fallback or "").strip()
+    if fb and fb not in seen:
+        chain.append(fb)
+        seen.add(fb)
+    # Auto-fallback to the OpenRouter default when the primary is a
+    # non-OpenRouter provider whose endpoint can rate-limit (Ollama today,
+    # NVIDIA tomorrow). Keeps a graceful escape hatch even if the configured
+    # fallback also fails.
+    if (
+        _is_ollama_model(primary_model) or _is_nvidia_model(primary_model)
+    ) and default_model and default_model not in seen:
+        chain.append(default_model)
+        seen.add(default_model)
+    return chain
+
+
 def _resolve_bulk_fallback_model(
     primary_model: str, configured_fallback: str, default_model: str
 ) -> str | None:
-    fb = (configured_fallback or "").strip()
-    if fb and fb != primary_model:
-        return fb
-    if _is_ollama_model(primary_model) and default_model != primary_model:
-        return default_model
-    return None
+    """Backwards-compatible single-fallback shim — first item of the chain."""
+    chain = _resolve_bulk_fallback_chain(
+        primary_model, configured_fallback, default_model
+    )
+    return chain[0] if chain else None
 
 
 def _nn(v) -> str:
@@ -1916,7 +2058,7 @@ async def call_q2(
     )
 
     primary_model = model
-    fallback_model = _resolve_bulk_fallback_model(
+    fallback_chain = _resolve_bulk_fallback_chain(
         primary_model=primary_model,
         configured_fallback=BULK_Q2_FALLBACK_MODEL,
         default_model=_BULK_Q2_DEFAULT_MODEL,
@@ -1930,17 +2072,19 @@ async def call_q2(
         temperature=0.1,
         timeout_s=45.0,
     )
-    used_fallback = False
-    if (not meta.get("ok")) and fallback_model:
+    fallbacks_used: list[str] = []
+    for fb in fallback_chain:
+        if meta.get("ok"):
+            break
         meta = await ai_complete_with_meta(
             prompt=body,
             system=system,
-            model=fallback_model,
+            model=fb,
             max_tokens=500,
             temperature=0.1,
             timeout_s=45.0,
         )
-        used_fallback = True
+        fallbacks_used.append(fb)
     if not meta.get("ok"):
         return {
             "summary": None,
@@ -1952,17 +2096,22 @@ async def call_q2(
 
     text = meta.get("text") or ""
     parsed = _extract_json(text)
-    if not isinstance(parsed, dict) and fallback_model and not used_fallback:
+    # If the call succeeded but the body wasn't valid JSON, try the next
+    # un-attempted fallback (parsing problem rather than a transport failure).
+    for fb in fallback_chain:
+        if isinstance(parsed, dict) or fb in fallbacks_used:
+            continue
         meta = await ai_complete_with_meta(
             prompt=body,
             system=system,
-            model=fallback_model,
+            model=fb,
             max_tokens=500,
             temperature=0.1,
             timeout_s=45.0,
         )
         text = meta.get("text") or ""
         parsed = _extract_json(text)
+        fallbacks_used.append(fb)
 
     if not isinstance(parsed, dict):
         return {
@@ -2059,7 +2208,7 @@ async def call_haiku_escalation(
     )
 
     primary_model = model
-    fallback_model = _resolve_bulk_fallback_model(
+    fallback_chain = _resolve_bulk_fallback_chain(
         primary_model=primary_model,
         configured_fallback=BULK_HAIKU_FALLBACK_MODEL,
         default_model=_BULK_HAIKU_DEFAULT_MODEL,
@@ -2073,17 +2222,19 @@ async def call_haiku_escalation(
         temperature=0.1,
         timeout_s=60.0,
     )
-    used_fallback = False
-    if (not meta.get("ok")) and fallback_model:
+    fallbacks_used: list[str] = []
+    for fb in fallback_chain:
+        if meta.get("ok"):
+            break
         meta = await ai_complete_with_meta(
             prompt=body,
             system=system,
-            model=fallback_model,
+            model=fb,
             max_tokens=700,
             temperature=0.1,
             timeout_s=60.0,
         )
-        used_fallback = True
+        fallbacks_used.append(fb)
     if not meta.get("ok"):
         return {
             "summary": None,
@@ -2095,17 +2246,20 @@ async def call_haiku_escalation(
 
     text = meta.get("text") or ""
     parsed = _extract_json(text)
-    if not isinstance(parsed, dict) and fallback_model and not used_fallback:
+    for fb in fallback_chain:
+        if isinstance(parsed, dict) or fb in fallbacks_used:
+            continue
         meta = await ai_complete_with_meta(
             prompt=body,
             system=system,
-            model=fallback_model,
+            model=fb,
             max_tokens=700,
             temperature=0.1,
             timeout_s=60.0,
         )
         text = meta.get("text") or ""
         parsed = _extract_json(text)
+        fallbacks_used.append(fb)
 
     if not isinstance(parsed, dict):
         return {

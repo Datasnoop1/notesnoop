@@ -199,20 +199,27 @@ def _fetch_latest_nbb_admins_batch(
               AND a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
         ),
         latest AS (
+            -- Bypass the `financial_summary` view: it aggregates the entire
+            -- 39M-row `financial_data` table at query time, which forces a
+            -- full seq-scan + on-disk hash-aggregate for batch lookups
+            -- (~50s for 6 CBEs). Joining `financial_data` directly with
+            -- predicate-pushdown on enterprise_number uses idx_admin_ent +
+            -- financial_data_pkey and runs in <30ms.
             SELECT DISTINCT ON (a.enterprise_number)
                    a.enterprise_number,
                    a.deposit_key AS dk,
-                   MAX(fs.deposit_date) AS deposit_date
+                   MAX(fd.deposit_date) AS deposit_date
             FROM administrator a
             JOIN candidates c
               ON c.enterprise_number = a.enterprise_number
-            LEFT JOIN financial_summary fs
-              ON fs.enterprise_number = a.enterprise_number
-             AND fs.deposit_key = a.deposit_key
+            LEFT JOIN financial_data fd
+              ON fd.enterprise_number = a.enterprise_number
+             AND fd.deposit_key = a.deposit_key
+             AND fd.period = 'N'
             WHERE a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
             GROUP BY a.enterprise_number, a.deposit_key
             ORDER BY a.enterprise_number,
-                     MAX(fs.deposit_date) DESC NULLS LAST,
+                     MAX(fd.deposit_date) DESC NULLS LAST,
                      a.deposit_key DESC
         )
         SELECT DISTINCT ON (a.enterprise_number, a.name, a.role)
