@@ -94,13 +94,17 @@ services:
       DDG_RATELIMIT_MULTIPLIER: "2.0"
       DDG_RECOVERY_STEP_S: "1.0"
       DDG_SUCCESS_STREAK_TO_RECOVER: "8"
+      # Q2 chain: Ollama Cloud → NVIDIA NIM → OpenRouter (auto).
+      # NVIDIA NIM (added 2026-04-26) absorbs traffic when Ollama hits
+      # its weekly cap; OpenRouter remains the last-resort default in
+      # _resolve_bulk_fallback_chain when both upstream providers fail.
       BULK_Q2_MODEL: "ollama:qwen3-coder-next"
-      BULK_Q2_FALLBACK_MODEL: ""
+      BULK_Q2_FALLBACK_MODEL: "nvidia:qwen/qwen3-coder-480b-a35b-instruct"
+      # Haiku chain: Ollama Cloud → NVIDIA NIM → Anthropic Haiku (configured).
       # Switched 2026-04-25 from anthropic/claude-haiku-4.5 to
       # ollama:kimi-k2.6 so escalations don't share Anthropic rate limits.
-      # Anthropic Haiku stays as the fallback for Ollama Cloud outages.
       BULK_HAIKU_MODEL: "ollama:kimi-k2.6"
-      BULK_HAIKU_FALLBACK_MODEL: "anthropic/claude-haiku-4.5"
+      BULK_HAIKU_FALLBACK_MODEL: "nvidia:qwen/qwen3-coder-480b-a35b-instruct"
       # Pointer to the in-network playwright-scraper service (Webshare proxy
       # rotation behind a headless Chromium). Set empty to disable the proxy
       # fallback entirely and force template-path on every blocked site.
@@ -124,13 +128,18 @@ services:
       playwright-scraper:
         condition: service_healthy
     command: ["python", "-m", "enrichment_worker"]
-    # Worker doesn't serve HTTP — healthcheck confirms the process is
-    # alive via a Python one-liner that imports the module.
+    # Healthcheck queries the queue: healthy iff worker is correctly idle
+    # (paused / no work) OR has terminated a job in the freshness window.
+    # The previous `import enrichment_worker` check let a 20.5h silent hang
+    # pass as healthy on 2026-04-26. The in-process watchdog inside
+    # enrichment_worker.py self-exits on stall; this surfaces the same
+    # state in `docker compose ps`.
     healthcheck:
-      test: ["CMD", "python", "-c", "import enrichment_worker"]
-      interval: 60s
-      timeout: 10s
+      test: ["CMD", "python", "/app/healthcheck_worker.py"]
+      interval: 120s
+      timeout: 15s
       retries: 3
+      start_period: 120s
     mem_limit: 1g
     mem_reservation: 256m
     deploy:
@@ -139,6 +148,54 @@ services:
           memory: 1G
         reservations:
           memory: 256M
+
+  # Long-running NBB historical backload worker. Replaces the cron-triggered
+  # `docker exec leadpeek-backend-1 python nbb_nightly_backload.py` pattern,
+  # which was SIGKILLed every time auto-deploy rebuilt the backend container
+  # (≈1 hour of in-progress run lost per push). Lives in its own service so
+  # backend code rebuilds leave it alone, exactly like enrichment-worker and
+  # staatsblad-bulk-worker. The materialised-table rebuild stays in the
+  # daily 01:00 batch (`nbb_batch_pipeline.py`); this worker always runs
+  # with --skip-rebuild. See docs/nbb-loader-operations.md.
+  nbb-backload-worker:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      PYTHONPATH: "/app"
+      BACKLOAD_MAX_CALLS: "${BACKLOAD_MAX_CALLS:-3500}"
+      BACKLOAD_START_YEAR: "${BACKLOAD_START_YEAR:-2025}"
+      BACKLOAD_END_YEAR: "${BACKLOAD_END_YEAR:-2022}"
+      BACKLOAD_PER_YEAR_CAP: "${BACKLOAD_PER_YEAR_CAP:-3500}"
+      BACKLOAD_SLEEP_S: "${BACKLOAD_SLEEP_S:-30}"
+      BACKLOAD_BACKOFF_S: "${BACKLOAD_BACKOFF_S:-600}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: ["bash", "/app/scripts/nbb_backload_loop.sh"]
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./src:/app/src:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python - <<'PY'\nimport pathlib\nneedle = 'nbb_backload_loop.sh'\nfor cmdline in pathlib.Path('/proc').glob('*/cmdline'):\n    try:\n        text = cmdline.read_text(errors='ignore').replace('\\x00', ' ')\n    except OSError:\n        continue\n    if needle in text:\n        raise SystemExit(0)\nraise SystemExit(1)\nPY",
+        ]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    mem_limit: 512m
+    mem_reservation: 128m
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
 
   # Dedicated long-running Staatsblad bulk scraper. Keeping it separate
   # from the backend service means app deploys/recreates no longer kill
