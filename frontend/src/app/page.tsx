@@ -95,7 +95,20 @@ export default function Home() {
     <div className="relative isolate flex flex-col items-center w-full">
 
       {/* ── Hero card ────────────────────────────────────────────────── */}
-      <section className="w-full max-w-[1200px] mx-auto px-3 sm:px-4 pt-4 sm:pt-6">
+      <section className="relative w-full max-w-[1200px] mx-auto px-3 sm:px-4 pt-4 sm:pt-6">
+        {/* Decorative colour blobs sitting BEHIND the glass hero, so the
+            frosted card has rich tones to blur. Hidden on small screens
+            (the body aura already provides enough colour at mobile sizes). */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute hidden md:block -top-10 -left-10 w-[420px] h-[420px] rounded-full blur-[80px] opacity-55"
+          style={{ background: "radial-gradient(circle, rgba(22,135,232,0.45) 0%, rgba(22,135,232,0) 70%)" }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute hidden md:block top-20 -right-20 w-[460px] h-[460px] rounded-full blur-[80px] opacity-50"
+          style={{ background: "radial-gradient(circle, rgba(31,155,143,0.40) 0%, rgba(31,155,143,0) 70%)" }}
+        />
         <div className="glass-card rounded-2xl sm:rounded-[28px] p-5 sm:p-10 lg:p-12 overflow-hidden relative">
 
           {/* Subtle accent gradient — top-right corner wash. Sits inside

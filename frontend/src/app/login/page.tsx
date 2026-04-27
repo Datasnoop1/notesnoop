@@ -97,12 +97,15 @@ export default function LoginPage() {
 
   return (
     <div className="relative isolate flex items-center justify-center min-h-[70vh]">
+      {/* Coloured washes behind the glass login card so the frost reads
+          as glassy rather than just a translucent panel. Sky-blue blob
+          on the left, teal on the right — calm but visible. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10"
         style={{
           background:
-            "radial-gradient(ellipse 560px 400px at center, rgba(22,135,232,0.06), transparent 60%)",
+            "radial-gradient(ellipse 480px 360px at 30% 35%, rgba(22,135,232,0.18), transparent 65%), radial-gradient(ellipse 460px 360px at 75% 60%, rgba(31,155,143,0.14), transparent 65%), radial-gradient(ellipse 720px 520px at 50% 50%, rgba(234,245,255,0.5), transparent 70%)",
         }}
       />
       <Card className="w-full max-w-sm rounded-[20px] glass-card ring-0 bg-transparent">
