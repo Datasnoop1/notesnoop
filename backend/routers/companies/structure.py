@@ -246,7 +246,10 @@ async def get_company_structure(cbe: str, response: Response):
     cbe = clean_cbe(cbe)
     # Structure changes when staatsblad publishes appointment / resignation
     # notices — daily at most. 5 min browser cache + long SWR keeps the
-    # tab switch + back-button paths instant.
+    # tab switch + back-button paths instant. Overridden to no-store on
+    # the empty path below — caching an empty response would let the
+    # browser serve stale `[]` to the post-/load auto-refetch and hide
+    # freshly extracted admins until the cache expires.
     response.headers["Cache-Control"] = "private, max-age=300, stale-while-revalidate=86400"
 
     try:
@@ -380,6 +383,21 @@ async def get_company_structure(cbe: str, response: Response):
         admins_with_chains = _build_representation_chains(
             admins_merged, affiliation_table_present=_AFFILIATION_TABLE_PRESENT
         )
+
+        # If the response carries no actual structure data, the auto-load
+        # on the profile is about to populate it. Don't cache `[]` for
+        # 5 min — the post-/load refetch needs to see fresh rows as soon
+        # as they land, not a stale empty snapshot.
+        is_empty = (
+            not admins_with_chains
+            and not admin_timeline
+            and not pis
+            and not shareholders
+            and not sb_pubs
+            and not affiliations_dedup
+        )
+        if is_empty:
+            response.headers["Cache-Control"] = "no-store"
 
         return {
             "administrators": [_serialize_row(r) for r in admins_with_chains],

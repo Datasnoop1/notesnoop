@@ -639,8 +639,12 @@ async def get_company_financials(cbe: str, response: Response):
     SQL extracted from app/pages/2_company.py load_company_detail() hist query.
     """
     cbe = clean_cbe(cbe)
-    # NBB filings land at most once per fiscal year. 5 min browser cache
-    # with long SWR keeps tab-switching instant.
+    # NBB filings land at most once per fiscal year, so the populated
+    # response is fine to cache for 5 min with a long SWR window for
+    # snappy tab-switching. The header is overridden to no-store on the
+    # empty path below — caching an empty response would let the browser
+    # serve stale `[]` to the post-/load auto-refetch and hide freshly
+    # loaded financials until the cache expires.
     response.headers["Cache-Control"] = "private, max-age=300, stale-while-revalidate=86400"
 
     t_total = time.perf_counter()
@@ -676,6 +680,14 @@ async def get_company_financials(cbe: str, response: Response):
         logger.info("financials.subquery=pdf_only cbe=%s ms=%.0f", cbe, (time.perf_counter()-t0)*1000)
 
         if not hist:
+            # Don't let the browser cache the empty state unless we're
+            # confident no data will ever load (PDF_ONLY companies have
+            # no JSON-XBRL filings so the response is genuinely stable).
+            # For anything else, the auto-load on the profile is about to
+            # populate `financial_data` — caching `[]` for 5 min would
+            # hide the new rows until the cache expires.
+            if not pdf_only:
+                response.headers["Cache-Control"] = "no-store"
             logger.info("financials.total cbe=%s ms=%.0f rows=0 (early exit)", cbe, (time.perf_counter()-t_total)*1000)
             return {"summary": [], "pnl": {}, "pdf_only": pdf_only}
 
