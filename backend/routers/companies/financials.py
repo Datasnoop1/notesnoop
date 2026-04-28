@@ -7,7 +7,7 @@ import time
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 
 from db import fetch_all, fetch_one, get_connection, put_connection
 from auth import optional_user
@@ -152,7 +152,12 @@ async def _nbb_get(
 # ---------------------------------------------------------------------------
 
 @router.post("/{cbe}/load")
-async def load_company_data(cbe: str, fiscal_year: Optional[int] = Query(None, description="Only load filings for this fiscal year"), user=Depends(optional_user)):
+async def load_company_data(
+    cbe: str,
+    background_tasks: BackgroundTasks,
+    fiscal_year: Optional[int] = Query(None, description="Only load filings for this fiscal year"),
+    user=Depends(optional_user),
+):
     """Load financial data from NBB for this company.
 
     Open to anonymous callers — the per-IP rate limiter in main.py
@@ -165,6 +170,9 @@ async def load_company_data(cbe: str, fiscal_year: Optional[int] = Query(None, d
     3. Parse rubric codes and values
     4. Insert into financial_data table
     5. Refresh financial_latest and financial_by_year for this company
+       (deferred to a BackgroundTask so the response returns as soon as
+       the NBB inserts have committed — `financial_summary` is a live VIEW
+       so the profile re-fetch sees fresh data immediately).
     """
     cbe = clean_cbe(cbe)
 
@@ -177,10 +185,16 @@ async def load_company_data(cbe: str, fiscal_year: Optional[int] = Query(None, d
     # Global concurrency cap — serialise against other in-flight
     # /load calls so NBB sees at most 3 concurrent streams from us.
     async with _LOAD_SEMAPHORE:
-        return await _do_load(cbe, fiscal_year, nbb_key, nbb_base)
+        return await _do_load(cbe, fiscal_year, nbb_key, nbb_base, background_tasks)
 
 
-async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base: str):
+async def _do_load(
+    cbe: str,
+    fiscal_year: Optional[int],
+    nbb_key: str,
+    nbb_base: str,
+    background_tasks: BackgroundTasks,
+):
     import uuid
     import psycopg2.extras
 
@@ -288,9 +302,14 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
                         cbe,
                     )
 
-                # Respect NBB rate limits (non-blocking — asyncio sleep yields
-                # control, so other requests on this worker aren't frozen).
-                await asyncio.sleep(1)
+                # Inter-call rate-limit. NBB advises 1-2s between calls but
+                # their own ~1.5s response time naturally satisfies that
+                # for sequential fetches, so 0.25s is belt-and-suspenders.
+                # Applied before EVERY filing fetch (including the first)
+                # so the per-key NBB request rate stays bounded even when
+                # `_LOAD_SEMAPHORE` allows three concurrent loads to enter
+                # their first-filing fetch simultaneously.
+                await asyncio.sleep(0.25)
 
                 # Fetch JSON-XBRL data — async + light retry for transient
                 # timeouts so a slow NBB response doesn't instantly break the
@@ -426,8 +445,13 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
                         cbe, ref_number, gov_err,
                     )
 
-        # --- Step 5: Refresh materialized tables for this company ---
-        _refresh_materialized_for_company(cur, conn, cbe)
+        # --- Step 5: Schedule materialized-table refresh as background task ---
+        # `financial_summary` is a live VIEW so the profile's GET /financials
+        # re-fetch already sees the new rubrics — `financial_latest` and
+        # `financial_by_year` only feed the screener / search / sector
+        # benchmarks, none of which fire in the same render. Deferring saves
+        # ~300-500ms on perceived load latency.
+        background_tasks.add_task(_refresh_materialized_for_company_bg, cbe)
 
         cur.close()
     except HTTPException:
@@ -495,6 +519,23 @@ async def _do_load(cbe: str, fiscal_year: Optional[int], nbb_key: str, nbb_base:
     if errors:
         result["errors"] = errors
     return result
+
+
+def _refresh_materialized_for_company_bg(cbe: str) -> None:
+    """BackgroundTask wrapper — acquires its own connection from the pool
+    and delegates to the original refresh routine. Errors are logged but
+    not raised (the response has already been sent to the client)."""
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        try:
+            _refresh_materialized_for_company(cur, conn, cbe)
+        finally:
+            cur.close()
+    except Exception:
+        logger.exception("Background matview refresh failed for %s", cbe)
+    finally:
+        put_connection(conn)
 
 
 def _refresh_materialized_for_company(cur, conn, cbe: str):
