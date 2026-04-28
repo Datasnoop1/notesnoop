@@ -96,12 +96,34 @@ export function AdministratorsTab({
 
   const adminEvents = structure?.administrator_events ?? [];
   const affiliations = structure?.affiliations ?? [];
+  const parents = structure?.parent_companies ?? [];
 
   if (currentAdmins.length === 0 && pastAdmins.length === 0 && adminEvents.length === 0 && affiliations.length === 0) {
     return (
-      <p className="py-8 text-center text-sm text-slate-500">
-        No administrator data available for this company.
-      </p>
+      <div className="py-8 text-center text-sm text-slate-500 space-y-3">
+        <p>No administrator data available for this company.</p>
+        {parents.length > 0 && (
+          <p className="text-slate-600">
+            However, {parents.length === 1 ? "this entity is named as a participating interest by " : "this entity is named as a participating interest by "}
+            {parents.map((p, i) => {
+              const pCbe = cleanCbe(p.enterprise_number);
+              return (
+                <React.Fragment key={p.enterprise_number}>
+                  {i > 0 && (i === parents.length - 1 ? " and " : ", ")}
+                  {pCbe ? (
+                    <Link href={`/company/${pCbe}`} className="text-brand hover:underline font-medium">
+                      {p.name}
+                    </Link>
+                  ) : (
+                    <span className="font-medium">{p.name}</span>
+                  )}
+                </React.Fragment>
+              );
+            })}
+            . See the Structure sub-tab for ownership details.
+          </p>
+        )}
+      </div>
     );
   }
 

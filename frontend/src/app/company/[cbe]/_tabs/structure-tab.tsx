@@ -31,10 +31,13 @@ export function StructureTab({
   structure,
   cbe,
 }: StructureTabProps) {
+  const parentCompanies = structure?.parent_companies ?? [];
+
   if (
     !structure ||
     (structure.shareholders.length === 0 &&
-      structure.participating_interests.length === 0)
+      structure.participating_interests.length === 0 &&
+      parentCompanies.length === 0)
   ) {
     return (
       <p className="py-8 text-center text-sm text-slate-500">
@@ -49,6 +52,7 @@ export function StructureTab({
         <ExportButtons onExportCSV={() => {
           const headers = ["Type", "Name", "Ownership %", "Country/Type", "Identifier", "Fiscal Year"];
           const rows = [
+            ...parentCompanies.map(p => ["Parent", p.name, p.ownership_pct != null ? p.ownership_pct.toFixed(1) : "", p.country || "", p.enterprise_number, p.fiscal_year || ""]),
             ...structure.shareholders.map(s => ["Shareholder", s.name, s.ownership_pct != null ? s.ownership_pct.toFixed(1) : "", s.shareholder_type || "", s.identifier || "", s.fiscal_year || ""]),
             ...structure.participating_interests.map(p => ["Subsidiary", p.name, p.ownership_pct != null ? p.ownership_pct.toFixed(1) : "", p.country || "", p.identifier || "", p.fiscal_year || ""]),
           ];
@@ -58,6 +62,73 @@ export function StructureTab({
       <div className="grid gap-3 lg:grid-cols-2">
       {/* Left column: collapsible cards */}
       <div className="space-y-3">
+          {/* Parent companies (reverse PI lookup) — surfaces parents that
+              declare this CBE in their own filings, even when this entity
+              has no shareholder schedule of its own. */}
+          {parentCompanies.length > 0 && (
+            <Card>
+              <CardContent>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    const content = (e.currentTarget as HTMLElement).nextElementSibling;
+                    const chevron = (e.currentTarget as HTMLElement).querySelector('[data-chevron]');
+                    if (content) content.classList.toggle("hidden");
+                    if (chevron) chevron.classList.toggle("rotate-180");
+                  }}
+                  className="w-full flex items-center justify-between mb-2 py-2 md:py-0 min-h-[44px] md:min-h-0"
+                >
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 border-l-[3px] border-blue-500 pl-2">
+                    Parent companies ({parentCompanies.length})
+                  </h3>
+                  <ChevronDown data-chevron className="h-4 w-4 text-slate-400 transition-transform" />
+                </button>
+                <div className="space-y-1.5">
+                  <p className="text-[11px] text-slate-400 italic mb-1">
+                    Disclosed by the parent's own filing.
+                  </p>
+                  {parentCompanies.map((p, i) => {
+                    const pCbe = cleanCbe(p.enterprise_number);
+                    return (
+                      <div
+                        key={`${p.enterprise_number}-${i}`}
+                        className="rounded-md border px-3 py-3 md:py-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          {pCbe ? (
+                            <Link
+                              href={`/company/${pCbe}`}
+                              className="font-semibold text-sm text-brand hover:underline"
+                            >
+                              {p.name}
+                            </Link>
+                          ) : (
+                            <span className="font-semibold text-sm text-slate-700">{p.name}</span>
+                          )}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {p.ownership_pct != null && (
+                              <span className="font-mono text-xs font-medium text-slate-700">
+                                {p.ownership_pct.toFixed(1)}%
+                              </span>
+                            )}
+                            {p.fiscal_year && (
+                              <Badge
+                                variant="secondary"
+                                className="text-[11px]"
+                              >
+                                {p.fiscal_year}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Shareholders (collapsible) */}
           {structure.shareholders.length > 0 && (
             <Card>

@@ -188,13 +188,14 @@ def merge_admins_with_staatsblad(
             if not resigned:
                 continue
 
-    today = dt.date.today().isoformat()
-    current_state: list[dict[str, Any]] = []
-    for row in current.values():
-        mandate_end = row.get("mandate_end")
-        if mandate_end and mandate_end <= today:
-            continue
-        current_state.append(row)
+    # Keep all admins — including those whose mandate has ended. The
+    # /structure endpoint surfaces both Current and Past sections in the
+    # admin sub-tab; filtering past admins here would hide directors of
+    # companies that haven't yet filed a refresh (common for non-filing
+    # subsidiaries — see 0878290854 FOREST AVENUE & C°). Callers that
+    # specifically need a "currently active only" view (e.g. the spiderweb
+    # via fetch_current_admins_for_batch) post-filter on mandate_end.
+    current_state: list[dict[str, Any]] = list(current.values())
     current_state.sort(key=lambda row: (row.get("name") or "", row.get("role") or ""))
 
     timeline: list[dict[str, Any]] = []

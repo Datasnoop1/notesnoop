@@ -346,6 +346,12 @@ CREATE TABLE IF NOT EXISTS participating_interest (
 );
 
 CREATE INDEX IF NOT EXISTS idx_pi_ent ON participating_interest(enterprise_number);
+-- Reverse lookup: "which parents declare this CBE as a PI?" — used by both
+-- the spiderweb (network.py) and the parent_companies field on /structure.
+-- Partial: identifier is NULL for natural persons / foreign entities without
+-- a CBE; skipping those halves the index size for free.
+CREATE INDEX IF NOT EXISTS idx_pi_identifier ON participating_interest(identifier)
+  WHERE identifier IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS shareholder (
     enterprise_number       TEXT NOT NULL,
