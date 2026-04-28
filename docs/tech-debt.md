@@ -10,6 +10,57 @@ item the operator wants to tackle becomes its own branch.
 
 ---
 
+## 2026-04-28 audit cross-check
+
+A cleanup/security audit on 2026-04-28 verified which 2026-04-17
+items have since been addressed on `master`:
+
+- **Resolved:**
+  - #10 `GET /api/polls` is now admin-gated (`backend/routers/polls.py:126`).
+  - #13 JWT `verify_aud=True` and exact-`kid` matching enforced
+    (`backend/auth.py:103-106, 168-183`).
+  - #14 Content-Security-Policy header present (`nginx/default.conf:109`).
+  - #2 (partial) Stripe redirect default reads `FRONTEND_BASE_URL`
+    env var (`backend/routers/stripe_pay.py:23`); literal allow-list
+    still includes `datasnoop.be` / `staging.datasnoop.be`.
+  - Group G server prune — automated weekly via Sunday cron
+    (`docker system prune -af` + `buildx prune -af`); disk has
+    dropped from 82 % to 67 % accordingly.
+- **Mitigated, not resolved:**
+  - #1 / #27 PII endpoints on `/api/people/*`, `/api/companies/*/structure`,
+    `/api/companies/*/network`, `/api/companies/*/extract-admins`,
+    `/api/person/*/companies` are now classified by the tier-limit
+    middleware (commit on 2026-04-23) but remain anonymous-readable.
+    Operator policy is tier-gating instead of auth-gating; no further
+    action without operator sign-off.
+- **Still outstanding:** #4, #5, #6, #7, #8, #9, #11, #12, #15, #16,
+  plus the cleanup items #17–#26.
+
+New findings from 2026-04-28 (DB-side, all gated on operator
+approval, full detail in `docs/db-maintenance-recommendations.md`):
+
+- **DB.1** Seven KBO tables (`activity` 35 M rows, `address` 2.9 M,
+  `enterprise` 1.9 M, `establishment` 1.7 M, `contact` 697 k, `code`
+  21 k, `branch` 7 k) have no record of `ANALYZE` / `autoanalyze`.
+  Planner is running on stale or zero stats. Fix: `VACUUM ANALYZE`
+  the seven, then add `ANALYZE` to the post-load step in
+  `src/kbo_loader.py` and `src/kbo_updater.py`.
+- **DB.2** Three queue tables hold large terminal-status backlogs:
+  `staatsblad_bulk_queue` 1.17 M `done`, `staatsblad_llm_queue`
+  93 k `done`, `enrichment_job` 341 k `done`. Recommended retention:
+  prune `done` rows older than 30 / 30 / 90 days respectively;
+  preserve `excluded` rows in `enrichment_job` (worker still reads
+  them). Estimated reclaim: ~400–600 MB.
+- **DB.3** Six unused indexes totalling ~563 MB (`idx_activity_*`,
+  `idx_establishment_enterprise`, `idx_actlog_time`, `idx_branch_*`).
+  Confirm against `pg_stat_statements` before dropping.
+- **DB.4** `idx_ce_embedding_hnsw` (2.56 GB) shows zero scans —
+  investigate whether `/api/search/semantic` is actually using it.
+  Could be a stats-reset artifact or a real perf bug. Don't drop
+  blindly.
+
+---
+
 ## Recommended triage (2026-04-17)
 
 The 27 items below cluster into seven natural groups. Each group can be

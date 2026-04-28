@@ -35,6 +35,17 @@ frontend/node_modules/
 # OS
 .DS_Store
 Thumbs.db
+# Windows reserved device names — accidentally created when a Windows
+# command redirects to `> nul` and the path resolves to a literal file
+# under WSL/Git Bash.
+nul
+NUL
+con
+CON
+prn
+PRN
+aux
+AUX
 
 # Logs
 logs/
