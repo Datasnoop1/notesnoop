@@ -286,8 +286,11 @@ def fetch_current_admins_for_batch(cbes: list[str]) -> list[dict]:
     # package init chain.
     from .structure_merge import merge_admins_with_staatsblad
 
+    import datetime as _dt
+
     nbb_by_ent = _fetch_latest_nbb_admins_batch(cbes)
     sb_by_ent = _fetch_admin_events_batch(cbes)
+    today = _dt.date.today().isoformat()
 
     result: list[dict] = []
     for ent_cbe in cbes:
@@ -299,6 +302,13 @@ def fetch_current_admins_for_batch(cbes: list[str]) -> list[dict]:
             nbb_for_ent, sb_for_ent, role_labels=ROLE_LABELS
         )
         for admin in merged:
+            # Skip admins whose term has already ended — this helper is the
+            # "currently active" entry point used by the spiderweb's BFS.
+            # The structure tab consumes the unfiltered merge directly so
+            # past directors still appear there.
+            mandate_end = admin.get("mandate_end")
+            if mandate_end and str(mandate_end) <= today:
+                continue
             # SB-only rows (created from events) lack enterprise_number —
             # the merge helper preserves it from the NBB seed but doesn't
             # set it for events. Stamp it here so downstream BFS code can
