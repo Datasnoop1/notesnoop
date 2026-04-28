@@ -552,6 +552,8 @@
     "emptySearch": "Recherchez et ajoutez des entreprises ci-dessus pour commencer la comparaison.",
     "emptyHint": "Ajoutez au moins 2 entreprises pour voir une comparaison cote a cote.",
     "exportCsv": "Exporter CSV",
+    "yearMismatchTitle": "Comparaison entre exercices differents.",
+    "yearMismatchBody": "Les derniers depots vont de {min} a {max}. Les ratios cote a cote peuvent refleter des periodes differentes — verifiez l'etiquette FY au-dessus de chaque colonne.",
     "incomeStatement": "Compte de resultats",
     "balanceSheet": "Bilan",
     "keyRatios": "Ratios cles",

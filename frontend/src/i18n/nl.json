@@ -552,6 +552,8 @@
     "emptySearch": "Zoek en voeg bedrijven toe om te beginnen met vergelijken.",
     "emptyHint": "Voeg minstens 2 bedrijven toe om een vergelijking naast elkaar te zien.",
     "exportCsv": "CSV exporteren",
+    "yearMismatchTitle": "Verschillende boekjaren vergeleken.",
+    "yearMismatchBody": "De recentste jaarrekeningen lopen van {min} tot {max}. Ratio's naast elkaar kunnen verschillende periodes weerspiegelen — controleer het FY-label boven elke kolom.",
     "incomeStatement": "Resultatenrekening",
     "balanceSheet": "Balans",
     "keyRatios": "Kernratio's",

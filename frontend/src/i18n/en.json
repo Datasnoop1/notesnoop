@@ -570,6 +570,8 @@
     "emptySearch": "Search and add companies above to start comparing.",
     "emptyHint": "Add at least 2 companies to see a side-by-side comparison.",
     "exportCsv": "Export CSV",
+    "yearMismatchTitle": "Comparing different fiscal years.",
+    "yearMismatchBody": "Latest filings span {min}–{max}. Side-by-side ratios may reflect different periods — check the FY tag on each column.",
     "incomeStatement": "Income Statement",
     "balanceSheet": "Balance Sheet",
     "keyRatios": "Key Ratios",

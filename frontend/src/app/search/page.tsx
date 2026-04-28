@@ -185,7 +185,7 @@ function UnifiedSearchPageInner() {
         .then((ev) => { if (!ac.signal.aborted) setEvents(ev.results || []); })
         .catch(() => { if (!ac.signal.aborted) setEvents([]); })
         .finally(done);
-    }, 200);
+    }, 100);
   }, []);
 
   useEffect(() => {

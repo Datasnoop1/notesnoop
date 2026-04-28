@@ -711,6 +711,7 @@ async def scrape_company_linkedin(cbe: str, user=Depends(optional_user)):
 async def generate_ai_insights(
     cbe: str,
     lang: str | None = None,
+    force: bool = False,
     user=Depends(optional_user),
 ):
     """Generate structured AI company insights via a multi-step LLM pipeline.
@@ -722,11 +723,54 @@ async def generate_ai_insights(
 
     ``lang`` (``nl``/``fr``/``en``) controls the language of the generated
     narrative so it matches the user's site language. Cached prior insights
-    are served regardless of language; pass ``force=true`` from a future
-    endpoint if cross-language regeneration is needed.
+    are served regardless of language; pass ``force=true`` for explicit
+    regeneration (e.g. an admin "refresh" button).
+
+    ``force=false`` short-circuits when ``company_enrichment.ai_insights``
+    already holds a non-null payload — avoids burning 4-6 LLM calls + 2
+    scraper hits on every profile re-open. Cache is invalidated either
+    by feedback (3+ down votes nulls the row, see /ai-insights/feedback)
+    or by the next bulk-pipeline write.
     """
     _ensure_enrichment_table()
     cbe = clean_cbe(cbe)
+
+    # `force=true` is for explicit admin/operator regeneration only.
+    # Anonymous callers must not be able to bypass the cache — that
+    # would let a bot burn 4-6 LLM calls per request just by passing
+    # `?force=true`, which the per-endpoint tier counter (1 hit) would
+    # not catch. Auth required → tier limits still bound damage.
+    effective_force = bool(force) and user is not None
+
+    # ── Cache short-circuit ─────────────────────────────────────────
+    # When the row already has a non-null `ai_insights` payload, return
+    # it directly. The frontend's enrichment endpoint already loads this
+    # JSON via /api/companies/{cbe}/enrichment, but profile clients still
+    # call this POST endpoint in parallel as a regeneration trigger —
+    # without this guard, every profile open burns LLM credits.
+    if not effective_force:
+        try:
+            cached_row = fetch_one(
+                "SELECT ai_insights FROM company_enrichment WHERE enterprise_number = %s",
+                (cbe,),
+            )
+            if cached_row and cached_row.get("ai_insights"):
+                raw = cached_row["ai_insights"]
+                cached: Optional[dict] = None
+                if isinstance(raw, dict):
+                    cached = raw
+                elif isinstance(raw, str):
+                    try:
+                        cached = json.loads(raw)
+                    except (json.JSONDecodeError, TypeError):
+                        cached = None
+                if cached and not cached.get("error"):
+                    cached["from_cache"] = True
+                    return cached
+        except Exception:
+            # Cache lookup failure must never block regeneration. Fall
+            # through to the pipeline path on any DB / parse error.
+            logger.debug("ai_insights cache lookup failed for %s", cbe, exc_info=True)
 
     conn_helpers = {
         "fetch_one": fetch_one,

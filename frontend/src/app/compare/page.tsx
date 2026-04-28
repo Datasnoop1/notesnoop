@@ -14,7 +14,7 @@ import {
 } from "@/lib/api";
 import type { SearchResult, CompanyDetail, FinancialYear, FavouriteProject } from "@/lib/api";
 import { fmtEur, fmtCbe, fmtPct, fmtNumber } from "@/lib/format";
-import { Search, X, Plus, Download, ArrowUpDown, Loader2, GitCompareArrows, FolderOpen, ChevronDown } from "lucide-react";
+import { Search, X, Plus, Download, ArrowUpDown, Loader2, GitCompareArrows, FolderOpen, ChevronDown, AlertTriangle } from "lucide-react";
 import FavouritesDialog from "@/components/favourites-dialog";
 import { useTranslation } from "@/components/language-provider";
 
@@ -475,6 +475,22 @@ export default function ComparePage() {
     [companies]
   );
 
+  // Detect fiscal-year drift across companies. When the latest filed
+  // year differs (e.g. one company filed FY2024 but another only has
+  // FY2022 in NBB), side-by-side ratios mislead unless the user knows.
+  // We surface a single banner above the comparison table; per-column
+  // FY tags below already render the year next to each company name.
+  const yearMismatch = useMemo(() => {
+    const years = companies
+      .map((c) => c.financials?.fiscal_year)
+      .filter((y): y is number => typeof y === "number");
+    if (years.length < 2) return null;
+    const min = Math.min(...years);
+    const max = Math.max(...years);
+    if (max === min) return null;
+    return { min, max, gap: max - min };
+  }, [companies]);
+
   // Export to CSV
   const exportCsv = useCallback(() => {
     const allLines = [
@@ -916,6 +932,25 @@ export default function ComparePage() {
       {/* Full P&L Comparison */}
       {companies.length >= 2 && (
         <>
+          {yearMismatch && (
+            <div
+              role="status"
+              className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900"
+            >
+              <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-500" />
+              <div>
+                <span className="font-semibold">
+                  {t("compare.yearMismatchTitle")}
+                </span>{" "}
+                <span className="text-amber-800">
+                  {t("compare.yearMismatchBody", {
+                    min: String(yearMismatch.min),
+                    max: String(yearMismatch.max),
+                  })}
+                </span>
+              </div>
+            </div>
+          )}
           <div className="space-y-6">
             {renderSection(
               t("compare.incomeStatement"),
