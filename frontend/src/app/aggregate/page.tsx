@@ -938,8 +938,8 @@ export default function AggregatePage() {
                   {companies.map((c) => {
                     const latest = c.allYears.length > 0 ? c.allYears[c.allYears.length - 1] : null;
                     return (
-                      <TableRow key={c.cbe} className="hover:bg-slate-50/50">
-                        <TableCell className="sticky left-0 z-[5] bg-white border-r border-slate-200 text-sm">
+                      <TableRow key={c.cbe} className="group hover:bg-slate-50/50">
+                        <TableCell className="sticky left-0 z-[5] bg-white group-hover:bg-slate-50/50 border-r border-slate-200 text-sm">
                           <Link
                             href={`/company/${c.cbe}`}
                             className="text-brand hover:underline font-medium"
