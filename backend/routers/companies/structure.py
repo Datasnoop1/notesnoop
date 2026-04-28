@@ -324,6 +324,52 @@ async def get_company_structure(cbe: str, response: Response):
             WHERE enterprise_number = %s
             ORDER BY name, deposit_key DESC
         """, (cbe,))
+
+        # Parent companies — reverse lookup against participating_interest.
+        # Surfaces parents that disclose this CBE in their own filings, even
+        # when this company itself has no shareholder schedule (typical for
+        # abbreviated-form filers and non-filing subsidiaries). Mirrors the
+        # spiderweb's reverse PI traversal in network.py so the People &
+        # Ownership tab no longer looks empty for child entities the parent
+        # has already declared.
+        #
+        # Latest fiscal_year per parent to avoid resurfacing prior filings
+        # where the parent has since dropped this entity from its cap table.
+        # The `relevant` CTE narrows the MAX scan to enterprises that have
+        # ever named this CBE — without it, MAX would scan the whole table.
+        # Exclude self-references — accounting quirks where a holding lists
+        # itself in its own PI schedule shouldn't surface as a "parent of
+        # itself" in the UI.
+        parent_companies = fetch_all("""
+            WITH relevant AS (
+                SELECT DISTINCT enterprise_number
+                FROM participating_interest
+                WHERE identifier = %s
+                  AND enterprise_number <> %s
+            ),
+            latest AS (
+                SELECT pi.enterprise_number, MAX(pi.fiscal_year) AS fy
+                FROM participating_interest pi
+                JOIN relevant r ON r.enterprise_number = pi.enterprise_number
+                GROUP BY pi.enterprise_number
+            )
+            SELECT DISTINCT ON (pi.enterprise_number)
+                   pi.enterprise_number,
+                   pi.ownership_pct,
+                   pi.country,
+                   pi.fiscal_year,
+                   COALESCE(d.denomination, pi.enterprise_number) AS name
+            FROM participating_interest pi
+            JOIN latest l ON l.enterprise_number = pi.enterprise_number
+                         AND l.fy = pi.fiscal_year
+            LEFT JOIN denomination d
+                ON d.entity_number = pi.enterprise_number
+                AND d.type_of_denomination = '001'
+                AND d.language IN ('2', '1')
+            WHERE pi.identifier = %s
+            ORDER BY pi.enterprise_number,
+                     CASE d.language WHEN '2' THEN 0 WHEN '1' THEN 1 ELSE 2 END
+        """, (cbe, cbe, cbe))
         sb_pubs = fetch_all(
             "SELECT pub_date, pub_type, reference, pdf_url FROM staatsblad_publication "
             "WHERE enterprise_number = %s ORDER BY pub_date DESC",
@@ -395,6 +441,7 @@ async def get_company_structure(cbe: str, response: Response):
             and not shareholders
             and not sb_pubs
             and not affiliations_dedup
+            and not parent_companies
         )
         if is_empty:
             response.headers["Cache-Control"] = "no-store"
@@ -404,6 +451,7 @@ async def get_company_structure(cbe: str, response: Response):
             "administrator_events": [_serialize_row(r) for r in admin_timeline],
             "participating_interests": [_serialize_row(r) for r in pis],
             "shareholders": [_serialize_row(r) for r in shareholders],
+            "parent_companies": [_serialize_row(r) for r in parent_companies],
             "staatsblad_publications": [_serialize_row(r) for r in sb_pubs],
             "affiliations": [_serialize_row(r) for r in affiliations_dedup.values()],
         }

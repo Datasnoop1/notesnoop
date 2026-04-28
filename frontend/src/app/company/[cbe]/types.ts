@@ -105,6 +105,17 @@ export interface ParticipatingInterest {
   fiscal_year: string | null;
 }
 
+export interface ParentCompany {
+  /** CBE of the declaring parent (always present — comes from
+   *  participating_interest.enterprise_number on the parent's filing). */
+  enterprise_number: string;
+  /** Resolved company name; falls back to the CBE if denomination is missing. */
+  name: string;
+  ownership_pct: number | null;
+  country: string | null;
+  fiscal_year: string | null;
+}
+
 export interface StaatsbladPub {
   pub_date: string;
   pub_type: string | null;
@@ -126,6 +137,10 @@ export interface StructureData {
   administrator_events?: AdministratorEvent[];
   participating_interests: ParticipatingInterest[];
   shareholders: Shareholder[];
+  /** Reverse-lookup against participating_interest: parents that
+   *  declare this CBE in their own filing. Surfaces parent ownership
+   *  even when this company itself never filed a shareholder schedule. */
+  parent_companies?: ParentCompany[];
   staatsblad_publications: StaatsbladPub[];
   affiliations?: CompanyAffiliation[];
 }
