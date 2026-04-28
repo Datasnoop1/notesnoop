@@ -187,12 +187,19 @@ people_hits AS MATERIALIZED (
      LIMIT 500)
 
     UNION ALL
-    -- 0.4: trigram fuzzy for typo tolerance
+    -- 0.4: trigram fuzzy for typo tolerance.
+    -- Gated to length(nq) >= 4: on 3-char queries the GIN trigram bitmap
+    -- explodes to 2.7s+ over the 1M admin rows even with LIMIT 200,
+    -- because the index pre-filter passes too many candidates and the
+    -- recheck scans them all. Matching company-search.py and suggest's
+    -- length-gate behaviour. The exact / token-AND arms above already
+    -- handle short prefixes; trigram is purely typo tolerance.
     (SELECT a.name, a.enterprise_number, 'admin',
             LEAST(0.4, similarity(a.name_normalized, %(nq)s))::real
      FROM administrator a
      WHERE a.person_type = 'natural'
        AND %(nq)s IS NOT NULL
+       AND length(%(nq)s) >= 4
        AND a.name_normalized %% %(nq)s
        AND similarity(a.name_normalized, %(nq)s) > 0.3
      LIMIT 200)
@@ -202,6 +209,7 @@ people_hits AS MATERIALIZED (
      FROM shareholder s
      WHERE s.shareholder_type = 'individual'
        AND %(nq)s IS NOT NULL
+       AND length(%(nq)s) >= 4
        AND s.name_normalized %% %(nq)s
        AND similarity(s.name_normalized, %(nq)s) > 0.3
      LIMIT 200)
@@ -273,11 +281,13 @@ people_hits AS MATERIALIZED (
        AND (%(tok4)s IS NULL OR af.name_normalized ILIKE %(tok4)s ESCAPE '\\')
      LIMIT 500)
     UNION ALL
-    -- 0.25: trigram fuzzy
+    -- 0.25: trigram fuzzy. Same length-4 gate as the admin/shareholder
+    -- trigram arms above — 3-char queries fan out catastrophically.
     (SELECT af.person_name, af.enterprise_number, 'affiliation',
             LEAST(0.25, similarity(af.name_normalized, %(nq)s))::real
      FROM affiliation af
      WHERE %(nq)s IS NOT NULL
+       AND length(%(nq)s) >= 4
        AND af.name_normalized %% %(nq)s
        AND similarity(af.name_normalized, %(nq)s) > 0.3
      LIMIT 200)

@@ -6,6 +6,7 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query
 
+from cache import ttl_cache
 from db import fetch_all, fetch_one
 from utils import clean_cbe
 from ._helpers import (
@@ -467,6 +468,25 @@ async def get_deep_network(
     and people; edges carry the relationship type and a human-readable label.
     Total nodes are capped at MAX_DEEP_NETWORK_NODES to prevent explosion.
     """
+    # Cache key: (cbe, depth, include_historical). The endpoint is read-only
+    # and the underlying KBO/NBB/Staatsblad data updates at most daily, so a
+    # 5-minute TTL gives essentially-fresh results while making profile
+    # re-opens of popular companies (Colruyt, etc.) instant. The expensive
+    # path here is the BFS over administrator + shareholder +
+    # participating_interest tables — measured at 1.9-2.8s on Colruyt
+    # depth=2 even after warm Postgres cache.
+    return await _deep_network_cached(cbe, depth, include_historical)
+
+
+@ttl_cache(ttl_seconds=300, maxsize=512)
+async def _deep_network_cached(
+    cbe: str,
+    depth: int,
+    include_historical: bool,
+):
+    """Memoised core of get_deep_network. Args are all primitives so the
+    cache key tuple is hashable. HTTPException raised inside is NOT
+    cached — only successful payloads land in the store."""
     raw_center = (cbe or "").strip()
     is_person_center = raw_center.startswith("person:")
     person_name = raw_center.split(":", 1)[1].strip() if is_person_center else None
