@@ -315,7 +315,7 @@ export function SummaryTab({
                       const isLatest = i === 0;
                       return (
                         <tr key={r.fiscal_year} className={isLatest ? "bg-brand-soft/30 font-medium" : "border-t border-slate-50"}>
-                          <td className={`sticky left-0 z-[5] shadow-[1px_0_0_rgba(226,232,240,1)] px-5 py-2 font-mono text-slate-700 ${isLatest ? "bg-[#EAF5FF]" : "bg-white"}`}>{r.fiscal_year}</td>
+                          <td className={`sticky left-0 z-[5] shadow-[1px_0_0_rgba(226,232,240,1)] px-5 py-2 font-mono text-slate-700 ${isLatest ? "bg-[#F8FBFE]" : "bg-white"}`}>{r.fiscal_year}</td>
                           <td className="px-3 py-2 text-right font-mono text-slate-700">
                             {fmtEur(r.revenue)}
                             {renderDelta(r.revenue, prevRow?.revenue ?? null)}
