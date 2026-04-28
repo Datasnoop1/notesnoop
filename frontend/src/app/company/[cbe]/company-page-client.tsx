@@ -473,18 +473,35 @@ export function CompanyPageClient({
         + (data.governance_loaded?.shareholders ?? 0)
         + (data.governance_loaded?.participating_interests ?? 0)
         + (data.governance_loaded?.affiliations ?? 0);
-      const shouldRefreshNbbData = data.rubrics_loaded > 0
+      const loadedSomething = data.rubrics_loaded > 0
         || data.filings_loaded > 0
         || governanceLoaded > 0
         || data.status === "governance_backfilled";
 
-      if (shouldRefreshNbbData) {
-        const [newF, newS] = await Promise.all([
-          getCompanyFinancials(cbe),
-          getCompanyStructure(cbe),
-        ]);
-        setFinancials(newF as unknown as FinancialsData);
-        setStructure(newS as unknown as StructureData);
+      // Always refetch /financials and /structure after /load returns.
+      // Two reasons:
+      //   1. Promise.allSettled — if /structure 429s (rate-limited under
+      //      burst), the /financials result must still apply. The previous
+      //      Promise.all dropped the financials too, so the post-/load UI
+      //      kept showing the empty state from the initial fetch.
+      //   2. /load's heuristic (rubrics_loaded > 0 etc.) can lie when two
+      //      effects fire /load in parallel — the second sees "already
+      //      loaded" and reports no_new_data even though the DB now holds
+      //      fresh rows. Trust the actual /financials state, not /load's
+      //      after-the-fact summary. The endpoints are cheap (cached for
+      //      5 min when populated) and idempotent.
+      const [finResult, structResult] = await Promise.allSettled([
+        getCompanyFinancials(cbe),
+        getCompanyStructure(cbe),
+      ]);
+      if (finResult.status === "fulfilled") {
+        setFinancials(finResult.value as unknown as FinancialsData);
+      }
+      if (structResult.status === "fulfilled") {
+        setStructure(structResult.value as unknown as StructureData);
+      }
+
+      if (loadedSomething) {
         setNbbResult("success");
       } else if (data.pdf_only) {
         setNbbResult("pdf-only");
