@@ -126,7 +126,8 @@ def test_store_and_retrieve():
     if ent:
         screen = conn.execute(
             "SELECT name, ebitda, ebitda_margin_pct, net_debt, revenue_per_fte "
-            "FROM pe_screen WHERE enterprise_number = '0403101811' LIMIT 1"
+            "FROM pe_screen WHERE enterprise_number = '0403101811' "
+            "AND deposit_key = '2023-00012345' LIMIT 1"
         ).fetchone()
         if screen:
             name, ebitda2, margin_pct, net_debt, rev_per_fte = screen

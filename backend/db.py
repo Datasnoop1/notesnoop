@@ -296,6 +296,20 @@ def ensure_trgm_setup():
             ON shareholder USING GIN (name gin_trgm_ops);
         """)
 
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS activity_log (
+                id              SERIAL PRIMARY KEY,
+                user_email      TEXT NOT NULL,
+                endpoint        TEXT NOT NULL,
+                method          TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                session_id      TEXT,
+                ua_family       TEXT,
+                device_type     TEXT,
+                country_code    VARCHAR(2)
+            );
+        """)
+
         # 6. activity_log indexes — the table has no indexes by default and
         #    EVERY /api/* call hits it (INSERT via ActivityLogMiddleware +
         #    COUNT via TierLimitMiddleware). Without these, seq-scans cost
@@ -515,6 +529,40 @@ def ensure_phase22_schema():
     seed_pending = False
     try:
         cur = conn.cursor()
+
+        # These tables may be absent in older/staging databases. Ensure
+        # them before ALTER/INDEX statements so one optional analytics or
+        # invoice table cannot abort the whole startup schema pass.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS platform_invoice (
+                id              SERIAL PRIMARY KEY,
+                message_id      TEXT UNIQUE,
+                sender          TEXT,
+                subject         TEXT,
+                received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                invoice_date    DATE,
+                amount_cents    BIGINT,
+                currency        VARCHAR(3) DEFAULT 'EUR',
+                vendor          TEXT,
+                category        TEXT,
+                raw_body        TEXT,
+                attachment_path TEXT,
+                confirmed       BOOLEAN DEFAULT FALSE
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS activity_log (
+                id              SERIAL PRIMARY KEY,
+                user_email      TEXT NOT NULL,
+                endpoint        TEXT NOT NULL,
+                method          TEXT,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                session_id      TEXT,
+                ua_family       TEXT,
+                device_type     TEXT,
+                country_code    VARCHAR(2)
+            );
+        """)
 
         # --- platform_invoice: parent/child taxonomy + classifier metadata ---
         for stmt in (

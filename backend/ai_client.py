@@ -6,6 +6,7 @@ import logging
 import re
 import time
 from contextvars import ContextVar
+from datetime import date
 from urllib.parse import urlparse
 
 import httpx
@@ -1232,11 +1233,13 @@ def _annotate_key_management(
         return
 
     # Build two lookup sets so the per-entry classification stays O(1).
-    # `kbo_active_keys` are normalised reversed names with mandate_end
-    # NULL; `kbo_all_keys` is the union of active + resigned. The check
-    # therefore picks the most-positive label that fits.
+    # `kbo_active_keys` are normalised reversed names with no end date, a
+    # blank end date, or a future end date; `kbo_all_keys` is the union of
+    # active + resigned. The check therefore picks the most-positive label
+    # that fits.
     kbo_active_keys: set[str] = set()
     kbo_all_keys: set[str] = set()
+    today = date.today()
     for r in admin_rows:
         nm = r.get("name") if isinstance(r, dict) else None
         if not nm:
@@ -1245,7 +1248,14 @@ def _annotate_key_management(
         if not k:
             continue
         kbo_all_keys.add(k)
-        if r.get("mandate_end") is None:
+        mandate_end = str(r.get("mandate_end") or "").strip()
+        is_active = not mandate_end
+        if mandate_end:
+            try:
+                is_active = date.fromisoformat(mandate_end[:10]) >= today
+            except ValueError:
+                is_active = False
+        if is_active:
             kbo_active_keys.add(k)
 
     for entry in raw_list:
@@ -1741,7 +1751,7 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
     # Cross-check key_management names against the administrator table so the
     # frontend can flag stale entries (e.g. someone listed on the website who
     # actually resigned three years ago). Pure annotation — never drops names.
-    _annotate_key_management(insights, conn_helpers["fetch_all"], cbe)
+    _annotate_key_management(insights, fetch_all, cbe)
 
     # ══════════════════════════════════════════════════════════════
     # STEP 4: Conditional Review
@@ -1848,6 +1858,11 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
         insights["website_url"] = website_url
     if not insights.get("linkedin_url"):
         insights["linkedin_url"] = linkedin_url
+
+    # Reviewer/retry can replace the whole JSON object. Re-apply KBO
+    # administrator grounding on the final payload so people claims stay
+    # aligned with the Administrators tab.
+    _annotate_key_management(insights, fetch_all, cbe)
 
     # Tag how each URL was discovered (KBO / Google / LLM / slug)
     insights["url_source_website"] = url_source_website

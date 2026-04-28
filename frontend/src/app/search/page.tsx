@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState, useCallback, useRef, useEffect } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import {
@@ -160,31 +161,43 @@ function UnifiedSearchPageInner() {
       setLoading(true);
       setSearched(true);
 
-      // Fire the three calls independently and render each as it
+      // Fire the calls independently and render each as it
       // returns. Previously we `await Promise.all([...])`, so the
       // slowest call (usually searchEvents, which does a pgvector
       // embedding lookup and can hit OpenRouter on cache miss) blocked
       // companies + people from painting. Now commercial + people
       // typically appear within ~200ms and events fill in later.
-      let remaining = 3;
+      const trimmed = q.trim();
+      // Events are a lower-priority, semantically-expanded surface. Two
+      // and three character searches create noisy matches and can burn an
+      // embedding call, so keep them to useful-length terms or CBE-like
+      // numeric lookups.
+      const includeEvents = trimmed.length >= 4 || /\d{4,}/.test(trimmed);
+      let remaining = includeEvents ? 3 : 2;
       const done = () => {
         if (--remaining === 0 && !ac.signal.aborted) setLoading(false);
       };
 
-      searchCompaniesBucketed(q.trim(), loc)
+      if (!includeEvents) {
+        setEvents([]);
+      }
+
+      searchCompaniesBucketed(trimmed, loc, ac.signal)
         .then((c) => { if (!ac.signal.aborted) setCompanies(c); })
         .catch(() => {})
         .finally(done);
 
-      searchPeople(q.trim())
+      searchPeople(trimmed, ac.signal)
         .then((p) => { if (!ac.signal.aborted) setPeople(p); })
         .catch(() => {})
         .finally(done);
 
-      searchEvents(q.trim(), { limit: 10 })
-        .then((ev) => { if (!ac.signal.aborted) setEvents(ev.results || []); })
-        .catch(() => { if (!ac.signal.aborted) setEvents([]); })
-        .finally(done);
+      if (includeEvents) {
+        searchEvents(trimmed, { limit: 10 }, ac.signal)
+          .then((ev) => { if (!ac.signal.aborted) setEvents(ev.results || []); })
+          .catch(() => { if (!ac.signal.aborted) setEvents([]); })
+          .finally(done);
+      }
     }, 100);
   }, []);
 
@@ -399,7 +412,7 @@ function UnifiedSearchPageInner() {
       {/* Empty-state shortcuts — unchanged from V1 */}
       {!searched && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl mx-auto mt-4">
-          <a href="/company" className="block">
+          <Link href="/company" className="block">
             <div className="rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-brand/30 transition-all cursor-pointer group text-center">
               <Building className="w-8 h-8 text-brand/60 mx-auto mb-2 group-hover:text-brand transition-colors" />
               <h3 className="text-sm font-semibold text-slate-700">
@@ -409,8 +422,8 @@ function UnifiedSearchPageInner() {
                 {t("search.browseCompaniesDesc")}
               </p>
             </div>
-          </a>
-          <a href="/people" className="block">
+          </Link>
+          <Link href="/people" className="block">
             <div className="rounded-xl border border-slate-200 p-5 hover:shadow-md hover:border-emerald-200 transition-all cursor-pointer group text-center">
               <Users className="w-8 h-8 text-emerald-400 mx-auto mb-2 group-hover:text-emerald-600 transition-colors" />
               <h3 className="text-sm font-semibold text-slate-700">
@@ -420,7 +433,7 @@ function UnifiedSearchPageInner() {
                 {t("search.browsePeopleDesc")}
               </p>
             </div>
-          </a>
+          </Link>
         </div>
       )}
     </div>

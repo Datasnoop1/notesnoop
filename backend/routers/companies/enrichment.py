@@ -765,6 +765,30 @@ async def generate_ai_insights(
                     except (json.JSONDecodeError, TypeError):
                         cached = None
                 if cached and not cached.get("error"):
+                    if lang:
+                        try:
+                            from ai_client import translate_cached_json
+                            translated = await translate_cached_json(
+                                cbe,
+                                "ai_insights",
+                                json.dumps(cached, ensure_ascii=False),
+                                lang,
+                                value_fields=(
+                                    "business_description",
+                                    "customers",
+                                    "market_position",
+                                    "history",
+                                    "group_context",
+                                ),
+                                list_fields=("products",),
+                            )
+                            cached = json.loads(translated)
+                        except Exception:
+                            logger.debug(
+                                "ai_insights cached translation failed for %s",
+                                cbe,
+                                exc_info=True,
+                            )
                     cached["from_cache"] = True
                     return cached
         except Exception:

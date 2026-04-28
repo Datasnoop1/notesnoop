@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.background import BackgroundTask, BackgroundTasks
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api, admin_phase22
@@ -216,14 +217,22 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
             and path not in self.SKIP_PATHS
             and not any(path.startswith(p) for p in self.SKIP_PREFIXES)
         ):
-            try:
+            auth_header = request.headers.get("authorization", "")
+            client_ip = get_client_ip(request)
+            sid = getattr(request.state, "session_id", None)
+            ua_raw = request.headers.get("user-agent", "")
+            country = (
+                request.headers.get("cf-ipcountry", "") or ""
+            ).strip().upper()[:2] or None
+            method = request.method
+
+            def write_activity_log() -> None:
                 from db import execute
                 email = None
-                auth = request.headers.get("authorization", "")
-                if auth.startswith("Bearer "):
+                if auth_header.startswith("Bearer "):
                     try:
                         from auth import _decode_token
-                        payload = _decode_token(auth[7:])
+                        payload = _decode_token(auth_header[7:])
                         email = payload.get("email")
                         if email:
                             execute(
@@ -235,19 +244,12 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
 
                 # Log for both authenticated and anonymous users
                 # Anonymous: store a salted hash of the IP, never the raw IP (GDPR)
-                user_label = email or _hash_client_id(get_client_ip(request))
+                user_label = email or _hash_client_id(client_ip)
                 # Pull session id + UA family stamped by SessionMiddleware /
                 # request headers. UA is bucketed at insert time so the raw
                 # string never lands in the database.
-                sid = getattr(request.state, "session_id", None)
-                ua_raw = request.headers.get("user-agent", "")
                 ua_fam = _ua_family(ua_raw)
                 device = _device_type(ua_raw)
-                # Cloudflare populates CF-IPCountry on every edge request;
-                # absent in dev. Two-letter ISO code or "XX" for unknown.
-                country = (
-                    request.headers.get("cf-ipcountry", "") or ""
-                ).strip().upper()[:2] or None
 
                 execute(
                     """
@@ -256,10 +258,23 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
                          device_type, country_code)
                     VALUES (%s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (user_label, path, request.method, sid, ua_fam, device, country),
+                    (user_label, path, method, sid, ua_fam, device, country),
                 )
-            except Exception:
-                logger.debug("ActivityLog insert failed")
+
+            def safe_write_activity_log() -> None:
+                try:
+                    write_activity_log()
+                except Exception:
+                    logger.debug("ActivityLog insert failed", exc_info=True)
+
+            existing_background = response.background
+            if existing_background is None:
+                response.background = BackgroundTask(safe_write_activity_log)
+            else:
+                tasks = BackgroundTasks()
+                tasks.add_task(existing_background)
+                tasks.add_task(safe_write_activity_log)
+                response.background = tasks
         return response
 
 # Middleware insertion order matters: Starlette runs middleware in REVERSE
