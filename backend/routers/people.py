@@ -5,6 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from cache import ttl_cache
 from db import fetch_all, fetch_one, execute, get_conn
 from auth import get_current_user, optional_user
 from ai_client import ai_complete
@@ -51,7 +52,22 @@ async def search_people(q: str = Query(..., min_length=2, max_length=200)):
     raw = (q or "").strip()
     if len(raw) < 2:
         return []
+    return _search_people_cached(raw.lower())
 
+
+@ttl_cache(ttl_seconds=60, maxsize=2048)
+def _search_people_cached(raw: str):
+    """Memoised core of /api/people/search.
+
+    60s TTL is short enough that newly-loaded admins (e.g. fresh NBB
+    backload, fresh staatsblad scrape) surface within a minute, yet
+    long enough to collapse the typing burst when a user iterates on
+    short prefixes like "col" → "colr" → "colru". The post-CTE
+    LATERAL joins on this query take ~500-1500 ms cold even with the
+    trigram length-gate; caching makes repeat hits near-instant.
+    Cache key is the lowercased raw query, so case variants share a
+    row.
+    """
     nq = _v2_normalize_name(raw)
     tokens = _v2_tokenize(raw)
     rev = _v2_reversed_key(raw)

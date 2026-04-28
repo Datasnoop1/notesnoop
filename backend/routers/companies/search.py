@@ -19,6 +19,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 import psycopg2.extras
+from cache import ttl_cache
 from db import fetch_all, fetch_one, get_conn, normalize_name
 
 
@@ -118,12 +119,34 @@ async def search_companies(
     raw = (q or "").strip()
     if not raw:
         return _empty_response(raw)
+    # Cache by lowercased (q, limit, location-filter) tuple. Same
+    # rationale as /api/people/search: typing-burst queries repeat
+    # within 60s, the underlying KBO/NBB data updates daily at most,
+    # and the post-CTE LATERAL JOIN + pg_trgm cost dominates.
+    return _search_companies_cached(
+        raw.lower(),
+        int(limit),
+        (postal_code or "").strip().lower() or None,
+        (municipality or "").strip().lower() or None,
+        (street or "").strip().lower() or None,
+    )
 
-    # Normalise location-filter inputs up front. Empty strings reduce to
-    # None so they don't turn into `%%` wildcards that match every row.
-    pc_filter = (postal_code or "").strip() or None
-    muni_filter = (municipality or "").strip() or None
-    street_filter = (street or "").strip() or None
+
+@ttl_cache(ttl_seconds=60, maxsize=2048)
+def _search_companies_cached(
+    raw: str,
+    limit: int,
+    pc_filter: Optional[str],
+    muni_filter: Optional[str],
+    street_filter: Optional[str],
+) -> dict:
+    """Memoised core. All args are primitive + hashable so the
+    cache key is well-defined. Lowercasing in the wrapper keeps "Acme"
+    and "acme" sharing one cache row."""
+
+    # Filter values are already trimmed + lower-cased + None-coalesced
+    # by the wrapper. ILIKE is case-insensitive so the lowercased copy
+    # produces the same row set as the original mixed-case input.
     has_location_filter = bool(pc_filter or muni_filter or street_filter)
 
     qtype = detect_query_type(raw)
