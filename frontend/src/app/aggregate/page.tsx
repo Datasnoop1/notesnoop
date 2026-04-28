@@ -534,8 +534,8 @@ export default function AggregatePage() {
       </div>
 
       {/* Search bar + favourites button */}
-      <div className="flex flex-wrap gap-2 items-start">
-        <div className="relative flex-1 min-w-0 sm:min-w-[280px] max-w-md" ref={searchRef}>
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:items-start">
+        <div className="relative w-full sm:flex-1 sm:min-w-[280px] sm:max-w-md" ref={searchRef}>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
