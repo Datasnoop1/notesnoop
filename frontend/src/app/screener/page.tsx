@@ -1073,7 +1073,7 @@ export default function ScreenerPage() {
                 value={filters.limit}
                 onValueChange={(v) => updateFilter("limit", v ?? "100")}
               >
-                <SelectTrigger className="h-7 text-xs w-24">
+                <SelectTrigger className="data-[size=default]:h-10 md:data-[size=default]:h-7 text-base md:text-xs w-24">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -1249,7 +1249,7 @@ export default function ScreenerPage() {
                 });
               }}
             >
-              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
+              <SelectTrigger className="data-[size=default]:h-10 md:data-[size=default]:h-7 text-base md:text-xs w-full">
                 <SelectValue placeholder="All" />
               </SelectTrigger>
               <SelectContent>
@@ -1279,7 +1279,7 @@ export default function ScreenerPage() {
                 )
               }
             >
-              <SelectTrigger className="h-10 md:h-7 text-base md:text-xs w-full">
+              <SelectTrigger className="data-[size=default]:h-10 md:data-[size=default]:h-7 text-base md:text-xs w-full">
                 <SelectValue placeholder={t("screener.distressAny")} />
               </SelectTrigger>
               <SelectContent>

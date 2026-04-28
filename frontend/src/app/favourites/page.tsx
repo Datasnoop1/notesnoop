@@ -170,7 +170,7 @@ function ProjectCard({
             <Button
               variant="ghost"
               size="sm"
-              className="h-10 md:h-7 px-3 md:px-2 text-xs text-brand hover:text-[color:var(--brand-ink)]"
+              className="h-10 md:h-7 px-3 md:px-2 text-sm md:text-xs text-brand hover:text-[color:var(--brand-ink)]"
               onClick={() => setShowAddMenu(true)}
             >
               <Plus className="h-3.5 w-3.5 mr-1" />

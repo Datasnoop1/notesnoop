@@ -184,7 +184,7 @@ export default function Home() {
                   <Link
                     key={chip.label}
                     href={chip.href}
-                    className={`inline-flex items-center px-3.5 py-2 sm:py-1.5 rounded-full border text-[13px] sm:text-[12.5px] font-medium transition-all shrink-0 snap-start min-h-[36px] ${CHIP_TONES[chip.tone] ?? CHIP_TONES.neutral}`}
+                    className={`inline-flex items-center px-3.5 py-2 sm:py-1.5 rounded-full border text-[13px] sm:text-[12.5px] font-medium transition-all shrink-0 snap-start min-h-[40px] sm:min-h-[36px] ${CHIP_TONES[chip.tone] ?? CHIP_TONES.neutral}`}
                   >
                     {chip.label}
                   </Link>

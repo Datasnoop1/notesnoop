@@ -1272,7 +1272,7 @@ export function CompanyPageClient({
                     primary groups don't wrap. -mx-3 px-3 lets the row
                     extend edge-to-edge under the parent's padding while
                     keeping the first/last items visually inside. */}
-                <div className="flex flex-nowrap overflow-x-auto md:flex-wrap md:overflow-visible -mx-3 px-3 md:mx-0 md:px-0 scrollbar-none">
+                <div className="flex flex-nowrap overflow-x-auto md:flex-wrap md:overflow-visible -mx-3 px-3 md:mx-0 md:px-0 md:scrollbar-none">
                   {TAB_GROUPS.map((g) => {
                     const active = currentGroup?.id === g.id;
                     return (
@@ -1291,7 +1291,7 @@ export function CompanyPageClient({
                     );
                   })}
                 </div>
-                <div className="flex items-center gap-1.5 overflow-x-auto md:overflow-visible -mx-3 px-3 md:mx-0 md:px-0 pb-1.5 md:shrink-0 scrollbar-none">
+                <div className="flex items-center gap-1.5 overflow-x-auto md:overflow-visible -mx-3 px-3 md:mx-0 md:px-0 pb-1.5 md:shrink-0 md:scrollbar-none">
                   <Button
                     variant="outline"
                     size="sm"
@@ -1385,7 +1385,7 @@ export function CompanyPageClient({
                   sections. The pill row scrolls horizontally on mobile so
                   the four financial sub-tabs don't wrap. */}
               {currentGroup && currentGroup.subs.length > 1 && (
-                <div className="mt-3 -mx-3 px-3 md:mx-0 md:px-0 overflow-x-auto scrollbar-none no-print">
+                <div className="mt-3 -mx-3 px-3 md:mx-0 md:px-0 overflow-x-auto md:scrollbar-none no-print">
                   <div className="inline-flex rounded-lg bg-slate-100 p-1 max-w-full">
                     {currentGroup.subs.map((s) => {
                       const active = activeTab === s.value;
