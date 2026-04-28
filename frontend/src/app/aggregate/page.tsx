@@ -539,12 +539,13 @@ export default function AggregatePage() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             <Input
+              type="search"
               placeholder={t("aggregate.searchPlaceholder")}
               value={query}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 handleSearch(e.target.value)
               }
-              className="pl-9"
+              className="pl-9 text-base md:text-sm"
               disabled={companies.length >= MAX_COMPANIES}
             />
             {searching && (
@@ -816,14 +817,14 @@ export default function AggregatePage() {
               {t("aggregate.aggregatedIncomeStatement")}
             </h3>
             <div className="rounded-lg border overflow-x-auto bg-white">
-              <table className="w-full">
+              <table className="w-full border-separate border-spacing-0">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="sticky left-0 z-10 bg-slate-50 px-2 md:px-4 py-2 text-left text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[120px] md:w-auto md:min-w-[220px] shadow-[1px_0_0_rgba(226,232,240,1)]">
+                  <tr className="bg-slate-50">
+                    <th className="sticky left-0 z-10 bg-slate-50 px-2 md:px-4 py-2 text-left text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider w-[120px] md:w-auto md:min-w-[220px] border-r border-b border-slate-200">
                       {t("aggregate.lineItem")}
                     </th>
                     {allYears.map((year) => (
-                      <th key={year} className="px-2 md:px-3 py-2 text-right text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[80px] md:min-w-[110px]">
+                      <th key={year} className="px-2 md:px-3 py-2 text-right text-[11px] md:text-[10px] font-medium text-slate-400 uppercase tracking-wider min-w-[80px] md:min-w-[110px] border-b border-slate-200">
                         FY{year}
                       </th>
                     ))}
@@ -840,20 +841,22 @@ export default function AggregatePage() {
                         <React.Fragment key={line.label}>
                           {showSection && (
                             <tr>
-                              <td colSpan={allYears.length + 1} className="sticky left-0 bg-white px-4 pt-3 pb-1">
+                              <td className="sticky left-0 z-[5] bg-white border-r border-slate-200 px-2 md:px-4 pt-3 pb-1 w-[120px] md:w-auto" aria-hidden />
+                              <td colSpan={allYears.length} className="bg-white px-4 pt-3 pb-1">
                                 <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">{line.section}</span>
                               </td>
                             </tr>
                           )}
-                          <tr className={`${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`}>
-                            <td className={`sticky left-0 z-[5] bg-white px-2 md:px-4 py-1 text-[11px] md:text-xs whitespace-normal break-words w-[120px] md:w-auto shadow-[1px_0_0_rgba(226,232,240,1)] ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-4 md:pl-8" : ""}`}>
+                          <tr>
+                            <td className={`sticky left-0 z-[5] bg-white border-r border-slate-200 px-2 md:px-4 py-1 text-[11px] md:text-xs whitespace-normal break-words w-[120px] md:w-auto ${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""} ${line.bold ? "font-bold text-slate-800" : "text-slate-600"} ${line.indent ? "pl-4 md:pl-8" : ""}`}>
                               {line.label}
                             </td>
                             {allYears.map((year) => {
                               const val = sumMetric(companies, year, line.metric);
+                              const cellBorder = `${line.topBorder ? "border-t border-slate-200" : ""} ${line.doubleBorder ? "border-t-2 border-slate-400" : ""}`;
                               if (line.metric.format === "pct") {
                                 return (
-                                  <td key={year} className={`px-2 md:px-3 py-1 text-right text-[11px] md:text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                  <td key={year} className={`px-2 md:px-3 py-1 text-right text-[11px] md:text-xs font-mono ${cellBorder} ${line.bold ? "font-bold" : ""}`}>
                                     {val != null ? (
                                       <span className={val >= 15 ? "text-emerald-600" : val >= 5 ? "text-amber-600" : "text-rose-400"}>
                                         {val.toFixed(1)}%
@@ -865,7 +868,7 @@ export default function AggregatePage() {
                                 );
                               }
                               return (
-                                <td key={year} className={`px-2 md:px-3 py-1 text-right text-[11px] md:text-xs font-mono ${line.bold ? "font-bold" : ""}`}>
+                                <td key={year} className={`px-2 md:px-3 py-1 text-right text-[11px] md:text-xs font-mono ${cellBorder} ${line.bold ? "font-bold" : ""}`}>
                                   {fmtAggAcct(val, isCost, line.isKeyMetric)}
                                 </td>
                               );
@@ -876,20 +879,20 @@ export default function AggregatePage() {
                     });
                   })()}
                   {/* FTE row */}
-                  <tr className="border-t border-slate-200">
-                    <td className="px-4 py-1 text-xs text-slate-600">FTE</td>
+                  <tr>
+                    <td className="sticky left-0 z-[5] bg-white border-t border-r border-slate-200 px-4 py-1 text-xs text-slate-600">FTE</td>
                     {allYears.map((year) => {
                       const val = sumMetric(companies, year, METRICS.find((m) => m.key === "fte_total")!);
                       return (
-                        <td key={year} className="px-3 py-1 text-right text-xs font-mono">
+                        <td key={year} className="border-t border-slate-200 px-3 py-1 text-right text-xs font-mono">
                           {val != null ? fmtNumber(val) : <span className="text-slate-300">{"\u2014"}</span>}
                         </td>
                       );
                     })}
                   </tr>
                   {/* Companies w/ data row */}
-                  <tr className="border-t-2 border-slate-200">
-                    <td className="px-4 py-1 text-xs text-slate-500 italic">
+                  <tr>
+                    <td className="sticky left-0 z-[5] bg-white border-t-2 border-r border-slate-200 px-4 py-1 text-xs text-slate-500 italic">
                       {t("aggregate.companiesWithData")}
                     </td>
                     {allYears.map((year) => {
@@ -897,7 +900,7 @@ export default function AggregatePage() {
                         c.allYears.some((fy) => fy.fiscal_year === year)
                       ).length;
                       return (
-                        <td key={year} className="px-3 py-1 text-right text-[10px] text-slate-400 tabular-nums">
+                        <td key={year} className="border-t-2 border-slate-200 px-3 py-1 text-right text-[10px] text-slate-400 tabular-nums">
                           {count} / {companies.length}
                         </td>
                       );
@@ -918,10 +921,10 @@ export default function AggregatePage() {
               Show per-company breakdown
             </summary>
             <div className="mt-3 border border-slate-200 rounded-lg bg-white overflow-x-auto">
-              <Table>
+              <Table className="border-separate border-spacing-0">
                 <TableHeader>
                   <TableRow className="bg-slate-50">
-                    <TableHead className="w-40 font-semibold text-slate-700">
+                    <TableHead className="sticky left-0 z-10 bg-slate-50 border-r border-slate-200 w-40 font-semibold text-slate-700">
                       Company
                     </TableHead>
                     <TableHead className="text-right">Year</TableHead>
@@ -936,7 +939,7 @@ export default function AggregatePage() {
                     const latest = c.allYears.length > 0 ? c.allYears[c.allYears.length - 1] : null;
                     return (
                       <TableRow key={c.cbe} className="hover:bg-slate-50/50">
-                        <TableCell className="text-sm">
+                        <TableCell className="sticky left-0 z-[5] bg-white border-r border-slate-200 text-sm">
                           <Link
                             href={`/company/${c.cbe}`}
                             className="text-brand hover:underline font-medium"
