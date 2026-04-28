@@ -545,7 +545,7 @@ export default function AggregatePage() {
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 handleSearch(e.target.value)
               }
-              className="pl-9 text-base md:text-sm"
+              className="pl-9 h-11 md:h-8"
               disabled={companies.length >= MAX_COMPANIES}
             />
             {searching && (
