@@ -1,5 +1,6 @@
 """Companies enrichment router — AI summaries, scraping, insights, feedback."""
 
+import asyncio
 import json
 import logging
 import re
@@ -806,6 +807,52 @@ async def generate_ai_insights(
         "fetch_all": fetch_all,
         "execute": execute,
     }
+
+    # ── Phase 5 fast path ───────────────────────────────────────────
+    # If we already have a bulk_summary for this CBE, serve it immediately
+    # (instant) and kick off the qwen+kimi elaboration in the background.
+    # The next time the user opens this profile, the narrative_lite
+    # version will be served from the ai_insights cache. This decouples
+    # perceived latency from the 30-60s cost of the full elaboration.
+    if PHASE_5_ELABORATION_ENABLED and not effective_force:
+        try:
+            bulk_row = fetch_one(
+                """
+                SELECT bulk_summary, quality_tier
+                  FROM company_enrichment
+                 WHERE enterprise_number = %s
+                """,
+                (cbe,),
+            )
+        except Exception:
+            bulk_row = None
+        if bulk_row and bulk_row.get("bulk_summary") and bulk_row.get("quality_tier") in (
+            "bulk_only", "bulk_escalated"
+        ):
+            bulk = bulk_row["bulk_summary"]
+            if isinstance(bulk, str):
+                try:
+                    bulk = json.loads(bulk)
+                except (json.JSONDecodeError, TypeError):
+                    bulk = None
+            if isinstance(bulk, dict) and bulk.get("business_description"):
+                # Schedule the elaboration on a fire-and-forget task. It will
+                # write narrative_lite + ai_insights when done; the next call
+                # to this endpoint will hit the ai_insights cache short-circuit
+                # above and return the upgraded version.
+                async def _background_elaborate():
+                    try:
+                        await call_elaboration_narrative(cbe, conn_helpers, lang=lang)
+                    except Exception:
+                        logger.exception(
+                            "ai_insights background elaboration failed for %s", cbe
+                        )
+
+                asyncio.create_task(_background_elaborate())
+                bulk["from_cache"] = True
+                bulk["upgrade_in_progress"] = True
+                bulk["quality_tier"] = bulk_row["quality_tier"]
+                return bulk
 
     t_total = time.perf_counter()
     try:
