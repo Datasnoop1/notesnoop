@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useCallback, useRef, useEffect, useDeferredValue } from "react";
+import { Suspense, useState, useCallback, useRef, useEffect, useDeferredValue, memo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
@@ -125,22 +125,6 @@ function UnifiedSearchPageInner() {
   }, []);
 
   const doSearch = useCallback((q: string, loc?: { postalCode: string; municipality: string; street: string }) => {
-    setQuery(q);
-    // URL sync without triggering a navigation — smooth back button.
-    if (typeof window !== "undefined") {
-      const sp = new URLSearchParams(window.location.search);
-      if (q.trim()) sp.set("q", q.trim());
-      else sp.delete("q");
-      const setOrDel = (k: string, v: string | undefined) => {
-        if (v && v.trim()) sp.set(k, v.trim());
-        else sp.delete(k);
-      };
-      setOrDel("postal_code", loc?.postalCode);
-      setOrDel("municipality", loc?.municipality);
-      setOrDel("street", loc?.street);
-      window.history.replaceState({}, "", `/search${sp.toString() ? "?" + sp.toString() : ""}`);
-    }
-
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (abortRef.current) abortRef.current.abort();
 
@@ -153,16 +137,41 @@ function UnifiedSearchPageInner() {
 
     // Need at least a name term OR a location filter. Empty both → reset.
     if (trimmed.length < 2 && !hasLocFilter) {
+      setQuery(q);
       setCompanies(null);
       setPeople([]);
       setEvents([]);
       setSearched(false);
+      // Clear URL too on the empty path.
+      if (typeof window !== "undefined") {
+        window.history.replaceState({}, "", "/search");
+      }
       return;
     }
 
     // 100ms debounce — feels instant. AbortController cancels stale
     // in-flight requests so rapid typing only commits the final batch.
     debounceRef.current = setTimeout(() => {
+      // Update parent state + URL ONCE per debounce window, not on
+      // every keystroke. Doing setQuery + history.replaceState inside
+      // the keystroke handler turned every key into a forced parent
+      // re-render plus a browser layout-thrash, which is what slowed
+      // typing down progressively after a fresh page load.
+      setQuery(q);
+      if (typeof window !== "undefined") {
+        const sp = new URLSearchParams(window.location.search);
+        if (q.trim()) sp.set("q", q.trim());
+        else sp.delete("q");
+        const setOrDel = (k: string, v: string | undefined) => {
+          if (v && v.trim()) sp.set(k, v.trim());
+          else sp.delete(k);
+        };
+        setOrDel("postal_code", loc?.postalCode);
+        setOrDel("municipality", loc?.municipality);
+        setOrDel("street", loc?.street);
+        window.history.replaceState({}, "", `/search${sp.toString() ? "?" + sp.toString() : ""}`);
+      }
+
       const ac = new AbortController();
       abortRef.current = ac;
       setLoading(true);
@@ -249,17 +258,18 @@ function UnifiedSearchPageInner() {
       <div className="max-w-2xl mx-auto sticky top-[108px] z-30 bg-background/95 backdrop-blur-sm pt-1 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:static sm:top-auto sm:bg-transparent sm:backdrop-blur-none sm:pt-0 sm:pb-0">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 pointer-events-none" />
-          <Input
+          <SearchTextInput
             placeholder={t("search.placeholder")}
-            value={query}
-            onChange={(e) => doSearch(e.target.value)}
-            // text-[16px] avoids iOS Safari's auto-zoom on focus.
-            className="pl-12 pr-12 h-12 text-[16px] rounded-xl border-slate-200 shadow-sm focus:ring-2 focus:ring-brand/30"
-            autoFocus
-            aria-label={t("search.placeholder")}
-            enterKeyHint="search"
-            autoCapitalize="off"
-            autoCorrect="off"
+            initialValue={initialQ}
+            externalValue={query}
+            ariaLabel={t("search.placeholder")}
+            onChange={(value) =>
+              doSearch(value, {
+                postalCode: locPostalCode,
+                municipality: locMunicipality,
+                street: locStreet,
+              })
+            }
           />
           {/* Trailing slot — clear button OR loading spinner. Clear
               gives mobile users a quick way out without reaching for
@@ -448,3 +458,48 @@ function UnifiedSearchPageInner() {
     </div>
   );
 }
+
+// SearchTextInput owns its own input value state so each keystroke
+// only re-renders this small component — the parent (and its memoised
+// result list) does not re-render until the parent's `query` state
+// catches up via debounce. `externalValue` lets the parent push state
+// changes (clear button, route changes) back into the input without
+// breaking the live-typing flow.
+const SearchTextInput = memo(function SearchTextInput({
+  initialValue,
+  externalValue,
+  placeholder,
+  ariaLabel,
+  onChange,
+}: {
+  initialValue: string;
+  externalValue: string;
+  placeholder: string;
+  ariaLabel: string;
+  onChange: (value: string) => void;
+}) {
+  const [value, setValue] = useState(initialValue);
+  // Keep the local input in sync when the parent resets (clear button,
+  // back-button restore). External-driven changes are rare so the
+  // re-render cost is fine here.
+  useEffect(() => {
+    setValue(externalValue);
+  }, [externalValue]);
+  return (
+    <Input
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => {
+        const next = e.target.value;
+        setValue(next);
+        onChange(next);
+      }}
+      className="pl-12 pr-12 h-12 text-[16px] rounded-xl border-slate-200 shadow-sm focus:ring-2 focus:ring-brand/30"
+      autoFocus
+      aria-label={ariaLabel}
+      enterKeyHint="search"
+      autoCapitalize="off"
+      autoCorrect="off"
+    />
+  );
+});
