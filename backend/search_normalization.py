@@ -90,6 +90,10 @@ def normalize_name(name: str | None) -> str:
         if new_s == s:
             break
         s = new_s
+    # Users paste quoted names from CRMs and spreadsheets ("Acme" NV).
+    # Legal-suffix stripping leaves the wrapper punctuation behind, which
+    # breaks exact/prefix lookup even though the stored KBO name is plain.
+    s = re.sub(r"^[\s\W_]+|[\s\W_]+$", "", s)
     s = s.lower()
     s = _WHITESPACE_RE.sub(" ", s).strip()
     return s

@@ -15,6 +15,17 @@ TARGET = os.path.join(ROOT, "scripts", "nbb_nightly_backload.py")
 
 
 def _load_backload_module():
+    stub_names = (
+        "psycopg2",
+        "psycopg2.extras",
+        "requests",
+        "db",
+        "nbb_governance",
+        "nbb_nightly_backload",
+    )
+    missing = object()
+    originals = {name: sys.modules.get(name, missing) for name in stub_names}
+
     psycopg2 = types.ModuleType("psycopg2")
     psycopg2_extras = types.ModuleType("psycopg2.extras")
     psycopg2.extras = psycopg2_extras
@@ -41,8 +52,15 @@ def _load_backload_module():
     module = importlib.util.module_from_spec(spec)
     sys.modules["nbb_nightly_backload"] = module
     assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+    try:
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, original in originals.items():
+            if original is missing:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
 
 class NbbNightlyBackloadBootstrapTests(unittest.TestCase):

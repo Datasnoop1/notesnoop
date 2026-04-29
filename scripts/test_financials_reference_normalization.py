@@ -14,8 +14,33 @@ ROOT = os.path.join(os.path.dirname(__file__), "..")
 TARGET = os.path.join(ROOT, "backend", "routers", "companies", "financials.py")
 
 
+class FakeBackgroundTasks:
+    def __init__(self):
+        self.tasks = []
+
+    def add_task(self, fn, *args, **kwargs):
+        self.tasks.append((fn, args, kwargs))
+
+
 def _load_financials_module():
     """Import the router module with tiny stubs for its heavy dependencies."""
+    stub_names = (
+        "fastapi",
+        "httpx",
+        "psycopg2",
+        "psycopg2.extras",
+        "db",
+        "auth",
+        "utils",
+        "nbb_governance",
+        "routers",
+        "routers.companies",
+        "routers.companies._helpers",
+        "routers.companies.financials",
+    )
+    missing = object()
+    originals = {name: sys.modules.get(name, missing) for name in stub_names}
+
     fastapi = types.ModuleType("fastapi")
 
     class DummyRouter:
@@ -32,9 +57,11 @@ def _load_financials_module():
             self.detail = detail
 
     fastapi.APIRouter = lambda: DummyRouter()
+    fastapi.BackgroundTasks = object
     fastapi.Depends = lambda dep: dep
     fastapi.HTTPException = DummyHttpException
     fastapi.Query = lambda default=None, **_kwargs: default
+    fastapi.Response = object
     sys.modules["fastapi"] = fastapi
 
     httpx = types.ModuleType("httpx")
@@ -81,8 +108,15 @@ def _load_financials_module():
     module = importlib.util.module_from_spec(spec)
     sys.modules["routers.companies.financials"] = module
     assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+    try:
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, original in originals.items():
+            if original is missing:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
 
 class FinancialReferenceNormalizationTests(unittest.TestCase):
@@ -206,6 +240,7 @@ class FinancialReferenceNormalizationTests(unittest.TestCase):
                     None,
                     "auth-key",
                     "https://ws.cbso.nbb.be",
+                    FakeBackgroundTasks(),
                 )
             )
         self.assertEqual(ctx.exception.status_code, 503)
@@ -319,6 +354,7 @@ class FinancialReferenceNormalizationTests(unittest.TestCase):
                 None,
                 "auth-key",
                 "https://ws.cbso.nbb.be",
+                FakeBackgroundTasks(),
             )
         )
 

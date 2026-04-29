@@ -11,6 +11,23 @@ SIMILAR_PATH = os.path.join(ROOT, "backend", "routers", "companies", "similar.py
 
 
 def _load_similar_module():
+    stub_names = (
+        "fastapi",
+        "db",
+        "auth",
+        "ai_routing",
+        "retrieval",
+        "rerank",
+        "similar_cache",
+        "utils",
+        "routers",
+        "routers.companies",
+        "routers.companies._helpers",
+        "routers.companies.similar",
+    )
+    missing = object()
+    originals = {name: sys.modules.get(name, missing) for name in stub_names}
+
     fastapi_stub = types.ModuleType("fastapi")
 
     class _Router:
@@ -30,6 +47,7 @@ def _load_similar_module():
     fastapi_stub.Depends = lambda dependency=None: dependency
     fastapi_stub.HTTPException = _HTTPException
     fastapi_stub.Query = lambda default=None, **kwargs: default
+    fastapi_stub.Response = object
     sys.modules["fastapi"] = fastapi_stub
 
     db_stub = types.ModuleType("db")
@@ -81,6 +99,7 @@ def _load_similar_module():
     companies_pkg = types.ModuleType("routers.companies")
     companies_pkg.__path__ = []
     helpers_stub = types.ModuleType("routers.companies._helpers")
+    helpers_stub._resolve_nace_label = lambda nace, version=None: nace
     helpers_stub._serialize_row = lambda row: dict(row)
     sys.modules["routers"] = routers_pkg
     sys.modules["routers.companies"] = companies_pkg
@@ -90,8 +109,15 @@ def _load_similar_module():
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+    try:
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, original in originals.items():
+            if original is missing:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
 
 _similar = _load_similar_module()

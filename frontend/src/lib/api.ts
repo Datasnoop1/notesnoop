@@ -382,13 +382,18 @@ export interface LocationFilter {
   street?: string;
 }
 
-export const searchCompaniesBucketed = (q: string, loc?: LocationFilter) => {
+export const searchCompaniesBucketed = (
+  q: string,
+  loc?: LocationFilter,
+  signal?: AbortSignal,
+) => {
   const params = new URLSearchParams({ q });
   if (loc?.postalCode?.trim()) params.set("postal_code", loc.postalCode.trim());
   if (loc?.municipality?.trim()) params.set("municipality", loc.municipality.trim());
   if (loc?.street?.trim()) params.set("street", loc.street.trim());
   return apiFetch<CompanySearchResponseV2>(
     `/api/companies/search?${params.toString()}`,
+    { signal },
   );
 };
 
@@ -461,14 +466,18 @@ export interface EventsSearchResponse {
 
 export const searchEvents = (
   q: string,
-  opts?: { event_type?: string; since_date?: string; enterprise_number?: string; limit?: number }
+  opts?: { event_type?: string; since_date?: string; enterprise_number?: string; limit?: number },
+  signal?: AbortSignal,
 ) => {
   const params = new URLSearchParams({ q });
   if (opts?.event_type) params.set("event_type", opts.event_type);
   if (opts?.since_date) params.set("since_date", opts.since_date);
   if (opts?.enterprise_number) params.set("enterprise_number", opts.enterprise_number);
   if (opts?.limit) params.set("limit", String(opts.limit));
-  return apiFetch<EventsSearchResponse>(`/api/events/search?${params.toString()}`);
+  return apiFetch<EventsSearchResponse>(
+    `/api/events/search?${params.toString()}`,
+    { signal },
+  );
 };
 
 export const getCompanyEvents = (
@@ -896,8 +905,11 @@ export interface PersonProfile {
   affiliations?: PersonAffiliation[];
 }
 
-export const searchPeople = (q: string) =>
-  apiFetch<PersonResult[]>(`/api/people/search?q=${encodeURIComponent(q)}`);
+export const searchPeople = (q: string, signal?: AbortSignal) =>
+  apiFetch<PersonResult[]>(
+    `/api/people/search?q=${encodeURIComponent(q)}`,
+    { signal },
+  );
 
 export const getPersonConnections = (name: string) =>
   apiFetch<PersonProfile>(

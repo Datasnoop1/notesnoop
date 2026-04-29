@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import date
 from typing import Optional
 
@@ -23,7 +24,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth import optional_user
 from db import fetch_all, fetch_one, get_connection, put_connection
-from embeddings import generate_embedding
+from embeddings import embed_query
 from utils import clean_cbe
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,17 @@ VALID_EVENT_TYPES = {
     "admin_event", "capital_event", "share_transfer", "ownership_change",
     "ma_event", "liquidation_event", "corporate_change", "other_notable",
 }
+
+
+def _should_search_events_query(text: str) -> bool:
+    """Return False for very short, non-numeric event searches.
+
+    Two- and three-character Gazette searches are both noisy and expensive:
+    they cannot use semantic search and force broad FTS/trigram scans. CBE-like
+    numeric lookups stay enabled because partial enterprise numbers are useful.
+    """
+    stripped = (text or "").strip()
+    return len(stripped) >= 4 or bool(re.search(r"\d{4,}", stripped))
 
 
 def _serialize(row: dict) -> dict:
@@ -128,6 +140,10 @@ async def search_events(
     can be exercised in staging.  To force the 501, pass
     `strict_semantic=true` (not implemented yet).
     """
+    text = q.strip()
+    if not _should_search_events_query(text):
+        return {"query": q, "results": [], "count": 0, "skipped": "short_query"}
+
     # Validate filters upfront
     if event_type and event_type not in VALID_EVENT_TYPES:
         raise HTTPException(400, f"event_type must be one of {sorted(VALID_EVENT_TYPES)}")
@@ -145,12 +161,10 @@ async def search_events(
     # Delegate to the blended search.  If no embeddings exist yet, the
     # function will fall back to FTS+trigram only.
     try:
-        # `input_type="query"` matters for asymmetric embedders like
-        # NVIDIA's nv-embedqa-e5-v5: corpus rows in
-        # `staatsblad_event_embedding` were stored with the implicit
-        # "passage" mode, so search queries must use "query" mode for
-        # their vectors to live in the matching half of the latent space.
-        emb = await generate_embedding(q.strip(), input_type="query")
+        # The search page fires this endpoint as a secondary section.
+        # Cache query embeddings across semantic company and event search
+        # so repeat terms do not pay another provider round-trip.
+        emb = await embed_query(text) if len(text) >= 4 else None
     except Exception:
         logger.exception("Embedding call for query failed — falling back to keyword-only")
         emb = None
@@ -159,7 +173,7 @@ async def search_events(
         # `_blended_search` enforce the dim. Hardcoding 256 silently
         # disabled semantic on NVIDIA (1024-dim) in 2026-04 onwards.
         results = _blended_search(
-            q=q.strip(),
+            q=text,
             emb=emb if (isinstance(emb, list) and len(emb) > 0) else None,
             event_type=event_type,
             since=since,
@@ -204,83 +218,107 @@ def _blended_search(
     try:
         cur = conn.cursor()
         try:
+            vector_rows: list[dict] = []
             if emb is not None:
                 # Vector-boosted search: ORDER BY (0.6 * 1-cos + 0.4 * trgm)
                 # so both signals contribute.  pgvector 1-cosine distance is
                 # `1 - (embedding <=> %s)`; we multiply by 0.6 and add a
                 # trigram similarity on the summary.
                 emb_literal = "[" + ",".join(f"{x:.6f}" for x in emb) + "]"
-                cur.execute(
-                    f"""SELECT
-                           e.id, e.enterprise_number, e.pub_reference, e.pub_date,
-                           e.event_type, e.sub_type, e.event_date, e.person_name,
-                           e.person_role, e.entity_name, e.amount_eur,
-                           e.amount_shares, e.summary, e.extracted_at,
-                           COALESCE(d.denomination, e.enterprise_number) AS company_name,
-                           (1.0 - (emb.embedding <=> %s::vector)) AS vec_score,
-                           similarity(
-                               coalesce(e.summary, '') || ' ' ||
-                               coalesce(e.person_name, '') || ' ' ||
-                               coalesce(e.entity_name, ''),
-                               %s
-                           ) AS trgm_score
-                       FROM staatsblad_event e
-                       JOIN staatsblad_event_embedding emb ON emb.event_id = e.id
-                       LEFT JOIN denomination d
-                           ON d.entity_number = e.enterprise_number
-                           AND d.type_of_denomination = '001'
-                           AND d.language IN ('2','1')
-                       WHERE TRUE {filter_sql}
-                       ORDER BY (0.6 * (1.0 - (emb.embedding <=> %s::vector))
-                               + 0.4 * similarity(
-                                     coalesce(e.summary, '') || ' ' ||
-                                     coalesce(e.person_name, '') || ' ' ||
-                                     coalesce(e.entity_name, ''),
-                                     %s
-                                 )) DESC
-                       LIMIT %s""",
-                    tuple([emb_literal, q] + filter_params + [emb_literal, q, limit]),
-                )
-            else:
-                # Keyword-only fallback: FTS tsquery + trigram blend.
-                cur.execute(
-                    f"""SELECT
-                           e.id, e.enterprise_number, e.pub_reference, e.pub_date,
-                           e.event_type, e.sub_type, e.event_date, e.person_name,
-                           e.person_role, e.entity_name, e.amount_eur,
-                           e.amount_shares, e.summary, e.extracted_at,
-                           COALESCE(d.denomination, e.enterprise_number) AS company_name,
-                           NULL::float AS vec_score,
-                           similarity(
-                               coalesce(e.summary, '') || ' ' ||
-                               coalesce(e.person_name, '') || ' ' ||
-                               coalesce(e.entity_name, ''),
-                               %s
-                           ) AS trgm_score
-                       FROM staatsblad_event e
-                       LEFT JOIN denomination d
-                           ON d.entity_number = e.enterprise_number
-                           AND d.type_of_denomination = '001'
-                           AND d.language IN ('2','1')
-                       WHERE (
-                           to_tsvector('simple',
-                               coalesce(e.summary, '') || ' ' ||
-                               coalesce(e.person_name, '') || ' ' ||
-                               coalesce(e.entity_name, ''))
-                           @@ plainto_tsquery('simple', %s)
-                           OR similarity(
-                               coalesce(e.summary, '') || ' ' ||
-                               coalesce(e.person_name, '') || ' ' ||
-                               coalesce(e.entity_name, ''),
-                               %s) > 0.2
-                       ) {filter_sql}
-                       ORDER BY trgm_score DESC
-                       LIMIT %s""",
-                    tuple([q, q, q] + filter_params + [limit]),
-                )
+                try:
+                    cur.execute(
+                        f"""SELECT
+                               e.id, e.enterprise_number, e.pub_reference, e.pub_date,
+                               e.event_type, e.sub_type, e.event_date, e.person_name,
+                               e.person_role, e.entity_name, e.amount_eur,
+                               e.amount_shares, e.summary, e.extracted_at,
+                               COALESCE(d.denomination, e.enterprise_number) AS company_name,
+                               (1.0 - (emb.embedding <=> %s::vector)) AS vec_score,
+                               similarity(
+                                   coalesce(e.summary, '') || ' ' ||
+                                   coalesce(e.person_name, '') || ' ' ||
+                                   coalesce(e.entity_name, ''),
+                                   %s
+                               ) AS trgm_score
+                           FROM staatsblad_event e
+                           JOIN staatsblad_event_embedding emb ON emb.event_id = e.id
+                           LEFT JOIN denomination d
+                               ON d.entity_number = e.enterprise_number
+                               AND d.type_of_denomination = '001'
+                               AND d.language IN ('2','1')
+                           WHERE TRUE {filter_sql}
+                           ORDER BY (0.6 * (1.0 - (emb.embedding <=> %s::vector))
+                                   + 0.4 * similarity(
+                                         coalesce(e.summary, '') || ' ' ||
+                                         coalesce(e.person_name, '') || ' ' ||
+                                         coalesce(e.entity_name, ''),
+                                         %s
+                                     )) DESC
+                           LIMIT %s""",
+                        tuple([emb_literal, q] + filter_params + [emb_literal, q, limit]),
+                    )
+                    cols = [d.name for d in cur.description]
+                    vector_rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+                except Exception:
+                    # Missing/empty event embedding infrastructure should
+                    # degrade to keyword search, not hide valid Gazette rows.
+                    logger.warning("event vector search failed; using keyword fallback", exc_info=True)
+                    conn.rollback()
+                    cur.close()
+                    cur = conn.cursor()
+
+            if vector_rows:
+                conn.commit()
+                return [_serialize(r) for r in vector_rows]
+
+            # Keyword-only fallback: FTS tsquery + trigram blend. This is
+            # also the primary path for very short queries, where semantic
+            # retrieval is noisy and expensive.
+            cur.execute(
+                f"""SELECT
+                       e.id, e.enterprise_number, e.pub_reference, e.pub_date,
+                       e.event_type, e.sub_type, e.event_date, e.person_name,
+                       e.person_role, e.entity_name, e.amount_eur,
+                       e.amount_shares, e.summary, e.extracted_at,
+                       COALESCE(d.denomination, e.enterprise_number) AS company_name,
+                       NULL::float AS vec_score,
+                       similarity(
+                           coalesce(e.summary, '') || ' ' ||
+                           coalesce(e.person_name, '') || ' ' ||
+                           coalesce(e.entity_name, ''),
+                           %s
+                       ) AS trgm_score
+                   FROM staatsblad_event e
+                   LEFT JOIN denomination d
+                       ON d.entity_number = e.enterprise_number
+                       AND d.type_of_denomination = '001'
+                       AND d.language IN ('2','1')
+                   WHERE (
+                       to_tsvector('simple',
+                           coalesce(e.summary, '') || ' ' ||
+                           coalesce(e.person_name, '') || ' ' ||
+                           coalesce(e.entity_name, ''))
+                       @@ plainto_tsquery('simple', %s)
+                       OR similarity(
+                           coalesce(e.summary, '') || ' ' ||
+                           coalesce(e.person_name, '') || ' ' ||
+                           coalesce(e.entity_name, ''),
+                           %s) > 0.2
+                   ) {filter_sql}
+                   ORDER BY trgm_score DESC
+                   LIMIT %s""",
+                tuple([q, q, q] + filter_params + [limit]),
+            )
             cols = [d.name for d in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.commit()
             return [_serialize(r) for r in rows]
+        except Exception:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            raise
         finally:
             cur.close()
     finally:

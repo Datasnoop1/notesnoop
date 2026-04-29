@@ -30,6 +30,10 @@ def _clean_cbe(value) -> str:
 
 
 def _load_retrieval_module(shared_owner_pct):
+    stub_names = ("db", "utils", "retrieval")
+    missing = object()
+    originals = {name: sys.modules.get(name, missing) for name in stub_names}
+
     db_stub = types.ModuleType("db")
 
     def fetch_all(query, params):
@@ -124,8 +128,15 @@ def _load_retrieval_module(shared_owner_pct):
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+    try:
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for name, original in originals.items():
+            if original is missing:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
 
 def _run_same_group_exclusion_case(shared_owner_pct):

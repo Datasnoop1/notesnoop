@@ -114,7 +114,11 @@ def test_newer_staatsblad_resignation_still_updates_board():
         role_labels=ROLE_LABELS,
     )
 
-    assert [row["name"] for row in current] == ["Alice Example"]
+    active_names = [row["name"] for row in current if not row.get("mandate_end")]
+    ended = [row for row in current if row.get("name") == "Bob Example"]
+
+    assert active_names == ["Alice Example"]
+    assert ended and ended[0]["mandate_end"] == "2024-03-01"
     print("Test 2 passed: post-baseline Staatsblad resignations still update the board")
 
 

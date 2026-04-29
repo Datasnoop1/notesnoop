@@ -17,7 +17,6 @@ db = types.ModuleType("db")
 db.fetch_all = lambda *_args, **_kwargs: []
 db.fetch_one = lambda *_args, **_kwargs: None
 db.execute = lambda *_args, **_kwargs: None
-sys.modules["db"] = db
 
 requests = types.ModuleType("requests")
 
@@ -34,9 +33,17 @@ requests.exceptions = types.SimpleNamespace(
     ReadTimeout=ReadTimeout,
 )
 requests.get = lambda *_args, **_kwargs: None
-sys.modules["requests"] = requests
 
-import scripts.alert_digest as alert_digest
+_missing = object()
+_original_db = sys.modules.get("db", _missing)
+sys.modules["db"] = db
+try:
+    import scripts.alert_digest as alert_digest
+finally:
+    if _original_db is _missing:
+        sys.modules.pop("db", None)
+    else:
+        sys.modules["db"] = _original_db
 
 
 class NbbHealthCheckTests(unittest.TestCase):
@@ -75,8 +82,9 @@ class NbbHealthCheckTests(unittest.TestCase):
                 raise result
             return result
 
-        with patch("requests.get", side_effect=fake_get):
-            status = alert_digest._check_nbb_keys(send=False, alert_to=None)
+        with patch.dict(sys.modules, {"requests": requests}):
+            with patch("requests.get", side_effect=fake_get):
+                status = alert_digest._check_nbb_keys(send=False, alert_to=None)
 
         self.assertEqual(status, alert_digest.HEALTH_CHECK_TRANSIENT_FAILURE)
 
@@ -96,8 +104,9 @@ class NbbHealthCheckTests(unittest.TestCase):
             SimpleNamespace(status_code=200),
         ]
 
-        with patch("requests.get", side_effect=responses):
-            status = alert_digest._check_nbb_keys(send=False, alert_to=None)
+        with patch.dict(sys.modules, {"requests": requests}):
+            with patch("requests.get", side_effect=responses):
+                status = alert_digest._check_nbb_keys(send=False, alert_to=None)
 
         self.assertEqual(status, alert_digest.HEALTH_CHECK_AUTH_FAILURE)
 
