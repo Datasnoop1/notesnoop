@@ -2266,11 +2266,19 @@ def _band_fte(fte) -> str | None:
 # cached bulk_summary. Don't remove the old pipeline yet.
 # ══════════════════════════════════════════════════════════════════════
 
-# Model choices fixed from the Spike 2 matrix (see
-# `scripts/research/v2/REPORT_v2.md`). Q2 = GPT-4o-mini with structured
-# KBO context wins on quality AND cost; Haiku 4.5 is the escalation.
+# Q2 = GPT-4o-mini with structured KBO context (Spike 2). Escalation path
+# swapped 2026-04-29 to a flat-rate Ollama Turbo chain
+# (deepseek-v4-flash → glm-5.1 → minimax-m2.7), with Anthropic Haiku 4.5 kept
+# as the ultimate escape hatch when all three Ollama models fail. Names below
+# keep "HAIKU" for migration ease and refer to the escalation path, not
+# literally Anthropic Haiku.
 _BULK_Q2_DEFAULT_MODEL = "openai/gpt-4o-mini"
-_BULK_HAIKU_DEFAULT_MODEL = "anthropic/claude-haiku-4.5"
+_BULK_HAIKU_DEFAULT_MODEL = "ollama:deepseek-v4-flash:latest"
+_BULK_HAIKU_DEFAULT_FALLBACK_CHAIN = [
+    "ollama:glm-5.1:latest",
+    "ollama:minimax-m2.7:latest",
+    "anthropic/claude-haiku-4.5",
+]
 BULK_Q2_MODEL = (os.getenv("BULK_Q2_MODEL", "").strip() or _BULK_Q2_DEFAULT_MODEL)
 BULK_HAIKU_MODEL = (
     os.getenv("BULK_HAIKU_MODEL", "").strip() or _BULK_HAIKU_DEFAULT_MODEL
@@ -2279,26 +2287,58 @@ BULK_Q2_FALLBACK_MODEL = os.getenv("BULK_Q2_FALLBACK_MODEL", "").strip()
 BULK_HAIKU_FALLBACK_MODEL = os.getenv("BULK_HAIKU_FALLBACK_MODEL", "").strip()
 
 
+def _resolve_haiku_fallback_chain_from_env() -> list[str]:
+    """Resolve the escalation fallback chain at module load time.
+
+    Precedence: BULK_HAIKU_FALLBACK_MODELS (plural, comma-separated) wins; else
+    legacy BULK_HAIKU_FALLBACK_MODEL (singular) is treated as a one-item chain;
+    else fall back to _BULK_HAIKU_DEFAULT_FALLBACK_CHAIN. Done at init so the
+    legacy var keeps working without forcing operators to migrate immediately.
+    """
+    plural = os.getenv("BULK_HAIKU_FALLBACK_MODELS", "").strip()
+    if plural:
+        items = [s.strip() for s in plural.split(",") if s.strip()]
+        if items:
+            return items
+    singular = os.getenv("BULK_HAIKU_FALLBACK_MODEL", "").strip()
+    if singular:
+        return [singular]
+    return list(_BULK_HAIKU_DEFAULT_FALLBACK_CHAIN)
+
+
+BULK_HAIKU_FALLBACK_CHAIN = _resolve_haiku_fallback_chain_from_env()
+
+
 def _resolve_bulk_fallback_chain(
-    primary_model: str, configured_fallback: str, default_model: str
+    primary_model: str,
+    configured_fallback: str = "",
+    default_model: str = "",
+    configured_fallbacks: list[str] | None = None,
 ) -> list[str]:
     """Build the ordered list of models to try after the primary fails.
 
-    Order: configured_fallback (if set) → default_model (when primary is
-    `ollama:*` and default differs). Duplicates and the primary itself are
-    filtered out. The legacy single-fallback behaviour is preserved when the
-    chain has zero or one entry.
+    Inputs:
+      - configured_fallbacks (preferred): explicit ordered list of fallbacks.
+      - configured_fallback (legacy): single string; treated as a one-item list
+        when configured_fallbacks is empty / None.
+      - default_model: appended only when primary is a non-OpenRouter provider
+        (Ollama/NVIDIA), as a final escape hatch. Skipped if already present.
+
+    Duplicates and the primary itself are filtered out.
     """
     chain: list[str] = []
     seen = {primary_model}
-    fb = (configured_fallback or "").strip()
-    if fb and fb not in seen:
-        chain.append(fb)
-        seen.add(fb)
-    # Auto-fallback to the OpenRouter default when the primary is a
-    # non-OpenRouter provider whose endpoint can rate-limit (Ollama today,
-    # NVIDIA tomorrow). Keeps a graceful escape hatch even if the configured
-    # fallback also fails.
+
+    fbs = list(configured_fallbacks or [])
+    if not fbs and configured_fallback and configured_fallback.strip():
+        fbs = [configured_fallback.strip()]
+
+    for fb in fbs:
+        fb = (fb or "").strip()
+        if fb and fb not in seen:
+            chain.append(fb)
+            seen.add(fb)
+
     if (
         _is_ollama_model(primary_model) or _is_nvidia_model(primary_model)
     ) and default_model and default_model not in seen:
@@ -2596,9 +2636,17 @@ async def call_haiku_escalation(
     )
 
     primary_model = model
+    # Reasoning-model headroom: Ollama Turbo escalation models burn output
+    # tokens on a `thinking` field, so 700 truncates the JSON; 1500 covers
+    # observed worst case (glm-5.1 ~1.3k). Latency is also longer than Haiku.
+    escalation_max_tokens = 1500
+    escalation_timeout_s = 120.0
+
+    # `BULK_HAIKU_FALLBACK_CHAIN` has already folded the legacy singular env
+    # `BULK_HAIKU_FALLBACK_MODEL` in at module init, so we don't pass it here.
     fallback_chain = _resolve_bulk_fallback_chain(
         primary_model=primary_model,
-        configured_fallback=BULK_HAIKU_FALLBACK_MODEL,
+        configured_fallbacks=BULK_HAIKU_FALLBACK_CHAIN,
         default_model=_BULK_HAIKU_DEFAULT_MODEL,
     )
 
@@ -2606,9 +2654,9 @@ async def call_haiku_escalation(
         prompt=body,
         system=system,
         model=primary_model,
-        max_tokens=700,
+        max_tokens=escalation_max_tokens,
         temperature=0.1,
-        timeout_s=60.0,
+        timeout_s=escalation_timeout_s,
     )
     fallbacks_used: list[str] = []
     for fb in fallback_chain:
@@ -2618,9 +2666,9 @@ async def call_haiku_escalation(
             prompt=body,
             system=system,
             model=fb,
-            max_tokens=700,
+            max_tokens=escalation_max_tokens,
             temperature=0.1,
-            timeout_s=60.0,
+            timeout_s=escalation_timeout_s,
         )
         fallbacks_used.append(fb)
     if not meta.get("ok"):
@@ -2641,9 +2689,9 @@ async def call_haiku_escalation(
             prompt=body,
             system=system,
             model=fb,
-            max_tokens=700,
+            max_tokens=escalation_max_tokens,
             temperature=0.1,
-            timeout_s=60.0,
+            timeout_s=escalation_timeout_s,
         )
         text = meta.get("text") or ""
         parsed = _extract_json(text)

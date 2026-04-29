@@ -107,11 +107,18 @@ services:
       # _resolve_bulk_fallback_chain when both upstream providers fail.
       BULK_Q2_MODEL: "ollama:qwen3-coder-next"
       BULK_Q2_FALLBACK_MODEL: "nvidia:qwen/qwen3-coder-480b-a35b-instruct"
-      # Haiku chain: Ollama Cloud → NVIDIA NIM → Anthropic Haiku (configured).
-      # Switched 2026-04-25 from anthropic/claude-haiku-4.5 to
-      # ollama:kimi-k2.6 so escalations don't share Anthropic rate limits.
-      BULK_HAIKU_MODEL: "ollama:kimi-k2.6"
-      BULK_HAIKU_FALLBACK_MODEL: "nvidia:qwen/qwen3-coder-480b-a35b-instruct"
+      # Escalation chain (2026-04-29 swap): Ollama Turbo three-deep with Haiku
+      # 4.5 as the ultimate escape hatch when all three Ollama models fail.
+      #   primary    = deepseek-v4-flash   (best factual + hallucination scores)
+      #   fallback 1 = glm-5.1             (multilingual, reliable)
+      #   fallback 2 = minimax-m2.7        (fastest reliable Ollama candidate)
+      #   final hatch= claude-haiku-4.5    (only fires if all 3 Ollama fail)
+      # Replaces the prior kimi → nvidia-qwen → claude-haiku chain. Eval N=7
+      # showed 7/7 quality wins for the new primary vs the prior gpt-4o-mini
+      # baseline; cost shifts from per-token Haiku to flat-rate Turbo, with
+      # Haiku spend now bounded to days when Ollama Turbo is degraded.
+      BULK_HAIKU_MODEL: "ollama:deepseek-v4-flash:latest"
+      BULK_HAIKU_FALLBACK_MODELS: "ollama:glm-5.1:latest,ollama:minimax-m2.7:latest,anthropic/claude-haiku-4.5"
       # Pointer to the in-network playwright-scraper service (Webshare proxy
       # rotation behind a headless Chromium). Set empty to disable the proxy
       # fallback entirely and force template-path on every blocked site.
