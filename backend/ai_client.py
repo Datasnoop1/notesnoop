@@ -2065,21 +2065,16 @@ async def call_elaboration_narrative(
             logger.info("elaboration: scrape_company_site failed for %s: %s", cbe, e)
             bulk_text = ""
 
+    # Multi-page scrape only when the bulk cache is missing or stale. A
+    # fresh bulk_website_text already has the homepage; on slow sites the
+    # extra subpage fetches can add 30s+ for marginal value, so skip.
     multi_page_text = ""
-    if website_url and not _bulk_scrape_is_fresh(bulk_text_at):
-        # Cache stale (or absent) — fetch multi-page directly
+    bulk_text_fresh = bool(bulk_text) and _bulk_scrape_is_fresh(bulk_text_at)
+    if website_url and not bulk_text_fresh:
         try:
             multi_page_text, pages_fetched = await multi_page_scrape(website_url)
         except Exception as e:
             logger.info("elaboration: multi_page_scrape failed for %s: %s", cbe, e)
-    elif website_url:
-        # Cache fresh — still pick up extra subpages beyond what bulk fetched
-        try:
-            mp_text, mp_pages = await multi_page_scrape(website_url)
-            if mp_text:
-                multi_page_text, pages_fetched = mp_text, mp_pages
-        except Exception as e:
-            logger.info("elaboration: multi_page_scrape (augment) failed for %s: %s", cbe, e)
 
     website_corpus = "\n\n".join(filter(None, [bulk_text, multi_page_text]))[:20000]
 
@@ -2120,13 +2115,19 @@ async def call_elaboration_narrative(
     deep_input = "\n\n".join(sections)
     user_prompt = f"Source dossier:\n\n{deep_input}\n\nReturn the JSON object now."
 
-    # 5. Draft (qwen-coder-next)
+    # 5. Draft (qwen-coder-next) — with one retry on transient 503
+    async def _draft_call() -> dict:
+        return await _ollama_complete_with_meta(
+            prompt=user_prompt, system=_ELABORATION_SYSTEM_PROMPT,
+            model=PHASE_5_DRAFT_MODEL, max_tokens=PHASE_5_MAX_TOKENS,
+            temperature=0.3, timeout_s=PHASE_5_DRAFT_TIMEOUT_S, think_mode="off",
+        )
+
     t0 = time.monotonic()
-    draft = await _ollama_complete_with_meta(
-        prompt=user_prompt, system=_ELABORATION_SYSTEM_PROMPT,
-        model=PHASE_5_DRAFT_MODEL, max_tokens=PHASE_5_MAX_TOKENS,
-        temperature=0.3, timeout_s=PHASE_5_DRAFT_TIMEOUT_S, think_mode="off",
-    )
+    draft = await _draft_call()
+    if not draft.get("ok") and draft.get("status_code") == 503:
+        await asyncio.sleep(2.0)
+        draft = await _draft_call()
     draft_latency = int((time.monotonic() - t0) * 1000)
     if not draft.get("ok"):
         # Fallback: return best-effort what bulk already had
@@ -2135,18 +2136,25 @@ async def call_elaboration_narrative(
         legacy["_elaboration_error"] = draft.get("error") or "draft_failed"
         return legacy
 
-    # 6. Critic-refine (kimi-k2.6)
+    # 6. Critic-refine (kimi-k2.6) — with one retry on transient 503
     refine_prompt = (
         f"Source dossier:\n\n{deep_input}\n\n"
         f"Draft narrative produced by another model:\n\n{draft['text']}\n\n"
         "Critique it and return the refined JSON now."
     )
+
+    async def _refine_call() -> dict:
+        return await _ollama_complete_with_meta(
+            prompt=refine_prompt, system=_REFINE_SYSTEM_PROMPT,
+            model=PHASE_5_REFINE_MODEL, max_tokens=PHASE_5_MAX_TOKENS,
+            temperature=0.3, timeout_s=PHASE_5_REFINE_TIMEOUT_S, think_mode="off",
+        )
+
     t1 = time.monotonic()
-    refined = await _ollama_complete_with_meta(
-        prompt=refine_prompt, system=_REFINE_SYSTEM_PROMPT,
-        model=PHASE_5_REFINE_MODEL, max_tokens=PHASE_5_MAX_TOKENS,
-        temperature=0.3, timeout_s=PHASE_5_REFINE_TIMEOUT_S, think_mode="off",
-    )
+    refined = await _refine_call()
+    if not refined.get("ok") and refined.get("status_code") == 503:
+        await asyncio.sleep(2.0)
+        refined = await _refine_call()
     refine_latency = int((time.monotonic() - t1) * 1000)
     chosen = refined if refined.get("ok") else draft
     parsed = _parse_json_safely(chosen.get("text", ""))

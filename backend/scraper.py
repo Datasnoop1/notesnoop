@@ -1041,20 +1041,32 @@ async def scrape_company_site(url: str) -> tuple[str, str]:
 
 
 # Phase 5.2 — multi-page scrape used by the elaboration narrative path.
+# Trimmed to 4 high-value paths (was 14) so a slow site doesn't stretch
+# total elaboration time. Each page gets 5s; the whole call has an 8s
+# budget — whatever returned by then wins, the rest are dropped.
 _MULTI_PAGE_PATHS = [
-    "/about", "/about-us", "/over-ons", "/wie-zijn-wij", "/qui-sommes-nous",
-    "/products", "/producten", "/services", "/diensten",
-    "/team", "/contact",
-    "/history", "/onze-geschiedenis", "/notre-histoire",
+    "/about",      # English
+    "/over-ons",   # Dutch
+    "/products",   # English (also matches /producten via redirect on most sites)
+    "/team",       # universal
 ]
+_MULTI_PAGE_PER_PAGE_TIMEOUT = 5.0
+_MULTI_PAGE_TOTAL_BUDGET = 8.0
 
 
-async def multi_page_scrape(base_url: str, timeout_s: float = 12.0) -> tuple[str, list[str]]:
+async def multi_page_scrape(
+    base_url: str,
+    timeout_s: float = _MULTI_PAGE_PER_PAGE_TIMEOUT,
+    total_budget_s: float = _MULTI_PAGE_TOTAL_BUDGET,
+) -> tuple[str, list[str]]:
     """Scrape homepage + a curated list of common subpages.
 
     Returns (concatenated_text, [paths_that_returned_content]). Used by the
     Phase 5.2 elaboration path to gather richer context than the bulk
     homepage-only scrape.
+
+    Bounded by `total_budget_s` regardless of per-page timeout — pages
+    still in flight when the budget elapses are dropped silently.
     """
     if not base_url:
         return "", []
@@ -1070,7 +1082,14 @@ async def multi_page_scrape(base_url: str, timeout_s: float = 12.0) -> tuple[str
         except Exception:
             return u, ""
 
-    results = await asyncio.gather(*[_try(u) for u in urls])
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*[_try(u) for u in urls], return_exceptions=False),
+            timeout=total_budget_s,
+        )
+    except asyncio.TimeoutError:
+        return "", []
+
     seen_text: set[str] = set()
     chunks: list[str] = []
     pages_ok: list[str] = []
