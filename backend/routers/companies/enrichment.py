@@ -25,6 +25,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# Module-level pin for background asyncio.Tasks. Without a strong
+# reference Python's GC may collect the Task before it runs to
+# completion — `asyncio.create_task(...)` returns a weakly-held
+# task object and discarding the return value lets it die.
+# Phase-5 background elaborations got dropped this way (they showed
+# `done_reason=stop` log lines but never wrote a row). Keep a set
+# and discard on done.
+_BACKGROUND_TASKS: set = set()
+
+
+def _spawn_background(coro):
+    task = asyncio.ensure_future(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
+
 # ---------------------------------------------------------------------------
 # POST /api/companies/{cbe}/summarize-publications
 # ---------------------------------------------------------------------------
@@ -848,7 +865,7 @@ async def generate_ai_insights(
                 except (json.JSONDecodeError, TypeError):
                     bulk = None
             if isinstance(bulk, dict) and bulk.get("business_description"):
-                asyncio.create_task(_background_elaborate())
+                _spawn_background(_background_elaborate())
                 bulk["from_cache"] = True
                 bulk["upgrade_in_progress"] = True
                 bulk["quality_tier"] = bulk_row["quality_tier"]
@@ -869,7 +886,7 @@ async def generate_ai_insights(
         except Exception:
             kbo = None
         if kbo and kbo.get("name"):
-            asyncio.create_task(_background_elaborate())
+            _spawn_background(_background_elaborate())
             name = kbo.get("name")
             label = kbo.get("nace_label") or kbo.get("nace_code")
             city = kbo.get("city")
