@@ -133,13 +133,27 @@ MUNICIPALITY_ALIASES: dict[str, list[str]] = {
 
 
 def expand_municipality(name: str) -> list[str]:
-    """Return the input + any known multilingual aliases (deduped)."""
+    """Return the input + any known multilingual aliases (deduped).
+
+    Substring-redundant variants are removed: e.g. for "antwerp" we'd
+    expand to ["antwerp", "antwerpen", "anvers"], but `municipality_nl
+    ILIKE '%antwerp%'` already covers everything `ILIKE '%antwerpen%'`
+    would catch (because "antwerp" is a substring of "antwerpen"). So
+    "antwerpen" is dropped — same matches, fewer index scans.
+    """
     name_lc = name.lower().strip()
     variants = [name_lc]
     for v in MUNICIPALITY_ALIASES.get(name_lc, []):
         if v not in variants:
             variants.append(v)
-    return variants
+    minimal: list[str] = []
+    for v in variants:
+        # Drop v if any other variant w is a substring of v — w's
+        # %w% pattern matches a superset of v's %v% pattern.
+        if any(other != v and other in v for other in variants):
+            continue
+        minimal.append(v)
+    return minimal
 
 
 def _build_loc_clauses(
@@ -155,8 +169,28 @@ def _build_loc_clauses(
     """
     clauses: list[str] = []
     if pc_filter:
-        clauses.append("a.zipcode ILIKE %(loc_postal)s ESCAPE '\\'")
-        params["loc_postal"] = ilike_escape(pc_filter) + "%"
+        # Belgian postal codes are 4-digit ASCII strings. Use the
+        # `idx_address_zipcode` btree directly:
+        #   - 4-digit input  → equality  (instant index hit)
+        #   - shorter digits → range scan ([prefix, prefix+1))
+        #   - anything else  → fall back to ILIKE prefix (slow seq scan)
+        # ILIKE prefix wouldn't use the default-collation btree, which
+        # was forcing a Parallel Seq Scan over all ~3M address rows.
+        pc = pc_filter.strip()
+        if pc.isdigit() and len(pc) == 4:
+            clauses.append("a.zipcode = %(loc_postal)s")
+            params["loc_postal"] = pc
+        elif pc.isdigit() and 1 <= len(pc) < 4:
+            next_char = chr(ord(pc[-1]) + 1)
+            clauses.append(
+                "a.zipcode >= %(loc_postal_lo)s "
+                "AND a.zipcode < %(loc_postal_hi)s"
+            )
+            params["loc_postal_lo"] = pc
+            params["loc_postal_hi"] = pc[:-1] + next_char
+        else:
+            clauses.append("a.zipcode ILIKE %(loc_postal)s ESCAPE '\\'")
+            params["loc_postal"] = ilike_escape(pc) + "%"
     if muni_filter:
         variants = expand_municipality(muni_filter)
         or_parts: list[str] = []
