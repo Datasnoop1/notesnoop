@@ -92,7 +92,12 @@
     "and": "en",
     "privacyPolicy": "Privacybeleid",
     "checkEmailReset": "Controleer je e-mail voor een herstelkoppeling.",
-    "checkEmailConfirm": "Controleer je e-mail voor een bevestigingskoppeling."
+    "checkEmailConfirm": "Controleer je e-mail voor een bevestigingskoppeling.",
+    "setNewPasswordTitle": "Nieuw wachtwoord instellen",
+    "setNewPasswordSubtitle": "Kies een nieuw wachtwoord voor je account",
+    "verifyingResetLink": "Herstelkoppeling controleren...",
+    "resetLinkInvalid": "Deze herstelkoppeling is ongeldig of verlopen. Vraag een nieuwe aan via de inlogpagina.",
+    "backToSignIn": "Terug naar inloggen"
   },
 
   "search": {

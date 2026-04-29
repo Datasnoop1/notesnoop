@@ -92,7 +92,12 @@
     "and": "et",
     "privacyPolicy": "Politique de confidentialite",
     "checkEmailReset": "Verifiez votre email pour un lien de reinitialisation.",
-    "checkEmailConfirm": "Verifiez votre email pour un lien de confirmation."
+    "checkEmailConfirm": "Verifiez votre email pour un lien de confirmation.",
+    "setNewPasswordTitle": "Definir un nouveau mot de passe",
+    "setNewPasswordSubtitle": "Choisissez un nouveau mot de passe pour votre compte",
+    "verifyingResetLink": "Verification de votre lien de reinitialisation...",
+    "resetLinkInvalid": "Ce lien de reinitialisation est invalide ou expire. Demandez-en un nouveau depuis la page de connexion.",
+    "backToSignIn": "Retour a la connexion"
   },
 
   "search": {

@@ -92,7 +92,12 @@
     "and": "and",
     "privacyPolicy": "Privacy Policy",
     "checkEmailReset": "Check your email for a password reset link.",
-    "checkEmailConfirm": "Check your email for a confirmation link."
+    "checkEmailConfirm": "Check your email for a confirmation link.",
+    "setNewPasswordTitle": "Set a new password",
+    "setNewPasswordSubtitle": "Choose a new password for your account",
+    "verifyingResetLink": "Verifying your reset link...",
+    "resetLinkInvalid": "This password reset link is invalid or has expired. Request a new one from the sign-in page.",
+    "backToSignIn": "Back to sign in"
   },
 
   "search": {
