@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import date
 from typing import Optional
 
@@ -34,6 +35,17 @@ VALID_EVENT_TYPES = {
     "admin_event", "capital_event", "share_transfer", "ownership_change",
     "ma_event", "liquidation_event", "corporate_change", "other_notable",
 }
+
+
+def _should_search_events_query(text: str) -> bool:
+    """Return False for very short, non-numeric event searches.
+
+    Two- and three-character Gazette searches are both noisy and expensive:
+    they cannot use semantic search and force broad FTS/trigram scans. CBE-like
+    numeric lookups stay enabled because partial enterprise numbers are useful.
+    """
+    stripped = (text or "").strip()
+    return len(stripped) >= 4 or bool(re.search(r"\d{4,}", stripped))
 
 
 def _serialize(row: dict) -> dict:
@@ -128,6 +140,10 @@ async def search_events(
     can be exercised in staging.  To force the 501, pass
     `strict_semantic=true` (not implemented yet).
     """
+    text = q.strip()
+    if not _should_search_events_query(text):
+        return {"query": q, "results": [], "count": 0, "skipped": "short_query"}
+
     # Validate filters upfront
     if event_type and event_type not in VALID_EVENT_TYPES:
         raise HTTPException(400, f"event_type must be one of {sorted(VALID_EVENT_TYPES)}")
@@ -148,7 +164,6 @@ async def search_events(
         # The search page fires this endpoint as a secondary section.
         # Cache query embeddings across semantic company and event search
         # so repeat terms do not pay another provider round-trip.
-        text = q.strip()
         emb = await embed_query(text) if len(text) >= 4 else None
     except Exception:
         logger.exception("Embedding call for query failed — falling back to keyword-only")
@@ -158,7 +173,7 @@ async def search_events(
         # `_blended_search` enforce the dim. Hardcoding 256 silently
         # disabled semantic on NVIDIA (1024-dim) in 2026-04 onwards.
         results = _blended_search(
-            q=q.strip(),
+            q=text,
             emb=emb if (isinstance(emb, list) and len(emb) > 0) else None,
             event_type=event_type,
             since=since,

@@ -11,6 +11,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from routers import staatsblad_events  # noqa: E402
 
 
+def test_short_non_numeric_event_queries_are_skipped():
+    assert staatsblad_events._should_search_events_query("ab") is False
+    assert staatsblad_events._should_search_events_query(" abc ") is False
+
+
+def test_useful_event_queries_are_allowed():
+    assert staatsblad_events._should_search_events_query("abcd") is True
+    assert staatsblad_events._should_search_events_query("0403") is True
+
+
 class _Col:
     def __init__(self, name: str):
         self.name = name
