@@ -11,7 +11,12 @@ from pydantic import BaseModel
 
 from db import fetch_all, fetch_one, execute
 from auth import get_current_user, optional_user
-from ai_client import ai_complete, ai_insights_pipeline
+from ai_client import (
+    ai_complete,
+    ai_insights_pipeline,
+    call_elaboration_narrative,
+    PHASE_5_ELABORATION_ENABLED,
+)
 from utils import clean_cbe
 from ._helpers import _serialize_row
 
@@ -805,8 +810,16 @@ async def generate_ai_insights(
     t_total = time.perf_counter()
     try:
         t0 = time.perf_counter()
-        insights = await ai_insights_pipeline(cbe, conn_helpers, lang=lang)
-        logger.info("ai_insights.pipeline cbe=%s ms=%.0f", cbe, (time.perf_counter()-t0)*1000)
+        if PHASE_5_ELABORATION_ENABLED:
+            insights = await call_elaboration_narrative(cbe, conn_helpers, lang=lang)
+            pipeline_label = "phase5_elaboration"
+        else:
+            insights = await ai_insights_pipeline(cbe, conn_helpers, lang=lang)
+            pipeline_label = "legacy_4step"
+        logger.info(
+            "ai_insights.pipeline cbe=%s pipeline=%s ms=%.0f",
+            cbe, pipeline_label, (time.perf_counter() - t0) * 1000,
+        )
     except Exception as e:
         logger.exception("AI insights pipeline failed for %s ms=%.0f", cbe, (time.perf_counter()-t_total)*1000)
         raise HTTPException(

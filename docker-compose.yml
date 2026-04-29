@@ -7,6 +7,13 @@ services:
       # See enrichment-worker for explanation. Backend on-profile retry
       # endpoints (/api/companies/.../enrichment) hit the same service.
       PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper:8000"
+      # Phase 5.2 — on-profile elaboration uses qwen-coder-next draft +
+      # kimi-k2.6 critic-refine on top of the cached bulk_summary. Set
+      # PHASE_5_ELABORATION_ENABLED=false to revert to the legacy
+      # 4-step ai_insights_pipeline.
+      PHASE_5_ELABORATION_ENABLED: "true"
+      PHASE_5_DRAFT_MODEL: "ollama:qwen3-coder-next"
+      PHASE_5_REFINE_MODEL: "ollama:kimi-k2.6"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:

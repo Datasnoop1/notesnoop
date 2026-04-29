@@ -1,12 +1,13 @@
 """OpenRouter AI client — multi-step company intelligence pipeline."""
 
+import asyncio
 import json
 import os
 import logging
 import re
 import time
 from contextvars import ContextVar
-from datetime import date
+from datetime import date, datetime, timezone
 from urllib.parse import urlparse
 
 import httpx
@@ -588,6 +589,7 @@ async def _ollama_complete_with_meta(
     max_tokens: int = 500,
     temperature: float | None = None,
     timeout_s: float = 60.0,
+    think_mode: str | None = None,
 ) -> dict:
     started = time.monotonic()
     meta = {
@@ -614,6 +616,15 @@ async def _ollama_complete_with_meta(
         "stream": False,
         "messages": messages,
     }
+    # `think: False` at top level disables chain-of-thought for reasoning
+    # models (kimi, deepseek, gpt-oss). Without it, content is empty because
+    # the token budget is consumed by hidden thinking. Some models (e.g.
+    # qwen3-next) reject `think: false` and require `reasoning_effort` instead;
+    # callers can override via the `think_mode` arg.
+    if think_mode == "off":
+        payload["think"] = False
+    elif think_mode in ("low", "minimal", "medium", "high"):
+        payload["reasoning_effort"] = think_mode
     options: dict = {}
     if temperature is not None:
         options["temperature"] = temperature
@@ -1883,6 +1894,354 @@ async def ai_insights_pipeline(cbe: str, conn_helpers: dict, lang: str | None = 
         logger.warning("Failed to store AI insights for %s: %s", cbe, e)
 
     return insights
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Phase 5.2 — elaboration narrative on top of cached bulk_summary
+#
+# Replaces the legacy `ai_insights_pipeline` for the on-profile path
+# when feature flag PHASE_5_ELABORATION_ENABLED is set (default true).
+# Reads `unified_summary` + `bulk_website_text` from cache, fetches
+# tier-1 (multi-page scrape), tier-3 (group context), tier-4 (press),
+# tier-5 (Staatsblad), then runs qwen-coder draft → kimi refine.
+# ══════════════════════════════════════════════════════════════════════
+
+PHASE_5_ELABORATION_ENABLED = os.getenv(
+    "PHASE_5_ELABORATION_ENABLED", "true"
+).lower() in ("1", "true", "yes")
+PHASE_5_DRAFT_MODEL = os.getenv("PHASE_5_DRAFT_MODEL", "ollama:qwen3-coder-next").strip()
+PHASE_5_REFINE_MODEL = os.getenv("PHASE_5_REFINE_MODEL", "ollama:kimi-k2.6").strip()
+PHASE_5_BULK_SCRAPE_MAX_AGE_DAYS = int(os.getenv("PHASE_5_BULK_SCRAPE_MAX_AGE_DAYS", "30"))
+PHASE_5_DRAFT_TIMEOUT_S = float(os.getenv("PHASE_5_DRAFT_TIMEOUT_S", "240"))
+PHASE_5_REFINE_TIMEOUT_S = float(os.getenv("PHASE_5_REFINE_TIMEOUT_S", "180"))
+PHASE_5_MAX_TOKENS = int(os.getenv("PHASE_5_MAX_TOKENS", "4000"))
+
+
+_ELABORATION_SYSTEM_PROMPT = """You write factual narratives for a Belgian private-equity screener. Your job: synthesize what a deal team needs to know about this company in 6-12 minutes of reading.
+
+Rules:
+- Be specific: name products, segments, customers when sources support it. Avoid generic phrases ("provides high-quality services").
+- Never invent revenue, EBITDA, headcount, or ownership percentages. Quote ranges only when sources state them.
+- Distinguish what the company does (offering) from what the company is (legal form, group position).
+- For each major claim, append a source tag in square brackets at the end of the sentence: [website], [kbo], [staatsblad], [press], or [group].
+- If sources are thin or contradict, say so plainly and set confidence=low.
+- Output STRICT JSON matching the schema. No prose around it. No markdown fences.
+
+Schema:
+{
+  "business_description": "2-3 sentences naming what they actually make/do and primary buyers, with [source] tags.",
+  "products_services": ["specific item 1", "specific item 2", "specific item 3"],
+  "customer_segments": "Plain-English description of who buys, with [source] tags.",
+  "market_position": "Competitive context: niche, scale, geography. With [source] tags.",
+  "group_context": "Plain-English description of group structure / ownership. With [source] tags.",
+  "history": "1-2 sentences on founding / pivots / key events. Empty string if unknown.",
+  "key_management": [{"name": "...", "role": "...", "context": "1-line note"}],
+  "source_attribution": {"business_description": ["website"], "products_services": ["website"], "customer_segments": [], "market_position": [], "group_context": [], "history": [], "key_management": []},
+  "confidence": "high"
+}
+Confidence values: "high" | "medium" | "low" | "insufficient_information"."""
+
+
+_REFINE_SYSTEM_PROMPT = """You are a critic-refiner for company narratives. You receive (1) the full source dossier and (2) a draft narrative produced by another model. Your job: identify specific weaknesses and produce an improved version.
+
+Critic checklist:
+- Vague phrases that don't tell a deal team anything ("provides quality services", "various sectors", "innovative solutions") -> replace with concrete specifics from the dossier.
+- Claims unsupported by the dossier -> remove or downgrade confidence.
+- Facts present in the dossier but missing from the draft -> add.
+- Inconsistencies between fields (e.g. business_description says distribution, products list manufacturing) -> reconcile.
+- Confidence rating mismatched to evidence -> adjust.
+
+Preserve correct content. Do NOT invent new facts not in sources. Output the SAME JSON schema as the draft (no prose, no markdown fences)."""
+
+
+def _parse_json_safely(text: str) -> dict | None:
+    text = (text or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", text, re.S)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except json.JSONDecodeError:
+                return None
+    return None
+
+
+def _load_elaboration_inputs(fetch_one, cbe: str) -> dict:
+    """Pull cached unified_summary, bulk_website_text, plus website URL."""
+    row = fetch_one(
+        """
+        SELECT ce.unified_summary, ce.bulk_website_text, ce.bulk_website_text_at,
+               ce.bulk_website_url, ce.quality_tier
+          FROM company_enrichment ce
+         WHERE ce.enterprise_number = %s
+        """,
+        (cbe,),
+    )
+    return dict(row) if row else {}
+
+
+def _bulk_scrape_is_fresh(captured_at) -> bool:
+    if not captured_at:
+        return False
+    if isinstance(captured_at, str):
+        try:
+            captured_at = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    age = datetime.now(timezone.utc) - captured_at
+    return age.days < PHASE_5_BULK_SCRAPE_MAX_AGE_DAYS
+
+
+def _format_group_context_block(graph: dict) -> str:
+    """Compact group-structure block for the elaboration prompt."""
+    lines: list[str] = []
+    shareholders = graph.get("shareholders") or []
+    subs = graph.get("subsidiaries") or []
+    admins = graph.get("administrators") or []
+    if shareholders:
+        lines.append("Top shareholders:")
+        for s in shareholders[:5]:
+            pct = s.get("ownership_pct")
+            pct_s = f" ({pct:.1f}%)" if pct else ""
+            lines.append(f"  - {s.get('name', '?')}{pct_s}")
+    if subs:
+        lines.append("Key subsidiaries:")
+        for s in subs[:5]:
+            pct = s.get("ownership_pct")
+            pct_s = f" ({pct:.1f}%)" if pct else ""
+            country = f" {s.get('country')}" if s.get("country") else ""
+            lines.append(f"  - {s.get('name', '?')}{country}{pct_s}")
+    if admins:
+        lines.append("Top administrators:")
+        for a in admins[:3]:
+            role = f" — {a.get('role_label')}" if a.get("role_label") else ""
+            lines.append(f"  - {a.get('name', '?')}{role}")
+    if not lines:
+        return ""
+    return "<group_context>\n" + "\n".join(lines) + "\n</group_context>"
+
+
+async def call_elaboration_narrative(
+    cbe: str,
+    conn_helpers: dict,
+    lang: str | None = None,
+) -> dict:
+    """Phase 5.2 — produce a richer narrative on top of the cached bulk row.
+
+    Reads unified_summary + bulk_website_text from `company_enrichment`,
+    augments with multi-page scrape (only if cache is stale), corporate
+    graph, recent Staatsblad events, and a press search, then runs
+    qwen-coder-next as draft → kimi-k2.6 as critic-refine. Persists the
+    refined narrative to `unified_summary` at tier `narrative_lite`.
+    """
+    from scraper import multi_page_scrape, press_search, scrape_company_site
+
+    fetch_one = conn_helpers["fetch_one"]
+    fetch_all = conn_helpers.get("fetch_all", lambda q, p: [])
+    execute_fn = conn_helpers["execute"]
+
+    # 1. Company facts + cached enrichment
+    company = _fetch_company_context(fetch_one, cbe)
+    if not company or not company.get("name"):
+        return {"error": "Company not found"}
+
+    cached = _load_elaboration_inputs(fetch_one, cbe)
+    bulk_text = cached.get("bulk_website_text") or ""
+    bulk_text_at = cached.get("bulk_website_text_at")
+    website_url = cached.get("bulk_website_url") or company.get("kbo_website")
+
+    pages_fetched: list[str] = []
+
+    if not bulk_text and website_url:
+        # Bulk hasn't scraped this one yet — do an on-demand scrape now
+        try:
+            bulk_text, _src = await scrape_company_site(website_url)
+        except Exception as e:
+            logger.info("elaboration: scrape_company_site failed for %s: %s", cbe, e)
+            bulk_text = ""
+
+    multi_page_text = ""
+    if website_url and not _bulk_scrape_is_fresh(bulk_text_at):
+        # Cache stale (or absent) — fetch multi-page directly
+        try:
+            multi_page_text, pages_fetched = await multi_page_scrape(website_url)
+        except Exception as e:
+            logger.info("elaboration: multi_page_scrape failed for %s: %s", cbe, e)
+    elif website_url:
+        # Cache fresh — still pick up extra subpages beyond what bulk fetched
+        try:
+            mp_text, mp_pages = await multi_page_scrape(website_url)
+            if mp_text:
+                multi_page_text, pages_fetched = mp_text, mp_pages
+        except Exception as e:
+            logger.info("elaboration: multi_page_scrape (augment) failed for %s: %s", cbe, e)
+
+    website_corpus = "\n\n".join(filter(None, [bulk_text, multi_page_text]))[:20000]
+
+    # 2. KBO + corporate graph
+    kbo_block = build_kbo_context_block({
+        "name": company.get("name"),
+        "hq_city": company.get("city"),
+        "primary_nace": company.get("sector"),
+        "revenue_band": _band_revenue(company.get("revenue")),
+        "fte_band": _band_fte(company.get("fte_total")),
+    })
+    graph = _build_corporate_graph(fetch_all, cbe)
+    group_block = _format_group_context_block(graph)
+
+    # 3. Staatsblad recent events (last 12)
+    events = _recent_staatsblad_events(fetch_all, cbe, limit=12)
+    staatsblad_block = _format_staatsblad_events_block(events) if events else ""
+
+    # 4. Press search (best-effort)
+    try:
+        press_block = await press_search(company.get("name"), company.get("city"))
+    except Exception as e:
+        logger.info("elaboration: press_search failed for %s: %s", cbe, e)
+        press_block = ""
+
+    sections = [kbo_block]
+    if group_block:
+        sections.append(group_block)
+    if staatsblad_block:
+        sections.append(staatsblad_block)
+    if press_block:
+        sections.append(press_block)
+    if website_corpus:
+        sections.append(
+            f"<website_corpus pages_fetched=\"{','.join(pages_fetched) or 'homepage'}\">\n"
+            f"{website_corpus}\n</website_corpus>"
+        )
+    deep_input = "\n\n".join(sections)
+    user_prompt = f"Source dossier:\n\n{deep_input}\n\nReturn the JSON object now."
+
+    # 5. Draft (qwen-coder-next)
+    t0 = time.monotonic()
+    draft = await _ollama_complete_with_meta(
+        prompt=user_prompt, system=_ELABORATION_SYSTEM_PROMPT,
+        model=PHASE_5_DRAFT_MODEL, max_tokens=PHASE_5_MAX_TOKENS,
+        temperature=0.3, timeout_s=PHASE_5_DRAFT_TIMEOUT_S, think_mode="off",
+    )
+    draft_latency = int((time.monotonic() - t0) * 1000)
+    if not draft.get("ok"):
+        # Fallback: return best-effort what bulk already had
+        legacy = cached.get("unified_summary") or {}
+        legacy = legacy if isinstance(legacy, dict) else {}
+        legacy["_elaboration_error"] = draft.get("error") or "draft_failed"
+        return legacy
+
+    # 6. Critic-refine (kimi-k2.6)
+    refine_prompt = (
+        f"Source dossier:\n\n{deep_input}\n\n"
+        f"Draft narrative produced by another model:\n\n{draft['text']}\n\n"
+        "Critique it and return the refined JSON now."
+    )
+    t1 = time.monotonic()
+    refined = await _ollama_complete_with_meta(
+        prompt=refine_prompt, system=_REFINE_SYSTEM_PROMPT,
+        model=PHASE_5_REFINE_MODEL, max_tokens=PHASE_5_MAX_TOKENS,
+        temperature=0.3, timeout_s=PHASE_5_REFINE_TIMEOUT_S, think_mode="off",
+    )
+    refine_latency = int((time.monotonic() - t1) * 1000)
+    chosen = refined if refined.get("ok") else draft
+    parsed = _parse_json_safely(chosen.get("text", ""))
+    if not parsed:
+        # Both failed parse — fall back to bulk
+        legacy = cached.get("unified_summary") or {}
+        legacy = legacy if isinstance(legacy, dict) else {}
+        legacy["_elaboration_error"] = "json_parse_failed"
+        return legacy
+
+    parsed["website_url"] = website_url
+
+    # 7. Persist at narrative_lite tier
+    model_chain = [
+        {
+            "step": "elaboration_draft", "model": PHASE_5_DRAFT_MODEL,
+            "latency_ms": draft_latency, "input_tokens": draft.get("input_tokens"),
+            "output_tokens": draft.get("output_tokens"),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ]
+    if refined.get("ok"):
+        model_chain.append({
+            "step": "elaboration_refine", "model": PHASE_5_REFINE_MODEL,
+            "latency_ms": refine_latency, "input_tokens": refined.get("input_tokens"),
+            "output_tokens": refined.get("output_tokens"),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        })
+    try:
+        execute_fn(
+            """
+            INSERT INTO company_enrichment
+                (enterprise_number, ai_insights, generated_at, unified_summary,
+                 quality_tier, quality_tier_at, model_chain)
+            VALUES (%s, %s, NOW(), %s::jsonb, 'narrative_lite', NOW(), %s::jsonb)
+            ON CONFLICT (enterprise_number) DO UPDATE SET
+                ai_insights      = EXCLUDED.ai_insights,
+                generated_at     = NOW(),
+                unified_summary  = EXCLUDED.unified_summary,
+                quality_tier     = 'narrative_lite',
+                quality_tier_at  = NOW(),
+                model_chain      = EXCLUDED.model_chain
+            """,
+            (
+                cbe,
+                json.dumps(parsed, ensure_ascii=False),
+                json.dumps(parsed, ensure_ascii=False),
+                json.dumps(model_chain, ensure_ascii=False),
+            ),
+        )
+    except Exception as e:
+        logger.warning("elaboration: persist failed for %s: %s", cbe, e)
+
+    # 8. Phase 5.3 — regenerate embedding from upgraded summary
+    try:
+        from embeddings import generate_embedding, store_company_embedding
+        embed_text = build_bulk_embedding_text(parsed, {
+            "name": company.get("name"),
+            "hq_city": company.get("city"),
+            "primary_nace": company.get("sector"),
+        })
+        if embed_text:
+            vec = await generate_embedding(embed_text)
+            if vec:
+                await asyncio.to_thread(store_company_embedding, cbe, vec)
+    except Exception as e:
+        logger.info("elaboration: embedding regen skipped for %s: %s", cbe, e)
+
+    return parsed
+
+
+def _band_revenue(rev) -> str | None:
+    if rev is None:
+        return None
+    if rev < 1_000_000:
+        return "<EUR 1M"
+    if rev < 10_000_000:
+        return "EUR 1-10M"
+    if rev < 50_000_000:
+        return "EUR 10-50M"
+    return ">EUR 50M"
+
+
+def _band_fte(fte) -> str | None:
+    if fte is None:
+        return None
+    if fte < 5:
+        return "<5"
+    if fte < 25:
+        return "5-25"
+    if fte < 100:
+        return "25-100"
+    if fte < 500:
+        return "100-500"
+    return ">500"
 
 
 # ══════════════════════════════════════════════════════════════════════

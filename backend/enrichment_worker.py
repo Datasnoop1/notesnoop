@@ -322,27 +322,74 @@ def _write_bulk_row(
     summary: dict,
     website_url: str | None,
     scraped_text: str | None,
+    *,
+    escalated: bool = False,
 ) -> None:
-    """Upsert `company_enrichment.bulk_*` columns."""
+    """Upsert bulk_* columns + cached scrape + unified_summary (tier-aware).
+
+    `unified_summary` and `quality_tier` are only updated when the existing
+    tier is bulk-level (or NULL). Narrative-tier rows are left intact —
+    Phase 5.2 elaboration is the only path that should write narrative_lite/full.
+    """
+    text_for_cache = (scraped_text or "")[:50000] if scraped_text else None
+    summary_json = json.dumps(summary, ensure_ascii=False)
+    confidence = (summary.get("confidence") or "").strip().lower()
+    new_tier = "bulk_escalated" if escalated else "bulk_only"
+    model_chain = json.dumps([
+        {
+            "step": "bulk_q2",
+            "model": BULK_Q2_MODEL,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ] + ([
+        {
+            "step": "bulk_escalation",
+            "model": BULK_HAIKU_MODEL,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ] if escalated else []))
+
     execute(
         """
-        INSERT INTO company_enrichment (enterprise_number, bulk_summary,
-                                        bulk_summary_at, bulk_website_hash,
-                                        bulk_website_url, bulk_confidence)
-        VALUES (%s, %s::jsonb, NOW(), %s, %s, %s)
+        INSERT INTO company_enrichment (
+            enterprise_number, bulk_summary, bulk_summary_at, bulk_website_hash,
+            bulk_website_url, bulk_confidence, bulk_website_text, bulk_website_text_at,
+            unified_summary, quality_tier, quality_tier_at, model_chain
+        )
+        VALUES (%s, %s::jsonb, NOW(), %s, %s, %s, %s, NOW(),
+                %s::jsonb, %s, NOW(), %s::jsonb)
         ON CONFLICT (enterprise_number) DO UPDATE SET
-            bulk_summary      = EXCLUDED.bulk_summary,
-            bulk_summary_at   = NOW(),
-            bulk_website_hash = EXCLUDED.bulk_website_hash,
-            bulk_website_url  = EXCLUDED.bulk_website_url,
-            bulk_confidence   = EXCLUDED.bulk_confidence
+            bulk_summary         = EXCLUDED.bulk_summary,
+            bulk_summary_at      = NOW(),
+            bulk_website_hash    = EXCLUDED.bulk_website_hash,
+            bulk_website_url     = EXCLUDED.bulk_website_url,
+            bulk_confidence      = EXCLUDED.bulk_confidence,
+            bulk_website_text    = EXCLUDED.bulk_website_text,
+            bulk_website_text_at = NOW(),
+            unified_summary = CASE
+                WHEN company_enrichment.quality_tier IN ('narrative_lite', 'narrative_full')
+                THEN company_enrichment.unified_summary
+                ELSE EXCLUDED.unified_summary
+            END,
+            quality_tier = CASE
+                WHEN company_enrichment.quality_tier IN ('narrative_lite', 'narrative_full')
+                THEN company_enrichment.quality_tier
+                ELSE EXCLUDED.quality_tier
+            END,
+            quality_tier_at = CASE
+                WHEN company_enrichment.quality_tier IN ('narrative_lite', 'narrative_full')
+                THEN company_enrichment.quality_tier_at
+                ELSE NOW()
+            END,
+            model_chain = CASE
+                WHEN company_enrichment.quality_tier IN ('narrative_lite', 'narrative_full')
+                THEN company_enrichment.model_chain
+                ELSE EXCLUDED.model_chain
+            END
         """,
         (
-            cbe,
-            json.dumps(summary, ensure_ascii=False),
-            _sha256(scraped_text),
-            website_url,
-            (summary.get("confidence") or "").strip().lower(),
+            cbe, summary_json, _sha256(scraped_text), website_url, confidence,
+            text_for_cache, summary_json, new_tier, model_chain,
         ),
     )
 
@@ -353,17 +400,20 @@ async def _persist_and_embed(
     website_url: str | None,
     scraped_text: str | None,
     kbo: dict,
+    *,
+    escalated: bool = False,
 ) -> None:
     """Run the bulk-row UPSERT and the embedding LLM call concurrently.
 
     They're independent — UPSERT touches `company_enrichment`, embed writes
     `company_embedding` keyed on the same CBE. The DB write is synchronous
     psycopg2 so we shove it onto a worker thread via asyncio.to_thread; the
-    embed call is already async. Saves ~300–800 ms per job by overlapping
-    the embedding round-trip with the DB write that previously waited for it.
+    embed call is already async.
     """
     await asyncio.gather(
-        asyncio.to_thread(_write_bulk_row, cbe, summary, website_url, scraped_text),
+        asyncio.to_thread(
+            _write_bulk_row, cbe, summary, website_url, scraped_text, escalated=escalated
+        ),
         _embed_and_store(cbe, summary, kbo),
     )
 
@@ -589,6 +639,7 @@ async def _enrich_one(cbe: str) -> dict:
         kbo_notes=kbo.get("notes"),
     )
     path = "q2"
+    escalation_succeeded = False
     if escalate:
         hk = await call_haiku_escalation(
             kbo=kbo, scraped_text=scraped_text, q2_summary=summary,
@@ -596,6 +647,7 @@ async def _enrich_one(cbe: str) -> dict:
         if hk.get("ok") and hk.get("summary"):
             summary = hk["summary"]
             path = "q2+haiku"
+            escalation_succeeded = True
         else:
             logger.info(
                 "Haiku escalation failed for %s (reason=%s): %s",
@@ -603,7 +655,10 @@ async def _enrich_one(cbe: str) -> dict:
             )
 
     # 7. Persist + embed (run in parallel — see _persist_and_embed) -
-    await _persist_and_embed(cbe, summary, website_url, scraped_text, kbo)
+    await _persist_and_embed(
+        cbe, summary, website_url, scraped_text, kbo,
+        escalated=escalation_succeeded,
+    )
 
     out.update(ok=True, path=path, confidence=summary.get("confidence"))
     return out

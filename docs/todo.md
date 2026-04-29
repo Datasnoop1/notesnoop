@@ -1,6 +1,6 @@
 # DataSnoop — To-Do List
 
-Last updated: 2026-04-27 (intake from email c2aaaaax — 8 new ideas; #31 confirmed fixed)
+Last updated: 2026-04-29 (intake from emails daaaaaay/deaaaaaz/diaaaaa7/dmaaaaa9 — 3 new items + 1 question)
 
 ---
 
@@ -15,6 +15,8 @@ Last updated: 2026-04-27 (intake from email c2aaaaax — 8 new ideas; #31 confir
 | 26 | Clicking a company in the screener should open its profile in a NEW tab | Email 2026-04-27 | in progress (`feat/screener-spider-perf-2026-04-27`) |
 | 27 | Screener: column widths should be user-adaptable (drag-resize) | Email 2026-04-27 | in progress (`feat/screener-spider-perf-2026-04-27`) |
 | 28 | Screener: add a column showing semantic keywords next to the company name | Email 2026-04-27 | in progress (`feat/screener-spider-perf-2026-04-27`) |
+| 34 | When adding a company to a project, propose related companies (like the aggregate sheet does) | Email 2026-04-28 | pending |
+| 35 | Company profile should show status (active / bankrupt / dissolved — example PLN) | Email 2026-04-28 | pending — needs source: not in `company_info` today; check KBO `EnterpriseStatusCode` and/or Staatsblad |
 
 ## Search improvements
 
@@ -22,6 +24,7 @@ Last updated: 2026-04-27 (intake from email c2aaaaax — 8 new ideas; #31 confir
 |---|------|---------|--------|
 | 5 | ~~Search "invm bv" should still find INVM — strip / ignore legal form suffix~~ | Email 2026-04-22 | done |
 | 6 | ~~Add location filter to search (postal code, town, street)~~ | Email 2026-04-22 | done (`/search/page.tsx` line 51) |
+| 36 | **BUG** — Search "filter by address does not work" (operator-reported regression on location filter) | Email 2026-04-28 | pending — reproduce + fix |
 
 ## Financial display
 

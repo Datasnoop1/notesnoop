@@ -10,6 +10,10 @@ services:
       STAGING_MODE: "false"
       # See docker-compose.yml backend service for explanation.
       PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper-staging:8000"
+      # Phase 5.2 elaboration narrative — see prod compose for details.
+      PHASE_5_ELABORATION_ENABLED: "true"
+      PHASE_5_DRAFT_MODEL: "ollama:qwen3-coder-next"
+      PHASE_5_REFINE_MODEL: "ollama:kimi-k2.6"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:

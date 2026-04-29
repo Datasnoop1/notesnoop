@@ -1,0 +1,30 @@
+# Phase-5 elaboration A/B benchmark sample (5 per revenue band)
+# Format: one CBE (10 digits, no dots) per line. Comments start with #.
+
+# small (rev < 1M EUR) - 3 with website, 2 without
+0451477788
+0472987836
+0424865740
+0507641778
+0446257804
+
+# medium (rev 1-10M EUR) - 3 with website, 2 without
+0434645221
+0474258041
+0413989664
+0473645555
+0427027949
+
+# large (rev 10-50M EUR) - 3 with website, 2 without
+0453579918
+0405849582
+0443821025
+0429874405
+0425498814
+
+# xlarge (rev > 50M EUR) - 3 with website, 2 without
+0451584389
+0458116944
+0467455074
+0434445776
+0402910779

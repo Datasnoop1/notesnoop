@@ -1040,6 +1040,93 @@ async def scrape_company_site(url: str) -> tuple[str, str]:
     return "", ""
 
 
+# Phase 5.2 — multi-page scrape used by the elaboration narrative path.
+_MULTI_PAGE_PATHS = [
+    "/about", "/about-us", "/over-ons", "/wie-zijn-wij", "/qui-sommes-nous",
+    "/products", "/producten", "/services", "/diensten",
+    "/team", "/contact",
+    "/history", "/onze-geschiedenis", "/notre-histoire",
+]
+
+
+async def multi_page_scrape(base_url: str, timeout_s: float = 12.0) -> tuple[str, list[str]]:
+    """Scrape homepage + a curated list of common subpages.
+
+    Returns (concatenated_text, [paths_that_returned_content]). Used by the
+    Phase 5.2 elaboration path to gather richer context than the bulk
+    homepage-only scrape.
+    """
+    if not base_url:
+        return "", []
+    base_url = base_url.strip().rstrip("/")
+    if not base_url.startswith("http"):
+        base_url = "https://" + base_url
+    urls = [base_url] + [base_url + p for p in _MULTI_PAGE_PATHS]
+
+    async def _try(u: str) -> tuple[str, str]:
+        try:
+            text, _src = await asyncio.wait_for(scrape_company_site(u), timeout=timeout_s)
+            return u, (text or "")
+        except Exception:
+            return u, ""
+
+    results = await asyncio.gather(*[_try(u) for u in urls])
+    seen_text: set[str] = set()
+    chunks: list[str] = []
+    pages_ok: list[str] = []
+    for u, text in results:
+        if not text or len(text) < 200:
+            continue
+        head = text[:200]
+        if head in seen_text:
+            continue
+        seen_text.add(head)
+        path = u[len(base_url):] or "/"
+        chunks.append(f"=== {path} ===\n{text[:4000]}")
+        pages_ok.append(path)
+    return "\n\n".join(chunks), pages_ok
+
+
+async def press_search(name: str, city: str | None = None, timeout_s: float = 8.0) -> str:
+    """Best-effort DuckDuckGo press lookup for the elaboration path.
+
+    Returns a `<press_snippets>...</press_snippets>` block ready to embed in
+    a prompt, or "" on failure. No API key required.
+    """
+    if not name:
+        return ""
+    q = f'"{name}"'
+    if city:
+        q += f" {city}"
+    q += " (overname OR fusie OR investering OR kapitaal OR raise OR acquires OR press)"
+    try:
+        async with httpx.AsyncClient(timeout=timeout_s, follow_redirects=True) as client:
+            r = await client.get("https://html.duckduckgo.com/html/", params={"q": q})
+            if r.status_code != 200:
+                return ""
+            html = r.text
+    except Exception:
+        return ""
+    snippets = re.findall(
+        r'<a class="result__a"[^>]*>([^<]+)</a>.*?<a class="result__snippet"[^>]*>([^<]+)</a>',
+        html, re.S,
+    )
+    if not snippets:
+        snippets = [("", s) for s in re.findall(
+            r'<a[^>]*class="result__snippet"[^>]*>([^<]+)</a>', html, re.S,
+        )]
+    items: list[str] = []
+    for title, snippet in snippets[:5]:
+        title = re.sub(r"\s+", " ", title).strip()
+        snippet = re.sub(r"\s+", " ", snippet).strip()
+        if not snippet:
+            continue
+        items.append(f"- {title}: {snippet}" if title else f"- {snippet}")
+    if not items:
+        return ""
+    return "<press_snippets>\n" + "\n".join(items[:5]) + "\n</press_snippets>"
+
+
 def slugify_company_name(name: str) -> str:
     """Convert a company name to a LinkedIn-style URL slug.
 
