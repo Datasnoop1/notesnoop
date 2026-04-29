@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getDeepNetwork } from "@/lib/api";
 import type {
@@ -31,8 +31,18 @@ interface PyramidNode {
   isTarget?: boolean;
 }
 
+interface DirectorEntry {
+  id: string;
+  name: string;
+  role: string;
+  isLegal: boolean; // true if the administrator is itself a company (legal person)
+}
+
 interface BuildResult {
   nodes: PyramidNode[];
+  directors: DirectorEntry[];
+  /** Y-centre of the target node — the directors panel pins to this. */
+  targetY: number;
   width: number;
   height: number;
   hasAncestors: boolean;
@@ -46,6 +56,18 @@ const ROW_GAP = 96; // vertical gap between row centres beyond box height
 const COL_GAP = 28; // minimum horizontal gap between siblings
 const MARGIN_X = 40;
 const MARGIN_Y = 40;
+
+// Directors render as a small low-opacity horizontal strip floating to the
+// RIGHT of the target row — out of the central pyramid axis so it doesn't
+// compete with the ownership flow. Smaller, more muted than the ownership
+// boxes; reads as a side annotation.
+const DIR_STRIP_H = 38;
+const DIR_STRIP_GAP_X = 26;     // horizontal gap between target right edge and strip left edge
+const DIR_CELL_W = 102;
+const DIR_CELL_PAD_X = 3;
+const DIR_STRIP_PAD_X = 6;
+const DIR_MAX_VISIBLE = 6;
+const DIR_STRIP_OPACITY = 0.72;
 
 function indexResponse(resp: DeepNetworkResponse) {
   const nodeById = new Map<string, DeepNetworkNode>();
@@ -139,6 +161,25 @@ function buildPyramid(
     }
   }
 
+  // Directors (incoming `administrator` edges to root). Different visual
+  // axis from ownership — rendered as a grouped side panel, not a row.
+  const directors: DirectorEntry[] = [];
+  {
+    const seen = new Set<string>();
+    for (const e of incoming.get(rootId) ?? []) {
+      if (e.relationship !== "administrator") continue;
+      if (seen.has(e.source)) continue;
+      seen.add(e.source);
+      const node = nodeById.get(e.source);
+      if (!node) continue;
+      directors.push({
+        id: e.source,
+        name: node.name,
+        role: e.label || "Administrator",
+        isLegal: node.type !== "person",
+      });
+    }
+  }
   // Compose row order top→bottom: deepest ancestors first, then ..., parents,
   // target, direct subs, ..., deepest descendants.
   const allRows: PyramidNode[][] = [
@@ -157,9 +198,22 @@ function buildPyramid(
     ...descendantRows,
   ];
 
-  // Width: drive by widest row, never less than 880
+  // Width: drive by widest row, never less than 880. Reserve right-side
+  // space for the directors strip so it doesn't push the SVG horizontal
+  // overflow when there are several directors.
+  const visibleDirCount = Math.min(directors.length, DIR_MAX_VISIBLE);
+  const overflowExtraCell = directors.length > DIR_MAX_VISIBLE ? 1 : 0;
+  const stripWidthIfPresent = directors.length > 0
+    ? (visibleDirCount + overflowExtraCell) * DIR_CELL_W + DIR_STRIP_PAD_X * 2
+    : 0;
   const widestCount = Math.max(...allRows.map((r) => r.length), 1);
-  const usableWidth = Math.max(880, widestCount * (BOX_W + COL_GAP) + MARGIN_X * 2);
+  const baseChartWidth =
+    Math.max(880, widestCount * (BOX_W + COL_GAP) + MARGIN_X * 2);
+  // The strip floats right of target. If `target.x + BOX_W/2 + GAP + stripWidth`
+  // exceeds the natural chart width, widen the canvas so it isn't clipped.
+  const strippedRightEdge =
+    baseChartWidth / 2 + BOX_W / 2 + DIR_STRIP_GAP_X + stripWidthIfPresent + MARGIN_X;
+  const usableWidth = Math.max(baseChartWidth, strippedRightEdge);
 
   // Position each row horizontally centred, stretched evenly.
   allRows.forEach((row, idx) => {
@@ -169,7 +223,6 @@ function buildPyramid(
       row[0].y = y;
       return;
     }
-    // Evenly spaced; first node centred at MARGIN_X+BOX_W/2, last at usableWidth-MARGIN_X-BOX_W/2
     const left = MARGIN_X + BOX_W / 2;
     const right = usableWidth - MARGIN_X - BOX_W / 2;
     const step = (right - left) / (row.length - 1);
@@ -183,8 +236,13 @@ function buildPyramid(
     MARGIN_Y * 2 + allRows.length * BOX_H + (allRows.length - 1) * ROW_GAP;
 
   const flat = allRows.flat();
+  const targetY =
+    flat.find((n) => n.isTarget)?.y ?? MARGIN_Y + BOX_H / 2;
+
   return {
     nodes: flat,
+    directors,
+    targetY,
     width: usableWidth,
     height: totalHeight,
     hasAncestors: ancestorRows.length > 0,
@@ -231,13 +289,38 @@ export default function NetworkPyramid({ cbe, companyName, vat }: Props) {
     return buildPyramid(resp, cbe, companyName, depth);
   }, [resp, cbe, companyName, depth]);
 
-  const isEmpty = !!layout && !layout.hasAncestors && !layout.hasDescendants;
+  // 2a) Whenever the layout or zoom changes, scroll the wrap so the pyramid
+  // is centred in view (otherwise the SVG pins to the top-left and the
+  // target ends up offscreen on wider charts).
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el || !layout) return;
+    el.scrollLeft = Math.max(0, (el.scrollWidth - el.clientWidth) / 2);
+    el.scrollTop = Math.max(0, (el.scrollHeight - el.clientHeight) / 2);
+  }, [layout, zoom]);
+
+  const isEmpty =
+    !!layout &&
+    !layout.hasAncestors &&
+    !layout.hasDescendants &&
+    layout.directors.length === 0;
 
   function nodeClick(n: PyramidNode) {
     if (n.isTarget) return;
     // Only navigate to nodes that look like Belgian CBEs (10 digits).
     if (/^\d{10}$/.test(n.id)) {
       router.push(`/company/${n.id}`);
+    }
+  }
+
+  function directorClick(d: DirectorEntry) {
+    if (d.isLegal && /^\d{10}$/.test(d.id)) {
+      router.push(`/company/${d.id}`);
+      return;
+    }
+    if (d.id.startsWith("person:")) {
+      const name = d.id.slice("person:".length);
+      router.push(`/people/${encodeURIComponent(name)}`);
     }
   }
 
@@ -319,7 +402,7 @@ export default function NetworkPyramid({ cbe, companyName, vat }: Props) {
         <>
           {isEmpty ? (
             <div className="rounded border border-[#E2E8F2] bg-[#F8FAFC] px-4 py-10 text-center text-sm text-[#64748B]">
-              No parent companies or subsidiaries found for this company.
+              No parents, subsidiaries or directors found for this company.
             </div>
           ) : (
             <div
@@ -360,7 +443,7 @@ export default function NetworkPyramid({ cbe, companyName, vat }: Props) {
                   // Visually both render top-to-bottom because pyramid layout
                   // puts higher-y on owner side.
                   const fromX = other.x;
-                  const fromY = other.y + BOX_H / 2; // bottom of upper box
+                  const fromY = other.y + BOX_H / 2;
                   const toX = n.x;
                   const toY = n.y - BOX_H / 2 - 2; // top of lower box minus arrow inset
                   // For ancestors, the geometry is already correct (other = level closer to target = below).
@@ -426,6 +509,128 @@ export default function NetworkPyramid({ cbe, companyName, vat }: Props) {
                     </g>
                   );
                 })}
+
+                {/* Directors strip — small low-opacity rectangle floating
+                    to the RIGHT of the target row. Out of the central
+                    pyramid axis; reads as a side annotation rather than
+                    part of the ownership flow. */}
+                {layout.directors.length > 0 && (() => {
+                  const target = layout.nodes.find((n) => n.isTarget)!;
+                  const visible = layout.directors.slice(0, DIR_MAX_VISIBLE);
+                  const overflow = Math.max(0, layout.directors.length - visible.length);
+                  const cellCount = visible.length + (overflow > 0 ? 1 : 0);
+                  const stripW =
+                    cellCount * DIR_CELL_W + DIR_STRIP_PAD_X * 2;
+                  const stripX = target.x + BOX_W / 2 + DIR_STRIP_GAP_X;
+                  const stripY = target.y - DIR_STRIP_H / 2;
+                  return (
+                    <foreignObject
+                      key="directors-strip"
+                      x={stripX}
+                      y={stripY}
+                      width={stripW}
+                      height={DIR_STRIP_H}
+                      style={{ opacity: DIR_STRIP_OPACITY }}
+                    >
+                      <div
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          background: "#ffffff",
+                          border: "1px solid #e2e8f0",
+                          borderRadius: 8,
+                          boxSizing: "border-box",
+                          display: "flex",
+                          alignItems: "stretch",
+                          padding: `0 ${DIR_STRIP_PAD_X}px`,
+                          fontFamily:
+                            "var(--font-geist), system-ui, sans-serif",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {visible.map((d, i) => {
+                          const navigable =
+                            (d.isLegal && /^\d{10}$/.test(d.id)) ||
+                            d.id.startsWith("person:");
+                          return (
+                            <div
+                              key={d.id}
+                              onClick={() => directorClick(d)}
+                              title={`${d.name}${d.role ? " · " + d.role : ""}`}
+                              style={{
+                                flex: `0 0 ${DIR_CELL_W}px`,
+                                minWidth: 0,
+                                padding: `0 ${DIR_CELL_PAD_X}px`,
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                textAlign: "center",
+                                cursor: navigable ? "pointer" : "default",
+                                borderLeft:
+                                  i === 0 ? "none" : "1px solid #f1f5f9",
+                                transition: "background 120ms ease",
+                              }}
+                              onMouseEnter={(ev) => {
+                                if (!navigable) return;
+                                (ev.currentTarget as HTMLDivElement).style.background = "#f8fafc";
+                              }}
+                              onMouseLeave={(ev) => {
+                                (ev.currentTarget as HTMLDivElement).style.background = "transparent";
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  color: "#0f172a",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  width: "100%",
+                                  lineHeight: 1.2,
+                                }}
+                              >
+                                {d.name}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 9.5,
+                                  fontWeight: 400,
+                                  color: "#94a3b8",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  width: "100%",
+                                  marginTop: 1,
+                                  letterSpacing: "0.02em",
+                                }}
+                              >
+                                {d.role}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {overflow > 0 && (
+                          <div
+                            style={{
+                              flex: `0 0 ${DIR_CELL_W}px`,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: 10,
+                              fontStyle: "italic",
+                              color: "#94a3b8",
+                              borderLeft: "1px solid #f1f5f9",
+                            }}
+                          >
+                            + {overflow} more
+                          </div>
+                        )}
+                      </div>
+                    </foreignObject>
+                  );
+                })()}
 
                 {/* Nodes */}
                 {layout.nodes.map((n) => {
@@ -498,9 +703,15 @@ export default function NetworkPyramid({ cbe, companyName, vat }: Props) {
             </span>
             <span>
               <strong className="text-[#0F172A] font-semibold mr-1">
-                Click any box
+                Right of the target
               </strong>
-              to open that company's profile
+              directors who run it (governance, not ownership)
+            </span>
+            <span>
+              <strong className="text-[#0F172A] font-semibold mr-1">
+                Click any name
+              </strong>
+              to open that profile
             </span>
           </div>
           {vat && (
