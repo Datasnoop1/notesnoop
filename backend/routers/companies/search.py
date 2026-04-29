@@ -398,31 +398,36 @@ def _search_location_only_cached(
 # Location-only browse SQL. Same column shape as the scored path so
 # `_serialize_row` + `_build_response` keep working unchanged.
 #
-# Ranking happens INSIDE the loc_filter CTE: per-entity DISTINCT ON
-# folds duplicate REGO rows, then we ORDER BY revenue and LIMIT 5000.
-# This guarantees the top-revenue companies in a given location aren't
-# dropped by an arbitrary slice for big cities (Brussels REGO is
-# ~60K rows; without inner sorting the outer LIMIT would see a random
-# 5000 of them and miss the biggest names).
+# Two-stage CTE keeps it fast even on big cities (Brussels REGO is
+# ~50K rows, Antwerp ~63K):
+#   1. `loc_candidates` — index-only DISTINCT scan on address with the
+#       location predicate. No JOIN, no sort. Postgres can use the
+#       trgm/btree indexes on zipcode + municipality_nl/_fr efficiently
+#       and dedupe the rare multi-REGO entity in a hash.
+#   2. `loc_filter` — top-N by revenue over the deduped candidate set.
+#       LIMIT 200 leaves comfortable headroom for the post-filter
+#       `commercial` (max 20) and `nonprofit_or_public` (max 10)
+#       buckets in `_build_response`.
+# The LATERAL denomination lookup in the outer query then only fires
+# for ~200 rows, not all candidates.
 #
 # No status filter — PE sourcing benefits from seeing dissolved /
 # in-liquidation companies too. The status chip on the profile page
 # (#35) makes the lifecycle stage obvious at a glance.
 _LOC_ONLY_SQL = """
-WITH loc_filter AS (
-    SELECT enterprise_number, sort_rev
-    FROM (
-        SELECT DISTINCT ON (a.entity_number)
-               a.entity_number               AS enterprise_number,
-               COALESCE(fl.revenue, 0)::bigint AS sort_rev
-        FROM address a
-        LEFT JOIN financial_latest fl ON fl.enterprise_number = a.entity_number
-        WHERE a.type_of_address = 'REGO'
-          AND __LOC_CLAUSES__
-        ORDER BY a.entity_number, COALESCE(fl.revenue, 0) DESC NULLS LAST
-    ) per_entity
-    ORDER BY sort_rev DESC NULLS LAST
-    LIMIT 5000
+WITH loc_candidates AS (
+    SELECT DISTINCT a.entity_number AS enterprise_number
+    FROM address a
+    WHERE a.type_of_address = 'REGO'
+      AND __LOC_CLAUSES__
+),
+loc_filter AS (
+    SELECT lc.enterprise_number,
+           COALESCE(fl.revenue, 0)::real AS sort_rev
+    FROM loc_candidates lc
+    LEFT JOIN financial_latest fl ON fl.enterprise_number = lc.enterprise_number
+    ORDER BY COALESCE(fl.revenue, 0) DESC NULLS LAST
+    LIMIT 200
 )
 SELECT
     e.enterprise_number,
