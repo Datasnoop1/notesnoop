@@ -81,6 +81,20 @@ import { BenchmarkTab } from "./_tabs/benchmark-tab";
 import { SimilarTab } from "./_tabs/similar-tab";
 import { InsightsOverlay } from "./_tabs/insights-overlay";
 
+const NetworkSunburst = dynamic(() => import("@/components/network-sunburst"), {
+  ssr: false,
+  loading: () => (
+    <div className="py-8 text-center text-sm text-slate-400">Loading sunburst…</div>
+  ),
+});
+
+const NetworkPyramid = dynamic(() => import("@/components/network-pyramid"), {
+  ssr: false,
+  loading: () => (
+    <div className="py-8 text-center text-sm text-slate-400">Loading pyramid…</div>
+  ),
+});
+
 const NetworkGraph = dynamic(() => import("@/components/network-graph"), {
   ssr: false,
 });
@@ -1261,7 +1275,11 @@ export function CompanyPageClient({
               { value: "credit", label: t("company.tabs.credit") as string },
             ]},
             { id: "valuation", label: t("company.tabs.valuation") as string, subs: [{ value: "valuation", label: "" }] },
-            { id: "network", label: t("company.tabs.network") as string, subs: [{ value: "network", label: "" }] },
+            { id: "network", label: t("company.tabs.network") as string, subs: [
+              { value: "network", label: "Graph" },
+              { value: "network-pyramid", label: "Pyramid" },
+              { value: "network-sunburst", label: "Sunburst" },
+            ]},
             { id: "people", label: "People & Ownership", subs: [
               { value: "administrators", label: t("company.tabs.administrators") as string },
               { value: "structure", label: t("company.tabs.structure") as string },
@@ -1534,6 +1552,28 @@ export function CompanyPageClient({
         <TabsContent value="network" className="mt-3">
           <React.Suspense fallback={<div className="py-8 text-center text-sm text-slate-400">{t("company.loadingGraph")}</div>}>
             <NetworkGraph cbe={cbe} companyName={detail?.name || cbe} />
+          </React.Suspense>
+        </TabsContent>
+
+        {/* ===== Network · Sunburst ===== */}
+        <TabsContent value="network-sunburst" className="mt-3">
+          <React.Suspense fallback={<div className="py-8 text-center text-sm text-slate-400">Loading sunburst…</div>}>
+            <NetworkSunburst
+              cbe={cbe}
+              companyName={detail?.name || cbe}
+              vat={`BE ${cbe.replace(/^(\d)(\d{3})(\d{3})(\d{3})$/, "$1$2.$3.$4")}`}
+            />
+          </React.Suspense>
+        </TabsContent>
+
+        {/* ===== Network · Pyramid ===== */}
+        <TabsContent value="network-pyramid" className="mt-3">
+          <React.Suspense fallback={<div className="py-8 text-center text-sm text-slate-400">Loading pyramid…</div>}>
+            <NetworkPyramid
+              cbe={cbe}
+              companyName={detail?.name || cbe}
+              vat={`BE ${cbe.replace(/^(\d)(\d{3})(\d{3})(\d{3})$/, "$1$2.$3.$4")}`}
+            />
           </React.Suspense>
         </TabsContent>
 
