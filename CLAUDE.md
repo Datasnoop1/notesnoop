@@ -46,10 +46,25 @@ gotchas), coverage state, and the full change history.
 - **Frontend**: Next.js 16 + React 19 in `frontend/` (App Router, standalone build)
 - **Auth**: Supabase (JWT verified server-side via JWKS)
 - **Billing**: Stripe (subscriptions + webhooks)
-- **AI enrichment**: OpenRouter. Bulk-summary pipeline (Q2 = GPT-4o-mini +
-  KBO context → Haiku 4.5 escalation) feeds `company_enrichment.bulk_summary`
-  and `company_embedding`. Legacy 4-step `ai_insights_pipeline` still owns
-  on-profile narratives — refactor deferred to Phase 5.
+- **AI enrichment**: Bulk and on-profile paths share `unified_summary` on
+  `company_enrichment` (Phase 5, shipped 2026-04-29). Bulk pipeline runs
+  `ollama:qwen3-coder-next` (Q2) → `ollama:deepseek-v4-flash:latest`
+  escalation, writing `bulk_summary`, `bulk_website_text`,
+  `unified_summary` at tier `bulk_only`/`bulk_escalated`, and the
+  embedding. On-profile elaboration is `call_elaboration_narrative` in
+  `ai_client.py`: `ollama:qwen3-coder-next` draft → `ollama:kimi-k2.6`
+  critic-refine on top of the cached bulk row, plus multi-page scrape,
+  group context, recent Staatsblad, and a press search. The embedding
+  regenerates from the upgraded narrative so semantic search and
+  find-similar improve with every viewed profile. The
+  `/api/companies/{cbe}/ai-insights` endpoint returns sub-second via the
+  ai_insights cache → bulk_summary fast path → KBO skeleton fallback;
+  the qwen+kimi work runs in a pinned background asyncio task; the
+  frontend polls every 30s (cap 3 attempts) and silently swaps in the
+  rich version. Legacy `ai_insights_pipeline` remains in `ai_client.py`
+  behind the `PHASE_5_ELABORATION_ENABLED` env flag (default `true`)
+  as a single-flag rollback; Phase 5.4 (post-30-day soak) drops the
+  legacy columns and code.
 - **Web scraping**: raw `httpx + trafilatura` is the bulk default. **Zenrows
   was replaced by an in-network `playwright-scraper` service on 2026-04-25**
   — headless Chromium rotating through a Webshare datacenter proxy pool

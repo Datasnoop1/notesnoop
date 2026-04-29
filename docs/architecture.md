@@ -238,21 +238,30 @@ Operational runbook: [`docs/semantic-operations.md`](semantic-operations.md).
 Read that before changing queue policy, fast-lane thresholds, excluded legal
 forms, or ETA assumptions.
 
-DataSnoop runs **two** AI enrichment pipelines, written to **different
-columns** of `company_enrichment` and used for different surfaces. The
-bulk pipeline processes the target corpus automatically; the narrative
-pipeline runs on-demand when a user opens a profile.
+DataSnoop runs **two** AI enrichment pipelines that share one canonical
+output column on `company_enrichment` (Phase 5, shipped 2026-04-29).
+The bulk pipeline processes the target corpus automatically; the
+elaboration pipeline runs in the background when a user opens a
+profile and upgrades the same row.
 
-| Column | Who writes it | Who reads it | Shape |
+| Column | Who writes it | Tier set | Shape |
 |---|---|---|---|
-| `bulk_summary` (JSONB) | `backend/enrichment_worker.py` | `/api/search/semantic` + profile fallback | Structured: `{business_description, products_services[], customer_segments[], confidence}`. Short, factual, embeddable. |
-| `ai_insights` (TEXT) | `backend/ai_client.py::ai_insights_pipeline` on profile open | Profile "Summary" tab | Richer narrative, 200-400 tokens, with `key_management[]`, `group_context`, etc. |
+| `unified_summary` (JSONB) | bulk worker, then `call_elaboration_narrative` | `bulk_only` → `bulk_escalated` → `narrative_lite` → `narrative_full` | Single canonical narrative; tier only ever climbs up. Bulk fills the structured 4-field shape; elaboration adds `market_position`, `history`, `key_management[]`, `source_attribution`. |
+| `bulk_website_text` (TEXT) | bulk worker | n/a | Cached cleaned scrape text. Read by elaboration to skip a redundant fetch when fresh (< 30 days). |
+| `model_chain` (JSONB) | both | n/a | Ordered audit trail: `[{step, model, latency_ms, tokens, completed_at}]`. |
+| `ai_insights` (TEXT) | elaboration (kept for backwards compat) | n/a | Same JSON as `unified_summary`. Read by the legacy cache short-circuit in the FastAPI endpoint. Removed in Phase 5.4 after 30-day soak. |
+| `bulk_summary` (JSONB) | bulk worker (kept for backwards compat) | n/a | Mirror of the bulk-tier `unified_summary`. Removed in Phase 5.4. |
 
-**Why split:** the bulk path is Q2 (GPT-4o-mini + KBO context), optimised
-for cost at ~$0.00016/company; it must run across the full ~1.7M KBO
-universe without blowing a $100 budget. The narrative path runs on-demand
-per profile view, tolerates a more expensive model, and produces richer
-output. Both share the scraper and KBO-context builders.
+**Why two pipelines, one column:** the bulk path is cost-optimised
+(`ollama:qwen3-coder-next` Q2 + `ollama:deepseek-v4-flash` escalation,
+flat-rate Ollama subscription) and runs across the ~1.7M KBO universe.
+The elaboration path tolerates two LLM calls per profile view because
+it's only triggered by user attention, and produces a richer narrative
+(`ollama:qwen3-coder-next` draft → `ollama:kimi-k2.6` critic-refine).
+The elaboration **regenerates the embedding** from the upgraded text,
+so semantic search and find-similar quality compounds with every viewed
+profile. Both pipelines share the scraper, the KBO-context builder,
+and the corporate-graph helper.
 
 ### Bulk pipeline (worker)
 
@@ -265,12 +274,14 @@ output. Both share the scraper and KBO-context builders.
 6. Scrape              → raw httpx + trafilatura (≤8k); proxy fallback via in-network playwright-scraper (Chromium + Webshare DC proxies) for sites that block raw httpx
 7. Template fallback   → scrape absent or untrustworthy → deterministic summary
 8. KBO context block   → build_kbo_context_block({parent, admins, NACE, notes…})
-9. Q2 call             → call_q2(kbo, scraped) — GPT-4o-mini, structured output
-10. Collision check    → check_entity_collision — cheap 2nd GPT-4o-mini call
+9. Q2 call             → call_q2(kbo, scraped) — ollama:qwen3-coder-next, structured output
+10. Collision check    → check_entity_collision — cheap 2nd Q2 call
                           that catches same-named wrong-entity matches
 11. Escalation         → tier-1 big / KBO nace-flag / q2.confidence=low
-                          → call_haiku_escalation(kbo, scraped, q2_summary)
-12. Persist            → company_enrichment.bulk_summary + bulk_website_hash
+                          → call_haiku_escalation — ollama:deepseek-v4-flash:latest
+                          (fallbacks: glm-5.1, minimax-m2.7)
+12. Persist            → company_enrichment.bulk_summary, bulk_website_text,
+                          unified_summary @ tier bulk_only|bulk_escalated, model_chain
 13. Embed              → text-embedding-3-small @ 256 dims → company_embedding
 ```
 
@@ -283,9 +294,9 @@ attributes spend correctly. Daily spend guard reads back from
 
 `/api/search/semantic` filters out `bulk_confidence IN ('low',
 'insufficient_information')` by default. `?include_uncertain=1` flips
-it. The same floor is applied by the (Phase 5) profile elaboration step
-when it decides whether to surface or fall back to a NACE-template
-blurb.
+it. The same floor is applied by the on-profile elaboration step
+(`call_elaboration_narrative`) when it decides whether to surface a
+narrative or fall back to a NACE-template blurb.
 
 ### Worker operational controls
 
