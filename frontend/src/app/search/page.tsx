@@ -158,35 +158,31 @@ function UnifiedSearchPageInner() {
       return;
     }
 
-    // 250ms debounce — slightly slower than instant-search but stops
-    // rapid typing piling up cold-cache backend queries (each ~700 ms
-    // cold across all three endpoints). Each keystroke aborts the
-    // previous in-flight requests via AbortController, so we only pay
-    // for the last typed batch.
+    // 100ms debounce — feels instant. AbortController cancels stale
+    // in-flight requests so rapid typing only commits the final batch.
     debounceRef.current = setTimeout(() => {
       const ac = new AbortController();
       abortRef.current = ac;
       setLoading(true);
       setSearched(true);
 
-      // People + events are not location-filtered today, so when a
-      // location filter is set we'd be showing people and events
-      // unfiltered — confusing UX (admins from all over Belgium when
-      // the operator only typed "Schoten"). Skip them entirely while
-      // a location filter is active. Operator can clear the location
-      // to see people again.
+      // People + events are not location-filtered today; when a
+      // location filter is set we'd be showing them unfiltered which
+      // is misleading. Skip them while a location filter is active —
+      // operator can clear the location to see people again.
       const includeNameSearches = trimmed.length >= 2 && !hasLocFilter;
-      // Events are a lower-priority, semantically-expanded surface. Two
-      // and three character searches create noisy matches and can burn
-      // an embedding call, so keep them to useful-length terms or CBE-
-      // like numeric lookups.
+      // Events are a lower-priority, semantically-expanded surface.
+      // The endpoint is currently 1-2 s even warm (pgvector +
+      // OpenRouter embedding round-trip), so we fire-and-forget and
+      // do NOT make the loading spinner wait on it — otherwise users
+      // see a 2 s "searching…" even when companies + people returned
+      // in <200 ms.
       const includeEvents =
         includeNameSearches &&
         (trimmed.length >= 4 || /\d{4,}/.test(trimmed));
 
       let remaining = 1; // companies always
       if (includeNameSearches) remaining += 1;
-      if (includeEvents) remaining += 1;
       const done = () => {
         if (--remaining === 0 && !ac.signal.aborted) setLoading(false);
       };
@@ -206,10 +202,11 @@ function UnifiedSearchPageInner() {
       }
 
       if (includeEvents) {
+        // Fire-and-forget — events render whenever they arrive, the
+        // spinner above doesn't wait on them.
         searchEvents(trimmed, { limit: 10 }, ac.signal)
           .then((ev) => { if (!ac.signal.aborted) setEvents(ev.results || []); })
-          .catch(() => { if (!ac.signal.aborted) setEvents([]); })
-          .finally(done);
+          .catch(() => { if (!ac.signal.aborted) setEvents([]); });
       } else {
         setEvents([]);
       }
