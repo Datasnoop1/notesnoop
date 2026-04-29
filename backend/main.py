@@ -1030,6 +1030,52 @@ async def startup_phase1_migrations():
 
 
 @app.on_event("startup")
+async def startup_search_prewarm():
+    """Pre-warm /api/companies/search and /api/people/search caches with
+    the most-clicked recent terms so the first user-facing query of the
+    day doesn't pay the cold-cache cost. ~50 queries × 2 endpoints
+    against an already-running DB takes a few seconds in the background
+    and never blocks request handling. Failures are silently ignored —
+    this is a perf nicety, not a correctness path.
+    """
+    import asyncio
+
+    async def _prewarm() -> None:
+        try:
+            from db import fetch_all
+            from routers.companies.search import _search_companies_cached
+            from routers.people import _search_people_cached
+            # Top names by 28-day click count from `company_popularity` —
+            # already a materialised lookup that the search scoring uses.
+            rows = fetch_all(
+                "SELECT ci.name FROM company_popularity cp "
+                "JOIN company_info ci ON ci.enterprise_number = cp.enterprise_number "
+                "WHERE ci.name IS NOT NULL AND length(ci.name) >= 3 "
+                "ORDER BY cp.click_count DESC LIMIT 50"
+            )
+            seen: set[str] = set()
+            warmed = 0
+            for r in rows or []:
+                name = (r.get("name") or "").strip().lower()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                try:
+                    _search_companies_cached(name, 20, None, None, None)
+                    _search_people_cached(name)
+                    warmed += 1
+                except Exception:
+                    continue
+            logger.info("search cache pre-warmed: %d terms", warmed)
+        except Exception:
+            logger.exception("search pre-warm skipped (non-fatal)")
+
+    # Fire-and-forget. The first user-facing request still works even
+    # if pre-warm hasn't completed yet — they just hit cold cache once.
+    asyncio.create_task(_prewarm())
+
+
+@app.on_event("startup")
 async def startup_search_v2_cache():
     """Load search V2 synonym cache from `legal_form_synonyms`.
 
