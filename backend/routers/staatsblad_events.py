@@ -158,16 +158,14 @@ async def search_events(
         if not enterprise_number.isdigit() or len(enterprise_number) != 10:
             raise HTTPException(400, "enterprise_number must be 10 digits")
 
-    # Delegate to the blended search.  If no embeddings exist yet, the
-    # function will fall back to FTS+trigram only.
-    try:
-        # The search page fires this endpoint as a secondary section.
-        # Cache query embeddings across semantic company and event search
-        # so repeat terms do not pay another provider round-trip.
-        emb = await embed_query(text) if len(text) >= 4 else None
-    except Exception:
-        logger.exception("Embedding call for query failed — falling back to keyword-only")
-        emb = None
+    # Keyword-only mode (skip the OpenRouter embedding round-trip).
+    # The embedding path adds 1.5-2 s per call even with the cache and
+    # turned the small events footer on /search into the dominant
+    # bottleneck. FTS+trigram on (summary, person_name, entity_name)
+    # is good enough for the small bucket displayed at the bottom of
+    # the search page; users who want semantic event search can opt
+    # in later via a richer endpoint.
+    emb = None
     try:
         # Accept any non-empty list — let the pgvector cast in
         # `_blended_search` enforce the dim. Hardcoding 256 silently
