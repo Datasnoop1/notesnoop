@@ -78,6 +78,9 @@ async def get_company_detail(cbe: str, response: Response):
     try:
         # company_info.nace_code is refreshed from the 2008 KBO activities table.
         # Only fall back to a live activity row when company_info has no code.
+        # Latest staatsblad liquidation_event powers the status assessment
+        # below — sub_type=liquidation_open ⇒ in liquidation,
+        # sub_type=liquidation_close ⇒ dissolved.
         header = fetch_one("""
             SELECT e.enterprise_number, e.status, e.start_date,
                    e.juridical_form AS "jf_code",
@@ -92,6 +95,8 @@ async def get_company_detail(cbe: str, response: Response):
                        WHEN ci.nace_code IS NOT NULL THEN '2008'
                        ELSE act.nace_version
                    END AS "_nace_version",
+                   liq.sub_type     AS "_liq_sub",
+                   liq.pub_date     AS "_liq_date",
                    (SELECT value FROM contact WHERE entity_number = e.enterprise_number AND contact_type = 'WEB' LIMIT 1) AS "website"
             FROM enterprise e
             LEFT JOIN company_info ci ON ci.enterprise_number = e.enterprise_number
@@ -115,6 +120,21 @@ async def get_company_detail(cbe: str, response: Response):
                     act.nace_code
                 LIMIT 1
             ) act ON ci.nace_code IS NULL
+            LEFT JOIN LATERAL (
+                -- Restrict to true liquidation milestones. The
+                -- liquidation_event family also produces
+                -- 'bankruptcy' / 'judicial_reorganisation' sub_types
+                -- (handled separately by the insolvency badge); without
+                -- this filter their pub_date would leak a misleading
+                -- "Since <date>" tooltip onto an otherwise-Active chip.
+                SELECT sb.sub_type, sb.pub_date
+                FROM staatsblad_event sb
+                WHERE sb.enterprise_number = e.enterprise_number
+                  AND sb.event_type = 'liquidation_event'
+                  AND sb.sub_type IN ('liquidation_open', 'liquidation_close')
+                ORDER BY sb.pub_date DESC NULLS LAST
+                LIMIT 1
+            ) liq ON TRUE
             WHERE e.enterprise_number = %s LIMIT 1
         """, (cbe,))
 
@@ -139,6 +159,28 @@ async def get_company_detail(cbe: str, response: Response):
         # so the profile chip stays compact next to the company name.
         # Falls back to the code when no readable label is available.
         header["jf_short"] = _juridical_form_short(jf_label_nl, jf_code)
+
+        # Status assessment — surface bankrupt/dissolved at the profile
+        # header. KBO's `enterprise.status` is "AC" for ~all rows in our
+        # current ingest, so the strongest signals come from the
+        # Staatsblad liquidation_event feed. Open Regsol insolvency is
+        # already shown by the existing CompanyInsolvencyBadge on the
+        # summary tab, so we don't re-surface it here.
+        liq_sub = header.pop("_liq_sub", None)
+        liq_date = header.pop("_liq_date", None)
+        kbo_status = header.get("status")
+        if liq_sub == "liquidation_close":
+            assessment_code = "dissolved"
+        elif liq_sub == "liquidation_open":
+            assessment_code = "in_liquidation"
+        elif kbo_status and kbo_status != "AC":
+            assessment_code = "stopped"
+        else:
+            assessment_code = "active"
+        header["status_assessment"] = {
+            "code": assessment_code,
+            "since": liq_date.isoformat() if liq_date else None,
+        }
 
         return _serialize_row(header)
     except HTTPException:

@@ -1066,8 +1066,50 @@ export function CompanyPageClient({
               </SearchableText>
             </h1>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[#5F6B85]">
+              {(() => {
+                // Status chip (#35) — code comes from server-side assessment
+                // that combines KBO `enterprise.status` with the latest
+                // Staatsblad liquidation_event. Open insolvency is shown
+                // separately by `CompanyInsolvencyBadge` on the summary tab.
+                const code = detail.status_assessment?.code
+                  || (detail.status === "AC" ? "active" : "stopped");
+                const fallback = (k: string, en: string): string =>
+                  t(k) !== k ? t(k) : en;
+                const palette: Record<string, { wrap: string; dot: string; label: string }> = {
+                  active: {
+                    wrap: "bg-emerald-50 text-emerald-700",
+                    dot:  "bg-emerald-500",
+                    label: fallback("company.statusActive", "Active"),
+                  },
+                  in_liquidation: {
+                    wrap: "bg-amber-50 text-amber-700",
+                    dot:  "bg-amber-500",
+                    label: fallback("company.statusInLiquidation", "In liquidation"),
+                  },
+                  dissolved: {
+                    wrap: "bg-slate-100 text-slate-600",
+                    dot:  "bg-slate-400",
+                    label: fallback("company.statusDissolved", "Dissolved"),
+                  },
+                  stopped: {
+                    wrap: "bg-slate-100 text-slate-500",
+                    dot:  "bg-slate-400",
+                    label: fallback("company.statusStopped", "Stopped"),
+                  },
+                };
+                const p = palette[code] ?? palette.stopped;
+                const since = detail.status_assessment?.since;
+                return (
+                  <span
+                    title={since ? fallback("company.statusSince", "Since") + " " + since : undefined}
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${p.wrap}`}
+                  >
+                    <span className={`inline-block h-1.5 w-1.5 rounded-full ${p.dot}`} />
+                    {p.label}
+                  </span>
+                );
+              })()}
               <span className="inline-flex items-center gap-1.5">
-                <span className={`inline-block h-1.5 w-1.5 rounded-full ${detail.status === "AC" ? "bg-emerald-500" : "bg-red-400"}`} />
                 <span className="font-mono">CBE {fmtCbe(cbe)}</span>
                 <button
                   type="button"

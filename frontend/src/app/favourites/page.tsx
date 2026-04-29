@@ -121,6 +121,13 @@ function ProjectCard({
   const [addResults, setAddResults] = useState<SearchResult[]>([]);
   const [addSearching, setAddSearching] = useState(false);
   const [addMode, setAddMode] = useState<"search" | "favourites">("search");
+  // Suggestions (#34) — when the dialog opens and the project already
+  // has members, propose similar companies the operator may also want.
+  // Pulled from `/api/companies/{cbe}/similar` for up to 3 seed members
+  // and ranked by frequency-of-appearance × revenue.
+  const [suggestions, setSuggestions] = useState<
+    { enterprise_number: string; name: string; city: string | null }[]
+  >([]);
 
   const memberCbes = new Set(project.members.map((m) => m.enterprise_number));
   const availableFavourites = favourites.filter((f) => !memberCbes.has(f.enterprise_number));
@@ -144,6 +151,58 @@ function ProjectCard({
     }, 300);
     return () => clearTimeout(timer);
   }, [addSearch, showAddMenu]);
+
+  // Suggestions loader — runs once per dialog open if the project has
+  // existing members. Fans out to up to 3 members in parallel and
+  // de-dupes / ranks the union. Best-effort: silently empty on error.
+  useEffect(() => {
+    if (!showAddMenu || project.members.length === 0) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getSimilarCompanies } = await import("@/lib/api");
+        const seedCbes = project.members.slice(0, 3).map((m) => m.enterprise_number);
+        const results = await Promise.all(
+          seedCbes.map((cbe) => getSimilarCompanies(cbe).catch(() => [])),
+        );
+        if (cancelled) return;
+        const counts = new Map<
+          string,
+          { name: string; city: string | null; revenue: number; count: number }
+        >();
+        for (const arr of results) {
+          for (const item of arr) {
+            if (memberCbes.has(item.enterprise_number)) continue;
+            const existing = counts.get(item.enterprise_number);
+            if (existing) {
+              existing.count += 1;
+            } else {
+              counts.set(item.enterprise_number, {
+                name: item.name,
+                city: item.city ?? null,
+                revenue: item.revenue ?? 0,
+                count: 1,
+              });
+            }
+          }
+        }
+        const ranked = Array.from(counts.entries())
+          .sort((a, b) => b[1].count - a[1].count || b[1].revenue - a[1].revenue)
+          .slice(0, 5)
+          .map(([cbe, v]) => ({ enterprise_number: cbe, name: v.name, city: v.city }));
+        setSuggestions(ranked);
+      } catch {
+        if (!cancelled) setSuggestions([]);
+      }
+    })();
+    return () => { cancelled = true; };
+    // Use a CBE-tuple key so same-length-but-different-members swaps
+    // (rare, but possible if a member is replaced) re-fetch suggestions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAddMenu, project.members.map((m) => m.enterprise_number).join(",")]);
 
   return (
     <Card className="bg-white overflow-hidden">
@@ -216,6 +275,41 @@ function ProjectCard({
                 </div>
                 {addMode === "search" && (
                   <>
+                    {/* Suggestions (#34) — only when search is empty + we
+                        have suggestions. Hides as soon as the operator
+                        starts typing so it doesn't crowd search results. */}
+                    {addSearch.length < 2 && suggestions.length > 0 && (
+                      <div className="border-b border-slate-100 bg-slate-50/40">
+                        <div className="px-4 pt-3 pb-1 flex items-center gap-1.5 text-[11px] font-medium text-slate-500 uppercase tracking-wide">
+                          <Sparkles className="h-3 w-3 text-brand" />
+                          {t("favourites.suggestedHeading") !== "favourites.suggestedHeading"
+                            ? t("favourites.suggestedHeading")
+                            : "Suggested for this project"}
+                        </div>
+                        <div className="pb-2">
+                          {suggestions.map((s) => (
+                            <button
+                              key={s.enterprise_number}
+                              onClick={() => {
+                                onAddMember(project.id, s.enterprise_number);
+                                setShowAddMenu(false);
+                              }}
+                              className="w-full text-left px-4 py-2 hover:bg-brand-soft/60 flex items-center justify-between gap-2"
+                            >
+                              <div className="min-w-0">
+                                <span className="text-sm font-medium text-slate-800 truncate block">
+                                  {s.name || fmtCbe(s.enterprise_number)}
+                                </span>
+                                <span className="text-[11px] text-slate-400">
+                                  {fmtCbe(s.enterprise_number)} · {s.city || "—"}
+                                </span>
+                              </div>
+                              <Plus className="h-4 w-4 text-brand shrink-0" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="p-3 border-b border-slate-100">
                       <Input
                         placeholder={t("favourites.searchCompanyPlaceholder")}

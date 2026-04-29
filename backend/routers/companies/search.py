@@ -94,13 +94,96 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# Bilingual / English aliases for major Belgian municipalities. KBO
+# stores names in NL + FR only, so a user typing "Ghent" or "Antwerp"
+# would otherwise miss every hit. Bidirectional pairs cover the
+# cross-language case (NL ↔ FR ↔ EN). Lowercased on both sides.
+MUNICIPALITY_ALIASES: dict[str, list[str]] = {
+    "ghent":     ["gent", "gand"],
+    "gent":      ["ghent", "gand"],
+    "gand":      ["gent", "ghent"],
+    "antwerp":   ["antwerpen", "anvers"],
+    "antwerpen": ["antwerp", "anvers"],
+    "anvers":    ["antwerp", "antwerpen"],
+    "brussels":  ["brussel", "bruxelles"],
+    "brussel":   ["brussels", "bruxelles"],
+    "bruxelles": ["brussels", "brussel"],
+    "bruges":    ["brugge"],
+    "brugge":    ["bruges"],
+    "liege":     ["liège", "luik"],
+    "liège":     ["liege", "luik"],
+    "luik":      ["liege", "liège"],
+    "louvain":   ["leuven"],
+    "leuven":    ["louvain"],
+    "mechelen":  ["malines"],
+    "malines":   ["mechelen"],
+    "kortrijk":  ["courtrai"],
+    "courtrai":  ["kortrijk"],
+    "namur":     ["namen"],
+    "namen":     ["namur"],
+    "mons":      ["bergen"],
+    "bergen":    ["mons"],
+    "tournai":   ["doornik"],
+    "doornik":   ["tournai"],
+    "ostend":    ["oostende"],
+    "oostende":  ["ostend"],
+    "ypres":     ["ieper"],
+    "ieper":     ["ypres"],
+}
+
+
+def expand_municipality(name: str) -> list[str]:
+    """Return the input + any known multilingual aliases (deduped)."""
+    name_lc = name.lower().strip()
+    variants = [name_lc]
+    for v in MUNICIPALITY_ALIASES.get(name_lc, []):
+        if v not in variants:
+            variants.append(v)
+    return variants
+
+
+def _build_loc_clauses(
+    pc_filter: Optional[str],
+    muni_filter: Optional[str],
+    street_filter: Optional[str],
+    params: dict[str, Any],
+) -> list[str]:
+    """Build the AND-joined WHERE clauses for a location-filter CTE.
+    Mutates `params` to add the required psycopg2 bindings. Returns the
+    list of safe column-level clauses; callers join with " AND ".
+    All user-controlled values are bound — no string interpolation.
+    """
+    clauses: list[str] = []
+    if pc_filter:
+        clauses.append("a.zipcode ILIKE %(loc_postal)s ESCAPE '\\'")
+        params["loc_postal"] = ilike_escape(pc_filter) + "%"
+    if muni_filter:
+        variants = expand_municipality(muni_filter)
+        or_parts: list[str] = []
+        for i, v in enumerate(variants):
+            key = f"loc_muni_{i}"
+            params[key] = f"%{ilike_escape(v)}%"
+            or_parts.append(
+                f"a.municipality_nl ILIKE %({key})s ESCAPE '\\'"
+                f" OR a.municipality_fr ILIKE %({key})s ESCAPE '\\'"
+            )
+        clauses.append("(" + " OR ".join(or_parts) + ")")
+    if street_filter:
+        clauses.append(
+            "(a.street_nl ILIKE %(loc_street)s ESCAPE '\\'"
+            " OR a.street_fr ILIKE %(loc_street)s ESCAPE '\\')"
+        )
+        params["loc_street"] = f"%{ilike_escape(street_filter)}%"
+    return clauses
+
+
 # ---------------------------------------------------------------------------
 # GET /api/companies/search?q=...  —  search V2
 # ---------------------------------------------------------------------------
 
 @router.get("/search")
 async def search_companies(
-    q: str = Query(..., min_length=1, max_length=200),
+    q: Optional[str] = Query(None, max_length=200),
     limit: int = Query(20, ge=1, le=50),
     postal_code: Optional[str] = Query(None, max_length=10),
     municipality: Optional[str] = Query(None, max_length=100),
@@ -113,12 +196,27 @@ async def search_companies(
 
     Optional location filters (postal_code / municipality / street) narrow
     the result set to companies whose registered address matches ALL
-    provided filters. They are independent of the main `q` search term —
-    operator can search by name AND restrict to Antwerp, for instance.
+    provided filters. They work two ways:
+      - alongside `q`: narrow the name search to that location
+      - alone: browse top active companies in that location, no name term
+        needed (sorted by revenue desc)
+
+    Multilingual municipality names are handled — "Ghent", "Gent", and
+    "Gand" all match the same city.
     """
     raw = (q or "").strip()
-    if not raw:
+    pc = (postal_code or "").strip().lower() or None
+    muni = (municipality or "").strip().lower() or None
+    street_v = (street or "").strip().lower() or None
+    has_loc = bool(pc or muni or street_v)
+
+    if not raw and not has_loc:
         return _empty_response(raw)
+
+    # Location-only browse — no `q`, just filter by REGO address.
+    if not raw:
+        return _search_location_only_cached(int(limit), pc, muni, street_v)
+
     # Cache by lowercased (q, limit, location-filter) tuple. Same
     # rationale as /api/people/search: typing-burst queries repeat
     # within 60s, the underlying KBO/NBB data updates daily at most,
@@ -126,9 +224,9 @@ async def search_companies(
     return _search_companies_cached(
         raw.lower(),
         int(limit),
-        (postal_code or "").strip().lower() or None,
-        (municipality or "").strip().lower() or None,
-        (street or "").strip().lower() or None,
+        pc,
+        muni,
+        street_v,
     )
 
 
@@ -220,22 +318,9 @@ def _search_companies_cached(
     loc_filter_cte = ""
     loc_filter_join = ""
     if has_location_filter:
-        loc_clauses: list[str] = []
-        if pc_filter:
-            loc_clauses.append("a.zipcode ILIKE %(loc_postal)s ESCAPE '\\'")
-            params["loc_postal"] = ilike_escape(pc_filter) + "%"
-        if muni_filter:
-            loc_clauses.append(
-                "(a.municipality_nl ILIKE %(loc_muni)s ESCAPE '\\'"
-                " OR a.municipality_fr ILIKE %(loc_muni)s ESCAPE '\\')"
-            )
-            params["loc_muni"] = f"%{ilike_escape(muni_filter)}%"
-        if street_filter:
-            loc_clauses.append(
-                "(a.street_nl ILIKE %(loc_street)s ESCAPE '\\'"
-                " OR a.street_fr ILIKE %(loc_street)s ESCAPE '\\')"
-            )
-            params["loc_street"] = f"%{ilike_escape(street_filter)}%"
+        loc_clauses = _build_loc_clauses(
+            pc_filter, muni_filter, street_filter, params
+        )
         loc_filter_cte = (
             ", loc_filter AS (\n"
             "    SELECT DISTINCT a.entity_number AS enterprise_number\n"
@@ -267,6 +352,112 @@ def _search_companies_cached(
         raise HTTPException(500, "search_failed")
 
     return _build_response(raw, rows)
+
+
+# ---------------------------------------------------------------------------
+# Location-only browse — no `q`, just filter by REGO address
+# ---------------------------------------------------------------------------
+
+@ttl_cache(ttl_seconds=60, maxsize=512)
+def _search_location_only_cached(
+    limit: int,
+    pc_filter: Optional[str],
+    muni_filter: Optional[str],
+    street_filter: Optional[str],
+) -> dict:
+    """Browse active companies whose registered address (REGO) matches
+    the supplied location filters, ranked by revenue. Used when the
+    operator fills the `/search` location boxes but leaves the main
+    query empty."""
+    if not (pc_filter or muni_filter or street_filter):
+        return _empty_response("")
+
+    params: dict[str, Any] = {"limit": max(limit, 20)}
+    loc_clauses = _build_loc_clauses(
+        pc_filter, muni_filter, street_filter, params
+    )
+    if not loc_clauses:
+        return _empty_response("")
+
+    sql = _LOC_ONLY_SQL.replace(
+        "__LOC_CLAUSES__", "\n      AND ".join(loc_clauses)
+    )
+
+    try:
+        rows = fetch_all(sql, params)
+    except Exception:
+        logger.exception(
+            "location-only search failed for pc=%r muni=%r street=%r",
+            pc_filter, muni_filter, street_filter,
+        )
+        raise HTTPException(500, "search_failed")
+
+    return _build_response("", rows)
+
+
+# Location-only browse SQL. Same column shape as the scored path so
+# `_serialize_row` + `_build_response` keep working unchanged.
+#
+# Ranking happens INSIDE the loc_filter CTE: per-entity DISTINCT ON
+# folds duplicate REGO rows, then we ORDER BY revenue and LIMIT 5000.
+# This guarantees the top-revenue companies in a given location aren't
+# dropped by an arbitrary slice for big cities (Brussels REGO is
+# ~60K rows; without inner sorting the outer LIMIT would see a random
+# 5000 of them and miss the biggest names).
+#
+# No status filter — PE sourcing benefits from seeing dissolved /
+# in-liquidation companies too. The status chip on the profile page
+# (#35) makes the lifecycle stage obvious at a glance.
+_LOC_ONLY_SQL = """
+WITH loc_filter AS (
+    SELECT enterprise_number, sort_rev
+    FROM (
+        SELECT DISTINCT ON (a.entity_number)
+               a.entity_number               AS enterprise_number,
+               COALESCE(fl.revenue, 0)::bigint AS sort_rev
+        FROM address a
+        LEFT JOIN financial_latest fl ON fl.enterprise_number = a.entity_number
+        WHERE a.type_of_address = 'REGO'
+          AND __LOC_CLAUSES__
+        ORDER BY a.entity_number, COALESCE(fl.revenue, 0) DESC NULLS LAST
+    ) per_entity
+    ORDER BY sort_rev DESC NULLS LAST
+    LIMIT 5000
+)
+SELECT
+    e.enterprise_number,
+    COALESCE(ci.name, d.denomination, e.enterprise_number) AS name,
+    e.status,
+    e.juridical_form,
+    COALESCE(jfc.category, 'commercial')                AS form_category,
+    ci.city,
+    COALESCE(nl.description, ci.nace_code)              AS sector,
+    e.start_date,
+    fl.revenue, fl.ebitda,
+    CASE WHEN fl.revenue > 0
+         THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1)
+    END AS ebitda_margin_pct,
+    fl.fte_total, fl.fiscal_year,
+    1.0::real AS score
+FROM loc_filter lf
+JOIN enterprise e                     ON e.enterprise_number = lf.enterprise_number
+LEFT JOIN company_info ci             ON ci.enterprise_number = lf.enterprise_number
+LEFT JOIN LATERAL (
+    SELECT denomination
+    FROM denomination d2
+    WHERE d2.entity_number = lf.enterprise_number
+      AND d2.type_of_denomination = '001'
+      AND d2.language IN ('2', '1')
+    ORDER BY CASE d2.language WHEN '2' THEN 1 WHEN '1' THEN 2 ELSE 3 END
+    LIMIT 1
+) d                                   ON TRUE
+LEFT JOIN financial_latest fl         ON fl.enterprise_number = lf.enterprise_number
+LEFT JOIN nace_lookup nl              ON nl.nace_code = ci.nace_code
+LEFT JOIN juridical_form_category jfc ON jfc.code = e.juridical_form
+ORDER BY lf.sort_rev DESC NULLS LAST,
+         e.enterprise_number
+LIMIT %(limit)s
+"""
 
 
 # ---------------------------------------------------------------------------

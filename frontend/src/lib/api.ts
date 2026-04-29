@@ -250,6 +250,10 @@ export interface SuggestResponse {
 export interface CompanyDetail {
   enterprise_number: string;
   status: string;
+  status_assessment?: {
+    code: "active" | "in_liquidation" | "dissolved" | "stopped";
+    since: string | null;
+  };
   start_date: string | null;
   jf_label: string | null;
   name: string | null;

@@ -142,7 +142,15 @@ function UnifiedSearchPageInner() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (abortRef.current) abortRef.current.abort();
 
-    if (q.trim().length < 2) {
+    const trimmed = q.trim();
+    const hasLocFilter = !!(
+      loc?.postalCode?.trim() ||
+      loc?.municipality?.trim() ||
+      loc?.street?.trim()
+    );
+
+    // Need at least a name term OR a location filter. Empty both → reset.
+    if (trimmed.length < 2 && !hasLocFilter) {
       setCompanies(null);
       setPeople([]);
       setEvents([]);
@@ -153,56 +161,59 @@ function UnifiedSearchPageInner() {
     // 100ms debounce — feels like instant-search-as-you-type. Each
     // keystroke aborts the previous in-flight requests via
     // AbortController, so even if the user types fast we only pay for
-    // the last batch. Zero debounce would cost ~8 requests per word;
-    // 100ms collapses typical typing bursts into 2-3 requests.
+    // the last batch.
     debounceRef.current = setTimeout(() => {
       const ac = new AbortController();
       abortRef.current = ac;
       setLoading(true);
       setSearched(true);
 
-      // Fire the calls independently and render each as it
-      // returns. Previously we `await Promise.all([...])`, so the
-      // slowest call (usually searchEvents, which does a pgvector
-      // embedding lookup and can hit OpenRouter on cache miss) blocked
-      // companies + people from painting. Now commercial + people
-      // typically appear within ~200ms and events fill in later.
-      const trimmed = q.trim();
+      // People + events still require a name term — they're not
+      // location-filtered today, so skip them in the location-only path.
+      const includeNameSearches = trimmed.length >= 2;
       // Events are a lower-priority, semantically-expanded surface. Two
-      // and three character searches create noisy matches and can burn an
-      // embedding call, so keep them to useful-length terms or CBE-like
-      // numeric lookups.
-      const includeEvents = trimmed.length >= 4 || /\d{4,}/.test(trimmed);
-      let remaining = includeEvents ? 3 : 2;
+      // and three character searches create noisy matches and can burn
+      // an embedding call, so keep them to useful-length terms or CBE-
+      // like numeric lookups.
+      const includeEvents =
+        includeNameSearches &&
+        (trimmed.length >= 4 || /\d{4,}/.test(trimmed));
+
+      let remaining = 1; // companies always
+      if (includeNameSearches) remaining += 1;
+      if (includeEvents) remaining += 1;
       const done = () => {
         if (--remaining === 0 && !ac.signal.aborted) setLoading(false);
       };
-
-      if (!includeEvents) {
-        setEvents([]);
-      }
 
       searchCompaniesBucketed(trimmed, loc, ac.signal)
         .then((c) => { if (!ac.signal.aborted) setCompanies(c); })
         .catch(() => {})
         .finally(done);
 
-      searchPeople(trimmed, ac.signal)
-        .then((p) => { if (!ac.signal.aborted) setPeople(p); })
-        .catch(() => {})
-        .finally(done);
+      if (includeNameSearches) {
+        searchPeople(trimmed, ac.signal)
+          .then((p) => { if (!ac.signal.aborted) setPeople(p); })
+          .catch(() => {})
+          .finally(done);
+      } else {
+        setPeople([]);
+      }
 
       if (includeEvents) {
         searchEvents(trimmed, { limit: 10 }, ac.signal)
           .then((ev) => { if (!ac.signal.aborted) setEvents(ev.results || []); })
           .catch(() => { if (!ac.signal.aborted) setEvents([]); })
           .finally(done);
+      } else {
+        setEvents([]);
       }
     }, 100);
   }, []);
 
   useEffect(() => {
-    if (initialQ.trim().length >= 2) {
+    const hasInitialLoc = !!(initialPostal || initialMuni || initialStreet);
+    if (initialQ.trim().length >= 2 || hasInitialLoc) {
       doSearch(initialQ, {
         postalCode: initialPostal,
         municipality: initialMuni,
