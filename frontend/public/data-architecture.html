@@ -1,0 +1,1381 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>How DataSnoop's data is wired up</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg:        #fafaf9;
+    --card:      #ffffff;
+    --ink:       #0f172a;
+    --ink-2:     #334155;
+    --ink-3:     #64748b;
+    --line:      #e2e8f0;
+    --line-2:    #cbd5e1;
+    --emerald:   #059669;
+    --emerald-2: #10b981;
+    --emerald-bg:#ecfdf5;
+    --amber:     #d97706;
+    --amber-bg:  #fffbeb;
+    --sky:       #0284c7;
+    --sky-bg:    #f0f9ff;
+    --rose:      #be123c;
+    --rose-bg:   #fff1f2;
+    --slate-50:  #f8fafc;
+    --slate-100: #f1f5f9;
+    --shadow:    0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.04);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  body {
+    margin: 0;
+    font-family: 'Geist', system-ui, -apple-system, sans-serif;
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--ink-2);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  code, pre, .mono { font-family: 'Geist Mono', ui-monospace, monospace; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px;
+    gap: 48px;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; gap: 0; padding: 0 20px; }
+    aside.toc { display: none; }
+  }
+
+  /* Sidebar TOC */
+  aside.toc {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    padding: 32px 0 32px 0;
+    font-size: 14px;
+  }
+  aside.toc .toc-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--ink-3);
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  aside.toc a {
+    display: block;
+    padding: 6px 10px;
+    margin-left: -10px;
+    border-radius: 6px;
+    color: var(--ink-3);
+    text-decoration: none;
+    transition: all .15s;
+    line-height: 1.4;
+  }
+  aside.toc a:hover { color: var(--ink); background: var(--slate-100); }
+  aside.toc a.active {
+    color: var(--emerald);
+    background: var(--emerald-bg);
+    font-weight: 500;
+  }
+
+  main { padding: 32px 0 96px; min-width: 0; }
+
+  /* Hero */
+  .hero {
+    padding: 48px 0 32px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 48px;
+  }
+  .hero .eyebrow {
+    color: var(--emerald);
+    font-size: 13px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .hero h1 {
+    font-size: 44px;
+    line-height: 1.1;
+    color: var(--ink);
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+  .hero p.lede {
+    font-size: 19px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    max-width: 640px;
+    margin: 0;
+  }
+
+  /* TL;DR */
+  .tldr {
+    background: var(--emerald-bg);
+    border: 1px solid #a7f3d0;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 32px 0 56px;
+  }
+  .tldr h3 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #065f46;
+    font-weight: 600;
+  }
+  .tldr ul { margin: 0; padding-left: 20px; }
+  .tldr li { margin-bottom: 6px; color: #064e3b; }
+  .tldr li:last-child { margin-bottom: 0; }
+
+  /* Sections */
+  section { margin: 64px 0; scroll-margin-top: 24px; }
+  section h2 {
+    font-size: 30px;
+    line-height: 1.2;
+    margin: 0 0 8px;
+    color: var(--ink);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  section .section-sub {
+    font-size: 15px;
+    color: var(--ink-3);
+    margin-bottom: 32px;
+  }
+  h3 { color: var(--ink); font-weight: 600; font-size: 20px; margin: 32px 0 12px; }
+  h4 { color: var(--ink); font-weight: 600; font-size: 17px; margin: 24px 0 10px; }
+  p { margin: 0 0 16px; }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: var(--shadow);
+    margin: 16px 0;
+  }
+  .card.tight { padding: 16px 20px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 720px) {
+    .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+  }
+
+  /* Source cards (the four "pen pals") */
+  .source {
+    border-radius: 10px;
+    padding: 20px;
+    border: 1px solid var(--line);
+    background: var(--card);
+  }
+  .source .src-tag {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .source.kbo .src-tag { background: var(--emerald-bg); color: #065f46; }
+  .source.nbb .src-tag { background: var(--sky-bg); color: #075985; }
+  .source.gazette .src-tag { background: var(--amber-bg); color: #92400e; }
+  .source.ai .src-tag { background: #f5f3ff; color: #5b21b6; }
+  .source h4 { margin-top: 4px; margin-bottom: 8px; font-size: 18px; }
+  .source p { font-size: 15px; margin-bottom: 10px; }
+  .source .src-meta {
+    font-size: 12.5px;
+    color: var(--ink-3);
+    border-top: 1px dashed var(--line);
+    padding-top: 10px;
+    margin-top: 12px;
+  }
+  .source .src-meta strong { color: var(--ink-2); font-weight: 500; }
+
+  /* The CBE glue diagram */
+  .cbe-diagram {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 32px 24px;
+    text-align: center;
+    margin: 24px 0;
+  }
+  .cbe-pill {
+    display: inline-block;
+    padding: 14px 28px;
+    background: linear-gradient(135deg, var(--emerald) 0%, var(--emerald-2) 100%);
+    color: white;
+    border-radius: 99px;
+    font-family: 'Geist Mono', monospace;
+    font-size: 22px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(5,150,105,.25);
+    letter-spacing: 0.05em;
+  }
+  .cbe-spokes {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-top: 32px;
+    position: relative;
+  }
+  @media (max-width: 720px) {
+    .cbe-spokes { grid-template-columns: repeat(2, 1fr); }
+  }
+  .cbe-spokes::before {
+    content: "↑ all of these point to the same 10-digit number ↑";
+    position: absolute;
+    top: -22px;
+    left: 0;
+    right: 0;
+    font-size: 12px;
+    color: var(--ink-3);
+    font-style: italic;
+  }
+  .cbe-spoke {
+    background: var(--slate-50);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 13px;
+  }
+  .cbe-spoke strong {
+    display: block;
+    color: var(--ink);
+    font-size: 13px;
+    margin-bottom: 2px;
+    font-weight: 600;
+  }
+  .cbe-spoke .cbe-spoke-tbl {
+    font-family: 'Geist Mono', monospace;
+    color: var(--emerald);
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  /* Walkthrough steps */
+  .steps {
+    counter-reset: step;
+    padding: 0;
+    list-style: none;
+    margin: 24px 0;
+  }
+  .steps li {
+    position: relative;
+    padding: 16px 16px 16px 56px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    margin-bottom: 12px;
+    counter-increment: step;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 16px;
+    top: 16px;
+    width: 28px;
+    height: 28px;
+    border-radius: 99px;
+    background: var(--emerald);
+    color: white;
+    font-weight: 600;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Geist Mono', monospace;
+  }
+  .steps li strong { color: var(--ink); display: block; margin-bottom: 4px; }
+  .steps li .step-detail {
+    font-size: 14px;
+    color: var(--ink-3);
+    margin-top: 6px;
+  }
+  .steps li .step-code {
+    background: var(--slate-100);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: 'Geist Mono', monospace;
+    font-size: 13px;
+    color: var(--ink);
+  }
+
+  /* Tables */
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin: 16px 0;
+  }
+  table.data th {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 2px solid var(--line);
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 13px;
+  }
+  table.data td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table.data tr:last-child td { border-bottom: none; }
+  table.data code { background: var(--slate-100); padding: 1px 6px; border-radius: 3px; font-size: 12.5px; }
+
+  /* Mermaid wrapper */
+  .mermaid-wrapper {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    overflow-x: auto;
+    margin: 16px 0;
+  }
+  .mermaid { font-family: 'Geist', sans-serif !important; }
+
+  /* Callouts */
+  .callout {
+    border-left: 3px solid var(--sky);
+    background: var(--sky-bg);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size: 15px;
+    color: var(--ink-2);
+  }
+  .callout.warn  { border-color: var(--amber); background: var(--amber-bg); }
+  .callout.risk  { border-color: var(--rose);  background: var(--rose-bg); color: #881337; }
+  .callout strong { color: var(--ink); }
+  .callout.risk strong { color: #881337; }
+
+  /* Inline code */
+  p code, li code, td code { background: var(--slate-100); padding: 1px 6px; border-radius: 3px; font-size: 13.5px; color: var(--ink); }
+
+  /* Layered "deep dive" - clickable to expand */
+  details.deep {
+    background: var(--slate-50);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin: 12px 0;
+    padding: 12px 16px;
+  }
+  details.deep summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--ink);
+    font-size: 15px;
+    user-select: none;
+  }
+  details.deep summary::marker { color: var(--ink-3); }
+  details.deep[open] summary { margin-bottom: 12px; }
+  details.deep .deep-body { font-size: 14.5px; line-height: 1.6; }
+
+  /* Critical-review items */
+  .review-item {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--amber);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 10px 0;
+    background: var(--card);
+  }
+  .review-item.high { border-left-color: var(--rose); }
+  .review-item.med  { border-left-color: var(--amber); }
+  .review-item.low  { border-left-color: var(--sky); }
+  .review-item .ri-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-right: 8px;
+  }
+  .review-item.high .ri-tag { background: var(--rose-bg); color: #881337; }
+  .review-item.med  .ri-tag { background: var(--amber-bg); color: #78350f; }
+  .review-item.low  .ri-tag { background: var(--sky-bg); color: #075985; }
+  .review-item h4 { margin: 0 0 6px; display: inline; font-size: 16px; }
+  .review-item p { margin: 8px 0 0; font-size: 14.5px; }
+
+  /* Badge */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--slate-100);
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'Geist Mono', monospace;
+    color: var(--ink-2);
+    margin: 0 2px;
+  }
+
+  /* Number stats */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin: 24px 0;
+  }
+  @media (max-width: 720px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+  }
+  .stat .num {
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--emerald);
+    font-family: 'Geist', sans-serif;
+    line-height: 1;
+  }
+  .stat .label {
+    font-size: 12px;
+    color: var(--ink-3);
+    margin-top: 6px;
+    line-height: 1.3;
+  }
+
+  /* Footer */
+  footer.note {
+    margin-top: 96px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <aside class="toc">
+    <div class="toc-label">On this page</div>
+    <a href="#big-picture">1. The big picture</a>
+    <a href="#sources">2. The four sources</a>
+    <a href="#glue">3. The 10-digit glue</a>
+    <a href="#map">4. The data map</a>
+    <a href="#example">5. Real example</a>
+    <a href="#technical">6. Under the hood</a>
+    <a href="#review">7. Architect review</a>
+  </aside>
+
+  <main>
+    <div class="hero">
+      <div class="eyebrow">DataSnoop · How the data is wired</div>
+      <h1>From your search box to the 10-digit number that holds it all together</h1>
+      <p class="lede">
+        DataSnoop combines four very different data sources — a government registry,
+        a central bank, a legal gazette, and an AI scribe — into a single searchable
+        view of every Belgian company. This page explains how, layer by layer.
+      </p>
+    </div>
+
+    <div class="tldr">
+      <h3>TL;DR — the whole system in 4 lines</h3>
+      <ul>
+        <li>Every Belgian company has one <strong>10-digit ID number</strong> (the CBE). That number is the spine of the whole database.</li>
+        <li>Four data feeds — KBO, NBB, Staatsblad, AI — keep posting <em>fresh sticky-notes</em> against that ID.</li>
+        <li>The website is a Next.js front end + a FastAPI back end + one PostgreSQL database. No magic, no Elasticsearch.</li>
+        <li>Search is plain Postgres with a few clever indexes. Profiles are pre-pivoted so they read in one query.</li>
+      </ul>
+    </div>
+
+    <!-- ================= SECTION 1 ================= -->
+    <section id="big-picture">
+      <h2>1. The big picture</h2>
+      <p class="section-sub">Forget databases for a minute. Here's the mental model.</p>
+
+      <div class="card">
+        <h3 style="margin-top:0">The trading-card metaphor</h3>
+        <p>
+          Imagine a <strong>giant wall of trading cards</strong>, one per Belgian company.
+          About 1.94 million cards. Each card has a unique 10-digit number stamped at the
+          top — that number is the <strong>CBE</strong> (Crossroads Bank for Enterprises).
+        </p>
+        <p>
+          Now imagine four pen-pals who keep mailing you sticky-notes. Each note has the
+          CBE number written on it, plus one piece of information:
+        </p>
+        <ul>
+          <li>The <strong>government</strong> sends notes with names, addresses, and legal status.</li>
+          <li>The <strong>National Bank</strong> sends notes with last year's revenue and profit.</li>
+          <li>The <strong>Official Gazette</strong> sends notes when a director resigns or a bankruptcy is filed.</li>
+          <li>An <strong>AI helper</strong> sends a plain-English description of what the company actually does.</li>
+        </ul>
+        <p>
+          Your job is to file each sticky-note onto the right card. That's it. That's the
+          whole product. When a user searches, you grab the matching card and read off
+          all the sticky-notes attached to it.
+        </p>
+        <p style="margin-bottom:0">
+          The <strong>10-digit CBE</strong> is the magic. Without it, the notes would
+          just be scattered paper.
+        </p>
+      </div>
+
+      <div class="stats">
+        <div class="stat">
+          <div class="num">1.94M</div>
+          <div class="label">Entities in the KBO registry</div>
+        </div>
+        <div class="stat">
+          <div class="num">~685K</div>
+          <div class="label">Filer-form companies (NV, BV, BVBA, CVBA…)</div>
+        </div>
+        <div class="stat">
+          <div class="num">185K</div>
+          <div class="label">That have actually filed with NBB</div>
+        </div>
+        <div class="stat">
+          <div class="num">4</div>
+          <div class="label">Data sources, one DB</div>
+        </div>
+      </div>
+      <p style="font-size:13px;color:var(--ink-3);margin-top:-8px">
+        Live counts on prod, 2026-04-29 — verified against
+        <code>docs/nbb-loader-operations.md</code>. The headline universe is
+        <strong>~685K filer-form companies</strong> — the NVs, BVs, BVBAs,
+        CVBAs and other juridical forms legally required to deposit annual
+        accounts. Of those, 185K have filed at least once since the
+        JSON-XBRL window opened in April 2022; the rest haven't filed yet
+        (or filed pre-2022 in PDF-only form). The 1.94M figure includes
+        sole traders, foreign branches, and public bodies that are in KBO
+        but not in scope for filing.
+      </p>
+    </section>
+
+    <!-- ================= SECTION 2 ================= -->
+    <section id="sources">
+      <h2>2. The four data sources</h2>
+      <p class="section-sub">Where every fact actually comes from.</p>
+
+      <div class="grid-2">
+        <div class="source kbo">
+          <span class="src-tag">Source 1 — KBO</span>
+          <h4>The Belgian government registry</h4>
+          <p>
+            <strong>What it gives us:</strong> the existence of every company. Names,
+            addresses, legal form (NV, BV, VZW…), start date, NACE activity codes,
+            establishment units.
+          </p>
+          <p>
+            <strong>How we get it:</strong> a giant ZIP file the government publishes
+            monthly + smaller daily update ZIPs. We stream-parse them straight into
+            Postgres so we never load the whole thing into memory.
+          </p>
+          <div class="src-meta">
+            <strong>Tables it fills:</strong> <code>enterprise</code>, <code>denomination</code>,
+            <code>address</code>, <code>activity</code>, <code>contact</code>, <code>establishment</code>,
+            <code>branch</code>.<br>
+            <strong>Refreshed:</strong> daily at 03:00 UTC.<br>
+            <strong>Licence note:</strong> personal data may NOT be used for direct
+            marketing — that constraint shapes a lot of design decisions.
+          </div>
+        </div>
+
+        <div class="source nbb">
+          <span class="src-tag">Source 2 — NBB</span>
+          <h4>The National Bank of Belgium</h4>
+          <p>
+            <strong>What it gives us:</strong> the financials. Annual accounts —
+            revenue, EBITDA, balance sheet, debt, headcount — plus directors and
+            shareholders extracted from the structured XBRL filing.
+          </p>
+          <p>
+            <strong>How we get it:</strong> per-company REST API call, one company at
+            a time, with a 1.5-second polite delay. Subscription-key authenticated
+            (and the keys rotate without warning — there's a watchdog cron for that).
+          </p>
+          <div class="src-meta">
+            <strong>Tables it fills:</strong> <code>financial_data</code> (raw rubric
+            codes), <code>financial_latest</code>, <code>financial_by_year</code>
+            (pre-pivoted for speed), <code>administrator</code>, <code>shareholder</code>,
+            <code>participating_interest</code>.<br>
+            <strong>Refreshed:</strong> nightly batch + a continuous backload daemon that drips through the gap during the day.<br>
+            <strong>Coverage gap:</strong> only XBRL filings since April 2022, and
+            only entities legally required to file. Tiny partnerships are invisible.
+          </div>
+        </div>
+
+        <div class="source gazette">
+          <span class="src-tag">Source 3 — Staatsblad</span>
+          <h4>The Belgian Official Gazette</h4>
+          <p>
+            <strong>What it gives us:</strong> legal news. Director appointments and
+            resignations, capital increases, mergers, bankruptcies, share transfers.
+            Plus — newly — the home address of the people involved.
+          </p>
+          <p>
+            <strong>How we get it:</strong> we scrape the gazette daily, OCR the PDFs,
+            then run them through Claude Haiku 4.5 in batches to extract structured
+            events (eight categories: <code>admin_event</code>, <code>capital_event</code>,
+            <code>share_transfer</code>…).
+          </p>
+          <div class="src-meta">
+            <strong>Tables it fills:</strong> <code>staatsblad_publication</code>,
+            <code>staatsblad_publication_text</code>, <code>staatsblad_event</code>,
+            <code>staatsblad_event_embedding</code>.<br>
+            <strong>Refreshed:</strong> every 2 days; embeddings nightly at 05:45 UTC.<br>
+            <strong>Why it matters:</strong> NBB filings are once a year. The gazette
+            is how we catch real-time corporate changes between filings.
+          </div>
+        </div>
+
+        <div class="source ai">
+          <span class="src-tag">Source 4 — AI enrichment</span>
+          <h4>The plain-English layer</h4>
+          <p>
+            <strong>What it gives us:</strong> a human-readable answer to "what does
+            this company actually do?" — products, customer segments, business model.
+            Without this, you'd just see NACE codes like "47.21" and shrug.
+          </p>
+          <p>
+            <strong>How we get it:</strong> two pipelines. A bulk one (cheap GPT-4o-mini)
+            runs over the whole 1.94M corpus, escalates to Haiku 4.5 only when needed.
+            A narrative one runs on demand when a user opens a profile page.
+          </p>
+          <div class="src-meta">
+            <strong>Tables it fills:</strong> <code>company_enrichment.bulk_summary</code>,
+            <code>company_embedding</code> (for semantic search), <code>ai_insights</code>
+            (longer narrative), <code>translation_cache</code>.<br>
+            <strong>Refreshed:</strong> bulk worker drains a Postgres queue continuously
+            with a $10/day budget guard.<br>
+            <strong>Tradeoff:</strong> output quality depends on website scraping —
+            no website, less to summarise.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= SECTION 3 ================= -->
+    <section id="glue">
+      <h2>3. The 10-digit glue</h2>
+      <p class="section-sub">If you remember one thing from this page, remember this.</p>
+
+      <p>
+        Every fact about a Belgian company in DataSnoop is keyed by its
+        <strong>CBE number</strong> — 10 digits, no dots, no spaces. The first
+        digit is usually a <code>0</code>, then 9 more digits.
+      </p>
+
+      <div class="cbe-diagram">
+        <div class="cbe-pill">0400 378 485</div>
+        <div class="cbe-spokes">
+          <div class="cbe-spoke">
+            <strong>Names</strong>
+            "Colruyt Group", trade names
+            <div class="cbe-spoke-tbl">denomination</div>
+          </div>
+          <div class="cbe-spoke">
+            <strong>Address</strong>
+            Halle, Edingensesteenweg
+            <div class="cbe-spoke-tbl">address</div>
+          </div>
+          <div class="cbe-spoke">
+            <strong>Activity</strong>
+            NACE 47.21 — Retail
+            <div class="cbe-spoke-tbl">activity</div>
+          </div>
+          <div class="cbe-spoke">
+            <strong>Financials</strong>
+            Revenue €10.6B, EBITDA €800M
+            <div class="cbe-spoke-tbl">financial_latest</div>
+          </div>
+          <div class="cbe-spoke">
+            <strong>Directors</strong>
+            J. Colruyt, S. Desmet…
+            <div class="cbe-spoke-tbl">administrator</div>
+          </div>
+          <div class="cbe-spoke">
+            <strong>Shareholders</strong>
+            Etn. Fr. Colruyt NV
+            <div class="cbe-spoke-tbl">shareholder</div>
+          </div>
+          <div class="cbe-spoke">
+            <strong>Legal news</strong>
+            Director resignations, capital
+            <div class="cbe-spoke-tbl">staatsblad_event</div>
+          </div>
+          <div class="cbe-spoke">
+            <strong>AI summary</strong>
+            "Belgian retail group operating…"
+            <div class="cbe-spoke-tbl">company_enrichment</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>Why this matters</h3>
+      <p>
+        Because the CBE is a <em>universal join key</em>, the database can answer
+        "show me everything about company X" with a small fan-out of fast lookups
+        instead of a giant join across the universe.
+      </p>
+
+      <details class="deep">
+        <summary>Where the join keys get tricky</summary>
+        <div class="deep-body">
+          <p>
+            The CBE is reliable for <strong>companies</strong>. It is not reliable for
+            <strong>people</strong>. Belgium does not expose a national ID for natural
+            persons in any open dataset, so "Jan Janssens director at Company A" and
+            "Jan Janssens director at Company B" are linked only by name + (now) home
+            city / postcode harvested from Staatsblad publications.
+          </p>
+          <p>
+            That's why the people-search endpoint groups results by
+            <code>(lower(name), domicile_city, domicile_postcode)</code>. Two
+            people with the same name in different cities show as two rows.
+            Same name + same city → still one row, with a tradeoff toward
+            false merges.
+          </p>
+        </div>
+      </details>
+
+      <details class="deep">
+        <summary>The CBE format gotcha</summary>
+        <div class="deep-body">
+          <p>
+            KBO renders the number as <code>0400.378.485</code>. NBB wants
+            <code>0400378485</code>. Some users paste <code>BE0400378485</code>.
+            DataSnoop strips dots, spaces and the BE prefix on every input, then
+            stores a single canonical form: 10 raw digits.
+          </p>
+          <p>
+            Search input also handles 9-digit pastes (KBO sometimes drops the leading
+            zero) by also probing <code>digits[1:]</code> as a prefix.
+          </p>
+        </div>
+      </details>
+    </section>
+
+    <!-- ================= SECTION 4 ================= -->
+    <section id="map">
+      <h2>4. The data map</h2>
+      <p class="section-sub">A bird's-eye view of how the tables connect.</p>
+
+      <p>
+        Below is the actual schema, simplified. The dotted line is "joins by CBE";
+        coloured boxes group tables by the source they come from.
+      </p>
+
+      <div class="mermaid-wrapper">
+        <pre class="mermaid">
+flowchart LR
+  classDef kbo fill:#ecfdf5,stroke:#059669,color:#065f46
+  classDef nbb fill:#f0f9ff,stroke:#0284c7,color:#075985
+  classDef gaz fill:#fffbeb,stroke:#d97706,color:#92400e
+  classDef ai  fill:#f5f3ff,stroke:#7c3aed,color:#5b21b6
+  classDef ops fill:#f8fafc,stroke:#64748b,color:#334155
+
+  ENT["enterprise<br/>(CBE = primary key)"]:::kbo
+
+  DEN["denomination<br/>(names)"]:::kbo
+  ADR["address<br/>(reg office)"]:::kbo
+  ACT["activity<br/>(NACE codes)"]:::kbo
+  CONT["contact<br/>(web/tel/email)"]:::kbo
+  CI["company_info<br/>(materialised)"]:::kbo
+
+  FIN["financial_data<br/>(raw rubrics)"]:::nbb
+  FL["financial_latest<br/>(pivoted)"]:::nbb
+  FBY["financial_by_year"]:::nbb
+  ADM["administrator<br/>(directors)"]:::nbb
+  SH["shareholder"]:::nbb
+  PI["participating_interest<br/>(subsidiaries)"]:::nbb
+
+  PUB["staatsblad_publication"]:::gaz
+  EV["staatsblad_event<br/>(8 event types)"]:::gaz
+  EVE["staatsblad_event_embedding"]:::gaz
+
+  CE["company_enrichment<br/>.bulk_summary"]:::ai
+  CEMB["company_embedding<br/>(256-dim vector)"]:::ai
+  AI["ai_insights<br/>(narrative)"]:::ai
+
+  USR["user_roles<br/>(Supabase)"]:::ops
+  AL["activity_log<br/>(every API call)"]:::ops
+  FAV["favourite"]:::ops
+  EJ["enrichment_job<br/>(work queue)"]:::ops
+
+  ENT --- DEN
+  ENT --- ADR
+  ENT --- ACT
+  ENT --- CONT
+  ENT --- CI
+  ENT -.-> FIN
+  ENT -.-> ADM
+  ENT -.-> SH
+  ENT -.-> PI
+  FIN --> FL
+  FIN --> FBY
+  ENT -.-> PUB
+  PUB --- EV
+  EV --- EVE
+  ENT -.-> CE
+  CE --> CEMB
+  ENT -.-> AI
+  ENT -.-> FAV
+  EJ -.-> CE
+        </pre>
+      </div>
+
+      <div class="callout">
+        <strong>How to read it:</strong> solid lines are foreign-key joins (declared
+        in SQL). Dotted lines are "join by CBE in queries" — the application code
+        relies on the CBE matching, even when no formal foreign key is declared.
+        This is intentional: KBO and NBB land independently and we don't want
+        ingestion order to break referential integrity.
+      </div>
+
+      <h3>Three pre-computed shortcuts you should know about</h3>
+      <table class="data">
+        <thead>
+          <tr><th>Table</th><th>What it pre-computes</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>company_info</code></td>
+            <td>One row per CBE with <code>name</code>, <code>city</code>, <code>zipcode</code>, <code>nace_code</code></td>
+            <td>So search and the screener don't have to join 5 tables on every keystroke</td>
+          </tr>
+          <tr>
+            <td><code>financial_latest</code></td>
+            <td>One row per CBE with the most recent year's revenue, EBITDA, debt, FTEs</td>
+            <td>So the screener can filter "EBITDA &gt; €1M" without scanning the raw rubrics</td>
+          </tr>
+          <tr>
+            <td><code>sector_percentiles</code></td>
+            <td>Per-CBE percentile rank within its NACE-2 sector for revenue, EBITDA, margin, FTE</td>
+            <td>So the radar chart on the profile page is one row, not a window-function over 155k peers</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top:8px;font-size:14px;color:var(--ink-3)">
+        These have to be <em>refreshed</em> after each NBB load — they're not always
+        live. That's a known design tradeoff: speed in exchange for a small staleness
+        window after each batch.
+      </p>
+    </section>
+
+    <!-- ================= SECTION 5 ================= -->
+    <section id="example">
+      <h2>5. Real example: searching "Colruyt"</h2>
+      <p class="section-sub">Step-by-step, what actually happens between keystroke and screen.</p>
+
+      <ol class="steps">
+        <li>
+          <strong>You type "Colruyt" in the header search bar</strong>
+          <div class="step-detail">
+            150 ms after the last keystroke, the browser fires
+            <span class="step-code">GET /api/search/suggest?q=Colruyt</span>.
+            If you keep typing, the previous request gets cancelled — the browser
+            uses an <em>AbortController</em> so a slow response from keystroke 3
+            never overwrites keystroke 7's results.
+          </div>
+        </li>
+        <li>
+          <strong>nginx routes <code>/api/*</code> to the FastAPI backend</strong>
+          <div class="step-detail">
+            Two middlewares fire first: a bot filter (rejects obvious crawlers) and
+            a tier-limit middleware (does this user / this anonymous IP still have
+            search calls left today?). If yes, the request continues.
+          </div>
+        </li>
+        <li>
+          <strong>The backend normalises your text</strong>
+          <div class="step-detail">
+            "Colruyt" → strip accents, lowercase, strip trailing legal suffixes
+            (NV, SA, BV, SPRL…) → <span class="step-code">colruyt</span>.
+            Same function in SQL and Python so they always agree.
+          </div>
+        </li>
+        <li>
+          <strong>One SQL round-trip with four parallel arms</strong>
+          <div class="step-detail">
+            The query checks: (1) does <code>company_info.name_normalized</code>
+            equal "colruyt" exactly? (2) start with it? (3) is it a CBE number?
+            (4) does it match a denomination / trade name? Each arm has a base
+            score; the highest wins.
+          </div>
+        </li>
+        <li>
+          <strong>Postgres returns ~5 hits in 8–20 ms</strong>
+          <div class="step-detail">
+            The trick: a GIN trigram index on <code>name_normalized</code> means
+            substring matches don't scan the table. The dropdown renders.
+          </div>
+        </li>
+        <li>
+          <strong>You click "Colruyt Group"</strong>
+          <div class="step-detail">
+            Browser navigates to <span class="step-code">/company/0400378485</span>.
+            That URL is a Next.js Server Component; it calls the backend
+            <em>server-side</em> (using <code>API_URL_INTERNAL</code> inside the
+            Docker network) to pre-render the profile.
+          </div>
+        </li>
+        <li>
+          <strong>The profile fan-out</strong>
+          <div class="step-detail">
+            The backend pulls in parallel: <code>company_info</code> for the header,
+            <code>financial_latest</code> + <code>financial_by_year</code> for the
+            P&amp;L chart, <code>administrator</code> for the people tab,
+            <code>staatsblad_event</code> for recent legal events,
+            <code>company_enrichment.bulk_summary</code> for the AI description.
+            All keyed by the same CBE.
+          </div>
+        </li>
+        <li>
+          <strong>The narrative AI tab loads on demand</strong>
+          <div class="step-detail">
+            The longer "Summary" tab uses a separate pipeline that calls OpenRouter
+            on the fly — but only once per company; the answer is cached in
+            <code>ai_insights</code> for next time.
+          </div>
+        </li>
+        <li>
+          <strong>Every step is logged</strong>
+          <div class="step-detail">
+            <code>activity_log</code> gets one row per <code>/api/*</code> call —
+            user email if logged in, hashed IP if anonymous. That's how tier limits
+            count, and how the admin panel knows what's getting hit.
+          </div>
+        </li>
+      </ol>
+
+      <div class="callout">
+        <strong>End-to-end latency</strong> on a warm cache, from keystroke to a
+        rendered profile: roughly 200–700 ms. The slowest step is usually the
+        AI summary, which is why it's split off into a tab that loads after
+        the main page is already painted.
+      </div>
+    </section>
+
+    <!-- ================= SECTION 6 ================= -->
+    <section id="technical">
+      <h2>6. Under the hood — for the technical reader</h2>
+      <p class="section-sub">Runtime topology, data flow, and the operational reality.</p>
+
+      <h3>Runtime topology</h3>
+      <div class="mermaid-wrapper">
+        <pre class="mermaid">
+flowchart TB
+  B[Browser] -->|HTTPS| NG
+  NG[nginx<br/>:443 + Let's Encrypt]
+  NG -->|/api/*| API
+  NG -->|/, /_next/*| FE
+  FE[Next.js 16 / React 19<br/>SSR + CSR<br/>node:22-alpine]
+  FE -->|SSR via Docker net<br/>API_URL_INTERNAL| API
+  API[FastAPI uvicorn<br/>:8000]
+  API -->|JWKS verify| SUPA[(Supabase Auth)]
+  API --> PG[(Postgres<br/>host network<br/>leadpeek DB)]
+  API -->|subscription key| NBB[NBB CBSO API]
+  API -->|API key| OR[OpenRouter LLMs]
+  API -->|HTTP scrape| PS[playwright-scraper<br/>Chromium + Webshare proxies]
+  WORKER[enrichment-worker<br/>async drain loop] --> PG
+  WORKER --> OR
+  WORKER --> PS
+
+  CRON[Hetzner cron<br/>~10 jobs] --> PG
+  CRON -->|daily 03:00| KBOL[KBO loader]
+  CRON -->|nightly batch| NBBL[NBB loader]
+  CRON -->|every 2d| GAZ[Staatsblad scrape + OCR + LLM]
+
+  classDef ext fill:#f0f9ff,stroke:#0284c7,color:#075985
+  classDef int fill:#ecfdf5,stroke:#059669,color:#065f46
+  classDef ops fill:#fffbeb,stroke:#d97706,color:#92400e
+  class SUPA,NBB,OR,PS ext
+  class API,FE,WORKER int
+  class CRON,KBOL,NBBL,GAZ ops
+        </pre>
+      </div>
+
+      <h3>How the stack is deployed</h3>
+      <p>
+        Three Docker containers per environment: <code>backend</code>,
+        <code>frontend</code>, <code>nginx</code>. Production and staging both
+        live on the <strong>same Hetzner VPS</strong>, in separate
+        docker-compose projects (<code>leadpeek</code> vs
+        <code>leadpeek-staging</code>). Both connect to the <strong>same Postgres
+        database</strong> — there is no staging DB. (See the architect-review
+        section below for why this matters.)
+      </p>
+
+      <h3>Auth and tier model</h3>
+      <ol>
+        <li>Supabase issues a JWT on Google or email login.</li>
+        <li>Browser sends <code>Authorization: Bearer &lt;jwt&gt;</code> on every API call.</li>
+        <li>FastAPI verifies it with a JWKS cache (1-hour TTL).</li>
+        <li>A single <code>TierLimitMiddleware</code> classifies the endpoint and
+            checks today's count in <code>activity_log</code> against the user's
+            daily cap (<code>anon</code>, <code>pro</code>, <code>admin</code>).</li>
+        <li>Free users can <strong>read everything</strong>. Limits only kick in
+            on costly operations (AI calls, bulk exports). This is an explicit
+            product decision, not a bug.</li>
+      </ol>
+
+      <h3>How searches actually rank</h3>
+      <p>
+        Pure Postgres — no Elasticsearch, no Meilisearch. Three extensions do
+        the heavy lifting:
+      </p>
+      <ul>
+        <li><code>unaccent</code> — strips accents so "Brüssels" matches "brussels".</li>
+        <li><code>pg_trgm</code> — trigram similarity for fuzzy / substring matching.</li>
+        <li><code>fuzzystrmatch</code> — Double-Metaphone phonetic keys, so "Braet"
+            and "Brait" collide.</li>
+      </ul>
+      <p>
+        The company-search endpoint scores six candidate "arms"
+        (exact name, prefix, multi-token AND, denomination match, fuzzy trigram,
+        address match) and unions them. Highest score wins. Active companies
+        get a x1.0 multiplier; struck-off companies get x0.3.
+      </p>
+
+      <h3>The two AI pipelines, side by side</h3>
+      <table class="data">
+        <thead>
+          <tr><th></th><th>Bulk pipeline (background)</th><th>Narrative pipeline (on demand)</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>When it runs</strong></td>
+            <td>Continuous worker draining a queue</td>
+            <td>When a user opens a profile</td>
+          </tr>
+          <tr>
+            <td><strong>Model</strong></td>
+            <td>GPT-4o-mini → Haiku 4.5 escalation</td>
+            <td>Claude Haiku 4.5 + multi-step</td>
+          </tr>
+          <tr>
+            <td><strong>Cost</strong></td>
+            <td>~$0.00016 / company, $10/day cap</td>
+            <td>~$0.005 / profile, cached forever</td>
+          </tr>
+          <tr>
+            <td><strong>Output</strong></td>
+            <td>Structured JSON (description, products, segments)</td>
+            <td>Long-form narrative + key management</td>
+          </tr>
+          <tr>
+            <td><strong>Stored in</strong></td>
+            <td><code>company_enrichment.bulk_summary</code></td>
+            <td><code>ai_insights</code></td>
+          </tr>
+          <tr>
+            <td><strong>Used for</strong></td>
+            <td>Semantic search, search snippets</td>
+            <td>Profile "Summary" tab</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>The semantic search layer</h3>
+      <p>
+        Each company has a <strong>256-dimensional vector</strong> in
+        <code>company_embedding</code>, computed from its bulk summary. When a
+        user asks a fuzzy question ("a Belgian roof-tile manufacturer"), the
+        query is also embedded and the answer is a cosine-distance
+        nearest-neighbour search via pgvector's HNSW index (<code>m=16</code>, <code>ef_construction=64</code>). Query embeddings
+        are cached for 30 days in <code>query_embedding_cache</code> — same
+        question, no second OpenRouter bill.
+      </p>
+    </section>
+
+    <!-- ================= SECTION 7 ================= -->
+    <section id="review">
+      <h2>7. Senior architect review</h2>
+      <p class="section-sub">Where the system is solid, where it's fragile, and what would break first at 10× scale.</p>
+
+      <h3>What's well-designed</h3>
+      <div class="card">
+        <ul style="margin:0;padding-left:18px">
+          <li><strong>Single canonical join key.</strong> The CBE-as-spine is exactly
+              right for this domain. It keeps the data model intuitive and avoids
+              identity-resolution hell on the company side.</li>
+          <li><strong>One database, no exotic stack.</strong> Postgres + a few
+              extensions does search, financials, vectors, and queues. No
+              Elasticsearch, Kafka, Redis-required pieces. At this scale, that's
+              the right call — operational simplicity beats theoretical purity.</li>
+          <li><strong>Pre-pivoted reads.</strong> <code>financial_latest</code>,
+              <code>financial_by_year</code>, <code>sector_percentiles</code>,
+              <code>company_info</code> — pivoting at write time is the right
+              tradeoff for a read-heavy product.</li>
+          <li><strong>Two-pipeline AI design.</strong> Cheap-and-bulk for the long
+              tail, expensive-and-narrative on demand. Cost-controlled by a daily
+              budget guard, not just hope.</li>
+          <li><strong>SKIP LOCKED queues.</strong> The enrichment + Staatsblad
+              backfill queues both use <code>FOR UPDATE SKIP LOCKED</code>. That's
+              the textbook Postgres-as-queue pattern; it scales further than people
+              assume.</li>
+          <li><strong>Auth model is restrained.</strong> "Free users can read
+              everything; limits hit only on costly actions" is a clean product
+              principle that simplifies a lot of code. It's also explicitly
+              defended in the docs, so future contributors won't drift.</li>
+        </ul>
+      </div>
+
+      <h3>What I'd flag as risk</h3>
+
+      <div class="review-item high">
+        <span class="ri-tag">High</span>
+        <h4>Staging shares the production database</h4>
+        <p>
+          A destructive migration tested on staging runs against prod data. Any
+          worker started in staging mode writes to the prod queue. The codebase
+          mitigates this with router-level admin gates and a
+          <code>STAGING_MODE</code> flag, but the mitigation is a guardrail on a
+          loaded gun. A read-replica for staging — even a snapshot refreshed
+          weekly — would close most of the risk for a small ongoing cost.
+        </p>
+      </div>
+
+      <div class="review-item high">
+        <span class="ri-tag">High</span>
+        <h4>Single Postgres instance, no replica, no PITR proven</h4>
+        <p>
+          Everything funnels through one Postgres on a Hetzner VPS. If the disk
+          dies, the product dies until restore. KBO and NBB can be reloaded;
+          activity logs, user state, and any AI enrichment paid for cannot. A
+          standby replica + periodic logical backups, even to S3-compatible
+          object storage, would be cheap insurance.
+        </p>
+      </div>
+
+      <div class="review-item med">
+        <span class="ri-tag">Medium</span>
+        <h4>NBB key rotation is a recurring tax</h4>
+        <p>
+          The CBSO subscription keys rotate without warning — two rotations
+          landed in a single 24-hour window in April. There's a watchdog cron
+          + auto-regen Playwright flow, but the upstream is fundamentally
+          fragile. The rejected SDMX-migration spike confirmed there's no
+          equivalent free alternative for per-company filings, so this stays
+          a structural cost. Worth keeping the auto-rotation tested.
+        </p>
+      </div>
+
+      <div class="review-item med">
+        <span class="ri-tag">Medium</span>
+        <h4>TierLimitMiddleware queries the DB on every request</h4>
+        <p>
+          Every <code>/api/*</code> hit reads <code>activity_log</code> to count
+          today's requests. At current volume that's fine; at 10× the
+          activity_log table would be the first hot spot. A small per-process
+          LRU with a 30-second TTL, or a Redis counter, would absorb the burst
+          cheaply.
+        </p>
+      </div>
+
+      <div class="review-item med">
+        <span class="ri-tag">Medium</span>
+        <h4>Data quality is uneven, by design</h4>
+        <p>
+          NBB only has structured admin data since April 2022, only for entities
+          required to file. Small commanditaire vennootschappen (form 612) have
+          zero admin rows. The KBO licence prohibits using personal data for
+          direct marketing — so any "list every director in Belgium" feature is
+          a regulatory landmine. The product makes this trade well, but it
+          shapes what features can ever ship.
+        </p>
+      </div>
+
+      <div class="review-item med">
+        <span class="ri-tag">Medium</span>
+        <h4>People identity is ambiguous</h4>
+        <p>
+          With no national ID, two "Jan De Clercq"s in the same city are
+          probably one row in DataSnoop and probably two people in real life.
+          Staatsblad domicile data narrows this when present, but the
+          re-extraction cron is still backfilling. The right long-term answer
+          is a proper person-resolution layer with confidence scores; today's
+          grouping by name+city is good enough but quietly merges some
+          distinct people.
+        </p>
+      </div>
+
+      <div class="review-item low">
+        <span class="ri-tag">Low</span>
+        <h4>Sync <code>requests</code> inside async routes</h4>
+        <p>
+          Some NBB-load paths block the FastAPI event loop while waiting on the
+          NBB API. Tolerable today (the 3-wide concurrency cap and 1.5-second
+          politeness mean the loop isn't busy anyway), but as more of the
+          backend goes async-native, this becomes a measurable tail-latency
+          source. Already on the tech-debt list.
+        </p>
+      </div>
+
+      <div class="review-item low">
+        <span class="ri-tag">Low</span>
+        <h4>pgvector at the chosen dimensions</h4>
+        <p>
+          256-dim embeddings via HNSW (<code>m=16</code>, <code>ef_construction=64</code>)
+          is fine today. Cosine recall on ~570K vectors is good enough for the
+          search experience and HNSW build cost has been manageable. If the
+          corpus grows past a few million embedded entities (e.g. embedding
+          people too, or all events) HNSW build time and memory would become
+          the constraint and the parameters would want re-tuning. Not a
+          today problem. (Aside: <code>staatsblad_event_embedding</code> uses
+          IVFFlat with <code>lists=100</code> instead — different table, same
+          pgvector extension.)
+        </p>
+      </div>
+
+      <div class="review-item low">
+        <span class="ri-tag">Low</span>
+        <h4>A few "wide scan" admin endpoints</h4>
+        <p>
+          <code>/stats/sectors</code> pulls ~300k rows into Python before
+          aggregating. Cheap to fix with a single GROUP BY at the SQL layer,
+          and it would also cut admin-page load times. Not user-visible today
+          but a paper cut.
+        </p>
+      </div>
+
+      <h3>Scalability — what breaks first at 10× and 100×</h3>
+      <table class="data">
+        <thead>
+          <tr><th>Surface</th><th>Today</th><th>Bottleneck at 10×</th><th>Bottleneck at 100×</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Search latency</td>
+            <td>200–700 ms</td>
+            <td>2-token GIN unions get heavy</td>
+            <td>Need a real search engine or denormalised token table</td>
+          </tr>
+          <tr>
+            <td>Tier-limit checks</td>
+            <td>1 DB query / request</td>
+            <td>Hot table, contention</td>
+            <td>Redis or in-memory counter required</td>
+          </tr>
+          <tr>
+            <td>Bulk enrichment</td>
+            <td>~1.94M corpus, $10/day</td>
+            <td>Worker concurrency + LLM rate limits</td>
+            <td>Multi-region workers, tiered model routing</td>
+          </tr>
+          <tr>
+            <td>Postgres single node</td>
+            <td>Fine on 4 vCPU / 8 GB</td>
+            <td>Replica for reads</td>
+            <td>Partition <code>activity_log</code>, archive cold years</td>
+          </tr>
+          <tr>
+            <td>Staatsblad pipeline</td>
+            <td>OCR + LLM, ~2-day cadence</td>
+            <td>RunPod producer + queue, mostly fine</td>
+            <td>Switch to streaming ingestion if cadence tightens</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>The "if I could change one thing" list</h3>
+      <ol>
+        <li>
+          <strong>Carve out a read-replica for staging.</strong> Even a 24-hour-stale
+          snapshot would let staging be genuinely safe to break things on. Today
+          the operational discipline carries the load, and one tired Friday will
+          eventually bite.
+        </li>
+        <li>
+          <strong>Move <code>activity_log</code> writes off the request path.</strong>
+          A 1ms write on every API call is a paper cut at low scale and a
+          sharp knife at high scale. Buffered async writes, partitioned table,
+          done.
+        </li>
+        <li>
+          <strong>Promote person identity to a first-class entity.</strong>
+          Right now a "person" is a string-with-attributes. A
+          <code>person</code> table keyed by some derived ID (with confidence
+          scores tying admin / shareholder / event rows to it) would unlock
+          much better people-search and is genuinely needed for PE workflows.
+        </li>
+        <li>
+          <strong>Schema-as-truth for AI columns.</strong>
+          <code>company_enrichment</code> currently gets created at <em>runtime</em>
+          via DDL ALTERs in a Python startup hook. That's fragile and surprising —
+          a normal migration file would make the table's existence boring and
+          predictable.
+        </li>
+      </ol>
+
+      <p style="font-size:14px;color:var(--ink-3);margin-top:32px">
+        None of these are showstoppers. They're the kind of items a senior
+        architect flags so they don't quietly become showstoppers six months
+        from now.
+      </p>
+    </section>
+
+    <footer class="note">
+      Built from the actual repo: <code>docs/product.md</code>,
+      <code>docs/architecture.md</code>, <code>docs/search.md</code>,
+      <code>src/schema.sql</code>. Where this page speculates beyond the docs
+      (the architect-review section), it's flagged with a coloured tag —
+      <span class="badge">High</span> / <span class="badge">Medium</span> /
+      <span class="badge">Low</span> — so you can tell description apart from
+      opinion.
+    </footer>
+  </main>
+</div>
+
+<script>
+  // Mermaid init
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: 'Geist, system-ui, sans-serif',
+      primaryColor: '#ecfdf5',
+      primaryTextColor: '#065f46',
+      primaryBorderColor: '#059669',
+      lineColor: '#94a3b8',
+      tertiaryColor: '#f8fafc'
+    }
+  });
+
+  // Scrollspy for the TOC
+  const links = document.querySelectorAll('aside.toc a');
+  const sections = Array.from(links).map(a => document.querySelector(a.getAttribute('href')));
+  function onScroll() {
+    const y = window.scrollY + 100;
+    let active = sections[0];
+    for (const s of sections) {
+      if (s && s.offsetTop <= y) active = s;
+    }
+    links.forEach(a => a.classList.toggle('active',
+      active && a.getAttribute('href') === '#' + active.id));
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+</script>
+
+</body>
+</html>
