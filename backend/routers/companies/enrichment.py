@@ -809,11 +809,13 @@ async def generate_ai_insights(
     }
 
     # ── Phase 5 fast path ───────────────────────────────────────────
-    # If we already have a bulk_summary for this CBE, serve it immediately
-    # (instant) and kick off the qwen+kimi elaboration in the background.
-    # The next time the user opens this profile, the narrative_lite
-    # version will be served from the ai_insights cache. This decouples
-    # perceived latency from the 30-60s cost of the full elaboration.
+    # Always return sub-second. The qwen+kimi elaboration takes 30-60s, so
+    # we never block the request on it. Three return shapes:
+    #  1. bulk_summary cached -> return it, kick elaboration in background
+    #  2. nothing cached at all -> return a KBO-derived skeleton, kick
+    #     elaboration in background
+    #  3. effective_force=true -> fall through to synchronous elaboration
+    #     (only authenticated admin retry button reaches here)
     if PHASE_5_ELABORATION_ENABLED and not effective_force:
         try:
             bulk_row = fetch_one(
@@ -826,6 +828,16 @@ async def generate_ai_insights(
             )
         except Exception:
             bulk_row = None
+
+        async def _background_elaborate():
+            try:
+                await call_elaboration_narrative(cbe, conn_helpers, lang=lang)
+            except Exception:
+                logger.exception(
+                    "ai_insights background elaboration failed for %s", cbe
+                )
+
+        # Path 1 — bulk_summary already populated for this CBE
         if bulk_row and bulk_row.get("bulk_summary") and bulk_row.get("quality_tier") in (
             "bulk_only", "bulk_escalated"
         ):
@@ -836,23 +848,50 @@ async def generate_ai_insights(
                 except (json.JSONDecodeError, TypeError):
                     bulk = None
             if isinstance(bulk, dict) and bulk.get("business_description"):
-                # Schedule the elaboration on a fire-and-forget task. It will
-                # write narrative_lite + ai_insights when done; the next call
-                # to this endpoint will hit the ai_insights cache short-circuit
-                # above and return the upgraded version.
-                async def _background_elaborate():
-                    try:
-                        await call_elaboration_narrative(cbe, conn_helpers, lang=lang)
-                    except Exception:
-                        logger.exception(
-                            "ai_insights background elaboration failed for %s", cbe
-                        )
-
                 asyncio.create_task(_background_elaborate())
                 bulk["from_cache"] = True
                 bulk["upgrade_in_progress"] = True
                 bulk["quality_tier"] = bulk_row["quality_tier"]
                 return bulk
+
+        # Path 2 — no bulk_summary at all. Build a 1-line KBO skeleton and
+        # kick off elaboration. Avoids the 30-60s synchronous fall-through.
+        try:
+            kbo = fetch_one(
+                """
+                SELECT ci.name, ci.city, ci.nace_code, n.description AS nace_label
+                  FROM company_info ci
+             LEFT JOIN nace_lookup n ON n.nace_code = ci.nace_code
+                 WHERE ci.enterprise_number = %s
+                """,
+                (cbe,),
+            )
+        except Exception:
+            kbo = None
+        if kbo and kbo.get("name"):
+            asyncio.create_task(_background_elaborate())
+            name = kbo.get("name")
+            label = kbo.get("nace_label") or kbo.get("nace_code")
+            city = kbo.get("city")
+            desc_parts = [f"{name} is a Belgian company"]
+            if label:
+                desc_parts.append(f"active in {label}")
+            if city:
+                desc_parts.append(f"based in {city}")
+            return {
+                "business_description": " ".join(desc_parts) + ".",
+                "products_services": [],
+                "customer_segments": "",
+                "market_position": "",
+                "group_context": "",
+                "history": "",
+                "key_management": [],
+                "source_attribution": {"business_description": ["kbo"]},
+                "confidence": "insufficient_information",
+                "from_cache": False,
+                "upgrade_in_progress": True,
+                "quality_tier": "skeleton",
+            }
 
     t_total = time.perf_counter()
     try:
