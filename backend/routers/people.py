@@ -55,7 +55,7 @@ async def search_people(q: str = Query(..., min_length=2, max_length=200)):
     return _search_people_cached(raw.lower())
 
 
-@ttl_cache(ttl_seconds=60, maxsize=2048)
+@ttl_cache(ttl_seconds=3600, maxsize=4096)
 def _search_people_cached(raw: str):
     """Memoised core of /api/people/search.
 

@@ -264,7 +264,7 @@ async def search_companies(
     )
 
 
-@ttl_cache(ttl_seconds=60, maxsize=2048)
+@ttl_cache(ttl_seconds=3600, maxsize=4096)
 def _search_companies_cached(
     raw: str,
     limit: int,
@@ -392,7 +392,7 @@ def _search_companies_cached(
 # Location-only browse — no `q`, just filter by REGO address
 # ---------------------------------------------------------------------------
 
-@ttl_cache(ttl_seconds=60, maxsize=512)
+@ttl_cache(ttl_seconds=3600, maxsize=2048)
 def _search_location_only_cached(
     limit: int,
     pc_filter: Optional[str],
