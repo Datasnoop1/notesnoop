@@ -158,19 +158,24 @@ function UnifiedSearchPageInner() {
       return;
     }
 
-    // 100ms debounce — feels like instant-search-as-you-type. Each
-    // keystroke aborts the previous in-flight requests via
-    // AbortController, so even if the user types fast we only pay for
-    // the last batch.
+    // 250ms debounce — slightly slower than instant-search but stops
+    // rapid typing piling up cold-cache backend queries (each ~700 ms
+    // cold across all three endpoints). Each keystroke aborts the
+    // previous in-flight requests via AbortController, so we only pay
+    // for the last typed batch.
     debounceRef.current = setTimeout(() => {
       const ac = new AbortController();
       abortRef.current = ac;
       setLoading(true);
       setSearched(true);
 
-      // People + events still require a name term — they're not
-      // location-filtered today, so skip them in the location-only path.
-      const includeNameSearches = trimmed.length >= 2;
+      // People + events are not location-filtered today, so when a
+      // location filter is set we'd be showing people and events
+      // unfiltered — confusing UX (admins from all over Belgium when
+      // the operator only typed "Schoten"). Skip them entirely while
+      // a location filter is active. Operator can clear the location
+      // to see people again.
+      const includeNameSearches = trimmed.length >= 2 && !hasLocFilter;
       // Events are a lower-priority, semantically-expanded surface. Two
       // and three character searches create noisy matches and can burn
       // an embedding call, so keep them to useful-length terms or CBE-
