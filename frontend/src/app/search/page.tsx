@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useCallback, useRef, useEffect } from "react";
+import { Suspense, useState, useCallback, useRef, useEffect, useDeferredValue } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/input";
@@ -81,46 +81,48 @@ function UnifiedSearchPageInner() {
       .catch(() => {});
   }, []);
 
-  const toggleCompanyFav = (cbe: string, e: React.MouseEvent) => {
+  // useCallback so the result section components can React.memo
+  // without their props' identity changing on every keystroke. Without
+  // this, every character typed re-renders all 30+ result cards.
+  const toggleCompanyFav = useCallback((cbe: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const isFav = favCompanies.has(cbe);
     setFavCompanies((prev) => {
+      const isFav = prev.has(cbe);
       const next = new Set(prev);
       if (isFav) next.delete(cbe);
       else next.add(cbe);
+      (isFav ? removeFavourite(cbe) : addFavourite(cbe)).catch(() => {
+        setFavCompanies((p) => {
+          const r = new Set(p);
+          if (isFav) r.add(cbe);
+          else r.delete(cbe);
+          return r;
+        });
+      });
       return next;
     });
-    (isFav ? removeFavourite(cbe) : addFavourite(cbe)).catch(() => {
-      // Rollback on failure.
-      setFavCompanies((prev) => {
-        const next = new Set(prev);
-        if (isFav) next.add(cbe);
-        else next.delete(cbe);
-        return next;
-      });
-    });
-  };
+  }, []);
 
-  const togglePersonFav = (name: string, e: React.MouseEvent) => {
+  const togglePersonFav = useCallback((name: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const isFav = favPeople.has(name);
     setFavPeople((prev) => {
+      const isFav = prev.has(name);
       const next = new Set(prev);
       if (isFav) next.delete(name);
       else next.add(name);
+      (isFav ? removePeopleFavourite(name) : addPeopleFavourite(name)).catch(() => {
+        setFavPeople((p) => {
+          const r = new Set(p);
+          if (isFav) r.add(name);
+          else r.delete(name);
+          return r;
+        });
+      });
       return next;
     });
-    (isFav ? removePeopleFavourite(name) : addPeopleFavourite(name)).catch(() => {
-      setFavPeople((prev) => {
-        const next = new Set(prev);
-        if (isFav) next.add(name);
-        else next.delete(name);
-        return next;
-      });
-    });
-  };
+  }, []);
 
   const doSearch = useCallback((q: string, loc?: { postalCode: string; municipality: string; street: string }) => {
     setQuery(q);
@@ -219,6 +221,13 @@ function UnifiedSearchPageInner() {
   const nonprofitList = companies?.nonprofit_or_public ?? [];
   const commercialTotal = companies?.total?.commercial ?? commercialList.length;
   const nonprofitTotal = companies?.total?.nonprofit_or_public ?? nonprofitList.length;
+
+  // Defer the `query` value passed to memoised result sections. While
+  // the user is typing, deferredQuery stays at the previous value, so
+  // CommercialSection / PeopleSection (both React.memo) skip re-render
+  // until typing settles. Result: keystrokes feel instant even with a
+  // large result list visible from the previous search.
+  const deferredQuery = useDeferredValue(query);
 
   const isSearchingEmpty =
     searched &&
@@ -369,7 +378,7 @@ function UnifiedSearchPageInner() {
                 total={commercialTotal}
                 favCompanies={favCompanies}
                 onToggleFav={toggleCompanyFav}
-                query={query}
+                query={deferredQuery}
               />
             )}
             {loading && people.length === 0 ? (
@@ -384,7 +393,7 @@ function UnifiedSearchPageInner() {
                 people={people}
                 favPeople={favPeople}
                 onToggleFav={togglePersonFav}
-                query={query}
+                query={deferredQuery}
               />
             )}
           </div>

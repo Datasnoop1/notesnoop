@@ -15,7 +15,7 @@
  */
 
 import Link from "next/link";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Building, Users, Star, Calendar, ChevronDown, ChevronRight, Landmark } from "lucide-react";
 import { fmtEur, fmtCbe, fmtPct } from "@/lib/format";
@@ -405,7 +405,7 @@ function SectionHeader({
 // Commercial companies section
 // ---------------------------------------------------------------------------
 
-export function CommercialSection({
+function CommercialSectionImpl({
   companies,
   total,
   favCompanies,
@@ -445,12 +445,17 @@ export function CommercialSection({
     </div>
   );
 }
+// React.memo so the result list doesn't re-render on every keystroke
+// when the parent's `query` state updates. Combined with useCallback
+// on onToggleFav in the parent, the section's props stay referentially
+// stable between typing keystrokes.
+export const CommercialSection = memo(CommercialSectionImpl);
 
 // ---------------------------------------------------------------------------
 // People section
 // ---------------------------------------------------------------------------
 
-export function PeopleSection({
+function PeopleSectionImpl({
   people,
   favPeople,
   onToggleFav,
@@ -487,6 +492,7 @@ export function PeopleSection({
     </div>
   );
 }
+export const PeopleSection = memo(PeopleSectionImpl);
 
 // ---------------------------------------------------------------------------
 // Non-profits & public — collapsed by default, demoted visual weight
