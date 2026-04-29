@@ -315,7 +315,16 @@ def rebuild_materialized_tables():
     log.info("Rebuilding materialized tables...")
     t0 = time.time()
 
-    conn = get_connection()
+    # The shared pool's 120s statement_timeout is sized for request handling,
+    # not batch ETL. The INSERT INTO financial_latest scans financial_summary
+    # which fans out across financial_data (~68M rubric rows); rebuild times
+    # had been creeping toward 120s and crossed it on 2026-04-29. Use a
+    # dedicated connection with a 10-minute cap — ~3x headroom over the
+    # historical max (181s) while still catching a genuinely stuck query.
+    conn = psycopg2.connect(
+        os.getenv("DATABASE_URL"),
+        options="-c statement_timeout=600000",
+    )
     cur = conn.cursor()
     try:
         # financial_latest
@@ -427,7 +436,7 @@ def rebuild_materialized_tables():
 
     finally:
         cur.close()
-        put_connection(conn)
+        conn.close()
 
 
 def main():
