@@ -1414,6 +1414,13 @@ export interface AiInsights {
   quality_warning?: boolean;
   website_url: string;
   linkedin_url: string;
+  /** Phase 5 — server set true when the row was served from the
+   * bulk_summary cache or KBO skeleton and the qwen+kimi elaboration is
+   * running in the background. Frontend polls for the upgraded narrative. */
+  upgrade_in_progress?: boolean;
+  /** Phase 5 — `narrative_lite` / `bulk_only` / `bulk_escalated` / `skeleton`. */
+  quality_tier?: string;
+  from_cache?: boolean;
 }
 
 export const generateAiInsights = (cbe: string, signal?: AbortSignal) =>

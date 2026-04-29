@@ -427,6 +427,51 @@ export function CompanyPageClient({
     };
   }, [cbe, locale]);
 
+  /* Phase 5 background-upgrade poll.
+     ─────────────────────────────────
+     When the initial fetch returns the bulk_summary or KBO skeleton, the
+     server sets `upgrade_in_progress: true` and runs the qwen+kimi
+     elaboration in the background. Re-fetch every 30 s (cap at 3 polls
+     = 90 s total) until the response no longer says `upgrade_in_progress`,
+     then silently swap in the upgraded narrative. This is the UX glue
+     that makes "render fast, upgrade silently" feel seamless. */
+  useEffect(() => {
+    if (!aiInsights?.upgrade_in_progress) return;
+    let cancelled = false;
+    let attempt = 0;
+    const maxAttempts = 3;
+    const intervalMs = 30_000;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      if (cancelled) return;
+      attempt += 1;
+      try {
+        const fresh = await generateAiInsights(cbe);
+        if (cancelled) return;
+        if (fresh && !fresh.upgrade_in_progress) {
+          setAiInsights(fresh);
+          aiInsightsRef.current = fresh;
+          return; // upgrade landed — stop polling
+        }
+        if (attempt < maxAttempts) {
+          timer = setTimeout(tick, intervalMs);
+        }
+      } catch {
+        // Transient — retry on next tick if budget remains
+        if (!cancelled && attempt < maxAttempts) {
+          timer = setTimeout(tick, intervalMs);
+        }
+      }
+    };
+
+    timer = setTimeout(tick, intervalMs);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [cbe, aiInsights?.upgrade_in_progress]);
+
   /* -- Auto-load missing NBB data / publications -- */
   const runAutoLoad = useCallback(async (fin: FinancialsData | null, str: StructureData | null) => {
     const needsFinancials = !!(fin?.summary && fin.summary.length === 0);
