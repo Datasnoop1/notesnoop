@@ -19,7 +19,7 @@ case "$KIND" in
     rotated-ok)                SUBJECT="[DataSnoop] NBB keys auto-rotated successfully" ;;
     rotate-failed)             SUBJECT="[DataSnoop] NBB AUTO-ROTATE FAILED - manual intervention needed" ;;
     still-red-after-rotate)    SUBJECT="[DataSnoop] NBB still red after recent auto-rotate - investigate" ;;
-    probe-transient-no-rotate) SUBJECT="[DataSnoop] NBB probe red - transient issue, no auto-rotate" ;;
+    probe-transient-no-rotate) SUBJECT="[DataSnoop] NBB API briefly unreachable (informational, no action needed)" ;;
     *)                         SUBJECT="[DataSnoop] NBB watchdog: $KIND" ;;
 esac
 

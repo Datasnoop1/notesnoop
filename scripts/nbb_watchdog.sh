@@ -7,8 +7,10 @@
 #        0  = green
 #        10 = auth failure, worth rotating
 #        11 = transient/upstream failure, do NOT rotate
-#   2. If green: silent (log line only). Done.
-#   3. If transient red: alert once per repeat window, but do NOT rotate.
+#   2. If green: silent (log line only). Reset transient streak.
+#   3. If transient red: increment streak. Only alert once the streak hits
+#      $TRANSIENT_STREAK_MIN consecutive failures (default 3 = ~45 min
+#      sustained outage). One-cron-tick blips never email anyone.
 #   4. If auth red AND we haven't auto-rotated in the last $COOLDOWN_MIN minutes:
 #        a. Email "rotation in progress" (informational).
 #        b. Run the rotator script.
@@ -19,16 +21,16 @@
 #          ONCE per cooldown window (lock prevents repeated emails).
 #
 # Files:
-#   /opt/leadpeek/scripts/_watchdog.lock      flock guard - only one
-#                                             watchdog runs at a time
-#   /opt/leadpeek/scripts/_watchdog.last_rot  ISO timestamp of last rotate
-#   /opt/leadpeek/scripts/_watchdog.last_alert  ISO timestamp of last "still red" alert
+#   _watchdog_state/lock              flock guard - one watchdog at a time
+#   _watchdog_state/last_rotate       ISO timestamp of last rotate
+#   _watchdog_state/last_alert        ISO timestamp of last "red" alert
+#   _watchdog_state/transient_streak  consecutive transient failure counter
 #
 # Exit codes:
 #   0 green or recovered after auto-rotate
 #   2 auth red, auto-rotate fired and FAILED      (operator action needed)
 #   3 auth red but in cooldown - alerted but did not auto-rotate
-#   4 transient red - alerted but deliberately did not auto-rotate
+#   4 transient red - alerted (or suppressed) but deliberately did not auto-rotate
 
 set -uo pipefail
 
@@ -40,10 +42,12 @@ mkdir -p "$STATE_DIR"
 LOCK="$STATE_DIR/lock"
 LAST_ROTATE="$STATE_DIR/last_rotate"
 LAST_ALERT="$STATE_DIR/last_alert"
+TRANSIENT_STREAK_FILE="$STATE_DIR/transient_streak"
 LOG="$STATE_DIR/watchdog.log"
 
 COOLDOWN_MIN="${WATCHDOG_COOLDOWN_MIN:-30}"
 ALERT_REPEAT_MIN="${WATCHDOG_ALERT_REPEAT_MIN:-60}"
+TRANSIENT_STREAK_MIN="${WATCHDOG_TRANSIENT_STREAK_MIN:-3}"
 AUTH_FAILURE_EXIT=10
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -62,6 +66,7 @@ HEALTH_EXIT=$?
 
 if [ $HEALTH_EXIT -eq 0 ]; then
     log "GREEN"
+    rm -f "$TRANSIENT_STREAK_FILE"
     exit 0
 fi
 
@@ -69,7 +74,19 @@ log "RED - output: $HEALTH_OUTPUT"
 
 # --- 2. Transient-vs-auth split ---
 if [ $HEALTH_EXIT -ne $AUTH_FAILURE_EXIT ]; then
-    log "transient/upstream probe failure (exit $HEALTH_EXIT) - not auto-rotating"
+    streak=0
+    [ -f "$TRANSIENT_STREAK_FILE" ] && streak=$(cat "$TRANSIENT_STREAK_FILE" 2>/dev/null || echo 0)
+    # Defensive: bash arithmetic expands $(...) inside operands — never feed
+    # untrusted file content into $((...)) without a digit-only check first.
+    [[ "$streak" =~ ^[0-9]+$ ]] || streak=0
+    streak=$((streak + 1))
+    echo "$streak" > "$TRANSIENT_STREAK_FILE"
+    log "transient/upstream probe failure (exit $HEALTH_EXIT) - streak=$streak/$TRANSIENT_STREAK_MIN, not auto-rotating"
+
+    if [ $streak -lt $TRANSIENT_STREAK_MIN ]; then
+        log "below transient streak threshold - suppressing alert"
+        exit 4
+    fi
 
     should_alert=1
     if [ -f "$LAST_ALERT" ]; then
@@ -87,6 +104,9 @@ if [ $HEALTH_EXIT -ne $AUTH_FAILURE_EXIT ]; then
     fi
     exit 4
 fi
+
+# Auth red - reset the transient streak so a future flap doesn't carry over.
+rm -f "$TRANSIENT_STREAK_FILE"
 
 # --- 3. Cooldown check (auth failures only) ---
 in_cooldown=0
