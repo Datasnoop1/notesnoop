@@ -171,16 +171,11 @@ function UnifiedSearchPageInner() {
       // is misleading. Skip them while a location filter is active —
       // operator can clear the location to see people again.
       const includeNameSearches = trimmed.length >= 2 && !hasLocFilter;
-      // Events are a lower-priority, semantically-expanded surface.
-      // The endpoint is currently 1-2 s even warm (pgvector +
-      // OpenRouter embedding round-trip), so we fire-and-forget and
-      // do NOT make the loading spinner wait on it — otherwise users
-      // see a 2 s "searching…" even when companies + people returned
-      // in <200 ms.
-      const includeEvents =
-        includeNameSearches &&
-        (trimmed.length >= 4 || /\d{4,}/.test(trimmed));
-
+      // Events search is disabled on /search — its FTS path scans
+      // 200K+ event rows per query (~2-4 s even warm) and the
+      // footer-sized output didn't justify the latency. A dedicated
+      // events page can re-introduce it with a precomputed tsvector
+      // column.
       let remaining = 1; // companies always
       if (includeNameSearches) remaining += 1;
       const done = () => {
@@ -201,15 +196,7 @@ function UnifiedSearchPageInner() {
         setPeople([]);
       }
 
-      if (includeEvents) {
-        // Fire-and-forget — events render whenever they arrive, the
-        // spinner above doesn't wait on them.
-        searchEvents(trimmed, { limit: 10 }, ac.signal)
-          .then((ev) => { if (!ac.signal.aborted) setEvents(ev.results || []); })
-          .catch(() => { if (!ac.signal.aborted) setEvents([]); });
-      } else {
-        setEvents([]);
-      }
+      setEvents([]);
     }, 100);
   }, []);
 
