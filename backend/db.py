@@ -5,12 +5,15 @@ Uses a simple connection pool to avoid exhausting Supabase session pooler limits
 
 import os
 import logging
+import time
 from contextlib import contextmanager
 
 import psycopg2
 import psycopg2.extras
 import psycopg2.pool
 from dotenv import load_dotenv
+
+from middleware.timing import record_db_timing
 
 load_dotenv()
 
@@ -134,8 +137,10 @@ def fetch_all(sql: str, params: tuple | list = None) -> list[dict]:
         conn = get_connection()
         try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            t0 = time.perf_counter()
             cur.execute(sql, params)
             rows = cur.fetchall()
+            record_db_timing((time.perf_counter() - t0) * 1000.0)
             cur.close()
             conn.commit()
             return [dict(r) for r in rows]
@@ -161,8 +166,10 @@ def fetch_one(sql: str, params: tuple | list = None) -> dict | None:
         conn = get_connection()
         try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            t0 = time.perf_counter()
             cur.execute(sql, params)
             row = cur.fetchone()
+            record_db_timing((time.perf_counter() - t0) * 1000.0)
             cur.close()
             conn.commit()
             return dict(row) if row else None
@@ -187,7 +194,9 @@ def execute(sql: str, params: tuple | list = None):
         conn = get_connection()
         try:
             cur = conn.cursor()
+            t0 = time.perf_counter()
             cur.execute(sql, params)
+            record_db_timing((time.perf_counter() - t0) * 1000.0)
             conn.commit()
             cur.close()
             return

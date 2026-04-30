@@ -17,6 +17,7 @@ from routers import dashboard, screener, companies, stats, people, favourites, f
 from auth import ensure_jwks_bootstrapped
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup, ensure_phase22_schema
+from middleware.timing import TimingMiddleware, metrics_response
 
 load_dotenv()
 
@@ -842,6 +843,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(TimingMiddleware)
 
 # ---------------------------------------------------------------------------
 # Routers
@@ -881,6 +883,11 @@ app.include_router(perf.router)
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok", "service": "datasnoop-api"}
+
+
+@app.get("/metrics", include_in_schema=False)
+async def prometheus_metrics():
+    return metrics_response()
 
 
 @app.get("/api/status/metrics")
