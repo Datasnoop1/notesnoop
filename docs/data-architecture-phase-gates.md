@@ -81,10 +81,16 @@ autonomous.
     feature branch, stop before implementation unless the branch has
     been rebased onto `origin/master` and the operator explicitly chose
     that branch for this phase.
-  - `backend/db.py:41` reads `ThreadedConnectionPool(2, 20, ...)`
-    not `SimpleConnectionPool`.
-  - `backend/routers/companies/search.py:219` is a sync `def search_companies`,
-    not `async def`.
+  - `backend/db.py` instantiates `ThreadedConnectionPool(2, 20, ...)`,
+    no `SimpleConnectionPool` references in the live constructor path.
+    Verify: `grep -n "ConnectionPool" backend/db.py` — the class on the
+    `_pool = psycopg2.pool.…` line must be `ThreadedConnectionPool`.
+  - `backend/routers/companies/search.py` defines `search_companies` as
+    a sync `def`, not `async def`. Verify:
+    `grep -nE "^(async )?def search_companies" backend/routers/companies/search.py`
+    — the matched line must NOT start with `async`.
+  - *(Line numbers drift as the surrounding code gets explanatory
+    comments — the substance check is what matters, not the address.)*
   - If either is wrong, rebase / cherry-pick `105b303` + `79ed79c`
     from origin/master before any other phase.
 - **Approval gate**: N — diagnostic, not a change.
