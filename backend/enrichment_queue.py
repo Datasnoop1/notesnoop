@@ -31,41 +31,15 @@ _schema_ensured = False
 
 
 def ensure_schema() -> None:
-    """Create `enrichment_job` if missing (idempotent).
+    """Compatibility shim for the old enrichment_job startup DDL.
 
-    src/schema.sql is the canonical DDL; this runtime helper exists so the
-    worker can start against a DB that was provisioned before the Phase 1
-    migration ran. Safe to call repeatedly — gated by a module-level flag.
+    Runtime DDL moved to tracked migrations in Week-1b. Safe to call
+    repeatedly; gated by a module-level flag.
     """
     global _schema_ensured
     if _schema_ensured:
         return
-    try:
-        execute(
-            """
-            CREATE TABLE IF NOT EXISTS enrichment_job (
-                enterprise_number   VARCHAR(10) PRIMARY KEY,
-                status              TEXT NOT NULL DEFAULT 'queued',
-                priority            INTEGER NOT NULL DEFAULT 0,
-                attempts            INTEGER NOT NULL DEFAULT 0,
-                claimed_at          TIMESTAMPTZ,
-                finished_at         TIMESTAMPTZ,
-                last_error          TEXT,
-                enqueued_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-        execute(
-            "CREATE INDEX IF NOT EXISTS idx_enrichment_job_status "
-            "ON enrichment_job(status, priority DESC, enqueued_at)"
-        )
-        execute(
-            "CREATE INDEX IF NOT EXISTS idx_enrichment_job_finished "
-            "ON enrichment_job(finished_at DESC)"
-        )
-        _schema_ensured = True
-    except Exception:
-        logger.exception("enrichment_job schema migration failed (non-fatal)")
+    _schema_ensured = True
 
 
 def enqueue(cbe: str, priority: int = 0) -> bool:
