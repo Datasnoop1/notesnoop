@@ -868,10 +868,11 @@ CREATE INDEX IF NOT EXISTS idx_enrichment_job_finished
 -- Query embedding cache — /api/search/semantic computes a query
 -- embedding once per distinct (lowered, trimmed) query string and
 -- reuses it for 30 days. `query_hash` = sha256(lower(q)).
+-- Dimension is 1024 to match the current NVIDIA embedding path.
 CREATE TABLE IF NOT EXISTS query_embedding_cache (
     query_hash          TEXT PRIMARY KEY,
     query_text          TEXT NOT NULL,
-    embedding           vector(256) NOT NULL,
+    embedding           vector(1024) NOT NULL,
     model               TEXT NOT NULL,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
