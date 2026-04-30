@@ -99,7 +99,7 @@ def phase_schema() -> None:
                 sys.exit(f"schema: missing index: {INDEX_NAME}")
             print("  quality_tier index: ok", flush=True)
 
-            cur.execute("SELECT to_regproc(%s)", (f"{FUNCTION_NAME}(text)",))
+            cur.execute("SELECT to_regprocedure(%s)", (f"{FUNCTION_NAME}(text)",))
             if cur.fetchone()[0] is None:
                 sys.exit(f"schema: missing function: {FUNCTION_NAME}(text)")
             print("  try_parse_jsonb(text): ok", flush=True)
