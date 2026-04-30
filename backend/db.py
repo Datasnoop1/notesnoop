@@ -44,9 +44,16 @@ def _get_pool():
         # routes them through FastAPI's threadpool, so concurrent
         # workers now hit the pool from multiple threads. Drop-in
         # replacement; same constructor args.
+        #
+        # maxconn 10 → 20: FastAPI threadpool defaults to ~40 workers.
+        # Under typing-storm with cancelled-but-still-running queries
+        # (statement_timeout=120s), 11+ concurrent search threads on the
+        # old maxconn=10 would hit ThreadedConnectionPool's hard PoolError.
+        # 20 doubles the headroom while staying well within Postgres'
+        # default max_connections budget shared with the worker fleet.
         _pool = psycopg2.pool.ThreadedConnectionPool(
             2,
-            10,
+            20,
             _DATABASE_URL,
             connect_timeout=DB_CONNECT_TIMEOUT_S,
             options=f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}",
@@ -102,11 +109,22 @@ def _is_stale_conn_error(exc: Exception) -> bool:
 
 
 def _discard_connection(conn):
-    """Close + discard a broken connection instead of returning it to the pool."""
+    """Close + discard a broken connection instead of returning it to the pool.
+
+    Routes the close through `pool.putconn(conn, close=True)` so the pool
+    drops the slot from `_used`. Calling `conn.close()` directly leaves
+    the slot permanently occupied — pre-existed under SimpleConnectionPool
+    but only became dangerous under ThreadedConnectionPool, which raises
+    PoolError on exhaustion instead of blocking. Falls back to a raw
+    close if the pool isn't available for any reason.
+    """
     try:
-        conn.close()
+        _get_pool().putconn(conn, close=True)
     except Exception:
-        pass
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 def fetch_all(sql: str, params: tuple | list = None) -> list[dict]:
