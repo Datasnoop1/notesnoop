@@ -215,8 +215,15 @@ def _build_loc_clauses(
 # GET /api/companies/search?q=...  —  search V2
 # ---------------------------------------------------------------------------
 
+# Intentionally sync (not `async def`). The handler calls sync psycopg2
+# underneath; under `async def` that blocks the event loop for the whole
+# DB roundtrip, serialising every concurrent search through one Python
+# thread. Edit-on-the-fly typing fires 3-4 fetches in <1s — under async
+# the latest one waited ~5-6s for the queue to drain (perf telemetry,
+# 2026-04-30). FastAPI runs sync handlers in its threadpool, so
+# concurrent searches parallelise instead of serialising.
 @router.get("/search")
-async def search_companies(
+def search_companies(
     q: Optional[str] = Query(None, max_length=200),
     limit: int = Query(20, ge=1, le=50),
     postal_code: Optional[str] = Query(None, max_length=10),

@@ -38,7 +38,13 @@ def _get_pool():
     if _pool is None or _pool.closed:
         if not _DATABASE_URL:
             raise RuntimeError("DATABASE_URL not set in environment / .env file")
-        _pool = psycopg2.pool.SimpleConnectionPool(
+        # ThreadedConnectionPool (not SimpleConnectionPool) — getconn /
+        # putconn are wrapped in a threading.Lock. The de-async of
+        # /api/{companies,people}/search (2026-04-30, search-perf-deasync)
+        # routes them through FastAPI's threadpool, so concurrent
+        # workers now hit the pool from multiple threads. Drop-in
+        # replacement; same constructor args.
+        _pool = psycopg2.pool.ThreadedConnectionPool(
             2,
             10,
             _DATABASE_URL,

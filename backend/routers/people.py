@@ -40,8 +40,11 @@ def _serialize_row(row: dict) -> dict:
 # GET /api/people/search?q=...
 # ---------------------------------------------------------------------------
 
+# Intentionally sync — see `search_companies` in companies/search.py for
+# the rationale. Sync psycopg2 inside `async def` blocks the event loop
+# and serialises every concurrent search.
 @router.get("/search")
-async def search_people(q: str = Query(..., min_length=2, max_length=200)):
+def search_people(q: str = Query(..., min_length=2, max_length=200)):
     """Search admins/shareholders/staatsblad-events by name — V2.
 
     Handles accent-insensitivity, name-order reversal, legal-suffix
