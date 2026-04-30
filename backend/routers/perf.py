@@ -21,14 +21,27 @@ router = APIRouter(prefix="/api", tags=["perf"])
 logger = logging.getLogger("perf_log")
 
 
+_MAX_BODY_BYTES = 4096
+
+
 @router.post("/_perf")
 async def log_perf(request: Request) -> dict[str, str]:
     """Sink for navigator.sendBeacon payloads from /search.
 
     Body shape: `{session_id, event, ts_ms, q?, extra?}` JSON.
     Tolerant: malformed bodies still 200 so sendBeacon does not enter
-    the browser's retry loop.
+    the browser's retry loop. Bodies larger than 4 KB are dropped
+    before being parsed — typical payload is ~200 bytes; anything
+    bigger is either misuse or abuse.
     """
+    cl = request.headers.get("content-length")
+    if cl is not None:
+        try:
+            if int(cl) > _MAX_BODY_BYTES:
+                return {"ok": "0"}
+        except ValueError:
+            return {"ok": "0"}
+
     try:
         body: Any = await request.json()
     except Exception:

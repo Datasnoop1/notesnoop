@@ -203,7 +203,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
 # ---------------------------------------------------------------------------
 
 class ActivityLogMiddleware(BaseHTTPMiddleware):
-    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/status/")
+    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/status/", "/api/_perf")
     # `/api/v1/*` (public API) has its own per-key audit log in
     # `api_call_log`; double-logging here would just bloat activity_log
     # without adding signal.
@@ -787,6 +787,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         method = request.method
 
         if not path.startswith("/api/"):
+            return await call_next(request)
+
+        # `/api/_perf` is a fire-and-forget telemetry sink. Frontend uses
+        # navigator.sendBeacon, which can fan out to ~6 calls per search.
+        # The default 200/min/IP bucket would 429-drop perf data exactly
+        # when a typing-storm makes the data most interesting. Skip the
+        # bucket entirely — the endpoint does no DB work and is bounded
+        # by nginx's body-size cap upstream.
+        if path == "/api/_perf":
             return await call_next(request)
 
         # `/api/v1/*` (public API) is keyed by API key, not by JWT/IP.
