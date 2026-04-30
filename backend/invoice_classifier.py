@@ -544,8 +544,8 @@ def seed_default_patterns() -> int:
     """Insert the hardcoded fallback patterns into invoice_vendor_pattern
     if the table is empty. Returns the number of rows inserted.
 
-    Called at boot from db.ensure_trgm_setup so a fresh deploy has a
-    starter set without operator input.
+    Called at boot from db.ensure_phase22_schema so a fresh deploy has a
+    starter set without operator input after migrations create the table.
     """
     try:
         from db import fetch_one, execute

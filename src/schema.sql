@@ -3,6 +3,8 @@
 -- Belgian Company Database — KBO + NBB
 -- Phase 1: KBO tables
 
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- Metadata tracking
 CREATE TABLE IF NOT EXISTS meta (
     variable    TEXT PRIMARY KEY,
@@ -576,12 +578,22 @@ CREATE INDEX IF NOT EXISTS idx_company_view_history_user
 -- ============================================================
 -- activity_log indexes (critical — every /api/* hits this table)
 -- ============================================================
--- The table is created elsewhere (backend bootstrap). Without these
--- indexes, TierLimitMiddleware does a seq-scan on every AI call and
--- admin analytics pages take seconds. CREATE INDEX IF NOT EXISTS is
--- idempotent. CONCURRENTLY would be safer but can't run inside a
--- transaction block; the schema is only applied at boot with the
--- app quiesced, so plain CREATE is fine.
+-- Without these indexes, TierLimitMiddleware does a seq-scan on every
+-- AI call and admin analytics pages take seconds. CREATE INDEX IF NOT
+-- EXISTS is idempotent. CONCURRENTLY would be safer but can't run
+-- inside a transaction block; the schema is only applied at boot with
+-- the app quiesced, so plain CREATE is fine.
+CREATE TABLE IF NOT EXISTS activity_log (
+    id              SERIAL PRIMARY KEY,
+    user_email      TEXT NOT NULL,
+    endpoint        TEXT NOT NULL,
+    method          TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    session_id      TEXT,
+    ua_family       TEXT,
+    device_type     TEXT,
+    country_code    VARCHAR(2)
+);
 CREATE INDEX IF NOT EXISTS idx_activity_log_user_date
     ON activity_log(user_email, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_log_endpoint_date
