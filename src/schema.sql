@@ -401,8 +401,8 @@ ALTER TABLE financial_latest ADD COLUMN IF NOT EXISTS fixed_assets REAL;
 
 -- All financial years per company (materialized from financial_summary view)
 CREATE TABLE IF NOT EXISTS financial_by_year (
-    enterprise_number   TEXT NOT NULL,
-    fiscal_year         INTEGER NOT NULL,
+    enterprise_number   TEXT,
+    fiscal_year         INTEGER,
     filing_model        TEXT,
     revenue             REAL,
     ebit                REAL,
@@ -415,8 +415,7 @@ CREATE TABLE IF NOT EXISTS financial_by_year (
     cash                REAL,
     total_assets        REAL,
     fte_total           REAL,
-    personnel_costs     REAL,
-    PRIMARY KEY (enterprise_number, fiscal_year)
+    personnel_costs     REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_fby_ent  ON financial_by_year(enterprise_number);
