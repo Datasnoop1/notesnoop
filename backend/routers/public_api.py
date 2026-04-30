@@ -53,55 +53,14 @@ _schema_ensured = False
 
 
 def _ensure_schema() -> None:
-    """Create api_keys + api_call_log if they don't exist.
+    """Compatibility shim for public API tables moved to migrations.
 
-    Mirrors src/schema.sql so the API works on any DB even if schema.sql
-    hasn't been re-applied since this feature shipped. Idempotent —
-    cheap to call on every request (we still guard with a process flag).
+    Idempotent and cheap to call on every request; guarded with a process flag.
     """
     global _schema_ensured
     if _schema_ensured:
         return
-    try:
-        execute(
-            """
-            CREATE TABLE IF NOT EXISTS api_keys (
-                id              SERIAL PRIMARY KEY,
-                key_hash        TEXT NOT NULL UNIQUE,
-                key_prefix      TEXT NOT NULL,
-                label           TEXT NOT NULL,
-                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                disabled_at     TIMESTAMPTZ,
-                daily_cap       INTEGER NOT NULL DEFAULT 10000,
-                notes           TEXT
-            )
-            """
-        )
-        execute("CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)")
-        execute(
-            """
-            CREATE TABLE IF NOT EXISTS api_call_log (
-                id              BIGSERIAL PRIMARY KEY,
-                api_key_id      INTEGER NOT NULL REFERENCES api_keys(id),
-                vat_queried     TEXT,
-                endpoint        TEXT NOT NULL,
-                status_code     INTEGER NOT NULL,
-                latency_ms      INTEGER,
-                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-        execute(
-            "CREATE INDEX IF NOT EXISTS idx_api_call_log_key_date "
-            "ON api_call_log(api_key_id, created_at DESC)"
-        )
-        execute(
-            "CREATE INDEX IF NOT EXISTS idx_api_call_log_date "
-            "ON api_call_log(created_at DESC)"
-        )
-        _schema_ensured = True
-    except Exception:
-        logger.exception("public_api: _ensure_schema failed (will retry)")
+    _schema_ensured = True
 
 
 # ---------------------------------------------------------------------------

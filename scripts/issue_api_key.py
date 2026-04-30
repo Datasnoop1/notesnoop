@@ -53,26 +53,11 @@ def _hash(token: str) -> str:
 
 
 def _ensure_table() -> None:
-    """Create the table if a fresh DB hasn't run schema.sql yet.
+    """Legacy hook retained for call-site compatibility.
 
-    Mirrors the DDL in src/schema.sql; kept here so this script is
-    runnable on its own (the operator may issue a key before the
-    backend has booted and run startup migrations).
+    The api_keys table is managed by tracked migrations now; operators should
+    run migrations before issuing keys in a new environment.
     """
-    execute(
-        """
-        CREATE TABLE IF NOT EXISTS api_keys (
-            id              SERIAL PRIMARY KEY,
-            key_hash        TEXT NOT NULL UNIQUE,
-            key_prefix      TEXT NOT NULL,
-            label           TEXT NOT NULL,
-            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            disabled_at     TIMESTAMPTZ,
-            daily_cap       INTEGER NOT NULL DEFAULT 10000,
-            notes           TEXT
-        )
-        """
-    )
 
 
 def main() -> int:
