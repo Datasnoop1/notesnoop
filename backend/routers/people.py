@@ -697,17 +697,10 @@ _people_enrichment_table_ensured = False
 
 
 def _ensure_people_enrichment_table():
-    """Create people_enrichment table if it does not exist (idempotent)."""
+    """Compatibility shim for people_enrichment moved to tracked migrations."""
     global _people_enrichment_table_ensured
     if _people_enrichment_table_ensured:
         return
-    execute("""
-        CREATE TABLE IF NOT EXISTS people_enrichment (
-            person_name TEXT PRIMARY KEY,
-            summary TEXT,
-            generated_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
     _people_enrichment_table_ensured = True
 
 

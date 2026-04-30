@@ -113,22 +113,7 @@ async def remove_favourite(cbe: str, user=Depends(get_current_user)):
 
 
 def _ensure_project_tables():
-    """Create project tables if they do not exist (idempotent)."""
-    execute("""
-        CREATE TABLE IF NOT EXISTS favourite_project (
-            id SERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-    execute("""
-        CREATE TABLE IF NOT EXISTS favourite_project_member (
-            project_id INTEGER REFERENCES favourite_project(id) ON DELETE CASCADE,
-            enterprise_number TEXT NOT NULL,
-            PRIMARY KEY (project_id, enterprise_number)
-        )
-    """)
+    """Compatibility shim for project tables moved to tracked migrations."""
 
 
 _tables_ensured = False
@@ -277,12 +262,6 @@ async def get_notifications(user=Depends(get_current_user)):
     """Check for new financial data loaded for user's favourited companies since they last checked."""
     try:
         # Ensure the user has a last_checked timestamp
-        execute("""
-            CREATE TABLE IF NOT EXISTS favourite_last_checked (
-                user_id TEXT PRIMARY KEY,
-                checked_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
         last = fetch_one(
             "SELECT checked_at FROM favourite_last_checked WHERE user_id = %s",
             (user["id"],),
@@ -347,17 +326,7 @@ class PeopleFavouriteCreate(BaseModel):
 
 
 def _ensure_people_fav_table():
-    """Create people_favourite table if it does not exist."""
-    execute("""
-        CREATE TABLE IF NOT EXISTS people_favourite (
-            id SERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            person_name TEXT NOT NULL,
-            notes TEXT,
-            added_at TIMESTAMP DEFAULT NOW(),
-            UNIQUE(user_id, person_name)
-        )
-    """)
+    """Compatibility shim for people_favourite moved to tracked migrations."""
 
 
 @router.get("/people")
@@ -437,19 +406,7 @@ async def remove_people_favourite(person_name: str, user=Depends(get_current_use
 
 
 def _ensure_customer_supplier_table():
-    """Create customer_supplier_list table if it does not exist."""
-    execute("""
-        CREATE TABLE IF NOT EXISTS customer_supplier_list (
-            id SERIAL PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            list_type TEXT NOT NULL CHECK (list_type IN ('customer', 'supplier')),
-            enterprise_number TEXT NOT NULL,
-            custom_name TEXT,
-            notes TEXT,
-            added_at TIMESTAMP DEFAULT NOW(),
-            UNIQUE(user_id, list_type, enterprise_number)
-        )
-    """)
+    """Compatibility shim for customer_supplier_list moved to migrations."""
 
 
 _cs_tables_ensured = False
