@@ -68,70 +68,26 @@ def reset_current_endpoint(token) -> None:
         pass
 
 
-# Lazy guards for schema migrations. Each flag flips True after a successful
-# CREATE TABLE IF NOT EXISTS, so the DDL runs at most once per process.
+# Lazy guards retained for compatibility after runtime DDL moved to tracked
+# migrations in Week-1b.
 _translation_cache_migrated = False
 _llm_call_log_migrated = False
 
 
 def _ensure_translation_cache_table() -> None:
-    """Create the translation_cache table if missing (idempotent)."""
+    """Compatibility shim for the old translation_cache startup DDL."""
     global _translation_cache_migrated
     if _translation_cache_migrated:
         return
-    try:
-        from db import execute
-        execute(
-            """
-            CREATE TABLE IF NOT EXISTS translation_cache (
-                cbe             TEXT NOT NULL,
-                kind            TEXT NOT NULL,
-                lang            TEXT NOT NULL,
-                value           TEXT NOT NULL,
-                generated_at    TIMESTAMP NOT NULL DEFAULT NOW(),
-                PRIMARY KEY (cbe, kind, lang)
-            )
-            """
-        )
-        execute(
-            "CREATE INDEX IF NOT EXISTS idx_translation_cache_gen "
-            "ON translation_cache(generated_at)"
-        )
-        _translation_cache_migrated = True
-    except Exception:
-        logger.exception("translation_cache table migration failed (non-fatal)")
+    _translation_cache_migrated = True
 
 
 def _ensure_llm_call_log_table() -> None:
-    """Create the llm_call_log table if missing (idempotent)."""
+    """Compatibility shim for the old llm_call_log startup DDL."""
     global _llm_call_log_migrated
     if _llm_call_log_migrated:
         return
-    try:
-        from db import execute
-        execute(
-            """
-            CREATE TABLE IF NOT EXISTS llm_call_log (
-                id                  SERIAL PRIMARY KEY,
-                ts                  TIMESTAMP NOT NULL DEFAULT NOW(),
-                endpoint            TEXT,
-                model               TEXT,
-                prompt_tokens       INTEGER,
-                completion_tokens   INTEGER,
-                cost_usd            REAL
-            )
-            """
-        )
-        execute(
-            "CREATE INDEX IF NOT EXISTS idx_llm_call_log_ts ON llm_call_log(ts)"
-        )
-        execute(
-            "CREATE INDEX IF NOT EXISTS idx_llm_call_log_endpoint "
-            "ON llm_call_log(endpoint)"
-        )
-        _llm_call_log_migrated = True
-    except Exception:
-        logger.exception("llm_call_log table migration failed (non-fatal)")
+    _llm_call_log_migrated = True
 
 
 def _log_llm_call(
