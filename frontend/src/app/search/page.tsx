@@ -68,6 +68,40 @@ function UnifiedSearchPageInner() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Perf telemetry — one UUID per page-mount, monotonically incremented
+  // search counter, navigator.sendBeacon emit. Pure observation, never
+  // mutates search behaviour. Read with `docker logs … | grep PERF_LOG`.
+  const sessionIdRef = useRef<string>("");
+  if (!sessionIdRef.current) {
+    sessionIdRef.current =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `s-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+  const searchSeqRef = useRef<number>(0);
+  const lastSearchSeqRef = useRef<number>(0);
+  const logPerf = useCallback(
+    (event: string, q?: string, extra?: Record<string, unknown>) => {
+      if (typeof navigator === "undefined" || !navigator.sendBeacon) return;
+      try {
+        const body = JSON.stringify({
+          session_id: sessionIdRef.current,
+          event,
+          ts_ms: Date.now(),
+          q: q ?? "",
+          extra: { seq: lastSearchSeqRef.current, ...(extra ?? {}) },
+        });
+        navigator.sendBeacon(
+          "/api/_perf",
+          new Blob([body], { type: "application/json" }),
+        );
+      } catch {
+        // Telemetry must never break search.
+      }
+    },
+    [],
+  );
+
   // Favourite state — loaded once, mutated optimistically.
   const [favCompanies, setFavCompanies] = useState<Set<string>>(new Set());
   const [favPeople, setFavPeople] = useState<Set<string>>(new Set());
@@ -125,6 +159,7 @@ function UnifiedSearchPageInner() {
   }, []);
 
   const doSearch = useCallback((q: string, loc?: { postalCode: string; municipality: string; street: string }) => {
+    logPerf("keystroke", q);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (abortRef.current) abortRef.current.abort();
 
@@ -152,6 +187,8 @@ function UnifiedSearchPageInner() {
     // 100ms debounce — feels instant. AbortController cancels stale
     // in-flight requests so rapid typing only commits the final batch.
     debounceRef.current = setTimeout(() => {
+      lastSearchSeqRef.current = ++searchSeqRef.current;
+      logPerf("debounce_fire", q);
       // Update parent state + URL ONCE per debounce window, not on
       // every keystroke. Doing setQuery + history.replaceState inside
       // the keystroke handler turned every key into a forced parent
@@ -193,14 +230,25 @@ function UnifiedSearchPageInner() {
         if (--remaining === 0 && !ac.signal.aborted) setLoading(false);
       };
 
+      logPerf("fetch_start", trimmed);
       searchCompaniesBucketed(trimmed, loc, ac.signal)
-        .then((c) => { if (!ac.signal.aborted) setCompanies(c); })
+        .then((c) => {
+          if (!ac.signal.aborted) {
+            logPerf("companies_done", trimmed, { count: c?.commercial?.length ?? 0 });
+            setCompanies(c);
+          }
+        })
         .catch(() => {})
         .finally(done);
 
       if (includeNameSearches) {
         searchPeople(trimmed, ac.signal)
-          .then((p) => { if (!ac.signal.aborted) setPeople(p); })
+          .then((p) => {
+            if (!ac.signal.aborted) {
+              logPerf("people_done", trimmed, { count: p?.length ?? 0 });
+              setPeople(p);
+            }
+          })
           .catch(() => {})
           .finally(done);
       } else {
@@ -209,7 +257,7 @@ function UnifiedSearchPageInner() {
 
       setEvents([]);
     }, 100);
-  }, []);
+  }, [logPerf]);
 
   useEffect(() => {
     const hasInitialLoc = !!(initialPostal || initialMuni || initialStreet);
@@ -222,6 +270,17 @@ function UnifiedSearchPageInner() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // render_done — fires after React commits the new result lists. The
+  // gap between `companies_done` (set state called) and this event is
+  // pure React render+commit cost. Growing across consecutive searches
+  // means DOM-reconciliation accumulation; flat means render is fine.
+  useEffect(() => {
+    if (lastSearchSeqRef.current > 0) {
+      logPerf("render_done", query);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companies, people]);
 
   // Location filter changes go through doSearch directly at each input's
   // onChange so they share the 200ms debounce with the main query.

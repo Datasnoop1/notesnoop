@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.background import BackgroundTask, BackgroundTasks
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api, admin_phase22
+from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api, admin_phase22, perf
 from auth import ensure_jwks_bootstrapped
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup, ensure_phase22_schema
@@ -861,6 +861,7 @@ app.include_router(search.router)
 app.include_router(admin_enrichment.router)
 app.include_router(admin_phase22.router)
 app.include_router(public_api.router)
+app.include_router(perf.router)
 
 # ---------------------------------------------------------------------------
 # Health check
