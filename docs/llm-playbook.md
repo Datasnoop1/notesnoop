@@ -297,6 +297,53 @@ Keep entries to ~5-15 lines. Group under the existing topic sections.
   the target is a UNIQUE INDEX. `ON CONFLICT ON CONSTRAINT` only works
   for declared `CONSTRAINT ... UNIQUE` or `ADD CONSTRAINT ... UNIQUE`.
 
+## Provider + model assignments (architecture-neutral envelope; concrete picks)
+
+The architecture deep-dive (`docs/data-architecture-deep-dive.html`,
+cross-cutting requirements row "LLM call envelope") says every LLM call
+site declares: timeout, retry, named fallback, quality threshold, p95
+latency budget, per-call cost ceiling. That envelope is provider-neutral.
+Concrete model + provider picks live here so they can move faster than
+the architecture doc — typically a one-line PR + a playbook entry, not
+a deep-dive revision.
+
+### Current assignments (2026-04-30)
+
+| Lane | Primary | Fallback | Timeout | Why this primary |
+|------|---------|----------|---------|------------------|
+| **Bulk Q2 / escalation** (worker queues, batch ≥ 1k) | `ollama:deepseek-v3:671b` | `openrouter:claude-haiku-4.5` | 30s | Stable Ollama Cloud capacity; cost ~10× cheaper than OpenRouter for the same job. |
+| **User-adjacent narrative** (profile insights, on-profile draft) | `ollama:qwen3-coder-next` | `openrouter:claude-haiku-4.5` | 8s | Lower latency than the 671B path; quality measured sufficient for user-facing draft. |
+| **User-adjacent critic-refine** (Phase 5 narrative) | `ollama:kimi-k2.6` | `openrouter:claude-haiku-4.5` | 8s | Strong refinement quality on Belgian-context drafts. |
+| **Confidence-critical extraction** (Person resolver candidates, governance extraction) | `openrouter:claude-haiku-4.5` | `openrouter:claude-sonnet-4.6` | 12s | Anthropic primary because precision/recall is measured against a labelled set; Sonnet fallback for low-confidence cases. |
+
+### Upgrade candidates under evaluation
+
+- **`ollama:deepseek-v4-pro`** — stronger per-call quality than v3:671b,
+  currently capacity-constrained on Ollama Cloud (operator-flagged
+  2026-04-30: "getting hammered by massive requests"). Migrate the bulk
+  primary only after a 1-week shadow-pilot shows sustained p95 latency
+  under our load curve. Switch via `LLM_BULK_PRIMARY` env var, no code
+  change.
+
+### Configuration hooks
+
+Env vars read by `backend/llm_router.py` (or equivalent abstraction the
+executor builds when wiring the envelope):
+
+```
+LLM_BULK_PRIMARY=ollama:deepseek-v3:671b
+LLM_BULK_FALLBACK=openrouter:claude-haiku-4.5
+LLM_USERPATH_DRAFT_PRIMARY=ollama:qwen3-coder-next
+LLM_USERPATH_REFINE_PRIMARY=ollama:kimi-k2.6
+LLM_USERPATH_FALLBACK=openrouter:claude-haiku-4.5
+LLM_CONFIDENCE_PRIMARY=openrouter:claude-haiku-4.5
+LLM_CONFIDENCE_FALLBACK=openrouter:claude-sonnet-4.6
+```
+
+Operator changes a model: edit `/opt/leadpeek/.env.production`,
+`docker compose up -d --force-recreate backend enrichment-worker`,
+update the table above with the date + reason.
+
 ### Finding — FastAPI TierLimitMiddleware's path-based classifier needs one entry per logical endpoint
 
 - **Evidence**: Stage 3 added `/api/events/search` (OpenRouter cost

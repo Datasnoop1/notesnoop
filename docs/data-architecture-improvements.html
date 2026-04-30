@@ -1,0 +1,1676 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DataSnoop — Data architecture: where to evolve next</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg:        #fafaf9;
+    --card:      #ffffff;
+    --ink:       #0f172a;
+    --ink-2:     #334155;
+    --ink-3:     #64748b;
+    --line:      #e2e8f0;
+    --line-2:    #cbd5e1;
+    --emerald:   #059669;
+    --emerald-2: #10b981;
+    --emerald-bg:#ecfdf5;
+    --amber:     #d97706;
+    --amber-bg:  #fffbeb;
+    --sky:       #0284c7;
+    --sky-bg:    #f0f9ff;
+    --rose:      #be123c;
+    --rose-bg:   #fff1f2;
+    --violet-bg: #f5f3ff;
+    --violet:    #7c3aed;
+    --slate-50:  #f8fafc;
+    --slate-100: #f1f5f9;
+    --shadow:    0 1px 2px rgba(15,23,42,.04), 0 4px 16px rgba(15,23,42,.04);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  body {
+    margin: 0;
+    font-family: 'Geist', system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--ink-2);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+  code, pre, .mono { font-family: 'Geist Mono', ui-monospace, "Cascadia Code", monospace; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 28px;
+    gap: 48px;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; gap: 0; padding: 0 20px; }
+    aside.toc { display: none; }
+  }
+
+  aside.toc {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    padding: 32px 0;
+    font-size: 14px;
+  }
+  aside.toc .toc-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--ink-3);
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  aside.toc a {
+    display: block;
+    padding: 6px 10px;
+    margin-left: -10px;
+    border-radius: 6px;
+    color: var(--ink-3);
+    text-decoration: none;
+    transition: all .15s;
+    line-height: 1.4;
+  }
+  aside.toc a:hover { color: var(--ink); background: var(--slate-100); }
+  aside.toc a.active {
+    color: var(--emerald);
+    background: var(--emerald-bg);
+    font-weight: 500;
+  }
+
+  main { padding: 32px 0 96px; min-width: 0; }
+
+  .hero { padding: 48px 0 32px; border-bottom: 1px solid var(--line); margin-bottom: 48px; }
+  .hero .eyebrow {
+    color: var(--emerald);
+    font-size: 13px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+  .hero h1 {
+    font-size: 42px;
+    line-height: 1.1;
+    color: var(--ink);
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+  .hero p.lede {
+    font-size: 19px;
+    line-height: 1.55;
+    color: var(--ink-2);
+    max-width: 680px;
+    margin: 0;
+  }
+
+  .tldr {
+    background: var(--emerald-bg);
+    border: 1px solid #a7f3d0;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 32px 0 56px;
+  }
+  .tldr h3 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: #065f46;
+    font-weight: 600;
+  }
+  .tldr ul { margin: 0; padding-left: 20px; }
+  .tldr li { margin-bottom: 6px; color: #064e3b; }
+  .tldr li:last-child { margin-bottom: 0; }
+
+  section { margin: 64px 0; scroll-margin-top: 24px; }
+  section h2 {
+    font-size: 30px;
+    line-height: 1.2;
+    margin: 0 0 8px;
+    color: var(--ink);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  section .section-sub {
+    font-size: 15px;
+    color: var(--ink-3);
+    margin-bottom: 32px;
+  }
+  h3 { color: var(--ink); font-weight: 600; font-size: 21px; margin: 32px 0 12px; }
+  h4 { color: var(--ink); font-weight: 600; font-size: 17px; margin: 24px 0 10px; }
+  p { margin: 0 0 16px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: var(--shadow);
+    margin: 16px 0;
+  }
+  .card.tight { padding: 16px 20px; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 720px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+
+  .mermaid-wrapper {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 24px;
+    overflow-x: auto;
+    margin: 16px 0;
+  }
+  .mermaid { font-family: 'Geist', sans-serif !important; }
+
+  .callout {
+    border-left: 3px solid var(--sky);
+    background: var(--sky-bg);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size: 15px;
+    color: var(--ink-2);
+  }
+  .callout.warn  { border-color: var(--amber); background: var(--amber-bg); }
+  .callout.risk  { border-color: var(--rose);  background: var(--rose-bg); color: #881337; }
+  .callout strong { color: var(--ink); }
+  .callout.risk strong { color: #881337; }
+
+  p code, li code, td code, table.data code {
+    background: var(--slate-100);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 13.5px;
+    color: var(--ink);
+  }
+
+  /* Friction items */
+  .friction-item {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--amber);
+    border-radius: 0 8px 8px 0;
+    padding: 16px 20px;
+    margin: 12px 0;
+  }
+  .friction-item h4 {
+    margin: 0 0 6px;
+    font-size: 17px;
+    color: var(--ink);
+  }
+  .friction-item p { margin: 0; font-size: 15px; line-height: 1.55; }
+  .friction-item .friction-tag {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--amber);
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: block;
+  }
+
+  /* Big-bet card */
+  .bet {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 28px 28px 24px;
+    margin: 20px 0;
+    box-shadow: var(--shadow);
+    position: relative;
+  }
+  .bet .bet-num {
+    position: absolute;
+    top: -14px;
+    left: 24px;
+    background: var(--emerald);
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 99px;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .bet h3 { margin-top: 4px; font-size: 22px; }
+  .bet h4 {
+    margin: 16px 0 4px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--emerald);
+    font-weight: 600;
+  }
+  .bet h4.amber { color: var(--amber); }
+  .bet h4.violet { color: var(--violet); }
+  .bet p { font-size: 15px; margin-bottom: 8px; line-height: 1.6; }
+  .bet .stamp {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--slate-100);
+    color: var(--ink-2);
+    margin-right: 6px;
+    margin-top: 12px;
+  }
+  .bet .stamp.green { background: var(--emerald-bg); color: #065f46; }
+  .bet .stamp.amber { background: var(--amber-bg); color: #92400e; }
+
+  /* Tables */
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin: 16px 0;
+  }
+  table.data th {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 2px solid var(--line);
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 13px;
+  }
+  table.data td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  table.data tr:last-child td { border-bottom: none; }
+  table.data tr td:first-child { font-weight: 500; color: var(--ink); }
+
+  /* Verdict pills for radical options */
+  .verdict {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .verdict.yes   { background: var(--emerald-bg); color: #065f46; }
+  .verdict.no    { background: var(--rose-bg);    color: #881337; }
+  .verdict.maybe { background: var(--amber-bg);   color: #92400e; }
+
+  /* Roadmap timeline */
+  .roadmap {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 0;
+    margin: 24px 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--card);
+  }
+  .roadmap-header {
+    background: var(--slate-100);
+    padding: 12px 16px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    border-bottom: 1px solid var(--line);
+  }
+  .roadmap-row {
+    padding: 16px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+  }
+  .roadmap-row:last-child { border-bottom: none; }
+  .roadmap-when {
+    flex: 0 0 100px;
+    font-weight: 600;
+    color: var(--emerald);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .roadmap-what { flex: 1; font-size: 15px; }
+  .roadmap-what strong { color: var(--ink); }
+  .roadmap-why {
+    font-size: 13.5px;
+    color: var(--ink-3);
+    margin-top: 4px;
+  }
+
+  /* Don't-do block */
+  .donts {
+    background: var(--rose-bg);
+    border: 1px solid #fecdd3;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 20px 0;
+  }
+  .donts h3 {
+    margin: 0 0 12px;
+    font-size: 16px;
+    color: #881337;
+  }
+  .donts ul { margin: 0; padding-left: 20px; }
+  .donts li { margin-bottom: 6px; color: #881337; font-size: 14.5px; }
+  .donts li strong { color: #6b0e2c; }
+
+  details.deep {
+    background: var(--slate-50);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin: 12px 0;
+    padding: 12px 16px;
+  }
+  details.deep summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--ink);
+    font-size: 15px;
+    user-select: none;
+  }
+  details.deep[open] summary { margin-bottom: 12px; }
+  details.deep .deep-body { font-size: 14.5px; line-height: 1.6; }
+
+  footer.note {
+    margin-top: 96px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <aside class="toc">
+    <div class="toc-label">On this page</div>
+    <a href="#metaphor">1. Filing cabinet vs network</a>
+    <a href="#friction">2. What's friction today</a>
+    <a href="#bets">3. Three big bets</a>
+    <a href="#ops">4. Operational tightening</a>
+    <a href="#search">5. Search — performance + ranking</a>
+    <a href="#resilience">6. Resilience &amp; observability</a>
+    <a href="#radical">7. Radical options, weighed</a>
+    <a href="#roadmap">8. Phased roadmap</a>
+    <a href="#now">9. What I'd do this week</a>
+    <a href="#donts">10. What NOT to do</a>
+  </aside>
+
+  <main>
+    <div class="hero">
+      <div class="eyebrow">DataSnoop · Data architecture · Strategy review</div>
+      <h1>From a filing cabinet to a network</h1>
+      <p class="lede">
+        DataSnoop's database today is shaped by how data <em>arrives</em> —
+        KBO files, NBB filings, gazette PDFs. To unlock PE-grade workflows
+        and scale comfortably, the next evolution is to reshape it around
+        how a user <em>thinks</em>: people, companies, ownership, events
+        over time. This is a strategy review, not an implementation plan.
+      </p>
+    </div>
+
+    <div class="tldr">
+      <h3>TL;DR — the whole plan in 5 lines</h3>
+      <ul>
+        <li>Today's schema is hub-and-spoke around the CBE. Great for "show me one company"; weak at "show me everyone connected, as of date Y".</li>
+        <li><strong>Three big bets</strong> for interconnectedness: person as a first-class entity, ownership as a graph, time as a dimension.</li>
+        <li><strong>Three search-performance non-negotiables</strong> for instant search: end-to-end async path, end-to-end query cancellation, full-text index on company names (trigram becomes the typo-fallback, not the primary).</li>
+        <li><strong>Resilience &amp; observability</strong>: verified backups + DR drills, structured logs + per-phase timing + alerts, explicit performance SLOs per surface.</li>
+        <li>Phased over six months. Two things ship in week 1 — the immediate <em>async-route + threadsafe-pool</em> bug fixes — because they explain today's "5-second waits" and the rest builds on a healthy foundation.</li>
+      </ul>
+    </div>
+
+    <div class="callout" style="margin: 32px 0 24px;background:var(--emerald-bg);border-color:#a7f3d0">
+      <strong>How to read this if you're a new reviewer:</strong>
+      this is the master plan; the per-section implementation specs
+      live in <a href="data-architecture-deep-dive.html">the deep-dive
+      companion doc</a>. The TL;DR below is the one-screen summary;
+      §1–§9 are organised intuitive → technical. If you only have ten
+      minutes, read §1 (the metaphor), §6.5 (cost snapshot), §8 (the
+      6-month roadmap), §9 (this week), and §10 (what NOT to do).
+    </div>
+
+    <div class="callout warn" style="margin: 0 0 56px">
+      <strong>Revision history at the top so you know what's changed:</strong>
+      <ul style="margin:6px 0 0 20px;font-size:14px;line-height:1.55">
+        <li><strong>r11 (2026-04-30, current):</strong> seven architecture-level upgrades flowed up from deep-dive r24. Material strategy-roadmap change: <strong>Week 2 split into 2a (staging external-service isolation, FIRST hard gate) and 2b (DB clone + workers + cron, gated on 2a green)</strong>. Until 2a passes, no new staging-side surface activates — current staging containers keep running against prod DB (no regression), but no NEW workers / webhooks / snapshot cron pile on top of the prod-shared external risk. Six other r24 items are deep-dive-internal (runtime-DDL syntactic CI gate; independent feature flags as cross-cutting requirement; migration style contract; Person v1 internal-default until <code>docs/person-v1-policy.md</code> filled in; LLM call envelope made provider-neutral with concrete picks moved to <code>docs/llm-playbook.md</code>; new <code>docs/data-architecture-phase-gates.md</code> as day-to-day exec checklist) — implementation tightenings + doc reshapes, not strategy shifts.</li>
+        <li><strong>r10 (2026-04-30):</strong> Bet 1 Person URL gates upgraded from one to <strong>three</strong> — the only material flow-up from deep-dive r22. Was: "GDPR sign-off blocks public profile URL". Now: (1) legal memo signed, (2) golden-set metrics measured (set built ≠ set used), (3) explicit PII-endpoint policy decision (auth + rate-limit + anti-scrape) — the maintenance doc currently leaves the third item as <em>implementation pending</em>, and a public Person page raises the stakes on it. Six other r22 items (FTS contradiction, nullable-key uniqueness, bitemporal interval semantics, scrub-list classification, scratch-DB CI replay, staging prod-isolation smoke test) are deep-dive-internal — implementation tightenings, not strategy shifts.</li>
+        <li><strong>r9 (2026-04-30):</strong> operator decision on the <strong>execution model — Codex implements, Claude reviews after each stage</strong>. The earlier r7 "execute via Claude Code" framing is superseded; the deep-dive doc has the full hybrid-workflow spec near its top. Plus minor: r9 of the deep-dive details landed (recorded_at → recorded_from/recorded_to cleanup; ownership_edge_canonical → ownership_edge_current/_as_of cleanup; KBO/NBB ingestion attribution corrected; staging restore default unified to <code>_next</code> + rename swap).</li>
+        <li><strong>r8 (2026-04-30):</strong> introduces the Ollama Cloud routing principle for bulk LLM work. New §6.5 sub-section "What the plan SUBTRACTS" projects ~€200–€300/mo savings if bulk enrichment + translation cache migrate cleanly. <code>deepseek-v3:671b</code> is the default model. Profile AI insights stay on Haiku 4.5 (user-facing latency, not a cost driver).</li>
+        <li><strong>r7 (2026-04-30):</strong> final polish pass. Added §6.5 cost snapshot (Hetzner / Supabase / OpenRouter / volume / observability). Older revisions (r1–r5) collapsed into a click-to-expand panel below.</li>
+        <li><strong>r6 (2026-04-30):</strong> self-review pass after r5 found that the strategy roadmap had drifted from the deep-dive r7 sequencing. Roadmap rewritten to align (Week 0 = de-async ride-along + preflight; Week 1 = migrations runner + observability; Week 2 = staging DB + §5c FTS in parallel; Week 3 = §5b cancellation watchdog + WAL archiving; Week 4 = restore drill + observability consolidation; Weeks 5–22 = the three big bets). De-async fix landed on origin/master (commit <code>105b303</code> + slot-leak follow-up <code>79ed79c</code>); pool size now <code>ThreadedConnectionPool(2, 20, …)</code>. Suggest endpoint (<code>/api/search/suggest</code>) deferred to a separate de-async commit per the correctness-reviewer note. <em>Note: this revision originally claimed "the staatsblad-consumers-staging branch landed on master and the staging variant was deliberately removed". That was wrong — corrected in deep-dive r12. The accurate framing: master never had the staging variant; the recovery branch adds one but hasn't merged. Conclusion (no staatsblad-consumers-staging in master compose) is correct.</em></li>
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;font-weight:500;color:var(--ink)">Show earlier revisions (r1 → r5)</summary>
+          <ul style="margin:8px 0 0 20px;font-size:14px;line-height:1.55">
+        <li><strong>r5 (2026-04-30):</strong> Hetzner volume <strong>#105558877</strong> (100 GB, ext4) provisioned and mounted at <code>/mnt/volume-hel1-1</code>. Subdirectories <code>pgsql-staging/</code>, <code>wal-archive/</code>, <code>backups/</code> live with <code>postgres</code> ownership where relevant. Env vars <code>DS_VOLUME_ROOT</code>, <code>DS_STAGING_DATA_DIR</code>, <code>DS_WAL_ARCHIVE_DIR</code>, <code>DS_BACKUP_DIR</code> appended to <code>/opt/leadpeek/.env.production</code> (backup at <code>.env.production.bak.&lt;ts&gt;</code>). Disk pressure on root is now bounded — staging clone + WAL + backups all land on the new volume. §4 staging plan upgraded from "streamed-with-exclusions stop-gap" (Option A) to <strong>"dedicated volume + full clone"</strong> (Option B) as the primary path. Resilience §6.1 backup + WAL archiving target is in place.</li>
+        <li><strong>r4 (2026-04-30):</strong> integrated two more rounds of operator review on the deep-dive doc. Material updates that flowed back into the strategy: live disk pressure (60/75 GB used, 83% — Hetzner upgrade in progress at the time), de-async ride-along becomes week-0, migration runner spec tightened (per-file tx mode, checksums, advisory lock), observability is keystone (week 1) not polish (Month 6+), <code>staatsblad-consumers-staging</code> WIP unblock as prereq for staging work, Phase 5.4 cleanup sequencing flagged.</li>
+        <li><strong>r3 (2026-04-30):</strong> integrated a search-performance review from a parallel context window — six items in §5 and §4 — and added §6 "Resilience &amp; observability" raising the plan from "evolve the data" to "evolve the data, harden the system, and instrument it".</li>
+        <li><strong>r2 (2026-04-30):</strong> tightened the deep-dive doc against an operator review (real numbers from the maintenance audit, deterministic Person v1 path, pure-SQL ownership graph, narrower bitemporal v1, streaming staging restore).</li>
+        <li><strong>r1 (2026-04-29):</strong> initial strategy doc with the three big bets and operational tightening table.</li>
+          </ul>
+        </details>
+      </ul>
+      Companion documents:
+      <a href="data-architecture-deep-dive.html">data-architecture-deep-dive.html</a>
+      (per-proposal schema, migration plans, downsides — currently at r5) ·
+      <a href="data-architecture.html">data-architecture.html</a>
+      (the public explainer of the current system).
+    </div>
+
+    <!-- ================= SECTION 1 ================= -->
+    <section id="metaphor">
+      <h2>1. The metaphor: from filing cabinet to social network</h2>
+      <p class="section-sub">If today's mental model doesn't fit, the schema will keep fighting back.</p>
+
+      <div class="card">
+        <h3 style="margin-top:0">Today: a filing cabinet</h3>
+        <p>
+          DataSnoop's database is one giant filing cabinet. Each drawer is a
+          company (the CBE is the drawer label). Inside each drawer, folders
+          for KBO data, NBB financials, board members, gazette events. Pulling
+          one drawer is fast. Pulling 5,000 drawers and asking "which people
+          show up across them" is slow and clumsy.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Tomorrow: a social network</h3>
+        <p>
+          Reshape the same data as a network. <strong>Companies, people,
+          addresses, events</strong> are nodes. <strong>Ownership, board
+          seats, share transfers, residencies</strong> are edges with
+          properties (start date, end date, percentage, role). Every node is
+          a navigable starting point. Time is a dimension you can travel
+          through.
+        </p>
+        <p style="margin-bottom:0">
+          The same three data sources still feed it. The same Postgres still
+          stores it. What changes is the <em>shape</em> the application sees.
+        </p>
+      </div>
+
+      <h3>What that looks like in pictures</h3>
+      <div class="mermaid-wrapper">
+        <pre class="mermaid">
+flowchart LR
+  subgraph TODAY["Today — hub-and-spoke (one company, many facts)"]
+    direction TB
+    C1["enterprise<br/>(CBE)"]
+    C1 --- D1["names"]
+    C1 --- A1["addresses"]
+    C1 --- F1["financials"]
+    C1 --- AD1["administrators<br/>(strings)"]
+    C1 --- SH1["shareholders<br/>(strings)"]
+    C1 --- E1["events"]
+  end
+
+  subgraph TOMORROW["Tomorrow — network (entities + relationships, time-aware)"]
+    direction LR
+    P1((Person<br/>Jan Janssens))
+    P2((Person<br/>Marie Dubois))
+    CO1((Company<br/>ABC NV))
+    CO2((Company<br/>ABC Holding))
+    CO3((Company<br/>XYZ BV))
+    AD((Address<br/>Halle))
+    EV((Event<br/>2024-03 capital))
+
+    P1 -- "director<br/>2020→now" --> CO1
+    P1 -- "director<br/>2018-2022" --> CO3
+    P2 -- "director<br/>2022→now" --> CO1
+    CO2 -- "owns 60%<br/>2019→now" --> CO1
+    CO1 -- "registered at" --> AD
+    CO1 -- "subject of" --> EV
+    P1 -- "domiciled at" --> AD
+  end
+
+  classDef today fill:#fef3c7,stroke:#d97706,color:#92400e
+  classDef tomorrow fill:#ecfdf5,stroke:#059669,color:#065f46
+  class C1,D1,A1,F1,AD1,SH1,E1 today
+  class P1,P2,CO1,CO2,CO3,AD,EV tomorrow
+        </pre>
+      </div>
+
+      <p>
+        The right side isn't a different database. It's the same Postgres,
+        with a person table, an explicit ownership-edge table, and time
+        columns on relationships. Same data, navigable from any starting
+        point.
+      </p>
+    </section>
+
+    <!-- ================= SECTION 2 ================= -->
+    <section id="friction">
+      <h2>2. What's actually friction today</h2>
+      <p class="section-sub">Five honest pain points. None are catastrophic; together they argue for the bigger reshape.</p>
+
+      <div class="friction-item">
+        <span class="friction-tag">Friction 1 · Identity</span>
+        <h4>People are strings, not entities</h4>
+        <p>
+          A "Jan Janssens" director at company A and a "Jan Janssens" director
+          at company B are the same row in <code>administrator</code> only by
+          coincidence of string equality. Two people with the same name in
+          different cities → two rows. Same name in the same city → one row,
+          merged accidentally. There's no <code>person_id</code>. Search
+          groups by <code>(name, domicile_city, domicile_postcode)</code>
+          which works <em>well-enough</em> but is heuristic, not authoritative.
+          Every PE-relevant question — board interlocks, deal-team intel,
+          "everyone Jan has been director of" — runs into this.
+        </p>
+      </div>
+
+      <div class="friction-item">
+        <span class="friction-tag">Friction 2 · Ownership</span>
+        <h4>Subsidiary chains are flat rows, not a graph</h4>
+        <p>
+          <code>shareholder</code> says X owns Y%. <code>participating_interest</code>
+          says X declares a stake in Y. To answer "what's the ultimate owner
+          of this target" you write a recursive CTE by hand each time. Walking
+          a holding tree five levels up isn't impossible — it's just always
+          custom SQL. A single explicit <code>ownership_edge</code> table
+          would make graph traversal trivial.
+        </p>
+      </div>
+
+      <div class="friction-item">
+        <span class="friction-tag">Friction 3 · Time</span>
+        <h4>Every relationship reflects "the latest filing"</h4>
+        <p>
+          A director appointed in 2020, resigned 2023, reappointed 2024 lives
+          as a row whose <code>mandate_start</code> / <code>mandate_end</code>
+          tell you the current state. "Who was the board on 2022-06-01?" needs
+          you to walk back through filing history manually. That's the kind of
+          query a PE diligence customer expects to be one click. Today it's a
+          custom investigation.
+        </p>
+      </div>
+
+      <div class="friction-item">
+        <span class="friction-tag">Friction 4 · Hot path</span>
+        <h4><code>activity_log</code> is on every API request, both ways</h4>
+        <p>
+          <code>TierLimitMiddleware</code> reads <code>activity_log</code> on
+          every <code>/api/*</code> call to count today's usage. Every request
+          also writes a row. The table has indexes, but it's a hot single
+          table. At 10× scale it's the first thing that contends. Redis
+          counters for the rate-limit fast path + async batch writes for the
+          audit trail would absorb that without changing anything user-visible.
+        </p>
+      </div>
+
+      <div class="friction-item">
+        <span class="friction-tag">Friction 5 · Schema drift</span>
+        <h4>Schema evolves by inline ALTER and runtime DDL</h4>
+        <p>
+          <code>company_enrichment</code> is created at runtime by a Python
+          startup hook (<code>_ensure_enrichment_table</code>). Several
+          columns get added by inline <code>ALTER TABLE ADD COLUMN IF NOT
+          EXISTS</code>. <code>src/schema.sql</code> is run idempotently with
+          <code>CREATE IF NOT EXISTS</code> everywhere. The result: nobody —
+          including future-you — can tell what schema a fresh-install vs a
+          two-year-old prod has, without reading the live database. A
+          migrations folder with timestamped, replay-able files removes that
+          ambiguity.
+        </p>
+      </div>
+
+      <div class="callout">
+        <strong>The unifying theme:</strong> the schema today reflects how
+        data arrives (one source per cluster of tables, one filing per row,
+        latest-state-only). The product wants entities, relationships, and
+        history. Closing that gap is the next architectural job.
+      </div>
+    </section>
+
+    <!-- ================= SECTION 3 ================= -->
+    <section id="bets">
+      <h2>3. Three big bets</h2>
+      <p class="section-sub">Each is large but bounded. Each unlocks an entire category of features. Together they are what "interconnected data" actually means.</p>
+
+      <div class="bet">
+        <span class="bet-num">Bet 1</span>
+        <h3>Promote Person to a first-class entity</h3>
+        <p>
+          The single highest-leverage change. Today a "person" is the string
+          you happen to read. Tomorrow it's a row in a <code>person</code>
+          table, with a stable <code>person_id</code> that admin /
+          shareholder / event rows reference.
+        </p>
+
+        <h4>What changes</h4>
+        <p>
+          A new <code>person</code> table. A new <code>person_link</code>
+          table mapping every name occurrence in <code>administrator</code>,
+          <code>shareholder</code>, and <code>staatsblad_event</code> to a
+          <code>person_id</code>, with a confidence score. A nightly
+          entity-resolution job (Splink, dedupe, or homegrown) that clusters
+          rows using name + domicile + co-occurrence patterns. The product
+          surfaces switch from "rows that happen to share a string" to
+          "everything linked to person ID 4711".
+        </p>
+
+        <h4>What it unlocks</h4>
+        <p>
+          "Show me every company Jan has ever been a director of." Board
+          interlock detection ("which boards have 3+ overlapping directors").
+          Deal-team intelligence ("this PE fund has installed person X as
+          chair of every portfolio company"). A real Person profile page.
+          Ranking signals like "people connected to many large companies"
+          on search.
+        </p>
+
+        <h4 class="amber">What it costs / risks</h4>
+        <p>
+          Engineering: 4–6 weeks for a v1. The risky bit is the
+          entity-resolution model — false merges (two real people collapsed
+          into one) are PR-bad. Mitigation: confidence-scored links + a
+          conservative threshold + an "alternates" panel on the UI. KBO's
+          direct-marketing prohibition still applies — the table is a derived
+          data structure, not an export, and rate limits already gate the
+          read paths.
+        </p>
+
+        <span class="stamp green">Effort: M</span>
+        <span class="stamp green">Unlock: very high</span>
+        <span class="stamp amber">Risk: false merges</span>
+      </div>
+
+      <div class="bet">
+        <span class="bet-num">Bet 2</span>
+        <h3>Model ownership as a graph, not flat rows</h3>
+        <p>
+          Today, <code>shareholder</code> and <code>participating_interest</code>
+          are two flat tables that reverse each other. Holding chains are
+          implied; not modeled. Tomorrow, one <code>ownership_edge</code>
+          table with an explicit graph structure, traversable in a single
+          query.
+        </p>
+
+        <h4>What changes</h4>
+        <p>
+          Ingest both <code>shareholder</code> and <code>participating_interest</code>
+          (and capital events from the gazette) into a single
+          <code>ownership_edge(parent_id, child_id, kind, pct, fiscal_year,
+          source)</code>. Adopt <a href="https://age.apache.org" target="_blank" rel="noopener">Apache AGE</a>
+          — a Postgres extension that adds Cypher graph queries to the
+          existing database. No new operational store; same backups, same
+          monitoring.
+        </p>
+        <p>
+          A query that today is "five-level recursive CTE I write each time"
+          becomes <code>MATCH (target)-[:OWNED_BY*1..6]->(ultimate) RETURN
+          ultimate</code>.
+        </p>
+
+        <h4>What it unlocks</h4>
+        <p>
+          UBO trees. "What other companies does this PE fund own?" Network
+          graphs on the profile page (the existing "spiderweb" view becomes a
+          single graph query). Subsidiary roll-ups for valuation. Cross-group
+          aggregate KPIs ("total revenue across this group's 40 entities").
+        </p>
+
+        <h4 class="amber">What it costs / risks</h4>
+        <p>
+          Engineering: 2–3 weeks if AGE is adopted, 4–5 weeks for pure-SQL.
+          Risk: AGE is a Postgres extension — adds an operational
+          dependency, version upgrades need care. UBO data is genuinely
+          incomplete (Belgium's UBO register isn't open-data); the graph will
+          have known dead-ends. Be honest about that in the UI.
+        </p>
+
+        <span class="stamp green">Effort: S–M</span>
+        <span class="stamp green">Unlock: high</span>
+        <span class="stamp amber">Risk: AGE operational footprint</span>
+      </div>
+
+      <div class="bet">
+        <span class="bet-num">Bet 3</span>
+        <h3>Make time a first-class dimension (bitemporal)</h3>
+        <p>
+          The most architecturally ambitious of the three. Every relationship
+          becomes valid-from / valid-to plus a recorded-at timestamp. Snapshot
+          queries become trivial. "What changed since last visit" becomes a
+          one-liner.
+        </p>
+
+        <h4>What changes</h4>
+        <p>
+          On all relationship tables — <code>administrator</code>,
+          <code>shareholder</code>, <code>participating_interest</code>,
+          <code>address</code>, <code>company_enrichment</code>, even
+          <code>activity</code> (NACE codes change too) — add
+          <code>valid_from</code>, <code>valid_to</code>, <code>recorded_at</code>.
+          Replace "the latest filing wins" with "every filing produces an
+          immutable fact; current state is derived".
+        </p>
+        <p>
+          A query helper <code>state_as_of(target_date)</code> returns the
+          consistent snapshot. The materialised tables (<code>financial_latest</code>
+          etc.) remain — they're now simply "as of today" snapshots.
+        </p>
+
+        <h4>What it unlocks</h4>
+        <p>
+          "What did this company look like at the time of the previous deal?"
+          Change-detection alerts ("a director at one of your favourites was
+          replaced this week"). Historical diligence. Honest answers to "when
+          did this group structure form".
+        </p>
+
+        <h4 class="amber">What it costs / risks</h4>
+        <p>
+          Engineering: 6–8 weeks. Touches a lot of tables; needs a clean
+          migration path with rollback. Storage grows (every fact lives
+          forever) but Postgres compression handles this well. A real risk is
+          query complexity creeping into application code — wrap it in views
+          and a <code>state_as_of</code> helper to keep callers simple.
+        </p>
+
+        <span class="stamp green">Effort: L</span>
+        <span class="stamp green">Unlock: high</span>
+        <span class="stamp amber">Risk: migration scope</span>
+      </div>
+
+      <h3>Why these three together</h3>
+      <p>
+        Person + ownership + time is the minimum interconnected model that
+        lets you answer questions like "show me all the companies this person
+        has ever sat on the board of, including subsidiaries of those, with
+        revenue at the time they joined". That sentence is unanswerable with
+        today's schema. After these three bets, it's a single graph query.
+      </p>
+    </section>
+
+    <!-- ================= SECTION 4 ================= -->
+    <section id="ops">
+      <h2>4. Operational tightening</h2>
+      <p class="section-sub">Smaller, cheaper items. Each is a few days of work and removes a category of pain.</p>
+
+      <h3 style="margin-top:0">Same-week wins (do these first)</h3>
+      <table class="data">
+        <thead>
+          <tr><th>Change</th><th>Why</th><th>Effort</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>SimpleConnectionPool</code> → <code>ThreadedConnectionPool</code></td>
+            <td><strong>Latent bug.</strong> <code>backend/db.py</code> uses <code>psycopg2.pool.SimpleConnectionPool</code>, which is documented as not thread-safe. Once any DB call moves off the event-loop thread (next row), it can hand the same connection to two threads. One-line change; no behaviour difference today; mandatory once async path is fixed.</td>
+            <td>15 minutes</td>
+          </tr>
+          <tr>
+            <td>Wrap sync DB calls in <code>asyncio.to_thread()</code></td>
+            <td><strong>Root cause of "5-second waits".</strong> <code>search_companies</code> is <code>async def</code>, but <code>_search_companies_cached</code> is sync and runs psycopg2 — which blocks the event loop. One slow query stalls every other in-flight request. <code>to_thread</code> is the cheap fix. asyncpg migration is the proper fix; both are in §5.</td>
+            <td>1–2 hours</td>
+          </tr>
+          <tr>
+            <td>Per-request phase-timing middleware</td>
+            <td>Today there is no timing middleware in <code>backend/main.py</code>. Adding a <code>@app.middleware("http")</code> that records auth / cache / DB / serialize ms per request, exposed via a <code>Server-Timing</code> response header and a Prometheus histogram, means the next "search is slow" diagnosis is one query, not a 30-min custom telemetry build.</td>
+            <td>1 day</td>
+          </tr>
+          <tr>
+            <td><code>VACUUM ANALYZE</code> on the seven KBO core tables</td>
+            <td>Per <code>docs/db-maintenance-recommendations.md</code>: <code>activity</code>, <code>address</code>, <code>enterprise</code>, <code>establishment</code>, <code>contact</code>, <code>code</code>, <code>branch</code> have <code>last_analyze=NULL</code>. Planner is choosing plans on stale stats for the largest tables in the system.</td>
+            <td>10 minutes</td>
+          </tr>
+          <tr>
+            <td>Migrations <em>runner</em>, not just folder</td>
+            <td><code>migrations/</code> already has 8 SQL files (4 forward + 4 rollback). Missing piece: a <code>schema_migrations(filename, applied_at, checksum)</code> table + a Python applier + a deploy hook. Once that exists, the runtime DDL in <code>backend/db.py:323</code> and <code>backend/routers/companies/enrichment.py:331</code> can move into tracked migrations one at a time.</td>
+            <td>3–5 days</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Structural items (over the rest of the quarter)</h3>
+      <table class="data">
+        <thead>
+          <tr><th>Change</th><th>Why</th><th>Effort</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Real staging DB (streamed snapshot, excluded heavy tables)</td>
+            <td>Today staging shares prod DB. Any destructive test affects prod. Streaming <code>pg_dump -Fc | pg_restore</code> with exclusions lands at ~10–12 GB clone on the same VPS. Deep-dive doc §4 has the full plan including stop-services-during-restore rule.</td>
+            <td>2–3 days (after migrations runner)</td>
+          </tr>
+          <tr>
+            <td><strong>Redis as a real cache layer</strong>, not just rate-limit</td>
+            <td>Today <code>@ttl_cache</code> on <code>_search_companies_cached</code> / <code>_search_people_cached</code> is in-process, wipes on every restart, doesn't share across instances. Redis is already in the stack for <code>RedisRateLimiter</code> — extend it. Search results, suggest payloads, profile fan-out responses all become deploy-survivable and instance-shareable.</td>
+            <td>2–3 days</td>
+          </tr>
+          <tr>
+            <td>PgBouncer in transaction-pooling mode</td>
+            <td>Postgres connection limit is 10 (<code>SimpleConnectionPool(2, 10)</code>) — and Supabase session pooler upstream is also limited per the comment in <code>db.py</code>. PgBouncer in transaction mode multiplexes ~50 service-side connections onto the 10 DB-side. Decouples in-flight request count from raw DB connections.</td>
+            <td>1–2 days</td>
+          </tr>
+          <tr>
+            <td>Activity-log fast path (Redis counter + async batch write + monthly partitioning)</td>
+            <td>Removes a per-request DB roundtrip from <code>TierLimitMiddleware</code>. Old months auto-archive; partition pruning becomes routine.</td>
+            <td>1 week</td>
+          </tr>
+          <tr>
+            <td>One queue framework instead of three</td>
+            <td><code>enrichment_job</code> + <code>staatsblad_bulk_queue</code> + <code>staatsblad_backfill_progress</code> all reimplement claim/release/retry. Either adopt PGMQ, or factor out one <code>worker_job</code> table with a <code>queue_name</code> column.</td>
+            <td>3–5 days</td>
+          </tr>
+          <tr>
+            <td>Embedding catalog: <code>(entity_id, kind, model_id, embedding)</code></td>
+            <td>Today <code>company_embedding</code> has one model. Adding another means migration. Pivot once and run multiple model versions concurrently. Future-proofs for model swaps + embedding people / events / sectors.</td>
+            <td>2–3 days</td>
+          </tr>
+          <tr>
+            <td>Read replica for analytics-heavy endpoints</td>
+            <td><code>/stats/sectors</code> pulls 300k rows into Python. Move that traffic off the primary. Postgres streaming replication is straightforward.</td>
+            <td>1 week</td>
+          </tr>
+          <tr>
+            <td>Logical CDC on big tables, archive cold rows</td>
+            <td><code>financial_data</code>, <code>activity_log</code>, eventually <code>llm_call_log</code> get fat. Archive cold partitions to object storage; keep recent in Postgres.</td>
+            <td>2 weeks (later)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <strong>Sequence-critical:</strong> the same-week wins block
+        nothing — they're all small, all reversible, all directly remove
+        either a latent bug (the pool / async path) or a blind spot
+        (timing middleware, ANALYZE, migrations runner). Doing them first
+        is what makes "best in class" achievable for the structural items
+        underneath.
+      </div>
+    </section>
+
+    <!-- ================= SECTION 5 ================= -->
+    <section id="search">
+      <h2>5. Search — performance first, ranking later</h2>
+      <p class="section-sub">"Instant search" needs three non-negotiable performance properties before any relevance work matters. The ranking evolution stays on the roadmap but moves <em>after</em> performance.</p>
+
+      <h3 style="margin-top:0">5.1 Three non-negotiables for instant search</h3>
+      <p>
+        These three are the difference between "instant" and "5-second
+        waits while the user types". Two of them are repo-grounded fixes
+        (the async path and pool); one is a small new index pattern.
+        Implementation specifics — schema, migration, downsides per item —
+        live in the deep-dive doc's
+        <a href="data-architecture-deep-dive.html#search-perf">§5 Search performance</a>.
+      </p>
+
+      <div class="bet">
+        <span class="bet-num">Non-neg 1</span>
+        <h3>Concurrent searches must not block each other</h3>
+        <p>
+          Today's pattern: <code>search_companies</code> is
+          <code>async def</code>, but it calls
+          <code>_search_companies_cached</code> which is sync and runs
+          psycopg2 directly. <strong>Sync code inside an async route
+          blocks the event loop thread.</strong> When the user types
+          fast (<code>j</code> → <code>je</code> → <code>jea</code> →
+          <code>jean</code> in &lt;1 sec), four searches pile up and the
+          last one waits for the first three to finish. That's where
+          today's "5-second waits" come from.
+        </p>
+
+        <h4>What changes</h4>
+        <p>
+          Two-step fix:
+          <strong>(1)</strong> wrap sync DB calls in
+          <code>asyncio.to_thread()</code> so they run on a worker
+          thread, not the event loop. Same-week win, 1–2 hours of work.
+          <strong>(2)</strong> migrate to <code>asyncpg</code> for the
+          search hot path so DB I/O is genuinely non-blocking and
+          cancellable end-to-end. Bigger change but the right long-term
+          shape.
+        </p>
+
+        <h4>What it costs / risks</h4>
+        <p>
+          <code>(1)</code> requires the
+          <code>SimpleConnectionPool</code> → <code>ThreadedConnectionPool</code>
+          swap or you immediately have a thread-safety bug. Trivial.
+          <code>(2)</code> is more involved — touches the DB layer, may
+          need separate sync/async pools, and either rewriting the most
+          complex CTEs (search V2's seven-arm union) or keeping them on
+          a sync path while everything else goes async.
+        </p>
+        <span class="stamp green">Effort: S → M</span>
+        <span class="stamp green">Unlock: solves head-of-line blocking</span>
+        <span class="stamp amber">Risk: requires pool swap or thread-safety bug</span>
+      </div>
+
+      <div class="bet">
+        <span class="bet-num">Non-neg 2</span>
+        <h3>Cancellation must propagate end-to-end</h3>
+        <p>
+          The browser already cancels stale requests via
+          <code>AbortController</code>. But that only closes the network
+          socket — <strong>the database keeps grinding on the cancelled
+          query.</strong> While the user has moved on to keystroke 7,
+          the server is still finishing keystrokes 3 and 4, holding
+          connections, blocking later requests.
+        </p>
+
+        <h4>What changes</h4>
+        <p>
+          With <code>asyncpg</code> (Non-neg 1's path 2), task
+          cancellation propagates to the underlying connection
+          automatically — the right pattern for free. Bridge while still
+          on psycopg2: a watchdog task per request that polls
+          <code>Request.is_disconnected()</code> and, on disconnect,
+          calls <code>connection.cancel()</code> from a separate
+          connection. Both patterns are documented; pick one based on
+          when you adopt asyncpg.
+        </p>
+
+        <h4>What it costs / risks</h4>
+        <p>
+          The watchdog bridge is ~40 lines of middleware code. asyncpg
+          handles it natively. The risk is a cancelled query leaving
+          half-applied state — but search is read-only, so cancellation
+          on a SELECT is always safe.
+        </p>
+        <span class="stamp green">Effort: S</span>
+        <span class="stamp green">Unlock: capacity reclaimed on every keystroke</span>
+        <span class="stamp amber">Risk: low; only applies safely to reads</span>
+      </div>
+
+      <div class="bet">
+        <span class="bet-num">Non-neg 3</span>
+        <h3>Full-text index on company names, not pattern matching</h3>
+        <p>
+          Common words — <code>consulting</code>, <code>holding</code>,
+          <code>jean</code> — trigger a fuzzy trigram scan over ~570k
+          embedded vectors and ~1.94M company-name rows. Cold-cache
+          latency on these terms is ~1 second. The proper solution is a
+          precomputed <code>tsvector + GIN</code> full-text index.
+          Trigram matching stays as the typo-fallback, not the primary
+          path.
+        </p>
+        <p>
+          <strong>Already exists in the codebase</strong> —
+          <code>backend/routers/staatsblad_events.py:295</code> uses
+          <code>to_tsvector('simple', ...)</code> + <code>plainto_tsquery</code>
+          on event text. Pattern is proven; it just needs to land on the
+          name-search path too.
+        </p>
+
+        <h4>What changes</h4>
+        <p>
+          Add a <code>name_tsv</code> generated column to
+          <code>company_info</code> as <code>to_tsvector('simple',
+          name_normalized)</code>, and a GIN index on it. Rewrite the
+          first arm of <code>_SEARCH_SQL</code> to use
+          <code>websearch_to_tsquery</code>. Trigram match becomes the
+          fallback when FTS returns &lt;5 hits or query is &lt;4 chars.
+        </p>
+
+        <h4>What it costs / risks</h4>
+        <p>
+          One ALTER TABLE + one CREATE INDEX, both online with
+          <code>CREATE INDEX CONCURRENTLY</code>. Re-runs the
+          <code>_SEARCH_SQL</code> CTE structure — needs A/B testing
+          against the existing scored arms to verify quality didn't
+          regress on edge cases (legal-suffix synonym handling, accent
+          stripping). Bench against a sample of real queries from
+          <code>activity_log</code>.
+        </p>
+        <span class="stamp green">Effort: S</span>
+        <span class="stamp green">Unlock: ~10× faster on common-word queries</span>
+        <span class="stamp amber">Risk: regressions on edge cases — bench first</span>
+      </div>
+
+      <div class="callout warn">
+        <strong>The non-negotiable ordering:</strong> Non-neg 1 + 3 ship
+        first because they have direct user-visible latency impact.
+        Non-neg 2 ships alongside or just after. The ranking work below
+        (5.2) is the polish that <em>follows</em> performance.
+      </div>
+
+      <h3>5.2 Ranking evolution — from hand-tuned to learned</h3>
+      <p>
+        Today's <code>/api/companies/search</code> unions seven candidate
+        arms with hand-tuned base scores, multiplied by a popularity / size
+        / status modifier. It works. But every new ranking signal becomes
+        another arm and another score-tuning session.
+      </p>
+
+      <h4>Proposed: candidate generation + ML re-ranking</h4>
+
+      <div class="mermaid-wrapper">
+        <pre class="mermaid">
+flowchart LR
+  Q[Query] --> CG[Stage 1<br/>Candidate generation]
+  CG --> AR1[trigram top-50]
+  CG --> AR2[BM25 top-50]
+  CG --> AR3[vector top-50]
+  CG --> AR4[exact / prefix top-20]
+  AR1 --> POOL[Candidate pool<br/>~100-150 unique]
+  AR2 --> POOL
+  AR3 --> POOL
+  AR4 --> POOL
+  POOL --> RR[Stage 2<br/>ML re-ranker<br/>features: financial signal,<br/>recency, popularity,<br/>name match, sector match]
+  RR --> TOP[Top 20<br/>shown to user]
+  CTR[click-through<br/>from activity_log] -.-> TRAIN[nightly retrain]
+  TRAIN -.-> RR
+
+  classDef stage1 fill:#ecfdf5,stroke:#059669,color:#065f46
+  classDef stage2 fill:#f0f9ff,stroke:#0284c7,color:#075985
+  classDef data fill:#fffbeb,stroke:#d97706,color:#92400e
+  class CG,AR1,AR2,AR3,AR4,POOL stage1
+  class RR,TOP stage2
+  class CTR,TRAIN data
+        </pre>
+      </div>
+
+      <p>
+        Stage 1 is recall-focused — give me anything that <em>might</em>
+        match. Stage 2 is precision-focused — score the candidates with a
+        learned model. Re-train nightly using click data already in
+        <code>activity_log</code>. Adding a new signal (e.g. "favorited by
+        users in PE tier") becomes a feature column, not another SQL arm.
+      </p>
+
+      <h4>Why not yet — and the new precondition</h4>
+      <p>
+        Two reasons to defer ranking work:
+      </p>
+      <ul>
+        <li><strong>Volume.</strong> The ML re-ranker pays off when (a) you have enough click data to learn from, and (b) the cost of bad relevance is high enough to justify the infrastructure. Today's volume — small.</li>
+        <li><strong>The 5.1 non-negotiables come first.</strong> A learned re-ranker on top of an event-loop-blocked, uncancellable, trigram-scanning search adds a CPU layer to a slow path. Fix the path first; rank afterwards.</li>
+      </ul>
+      <p>
+        Realistic timeline: Q3 or later. The performance non-negotiables
+        in 5.1 ship in week 1–4; the ranking work follows once they're
+        stable.
+      </p>
+
+      <details class="deep">
+        <summary>What features I'd train on, in priority order</summary>
+        <div class="deep-body">
+          <ol>
+            <li><strong>Query-document text similarity</strong> — already implicit in scored arms; explicit feature for the model.</li>
+            <li><strong>Click-through history</strong> — from <code>activity_log</code> joined to a click event.</li>
+            <li><strong>Financial signal</strong> — log(revenue), is-active, has-recent-filing.</li>
+            <li><strong>Recency</strong> — most recent NBB filing date, most recent gazette event.</li>
+            <li><strong>Popularity</strong> — already computed in <code>company_popularity</code>.</li>
+            <li><strong>Sector match</strong> — does the query mention NACE-relevant tokens?</li>
+            <li><strong>Person/company hybrid</strong> — if query is person-like, weigh person results.</li>
+            <li><strong>Embedding cosine</strong> — the existing semantic feature, as a column.</li>
+          </ol>
+        </div>
+      </details>
+    </section>
+
+    <!-- ================= SECTION 6 — RESILIENCE & OBSERVABILITY ================= -->
+    <section id="resilience">
+      <h2>6. Resilience &amp; observability</h2>
+      <p class="section-sub">"Bullet-proof" means: when things break, you know first, you have a tested recovery path, and the user impact is bounded. Today the system is single-Postgres, single-VPS, with no proven backup-restore drill and no per-request observability.</p>
+
+      <h3 style="margin-top:0">6.1 Backups + verified restore drills</h3>
+      <div class="callout">
+        <strong>Foundation in place (2026-04-30):</strong> dedicated 100 GB
+        ext4 Hetzner volume #105558877 mounted at
+        <code>/mnt/volume-hel1-1</code>. Subdirectories ready:
+        <code>$DS_WAL_ARCHIVE_DIR</code> for continuous WAL archiving and
+        <code>$DS_BACKUP_DIR</code> for base-backup landing. The
+        path-discovery problem (where do backups go?) is solved; the work
+        below is the script + cron to actually populate them.
+      </div>
+      <div class="callout warn">
+        <strong>r10 caveat — WAL pressure during restore:</strong>
+        the volume holds <em>archived</em> WAL, not <em>live</em> WAL.
+        Postgres writes <code>$PGDATA/pg_wal/</code> to the root disk
+        regardless of where <code>archive_command</code> ships rotated
+        WALs. A large <code>pg_restore</code> into the same Postgres
+        instance can balloon live WAL transiently (a 27 GB clone can
+        generate &gt;5 GB of <code>pg_wal</code>) even when archiving
+        is configured. <strong>Preflight before any restore</strong>:
+        verify root disk has at least 15 GB free, OR run the staging
+        Postgres as a <em>separate process</em> whose <code>$PGDATA</code>
+        lives on the volume — that's the only way to keep restore WAL
+        off root entirely. The Phase-1 plan accepts the same-instance
+        approach with the preflight; the separate-process pattern moves
+        in for production-grade resilience.
+      </div>
+      <p>
+        <strong>Today's state:</strong> Postgres on a single Hetzner VPS
+        with local-disk storage. No standby replica. No nightly
+        verified-restore drill — meaning we don't know if a restore
+        would work until we need it. Volume is in place; archiving
+        config + restore drill cron are not yet built.
+      </p>
+      <p>
+        <strong>What changes:</strong>
+      </p>
+      <ul>
+        <li><strong>WAL archiving to S3-compatible object storage</strong> (Hetzner Object Storage, Backblaze B2). Continuous WAL ship + nightly base backup gives Point-in-Time-Recovery. RPO target: 5 minutes.</li>
+        <li><strong>Monthly automated restore drill.</strong> Spin up a throwaway Postgres on an EC2-style instance, restore the latest base + WAL up to T-1h, run a 10-query smoke test, tear down. Email summary to operator. Drill failure = page.</li>
+        <li><strong>RTO target: 1 hour</strong> for full recovery from cold backup. Realistic at our DB size (~27 GB).</li>
+        <li><strong>Standby replica</strong> (Phase 2). Streaming replication to a second small VPS in a different Hetzner zone. Promotes to primary in &lt;5 min if main VPS dies. Doubles infra cost slightly but adds an actual recovery path.</li>
+      </ul>
+
+      <h3>6.2 Observability — structured logs, metrics, traces</h3>
+      <p>
+        <strong>Today's state:</strong> stdout logs go to Docker; no
+        structured fields, no aggregation, no alerts on error rate. The
+        per-request phase timing middleware in §4 is the foundation;
+        below is what to build on top.
+      </p>
+      <table class="data">
+        <thead>
+          <tr><th>Layer</th><th>What ships</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Structured logs</strong></td>
+            <td>Switch <code>logger</code> calls to JSON output (<code>structlog</code> or stdlib + <code>python-json-logger</code>). Required fields: <code>request_id</code>, <code>user_email</code> (or <code>anon:hash</code>), <code>endpoint</code>, <code>status</code>, <code>duration_ms</code>, <code>error_class</code>.</td>
+            <td>Greppable by user / endpoint / error / time-range. Foundation for everything else.</td>
+          </tr>
+          <tr>
+            <td><strong>Metrics</strong></td>
+            <td>Prometheus client lib + <code>/metrics</code> endpoint behind admin auth. Histograms for per-endpoint latency, counters for error class, gauges for queue depth + connection pool usage.</td>
+            <td>Aggregation across requests. Drives the SLO dashboards.</td>
+          </tr>
+          <tr>
+            <td><strong>Distributed traces</strong></td>
+            <td>OpenTelemetry SDK in the backend, traces shipped to a managed collector (Honeycomb free tier, or self-hosted Tempo). One span per phase from the §4 timing middleware.</td>
+            <td>"Why was THIS request slow?" — answer in one trace, not 30 minutes of custom telemetry. Solves the original observability gap directly.</td>
+          </tr>
+          <tr>
+            <td><strong>Alerts</strong></td>
+            <td>Page on: error rate &gt; 1% over 5 min, p95 latency &gt; SLO over 15 min, backup-restore drill failure, queue worker stuck &gt; 30 min, NBB key rotation needed. Route to operator email + (eventually) on-call rotation.</td>
+            <td>Find out from the system before the customer.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>6.3 Performance SLOs — explicit budgets per surface</h3>
+      <p>
+        Without explicit SLOs, "search is slow" is opinion. With them,
+        it's a measurement against a target. Proposed initial budgets,
+        to ratify after a week of phase-timing data:
+      </p>
+      <table class="data">
+        <thead>
+          <tr><th>Surface</th><th>p95 SLO (cold cache)</th><th>p99 SLO</th><th>Error budget</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>/api/search/suggest</code></td>
+            <td>150 ms</td>
+            <td>300 ms</td>
+            <td>1% / 30 days</td>
+          </tr>
+          <tr>
+            <td><code>/api/companies/search</code></td>
+            <td>500 ms</td>
+            <td>1 s</td>
+            <td>1% / 30 days</td>
+          </tr>
+          <tr>
+            <td><code>/api/people/search</code></td>
+            <td>500 ms</td>
+            <td>1 s</td>
+            <td>1% / 30 days</td>
+          </tr>
+          <tr>
+            <td>Profile page (full SSR)</td>
+            <td>700 ms</td>
+            <td>1.5 s</td>
+            <td>1% / 30 days</td>
+          </tr>
+          <tr>
+            <td>Screener result load</td>
+            <td>1.2 s</td>
+            <td>2 s</td>
+            <td>2% / 30 days</td>
+          </tr>
+          <tr>
+            <td>Stripe checkout redirect</td>
+            <td>800 ms</td>
+            <td>2 s</td>
+            <td>0.5% / 30 days</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="font-size:14px;color:var(--ink-3);margin-top:6px">
+        These are starting points. Once timing middleware lands, real
+        p95/p99 numbers replace the guesses, and the error budget
+        becomes a real lever for prioritisation.
+      </p>
+
+      <h3>6.4 Schema migration safety</h3>
+      <ul>
+        <li><strong>Migrations runner ships first</strong> (already in §4 same-week wins). After that, every migration is replayable, ordered, and dependency-tracked.</li>
+        <li><strong>Pre-deploy migration dry-run on staging.</strong> Once staging DB is real (§4 structural), the deploy script applies migrations to staging, smoke-tests, then applies to prod. Fail-fast on staging migration failure.</li>
+        <li><strong>Online-DDL patterns enforced.</strong> No <code>ALTER TABLE</code> with default-value backfill on multi-million-row tables during business hours; batch backfills via a Python script with throttling. Bitemporal Phase 0 is the load-bearing case.</li>
+        <li><strong>Reversible by default.</strong> Every forward migration ships with a paired rollback migration (current convention in <code>migrations/2026-04-2X_*_rollback.sql</code> — keep this).</li>
+      </ul>
+
+      <h3>6.5 Cost engineering</h3>
+
+      <h4>Current infrastructure cost snapshot</h4>
+      <p style="font-size:14px;color:var(--ink-3)">
+        Directional ranges — verify against actual Hetzner / Supabase /
+        OpenRouter billing. Variable costs (Stripe, OpenRouter) scale
+        with usage; everything else is roughly fixed.
+      </p>
+      <table class="data">
+        <thead>
+          <tr><th>Item</th><th>Today (€/mo)</th><th>After plan</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Hetzner VPS (4 vCPU / 8 GB / 75 GB root)</td><td>~€15–25</td><td>same</td><td>Cloud-class instance; resize-able if Bet-3 capacity demands</td></tr>
+          <tr><td>Hetzner volume #105558877 (100 GB ext4)</td><td>€4 (just added)</td><td>€4</td><td>Holds staging tablespace + WAL archive + backups</td></tr>
+          <tr><td>Supabase</td><td>Free tier</td><td>same → maybe €25 (Pro)</td><td>Pro becomes worth it once user count or auth-rate force it</td></tr>
+          <tr><td>OpenRouter (LLM)</td><td>~€280 (bulk-enrichment $10/day cap + narrative AI)</td><td>same</td><td>Already capped via <code>meta.enrichment_daily_budget</code></td></tr>
+          <tr><td>Stripe</td><td>% of revenue</td><td>same</td><td>No flat fee; not a fixed cost</td></tr>
+          <tr><td>Stalwart mail (claude@datasnoop.be)</td><td>€0</td><td>€0</td><td>Self-hosted on the same Hetzner box</td></tr>
+          <tr><td>Domain (datasnoop.be)</td><td>~€1</td><td>~€1</td><td>Annual renewal amortised</td></tr>
+          <tr><td><strong>Today's fixed total</strong></td><td><strong>~€300–330</strong></td><td>—</td><td>Variable Stripe / overage on top</td></tr>
+        </tbody>
+      </table>
+
+      <h4>What the plan adds (ongoing, monthly)</h4>
+      <table class="data">
+        <thead>
+          <tr><th>Plan item</th><th>Add (€/mo)</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Redis as a real cache layer (week 2)</td><td>€0</td><td>Already running for the rate-limiter; reuse the existing instance</td></tr>
+          <tr><td>PgBouncer in front of Postgres (week 4 optional)</td><td>€0</td><td>Free container on the same VPS</td></tr>
+          <tr><td>Observability stack (week 1 + 4)</td><td>€0–€50</td><td>Self-hosted Prometheus is free; Honeycomb free tier covers small traces; pay only if volume forces it</td></tr>
+          <tr><td>S3-compatible backup target (week 3–4)</td><td>~€5–10</td><td>Hetzner Object Storage ~€5/mo for &lt;500 GB; Backblaze B2 cheaper still</td></tr>
+          <tr><td>Standby Postgres replica in different zone (Month 7+, optional)</td><td>~€20–30</td><td>Second small VPS, only if HA matters more than €25/mo</td></tr>
+          <tr><td><strong>Plan-driven add (foundation phase only)</strong></td><td><strong>~€10–15</strong></td><td>Volume + S3; everything else is free or already paid</td></tr>
+        </tbody>
+      </table>
+
+      <h4>What the plan SUBTRACTS — Ollama Cloud migration of bulk LLM work</h4>
+      <p>
+        Bulk LLM work currently runs on OpenRouter (GPT-4o-mini for Q2,
+        Haiku 4.5 for escalation, Haiku batch for staatsblad extraction).
+        Ollama Cloud + <code>deepseek-v3:671b</code> is roughly 5–10×
+        cheaper per token at comparable quality for bulk pipelines.
+      </p>
+      <div class="callout warn">
+        <strong>Model selection — production default vs upgrade
+        candidate (operator note 2026-04-30):</strong>
+        <code>deepseek-v3:671b</code> is the stable production default —
+        well-understood capacity on Ollama Cloud, predictable p95.
+        <code>deepseek-v4-pro</code> is the upgrade candidate (stronger
+        quality) but is currently capacity-constrained ("getting
+        hammered by massive requests"). The plan starts on v3, benches
+        v4-pro in parallel, switches the primary only after v4-pro p95
+        latency is stable under our bulk load. Either way, every
+        Ollama Cloud call has an explicit timeout + retry-with-backoff
+        + Haiku-4.5 fallback — cloud capacity is more variable than
+        commercial API capacity, so defensive coding is mandatory, not
+        optional.
+      </div>
+      <table class="data">
+        <thead>
+          <tr><th>Pipeline</th><th>Today (~€/mo)</th><th>After Ollama migration</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Bulk enrichment Q2 (1.94M corpus)</td><td>~€180–220</td><td>~€20–40</td><td>deepseek-v3 default; net savings ~€150–€200/mo</td></tr>
+          <tr><td>Bulk enrichment escalation</td><td>~€60–80</td><td>~€20–40</td><td>deepseek-v3 first; Haiku fallback only on low confidence</td></tr>
+          <tr><td>Translation cache</td><td>~€10–20</td><td>~€2–5</td><td>Trivial task; deepseek-v3 or qwen2.5</td></tr>
+          <tr><td>Staatsblad extraction</td><td>~€30–50</td><td>same initially</td><td>Quality risk gates the migration; shadow-pilot first, switch only after measured equivalence on the golden set</td></tr>
+          <tr><td>Profile AI insights (narrative)</td><td>~€30–50</td><td>same</td><td><strong>Stays on Haiku</strong> — user-facing latency, not a cost driver</td></tr>
+          <tr><td><strong>Total LLM spend</strong></td><td><strong>~€310–420</strong></td><td><strong>~€80–135</strong></td><td>Net savings ~€200–€300/mo at full migration; Phase 4 captures the bulk-enrichment portion</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:14px;color:var(--ink-3);margin-top:6px">
+        Numbers directional — depends on actual Ollama Cloud per-token
+        pricing (variable by model and traffic tier) and the bulk-enrichment
+        backlog rate. Validate with a 1-day spike on a 1k-company sample
+        before committing to the migration. Quality regression on the
+        bulk-summary precision is the only thing that should reverse the
+        decision; cost is settled.
+      </p>
+
+      <div class="callout">
+        <strong>Bottom line:</strong> the foundation phase (weeks 0–4)
+        adds roughly <strong>€10–15/mo</strong> of new fixed cost
+        (Hetzner volume + S3 backup target). Everything else either
+        re-uses existing infrastructure (Redis, mail) or has a free tier
+        adequate for our scale (Honeycomb, self-hosted Prometheus). The
+        big-bet phases (Person / Ownership / Bitemporal) are
+        engineering-time-driven, not infra-cost-driven. The standby
+        replica in Month 7+ is the only material new cost on the
+        horizon, and it's optional.
+      </div>
+
+      <h4>What the cost-engineering work itself adds</h4>
+      <p>
+        Already partially done — <code>llm_call_log</code> tracks
+        OpenRouter spend per endpoint. To extend:
+      </p>
+      <ul>
+        <li><strong>Per-tenant cost attribution.</strong> Tag every LLM call + every NBB call with the originating user (<code>activity_log.user_email</code>). Admin panel shows revenue / cost per tier, per user, per feature. Catches the "free user driving 80% of LLM spend" pattern early.</li>
+        <li><strong>Infra cost feed.</strong> Hetzner / Stripe / OpenRouter invoices ingested into <code>platform_invoice</code> (already exists). Monthly cost dashboard becomes a one-query view, not a manual spreadsheet.</li>
+        <li><strong>Cost SLOs.</strong> "Bulk enrichment must stay under $10/day" is already enforced by <code>meta.enrichment_daily_budget</code>. Extend the pattern: per-feature daily budgets, with admin alerts on approach.</li>
+      </ul>
+
+      <div class="callout">
+        <strong>Bullet-proof in plain English:</strong> if the VPS dies
+        tonight, we restore from cold backup tomorrow morning with bounded
+        data loss; if a search query is slow, we know which phase took
+        the time within five minutes; if a regression ships, we see the
+        SLO breach in the dashboard before a customer reports it; if an
+        AI feature spikes spend, we get an alert at 80% of budget, not at
+        100%.
+      </div>
+    </section>
+
+    <!-- ================= SECTION 7 — RADICAL ================= -->
+    <section id="radical">
+      <h2>7. Radical options — weighed</h2>
+      <p class="section-sub">Things that get suggested at this scale of company. My honest verdict on each.</p>
+
+      <table class="data">
+        <thead>
+          <tr><th>Option</th><th>Verdict</th><th>Reason</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Apache AGE (graph queries on Postgres)</td>
+            <td><span class="verdict yes">Yes</span></td>
+            <td>Graph traversal without a second operational store. Same backups, same monitoring. Direct enabler for Bet 2.</td>
+          </tr>
+          <tr>
+            <td>TimescaleDB extension for financials</td>
+            <td><span class="verdict maybe">Maybe</span></td>
+            <td>Financials are time-series — TimescaleDB does FY rollups and continuous aggregates well. Worth a 2-day spike. Not strictly needed.</td>
+          </tr>
+          <tr>
+            <td>Bitemporal modelling (Bet 3)</td>
+            <td><span class="verdict yes">Yes</span></td>
+            <td>Plain-Postgres, no extension. Schema work is real but pays off across many features.</td>
+          </tr>
+          <tr>
+            <td>Standalone graph DB (Neo4j, Memgraph)</td>
+            <td><span class="verdict no">No</span></td>
+            <td>Two operational stores, two backup regimes, two query languages. Postgres + AGE gets 80% for 20% effort.</td>
+          </tr>
+          <tr>
+            <td>Move analytics to ClickHouse / DuckDB</td>
+            <td><span class="verdict no">No</span></td>
+            <td>Premature. Postgres handles 200M rows fine with the right indexes. Revisit at 10× volume.</td>
+          </tr>
+          <tr>
+            <td>Vector DB (Qdrant, Pinecone, Weaviate)</td>
+            <td><span class="verdict no">No</span></td>
+            <td>pgvector with HNSW handles tens of millions. The ops cost of a vector DB is not justified at our 600k-vector scale.</td>
+          </tr>
+          <tr>
+            <td>Microservices split (separate enrichment service, etc.)</td>
+            <td><span class="verdict no">No</span></td>
+            <td>Solo founder. One DB, three containers. Stay there until you have engineering team scaling to motivate it.</td>
+          </tr>
+          <tr>
+            <td>Event sourcing (everything is an event log)</td>
+            <td><span class="verdict no">No</span></td>
+            <td>Conceptually appealing; operationally heavy. Bitemporal tables get you 90% of the value for 10% of the cost.</td>
+          </tr>
+          <tr>
+            <td>CQRS / read models</td>
+            <td><span class="verdict yes">Yes — already doing it</span></td>
+            <td><code>financial_latest</code>, <code>company_info</code>, <code>sector_percentiles</code> ARE read models. Formalise the pattern; new read models become routine instead of bespoke.</td>
+          </tr>
+          <tr>
+            <td>Kafka / event-driven backbone</td>
+            <td><span class="verdict no">No</span></td>
+            <td>Postgres LISTEN/NOTIFY + cron + worker queues handles every async pattern at this scale.</td>
+          </tr>
+          <tr>
+            <td>OLAP cube / BI layer (Cube.js, Metabase, etc.)</td>
+            <td><span class="verdict maybe">Maybe</span></td>
+            <td>For internal admin analytics, Metabase on a read replica is cheap and useful. For customer-facing it's not the bottleneck.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ================= SECTION 8 — ROADMAP ================= -->
+    <section id="roadmap">
+      <h2>8. Phased roadmap</h2>
+      <p class="section-sub">Six months. Same-week wins ship first (one bug fix + diagnostics). Foundations next. Big bets in the middle. Polish at the end. Resilience and observability ride along throughout — they are not a "phase".</p>
+
+      <div class="roadmap">
+        <div class="roadmap-header" style="grid-column: 1 / 3;">Sequenced over 6 months — synced with deep-dive r7 sequencing</div>
+
+        <div class="roadmap-row">
+          <div class="roadmap-when">Week 0</div>
+          <div class="roadmap-what">
+            <strong>De-async ride-along + preflight.</strong> The de-async fix already on origin/master (commits <code>105b303</code> + <code>79ed79c</code>) deploys: drops <code>async def</code> on search routes, swaps to <code>ThreadedConnectionPool(2, 20, …)</code>, fixes the <code>_discard_connection</code> slot leak. <code>/api/search/suggest</code> still pending its own de-async (deferred per correctness reviewer). Plus preflight: <code>VACUUM ANALYZE</code> the seven KBO tables, queue retention prune, HNSW investigation. Half a day.
+            <div class="roadmap-why">"5-second waits while typing" goes away on day one. Plus the diagnostics base for every later phase.</div>
+          </div>
+        </div>
+
+        <div class="roadmap-row">
+          <div class="roadmap-when">Week 1</div>
+          <div class="roadmap-what">
+            <strong>Migrations runner + observability scaffolding.</strong> <code>schema_migrations(filename, applied_at, checksum)</code> tracking + per-file tx-mode runner + deploy hook (staging-then-prod). Per-request phase-timing middleware shipping <code>Server-Timing</code> + Prometheus histograms + structured JSON logs.
+            <div class="roadmap-why">Schema-as-code stops drift; observability is keystone, not Month 6+ polish.</div>
+          </div>
+        </div>
+
+        <div class="roadmap-row">
+          <div class="roadmap-when">Week 2a</div>
+          <div class="roadmap-what">
+            <strong>Staging external-service isolation — FIRST hard gate (r11).</strong> Real <code>.env.staging</code>, drop the current share of <code>.env.production</code>, point staging at Stripe test mode + a separate webhook URL + a staging Supabase project, run the four-check verification script (Stripe key namespace, webhook routing, Supabase project, <code>DATABASE_URL</code>) and commit a dated isolation-evidence doc. <strong>Until this gate is green, NO new staging surface activates</strong> — no DB clone, no enrichment / staatsblad workers, no snapshot cron. Existing staging containers continue against the prod DB the way they do today (no regression), but no NEW staging-side risk piles on top of the prod-shared external surfaces.
+            <div class="roadmap-why">Architecturally-correct order: prove isolation, then build on it. Reordered in r11 from the r6-era "all-in-Week-2" framing because current staging can still touch Stripe Live, prod webhooks, and the prod Supabase project — adding workers + snapshot cron on top of that risk is wrong-way-round.</div>
+          </div>
+        </div>
+
+        <div class="roadmap-row">
+          <div class="roadmap-when">Week 2b</div>
+          <div class="roadmap-what">
+            <strong>Real staging DB + §5c full-text index (parallel; gated on Week 2a).</strong> Staging DB: <code>CREATE TABLESPACE staging_data LOCATION '$DS_STAGING_DATA_DIR'</code>; full clone via piped <code>pg_dump -Fc | pg_restore</code>; <code>scripts/staging_scrub.sql</code> applied post-restore; workers behind compose profiles; nightly snapshot cron added to the managed-cron block. Parallel: <code>tsvector + GIN</code> on <code>company_info.name</code> with leading-suffix asymmetry tests on the bench step.
+            <div class="roadmap-why">Volume + env vars in place from r5. Migration runner + staging external-service isolation in place from Week 1 + 2a. Two tracks ship in parallel — DB clone touches DB-side surface, FTS doesn't touch external-service surface, neither blocks the other. FTS is also not gated on Week 2a (no external dependency).</div>
+          </div>
+        </div>
+
+        <div class="roadmap-row">
+          <div class="roadmap-when">Week 3</div>
+          <div class="roadmap-what">
+            <strong>§5b cancellation watchdog + WAL archiving foundation.</strong> Watchdog middleware + dedicated cancel-pool + <code>pg_cancel_backend()</code> from a separate connection — the only cancellation path during the de-async bridge period. Parallel: WAL archiving config to <code>$DS_WAL_ARCHIVE_DIR</code>, first base backup to <code>$DS_BACKUP_DIR</code>.
+            <div class="roadmap-why">Stale queries stop grinding when the user types past them. PITR foundation in place.</div>
+          </div>
+        </div>
+
+        <div class="roadmap-row">
+          <div class="roadmap-when">Week 4</div>
+          <div class="roadmap-what">
+            <strong>Restore drill + observability stack consolidation.</strong> First automated monthly restore drill cron. Prometheus metrics behind admin auth. Initial SLO dashboards seeded with week-1 phase-timing data. PgBouncer optional in this slot if connection budget hasn't bitten yet.
+            <div class="roadmap-why">"Bullet-proof" stops being aspiration. Recovery actually tested. Latency dashboards visible to operator.</div>
+          </div>
+        </div>
+
+        <div class="roadmap-row">
+          <div class="roadmap-when">Weeks 5–10</div>
+          <div class="roadmap-what">
+            <strong>Bet 1 — Person entity v1.</strong> <code>person</code> + <code>person_link</code> + <code>person_merge_log</code> tables. Tier-A/B/C deterministic linker (with affiliation included). Splink as v2 follow-up. <strong>Three gates block the public <code>/person/&lt;id&gt;</code> URL (r10 promoted from "GDPR sign-off only"):</strong> (1) Belgian privacy lawyer's legal memo signed; (2) golden-set <em>metrics measured</em> with a written precision threshold the v1 path actually meets — set built ≠ set used; (3) explicit operator-approved decision on auth / rate-limit / anti-scrape defence for the page + the <code>/api/people/*</code> endpoints behind it (the maintenance doc currently leaves PII-endpoint policy as <em>implementation pending</em>). Internal-only admin pages can ship without the gates. <code>person_domicile_*</code> baseline migration as prerequisite. <em>Cross-cutting requirements (FTS, async-safe, cancellation, pool sizing, phase timing) all apply to the new <code>/person/&lt;id&gt;</code> page.</em>
+            <div class="roadmap-why">Highest-leverage entity change. Foundation for the rest of the entity work.</div>
+          </div>
+        </div>
+
+        <div class="roadmap-row">
+          <div class="roadmap-when">Weeks 11–14</div>
+          <div class="roadmap-what">
+            <strong>Bet 2 — Ownership graph (pure SQL).</strong> <code>ownership_edge</code> with provenance + source rank + deposit date + canonical view. Recursive CTE traversal. Apache AGE explicitly deferred — no <code>CREATE EXTENSION age</code> in v1.
+            <div class="roadmap-why">UBO walks, group-structure roll-ups, network views become single queries.</div>
+          </div>
+        </div>
+
+        <div class="roadmap-row">
+          <div class="roadmap-when">Weeks 15–22</div>
+          <div class="roadmap-what">
+            <strong>Bet 3 — Bitemporal v1.</strong> Phase 0: pull runtime DDL out of <code>backend/db.py</code> + <code>enrichment.py</code> into tracked migrations. Then add columns to relationship tables (no rename); create explicit <code>administrator_current</code> views; mandatory read-path audit; update ingestion in the same phase.
+            <div class="roadmap-why">Largest commitment. Hardest to revert. Goes last so it's applied to a stable Person + Ownership model, not today's schema.</div>
+          </div>
+        </div>
+
+        <div class="roadmap-row">
+          <div class="roadmap-when">Month 6+</div>
+          <div class="roadmap-what">
+            <strong>Polish &amp; horizon work.</strong> §5a asyncpg search-hot-path migration (de-async ride-along stays until this supersedes it). ML re-ranker for search. Read replica for analytics. Queue framework consolidation, embedding catalog pivot, activity-log fast path. Cold-row archival. Bitemporal phase-2. Standby Postgres replica in a different Hetzner zone. Re-evaluate ClickHouse / OLAP only after a real volume signal exists.
+            <div class="roadmap-why">All optional, all triggered by data measured against the SLO dashboards from week 4.</div>
+          </div>
+        </div>
+      </div>
+
+      <h3>What rides along throughout the roadmap</h3>
+      <ul>
+        <li><strong>Resilience &amp; observability is continuous</strong>, not a phase. Every change goes through staging, applies migrations, ships with timing instrumentation, and gets watched against the SLO dashboards.</li>
+        <li><strong>Two parallel review agents</strong> (correctness + security) before every <code>master</code> merge — already a standing rule.</li>
+        <li><strong>Operator approves every prod deploy</strong>. Auto-deploy is for staging-validated code only.</li>
+        <li><strong>Every phase has a paired rollback migration</strong> already (current convention in <code>migrations/*_rollback.sql</code> — keep this).</li>
+      </ul>
+
+      <p style="font-size:14px;color:var(--ink-3)">
+        Not a commitment, a sequence of bets with measurable completion
+        criteria. Weeks 5+ are reorderable based on what customers ask
+        for once Person and Ownership land. Weeks 1–4 are not reorderable
+        — they're the foundation everything else stands on.
+      </p>
+    </section>
+
+    <!-- ================= SECTION 9 — THIS WEEK ================= -->
+    <section id="now">
+      <h2>9. What I'd do this week</h2>
+      <p class="section-sub">Three time horizons; each independently shippable; each makes the next one safer.</p>
+
+      <div class="grid-3">
+        <div class="card">
+          <h4 style="margin-top:0">If you give me one day</h4>
+          <p>
+            <strong>The same-week wins.</strong>
+            <code>VACUUM ANALYZE</code> the seven KBO tables (10 min,
+            read-only on stats — won't disrupt prod).
+            <code>SimpleConnectionPool</code> →
+            <code>ThreadedConnectionPool</code> (15 min, one-line fix).
+            Wrap the sync inner functions in
+            <code>asyncio.to_thread</code> (1–2 hours, removes
+            event-loop blocking — the actual root cause of "5-second
+            waits"). Ship the migrations runner with a baseline migration
+            so schema drift stops growing.
+          </p>
+        </div>
+        <div class="card">
+          <h4 style="margin-top:0">If you give me one week</h4>
+          <p>
+            Above, plus the search performance non-negotiables:
+            <code>tsvector + GIN</code> on <code>company_info.name</code>
+            (mirroring the staatsblad-event pattern that already works);
+            cancellation watchdog middleware so a stale typed-fast query
+            stops grinding when the next keystroke arrives; Redis-shared
+            search-result cache so deploys don't reset to "cold". Add
+            the per-request phase-timing middleware so the next "search
+            is slow" diagnosis is one query, not a 30-min custom
+            telemetry build.
+          </p>
+        </div>
+        <div class="card">
+          <h4 style="margin-top:0">If you give me one month</h4>
+          <p>
+            Above, plus the real staging DB + PgBouncer + first backup +
+            restore drill (week 3–4 of the roadmap), plus Person v1
+            kicked off. By the end of the month: search is fast, staging
+            is safe, recovery is tested, and Person work has structured
+            data flowing.
+          </p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <strong>Risk profile of "this week":</strong> day 1 changes are
+        each independently reversible in minutes. Week 1 changes are
+        additive (new index, new middleware, Redis cache layer) — none
+        of them touch existing data. Month 1 includes the staging DB
+        creation which has the disk-pressure risk already analysed in
+        the deep-dive's §4. None of it requires a maintenance window.
+      </div>
+    </section>
+
+    <!-- ================= SECTION 10 — DON'TS ================= -->
+    <section id="donts">
+      <h2>10. What NOT to do</h2>
+      <p class="section-sub">The shortlist of seductive ideas that would make things worse at this stage.</p>
+
+      <div class="donts">
+        <h3>Avoid these unless something specific forces them</h3>
+        <ul>
+          <li><strong>Don't introduce a separate graph database.</strong> Postgres + Apache AGE covers it. Two operational stores doubles the ops surface for one product.</li>
+          <li><strong>Don't move to microservices.</strong> One Postgres, three containers, one deploy script — keep it. Microservices solve team-scaling problems you don't have.</li>
+          <li><strong>Don't move analytics to ClickHouse / a data warehouse yet.</strong> Postgres handles the volume. Revisit after Person + Ownership ship and you've measured a real bottleneck.</li>
+          <li><strong>Don't try to model UBO from KBO data alone.</strong> The data isn't there. Wait for the Belgian UBO register API or partner with Graydon / Companyweb. Otherwise you're inferring with no good signal.</li>
+          <li><strong>Don't normalise <code>activity_log</code> into something fancy.</strong> Partition by month, archive cold months, fast-path with Redis. That's the whole answer.</li>
+          <li><strong>Don't refactor the AI pipelines into a single one.</strong> Bulk + narrative are intentionally different beasts (cost vs. quality). The current split is correct.</li>
+          <li><strong>Don't bypass tier limits even temporarily.</strong> They are load-bearing. The TierLimitMiddleware fast-path fix is the right answer; turning it off "for now" is technical-debt poker you will lose.</li>
+        </ul>
+      </div>
+    </section>
+
+    <footer class="note">
+      Strategy review for internal discussion. Not an implementation plan and
+      not a promise — it's the sequence I'd argue for if I were owning the
+      DataSnoop codebase for the next two quarters. Numbers and scopes are
+      directional; before any phase ships, scope it concretely against the
+      live DB and the customer pipeline.
+    </footer>
+  </main>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      fontFamily: 'Geist, system-ui, sans-serif',
+      primaryColor: '#ecfdf5',
+      primaryTextColor: '#065f46',
+      primaryBorderColor: '#059669',
+      lineColor: '#94a3b8',
+      tertiaryColor: '#f8fafc'
+    }
+  });
+
+  const links = document.querySelectorAll('aside.toc a');
+  const sections = Array.from(links).map(a => document.querySelector(a.getAttribute('href')));
+  function onScroll() {
+    const y = window.scrollY + 100;
+    let active = sections[0];
+    for (const s of sections) {
+      if (s && s.offsetTop <= y) active = s;
+    }
+    links.forEach(a => a.classList.toggle('active',
+      active && a.getAttribute('href') === '#' + active.id));
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+</script>
+
+</body>
+</html>
