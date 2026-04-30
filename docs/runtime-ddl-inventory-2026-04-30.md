@@ -49,7 +49,7 @@ The table below assigns a provisional owner migration per source file so every g
 | `backend/enrichment_queue.py` | `migrations/0004_runtime_ddl_baseline_enrichment_queue.sql` | 1 | `enrichment_job` |
 | `backend/main.py` | `migrations/0005_runtime_ddl_baseline_main.sql` | 1 | `aggregator_skiplist` |
 | `backend/nbb_batch_pipeline.py` | `migrations/0006_runtime_ddl_baseline_nbb_batch_pipeline.sql` | 1 | `financial_by_year` |
-| `backend/routers/companies/enrichment.py` | `migrations/0007_runtime_ddl_baseline_routers_companies_enrichment.sql` | 3 | `company_enrichment`, `ai_insights_feedback` |
+| `backend/routers/companies/enrichment.py` | `migrations/0007_runtime_ddl_baseline_routers_companies_enrichment.sql` | 4 | `company_enrichment`, `publication_summary`, `ai_insights_feedback` |
 | `backend/routers/companies/valuation.py` | `migrations/0008_runtime_ddl_baseline_routers_companies_valuation.sql` | 6 | `vlerick_multiple`, `nace_vlerick_mapping`, `company_enrichment` |
 | `backend/routers/favourites.py` | `migrations/0009_runtime_ddl_baseline_routers_favourites.sql` | 5 | `favourite_project`, `favourite_project_member`, `favourite_last_checked`, `people_favourite`, `customer_supplier_list` |
 | `backend/routers/people.py` | `migrations/0010_runtime_ddl_baseline_routers_people.sql` | 1 | `people_enrichment` |
@@ -149,6 +149,7 @@ Intended migration: `migrations/0007_runtime_ddl_baseline_routers_companies_enri
 
 | Line | Kind | Object | Matched text |
 | ---: | --- | --- | --- |
+| 140 | `ALTER TABLE` | `company_enrichment` | `ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS publication_summary TEXT` |
 | 332 | `CREATE TABLE` | `company_enrichment` | `CREATE TABLE IF NOT EXISTS company_enrichment (` |
 | 342 | `ALTER TABLE` | `company_enrichment` | `ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS {col} TEXT` |
 | 366 | `CREATE TABLE` | `ai_insights_feedback` | `CREATE TABLE IF NOT EXISTS ai_insights_feedback (` |

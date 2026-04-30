@@ -134,7 +134,7 @@ _NACE_MAPPING = {
 
 
 def _ensure_tables_and_seed():
-    """Create tables and seed all multiple sources. Runs once per process."""
+    """Seed valuation reference data. Runs once per process."""
     global _INITIALIZED
     if _INITIALIZED:
         return
@@ -142,45 +142,6 @@ def _ensure_tables_and_seed():
     conn = get_connection()
     try:
         cur = conn.cursor()
-        # Base table (name kept for backward compat; now multi-source).
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS vlerick_multiple (
-                year INTEGER NOT NULL,
-                bucket_type TEXT NOT NULL,
-                bucket_key TEXT NOT NULL,
-                multiple REAL NOT NULL,
-                source_note TEXT,
-                PRIMARY KEY (year, bucket_type, bucket_key)
-            )
-        """)
-        # Add 'source' column, default 'vlerick' so existing rows are tagged.
-        cur.execute("""
-            ALTER TABLE vlerick_multiple
-            ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'vlerick'
-        """)
-        # Drop the old single-source PK and install a multi-source one
-        # (idempotent: only proceeds if the new constraint isn't already there).
-        cur.execute("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conname = 'vlerick_multiple_multi_pkey'
-                      AND conrelid = 'vlerick_multiple'::regclass
-                ) THEN
-                    ALTER TABLE vlerick_multiple DROP CONSTRAINT IF EXISTS vlerick_multiple_pkey;
-                    ALTER TABLE vlerick_multiple ADD CONSTRAINT vlerick_multiple_multi_pkey
-                        PRIMARY KEY (source, year, bucket_type, bucket_key);
-                END IF;
-            END $$
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS nace_vlerick_mapping (
-                nace_prefix TEXT PRIMARY KEY,
-                vlerick_sector TEXT NOT NULL
-            )
-        """)
-
         # Seed each source if not present for _DATA_YEAR
         for src_key, size_rows, sector_rows in _ALL_SEEDS:
             cur.execute(
@@ -247,27 +208,7 @@ Return ONLY: {{"sector": "<key from closed list>", "confidence": "high|medium|lo
 
 
 def _ensure_sector_columns():
-    """Add vlerick_sector cache columns to company_enrichment if missing (idempotent)."""
-    try:
-        execute("""
-            CREATE TABLE IF NOT EXISTS company_enrichment (
-                enterprise_number VARCHAR(10) PRIMARY KEY,
-                summary TEXT,
-                generated_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
-        for col, typ in [
-            ("vlerick_sector", "TEXT"),
-            ("vlerick_sector_confidence", "TEXT"),
-            ("vlerick_sector_reasoning", "TEXT"),
-            ("vlerick_sector_generated_at", "TIMESTAMP"),
-        ]:
-            try:
-                execute(f"ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS {col} {typ}")
-            except Exception:
-                pass
-    except Exception:
-        logger.exception("Failed ensuring sector columns")
+    """Compatibility shim for sector columns moved to tracked migrations."""
 
 
 def _build_classification_facts(cbe: str) -> str:

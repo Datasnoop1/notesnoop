@@ -1111,19 +1111,6 @@ async def startup_search_v2_cache():
 
     try:
         from db import execute as db_execute
-        db_execute(
-            """
-            CREATE TABLE IF NOT EXISTS aggregator_skiplist (
-                id          SERIAL PRIMARY KEY,
-                pattern     TEXT NOT NULL,
-                kind        TEXT NOT NULL DEFAULT 'domain',
-                reason      TEXT,
-                added_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                added_by    TEXT,
-                UNIQUE (pattern, kind)
-            )
-            """
-        )
         # Seed with Phase 0 aggregator findings. ON CONFLICT DO NOTHING
         # keeps this idempotent — operator-added patterns survive, seed
         # rows are only inserted when missing.
@@ -1156,32 +1143,8 @@ async def startup_search_v2_cache():
                 )
             except Exception:
                 logger.debug("skiplist seed row %s skipped", pattern)
-        # Add the bulk_* columns if company_enrichment already exists.
-        # _ensure_enrichment_table() in routers/companies/enrichment.py
-        # creates the base table on first on-profile enrichment call; if
-        # the DB is fresh we try an unconditional ALTER that succeeds the
-        # moment that table exists.
-        for col, typ in (
-            ("bulk_summary",        "JSONB"),
-            ("bulk_summary_at",     "TIMESTAMPTZ"),
-            ("bulk_website_hash",   "TEXT"),
-            ("bulk_website_url",    "TEXT"),
-            ("bulk_confidence",     "TEXT"),
-        ):
-            try:
-                db_execute(
-                    f"ALTER TABLE company_enrichment "
-                    f"ADD COLUMN IF NOT EXISTS {col} {typ}"
-                )
-            except Exception:
-                # Parent table not yet created, OR transient DB hiccup
-                # on one column. Either way, keep trying the rest — the
-                # columns are independent and _ensure_enrichment_table
-                # will mop up whatever we miss on the first profile hit.
-                logger.debug("company_enrichment.%s ALTER skipped", col)
-                continue
     except Exception:
-        logger.exception("aggregator_skiplist migration failed (non-fatal)")
+        logger.exception("aggregator_skiplist seed failed (non-fatal)")
 
 
 # ---------------------------------------------------------------------------

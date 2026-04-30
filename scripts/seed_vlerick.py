@@ -116,39 +116,21 @@ def main():
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
 
-    # Ensure tables exist (idempotent — matches schema.sql)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS vlerick_multiple (
-            year INTEGER NOT NULL,
-            bucket_type TEXT NOT NULL,
-            bucket_key TEXT NOT NULL,
-            multiple REAL NOT NULL,
-            source_note TEXT,
-            PRIMARY KEY (year, bucket_type, bucket_key)
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS nace_vlerick_mapping (
-            nace_prefix TEXT PRIMARY KEY,
-            vlerick_sector TEXT NOT NULL
-        )
-    """)
-
     # Seed size multiples
     for key, mult, note in SIZE_MULTIPLES:
         cur.execute("""
-            INSERT INTO vlerick_multiple (year, bucket_type, bucket_key, multiple, source_note)
-            VALUES (%s, 'size', %s, %s, %s)
-            ON CONFLICT (year, bucket_type, bucket_key)
+            INSERT INTO vlerick_multiple (source, year, bucket_type, bucket_key, multiple, source_note)
+            VALUES ('vlerick', %s, 'size', %s, %s, %s)
+            ON CONFLICT (source, year, bucket_type, bucket_key)
             DO UPDATE SET multiple = EXCLUDED.multiple, source_note = EXCLUDED.source_note
         """, (VLERICK_YEAR, key, mult, note))
 
     # Seed sector multiples
     for key, mult in SECTOR_MULTIPLES:
         cur.execute("""
-            INSERT INTO vlerick_multiple (year, bucket_type, bucket_key, multiple)
-            VALUES (%s, 'sector', %s, %s)
-            ON CONFLICT (year, bucket_type, bucket_key)
+            INSERT INTO vlerick_multiple (source, year, bucket_type, bucket_key, multiple)
+            VALUES ('vlerick', %s, 'sector', %s, %s)
+            ON CONFLICT (source, year, bucket_type, bucket_key)
             DO UPDATE SET multiple = EXCLUDED.multiple
         """, (VLERICK_YEAR, key, mult))
 
@@ -163,7 +145,7 @@ def main():
 
     conn.commit()
 
-    cur.execute("SELECT COUNT(*) FROM vlerick_multiple WHERE year = %s", (VLERICK_YEAR,))
+    cur.execute("SELECT COUNT(*) FROM vlerick_multiple WHERE year = %s AND source = 'vlerick'", (VLERICK_YEAR,))
     n_mult = cur.fetchone()[0]
     cur.execute("SELECT COUNT(*) FROM nace_vlerick_mapping")
     n_map = cur.fetchone()[0]

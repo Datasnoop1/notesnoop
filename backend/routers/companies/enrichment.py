@@ -135,12 +135,6 @@ async def summarize_publications(
     cbe = clean_cbe(cbe)
     refresh = body.refresh if body else False
 
-    # Ensure column exists (idempotent)
-    try:
-        execute("ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS publication_summary TEXT")
-    except Exception:
-        pass
-
     if not refresh:
         cached = fetch_one(
             "SELECT publication_summary FROM company_enrichment WHERE enterprise_number = %s AND publication_summary IS NOT NULL",
@@ -324,57 +318,10 @@ async def generate_light_summary(cbe: str) -> Optional[str]:
 
 
 def _ensure_enrichment_table():
-    """Create enrichment table if it does not exist (idempotent)."""
+    """Compatibility shim for enrichment tables moved to tracked migrations."""
     global _enrichment_table_ensured
     if _enrichment_table_ensured:
         return
-    execute("""
-        CREATE TABLE IF NOT EXISTS company_enrichment (
-            enterprise_number VARCHAR(10) PRIMARY KEY,
-            summary TEXT,
-            generated_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-    # Add website/LinkedIn scraping columns + ai_insights (idempotent)
-    for col in ("website_summary", "linkedin_summary", "website_url", "ai_insights"):
-        try:
-            execute(f"""
-                ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS {col} TEXT
-            """)
-        except Exception:
-            pass  # column already exists or DB doesn't support IF NOT EXISTS
-
-    # Phase 1: bulk-summary columns used by the enrichment worker +
-    # /api/search/semantic. Decoupled from the narrative `ai_insights`
-    # column above — see `docs/architecture.md` for the split.
-    for col, typ in (
-        ("bulk_summary",        "JSONB"),
-        ("bulk_summary_at",     "TIMESTAMPTZ"),
-        ("bulk_website_hash",   "TEXT"),
-        ("bulk_website_url",    "TEXT"),
-        ("bulk_confidence",     "TEXT"),
-    ):
-        try:
-            execute(
-                f"ALTER TABLE company_enrichment "
-                f"ADD COLUMN IF NOT EXISTS {col} {typ}"
-            )
-        except Exception:
-            pass
-    # AI insights feedback table
-    execute("""
-        CREATE TABLE IF NOT EXISTS ai_insights_feedback (
-            id SERIAL PRIMARY KEY,
-            enterprise_number VARCHAR(10) NOT NULL,
-            user_email TEXT,
-            overall TEXT NOT NULL,
-            website_correct BOOLEAN,
-            linkedin_correct BOOLEAN,
-            insight_correct BOOLEAN,
-            comment TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
     _enrichment_table_ensured = True
 
 

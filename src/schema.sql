@@ -466,12 +466,14 @@ CREATE TABLE IF NOT EXISTS feedback (
 -- bucket_key:  'lt_5m' | '5_20m' | '20_50m' | '50_100m' | 'gt_100m' | 'overall'
 --              | 'technology' | 'pharmaceutical' | 'healthcare' | ... (sectors)
 CREATE TABLE IF NOT EXISTS vlerick_multiple (
+    source          TEXT NOT NULL DEFAULT 'vlerick',
     year            INTEGER NOT NULL,
     bucket_type     TEXT NOT NULL,
     bucket_key      TEXT NOT NULL,
     multiple        REAL NOT NULL,
     source_note     TEXT,
-    PRIMARY KEY (year, bucket_type, bucket_key)
+    CONSTRAINT vlerick_multiple_multi_pkey
+        PRIMARY KEY (source, year, bucket_type, bucket_key)
 );
 
 -- NACE 2-digit prefix → Vlerick sector bucket. Seeded from NACE Rev 2.
@@ -820,27 +822,62 @@ CREATE INDEX IF NOT EXISTS idx_staatsblad_event_embedding_cos
 -- bulk_confidence. See `docs/architecture.md` for the full flow and
 -- `plans/i-want-to-explore-delightful-storm.md` for the rollout plan.
 
--- company_enrichment.bulk_summary columns.
--- `company_enrichment` is created at runtime by
--- `backend/routers/companies/enrichment.py::_ensure_enrichment_table`;
--- these ALTERs are idempotent and safe even if that runtime creator
--- hasn't fired yet. Wrapped in a DO block so a missing parent table
--- degrades to a notice instead of breaking the startup migration.
-DO $bulk_enrichment_cols$
+CREATE TABLE IF NOT EXISTS company_enrichment (
+    enterprise_number          VARCHAR(10) PRIMARY KEY,
+    summary                    TEXT,
+    generated_at               TIMESTAMP DEFAULT NOW(),
+    website_summary            TEXT,
+    linkedin_summary           TEXT,
+    website_url                TEXT,
+    ai_insights                TEXT,
+    publication_summary        TEXT,
+    vlerick_sector             TEXT,
+    vlerick_sector_confidence  TEXT,
+    vlerick_sector_reasoning   TEXT,
+    vlerick_sector_generated_at TIMESTAMP,
+    bulk_summary               JSONB,
+    bulk_summary_at            TIMESTAMPTZ,
+    bulk_website_hash          TEXT,
+    bulk_website_url           TEXT,
+    bulk_confidence            TEXT,
+    unified_summary            JSONB,
+    quality_tier               TEXT,
+    quality_tier_at            TIMESTAMPTZ,
+    model_chain                JSONB,
+    bulk_website_text          TEXT,
+    bulk_website_text_at       TIMESTAMPTZ,
+    CONSTRAINT enrichment_quality_tier_check
+        CHECK (
+            quality_tier IS NULL OR quality_tier IN (
+                'bulk_only',
+                'bulk_escalated',
+                'narrative_lite',
+                'narrative_full'
+            )
+        )
+);
+CREATE INDEX IF NOT EXISTS idx_enrichment_quality_tier
+    ON company_enrichment(quality_tier, quality_tier_at);
+
+CREATE TABLE IF NOT EXISTS ai_insights_feedback (
+    id                 SERIAL PRIMARY KEY,
+    enterprise_number  VARCHAR(10) NOT NULL,
+    user_email         TEXT,
+    overall            TEXT NOT NULL,
+    website_correct    BOOLEAN,
+    linkedin_correct   BOOLEAN,
+    insight_correct    BOOLEAN,
+    comment            TEXT,
+    created_at         TIMESTAMP DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION try_parse_jsonb(t text) RETURNS jsonb AS $$
 BEGIN
-    IF EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_name = 'company_enrichment'
-    ) THEN
-        ALTER TABLE company_enrichment
-            ADD COLUMN IF NOT EXISTS bulk_summary       JSONB,
-            ADD COLUMN IF NOT EXISTS bulk_summary_at    TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS bulk_website_hash  TEXT,
-            ADD COLUMN IF NOT EXISTS bulk_website_url   TEXT,
-            ADD COLUMN IF NOT EXISTS bulk_confidence    TEXT;
-    END IF;
-END
-$bulk_enrichment_cols$;
+    RETURN t::jsonb;
+EXCEPTION WHEN others THEN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
 
 -- Postgres-backed work queue for the bulk enrichment worker.
 -- Claimed with FOR UPDATE SKIP LOCKED so multiple workers (or
