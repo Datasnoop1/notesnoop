@@ -28,7 +28,7 @@ SCHEMA_SQL = REPO_ROOT / "src" / "schema.sql"
 LOCK_ID = 742650198842601001
 
 TRACKING_DDL = """
-CREATE TABLE IF NOT EXISTS schema_migrations (
+CREATE TABLE IF NOT EXISTS schema_migrations ( -- ALLOW-RUNTIME-DDL: migration runner bootstrap table
     filename       TEXT PRIMARY KEY,
     applied_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     checksum       TEXT,
@@ -309,6 +309,32 @@ def applied_rows(cur) -> dict[str, dict]:
     return {row["filename"]: dict(row) for row in cur.fetchall()}
 
 
+def checksum_mismatches(migrations: list[Migration], applied: dict[str, dict]) -> list[dict[str, str | None]]:
+    mismatches: list[dict[str, str | None]] = []
+    for migration in migrations:
+        row = applied.get(migration.filename)
+        if not row:
+            continue
+        applied_checksum = row.get("checksum")
+        if applied_checksum != migration.checksum:
+            mismatches.append(
+                {
+                    "filename": migration.filename,
+                    "applied_checksum": applied_checksum,
+                    "file_checksum": migration.checksum,
+                }
+            )
+    return mismatches
+
+
+def require_clean_checksums(migrations: list[Migration], applied: dict[str, dict]) -> None:
+    mismatches = checksum_mismatches(migrations, applied)
+    if not mismatches:
+        return
+    names = ", ".join(item["filename"] or "<unknown>" for item in mismatches)
+    raise SystemExit(f"Applied migration checksum mismatch: {names}")
+
+
 @contextmanager
 def advisory_lock(conn):
     with conn.cursor() as cur:
@@ -387,6 +413,7 @@ def command_status(args) -> int:
     filenames = [m.filename for m in migrations]
     pending = [name for name in filenames if name not in applied]
     extra = [name for name in applied if name not in filenames]
+    mismatches = checksum_mismatches(migrations, applied)
 
     result = {
         "target": target,
@@ -398,10 +425,12 @@ def command_status(args) -> int:
             "applied": len([name for name in filenames if name in applied]),
             "pending": len(pending),
             "extra_applied": len(extra),
+            "checksum_mismatches": len(mismatches),
         },
         "migration_files": filenames,
         "pending": pending,
         "extra_applied": extra,
+        "checksum_mismatches": mismatches,
     }
 
     if args.json:
@@ -414,9 +443,45 @@ def command_status(args) -> int:
         print(f"files: {len(filenames)}")
         print(f"applied: {result['counts']['applied']}")
         print(f"pending: {len(pending)}")
+        print(f"checksum_mismatches: {len(mismatches)}")
         if pending:
             for name in pending:
                 print(f"  pending: {name}")
+        if mismatches:
+            for item in mismatches:
+                print(f"  checksum_mismatch: {item['filename']}")
+    return 1 if mismatches else 0
+
+
+def command_dry_run(args) -> int:
+    target = require_target(args)
+    baseline = baseline_as_of()
+    migrations = [parse_migration(path) for path in migration_files()]
+
+    conn = connect(target)
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            db_name = current_database(cur)
+            exists = table_exists(cur)
+            applied = applied_rows(cur) if exists else {}
+    finally:
+        conn.close()
+
+    pending = [migration for migration in migrations if migration.filename not in applied]
+    mismatches = checksum_mismatches(migrations, applied)
+
+    print(f"target: {target}")
+    print(f"database: {db_name}")
+    print(f"baseline_as_of: {baseline}")
+    print(f"schema_migrations_exists: {exists}")
+    print(f"pending: {len(pending)}")
+    for migration in pending:
+        print(f"  would_apply: {migration.filename} ({migration.mode})")
+    if mismatches:
+        print(f"checksum_mismatches: {len(mismatches)}")
+        for item in mismatches:
+            print(f"  checksum_mismatch: {item['filename']}")
+        return 1
     return 0
 
 
@@ -434,6 +499,7 @@ def command_up(args) -> int:
                     db_name = current_database(cur)
                     ensure_tracking_table(cur, baseline)
                     applied = applied_rows(cur)
+                    require_clean_checksums(migrations, applied)
 
             for migration in migrations:
                 if migration.filename in applied:
@@ -534,6 +600,10 @@ def build_parser() -> argparse.ArgumentParser:
     up = subparsers.add_parser("up", help="apply pending post-baseline migrations")
     up.add_argument("--target", choices=["prod", "staging", "ci", "local"])
     up.set_defaults(func=command_up)
+
+    dry_run = subparsers.add_parser("dry-run", help="show pending migrations without applying them")
+    dry_run.add_argument("--target", choices=["prod", "staging", "ci", "local"])
+    dry_run.set_defaults(func=command_dry_run)
 
     mark = subparsers.add_parser("mark-applied", help="record one migration without running it")
     mark.add_argument("filename")

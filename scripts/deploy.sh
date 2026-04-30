@@ -76,6 +76,21 @@ cd /opt/leadpeek
 # Dated backup of the env file — cheap insurance against fat-finger edits.
 # Keeps one snapshot per deploy; prune with `rm .env.production.bak-*` if needed.
 cp .env.production ".env.production.bak-$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true
+
+echo "Applying pending schema migrations..."
+if docker ps -a --format '{{.Names}}' | grep -qx 'leadpeek-backend-1'; then
+  docker exec -u root leadpeek-backend-1 rm -rf /tmp/datasnoop-migrate
+  git archive HEAD | docker exec -i -u root leadpeek-backend-1 sh -lc \
+    'mkdir -p /tmp/datasnoop-migrate && tar -x -C /tmp/datasnoop-migrate && chmod -R a+rX /tmp/datasnoop-migrate'
+  docker exec \
+    -e PYTHONPATH=/tmp/datasnoop-migrate/backend \
+    -w /tmp/datasnoop-migrate \
+    leadpeek-backend-1 \
+    python scripts/migrate.py up --target=prod
+else
+  echo "WARNING: leadpeek-backend-1 container not found; skipping migration hook for this bootstrap deploy."
+fi
+
 docker compose down 2>/dev/null || true
 # Free dangling images + build cache BEFORE the new build so we don't run
 # the host out of disk. The shared Postgres on this host crashes on
