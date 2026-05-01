@@ -173,8 +173,9 @@ terminate_db() {
 }
 
 prepare_restore_prereqs() {
-  local database_url="$1"
-  "$PSQL" "$database_url" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+  local db_name="$1"
+  local owner_ident="$2"
+  sudo -u postgres "$PSQL" -v ON_ERROR_STOP=1 -d "$db_name" <<'SQL' >/dev/null
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
@@ -185,6 +186,13 @@ RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
   SELECT public.unaccent('public.unaccent', $1)
 $$;
 SQL
+  sudo -u postgres "$PSQL" -v ON_ERROR_STOP=1 -d "$db_name" \
+    -c "ALTER EXTENSION vector OWNER TO $owner_ident;" \
+    -c "ALTER EXTENSION unaccent OWNER TO $owner_ident;" \
+    -c "ALTER EXTENSION fuzzystrmatch OWNER TO $owner_ident;" \
+    -c "ALTER EXTENSION pg_trgm OWNER TO $owner_ident;" >/dev/null
+  sudo -u postgres "$PSQL" -v ON_ERROR_STOP=1 -d "$db_name" \
+    -c "ALTER FUNCTION public.f_unaccent(text) OWNER TO $owner_ident;" >/dev/null
 }
 
 write_filtered_restore_list() {
@@ -249,7 +257,7 @@ refresh_snapshot() {
   admin_psql -c "CREATE DATABASE leadpeek_staging_next OWNER $owner_ident TABLESPACE $tablespace_ident;" >/dev/null
 
   log "preparing_next_restore_prereqs"
-  prepare_restore_prereqs "$next_database_url"
+  prepare_restore_prereqs leadpeek_staging_next "$owner_ident"
 
   log "dumping_prod_archive"
   "$PG_DUMP" --format=custom --no-owner --no-acl --file "$SNAPSHOT_DUMP_FILE" "$prod_database_url"
