@@ -14,6 +14,7 @@ lookup before any text search fires.
 """
 
 import logging
+import os
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -92,6 +93,63 @@ from ._helpers import _serialize_row
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+SEARCH_FTS_UNDERFLOW_LIMIT = 5
+LEADING_LEGAL_FORMS = frozenset({
+    "nv", "sa", "bvba", "sprl", "bv", "srl", "cvba", "scrl", "vof",
+    "snc", "se", "scs", "gcv", "comm", "scomm", "asbl", "vzw",
+    "aisbl", "ivzw", "gmbh", "ag", "ltd", "inc", "sas", "sarl",
+    "llc", "plc", "corp", "spa", "kg", "ohg", "ug", "eurl",
+})
+
+
+def _env_flag_enabled(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _search_fts_enabled() -> bool:
+    return _env_flag_enabled("SEARCH_FTS_ENABLED", False)
+
+
+def _fts_query_variants(normalized_query: str, tokens: list[str]) -> list[str]:
+    variants: list[str] = []
+    if normalized_query:
+        variants.append(normalized_query)
+    strip_count = 0
+    if len(tokens) >= 2 and tokens[0] == "comm" and tokens[1] == "v":
+        strip_count = 2
+    elif tokens and tokens[0] in LEADING_LEGAL_FORMS:
+        strip_count = 1
+    if strip_count:
+        stripped = " ".join(tokens[strip_count:]).strip()
+        if stripped and stripped not in variants:
+            variants.append(stripped)
+    return variants
+
+
+def _merge_ranked_rows(primary: list[dict], fallback: list[dict], limit: int) -> list[dict]:
+    by_enterprise: dict[str, dict] = {}
+    for row in [*primary, *fallback]:
+        enterprise_number = row.get("enterprise_number")
+        if not enterprise_number:
+            continue
+        existing = by_enterprise.get(enterprise_number)
+        if (
+            existing is None
+            or float(row.get("score") or 0) > float(existing.get("score") or 0)
+        ):
+            by_enterprise[enterprise_number] = row
+    return sorted(
+        by_enterprise.values(),
+        key=lambda r: (
+            -float(r.get("score") or 0),
+            -float(r.get("revenue") or 0),
+            str(r.get("name") or ""),
+        ),
+    )[:limit]
 
 
 # Bilingual / English aliases for major Belgian municipalities. KBO
@@ -375,6 +433,22 @@ def _search_companies_cached(
             "JOIN loc_filter lf ON lf.enterprise_number = h.enterprise_number"
         )
 
+    fts_rows: list[dict] = []
+    if _search_fts_enabled():
+        try:
+            fts_rows = _search_companies_fts(
+                nq,
+                tokens,
+                params,
+                loc_filter_cte,
+                loc_filter_join,
+            )
+        except Exception:
+            logger.exception("company FTS search failed for q=%r; falling back", raw[:80])
+            fts_rows = []
+        if len(fts_rows) >= SEARCH_FTS_UNDERFLOW_LIMIT:
+            return _build_response(raw, fts_rows)
+
     sql = _SEARCH_SQL.replace("__LOC_FILTER_CTE__", loc_filter_cte)
     sql = sql.replace("__LOC_FILTER_JOIN__", loc_filter_join)
 
@@ -392,7 +466,38 @@ def _search_companies_cached(
         logger.exception("company search V2 failed for q=%r", raw[:80])
         raise HTTPException(500, "search_failed")
 
+    if fts_rows:
+        rows = _merge_ranked_rows(fts_rows, rows, max(limit, 20))
+
     return _build_response(raw, rows)
+
+
+def _search_companies_fts(
+    normalized_query: str,
+    tokens: list[str],
+    base_params: dict[str, Any],
+    loc_filter_cte: str,
+    loc_filter_join: str,
+) -> list[dict]:
+    variants = _fts_query_variants(normalized_query, tokens)
+    if not variants:
+        return []
+
+    sql = _SEARCH_FTS_SQL.replace("__LOC_FILTER_CTE__", loc_filter_cte)
+    sql = sql.replace("__LOC_FILTER_JOIN__", loc_filter_join)
+
+    rows: list[dict] = []
+    for variant in variants:
+        params = dict(base_params)
+        params["fts_q"] = variant
+        rows = _merge_ranked_rows(
+            rows,
+            fetch_all(sql, params),
+            max(int(base_params["limit"]), 20),
+        )
+        if len(rows) >= SEARCH_FTS_UNDERFLOW_LIMIT:
+            break
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -582,6 +687,86 @@ LIMIT 30
 # (%(name)s). No f-strings or string concatenation into the SQL body.
 # The ILIKE patterns (tok1..tok4, addr_like) are pre-wrapped in Python
 # with the user's tokens, and pg_trgm % operator uses bound values.
+_SEARCH_FTS_SQL = """
+WITH
+q AS (
+    SELECT websearch_to_tsquery('simple', %(fts_q)s) AS tsq
+),
+ci_fts AS (
+    SELECT ci.enterprise_number,
+           (0.90 + LEAST(0.40, ts_rank_cd(to_tsvector('simple', ci.name_normalized), q.tsq)))::real AS base
+    FROM company_info ci
+    CROSS JOIN q
+    WHERE ci.name_normalized IS NOT NULL
+      AND to_tsvector('simple', ci.name_normalized) @@ q.tsq
+    ORDER BY ts_rank_cd(to_tsvector('simple', ci.name_normalized), q.tsq) DESC,
+             ci.name_normalized
+    LIMIT 200
+),
+denom_fts AS (
+    SELECT d.entity_number AS enterprise_number,
+           (0.80 + LEAST(0.35, ts_rank_cd(to_tsvector('simple', d.denomination_normalized), q.tsq)))::real AS base
+    FROM denomination d
+    CROSS JOIN q
+    WHERE d.denomination_normalized IS NOT NULL
+      AND d.type_of_denomination IN ('001', '002', '003')
+      AND to_tsvector('simple', d.denomination_normalized) @@ q.tsq
+    ORDER BY ts_rank_cd(to_tsvector('simple', d.denomination_normalized), q.tsq) DESC,
+             d.denomination_normalized
+    LIMIT 100
+),
+all_hits AS (
+    SELECT enterprise_number, MAX(base) AS base FROM (
+        SELECT * FROM ci_fts
+        UNION ALL SELECT * FROM denom_fts
+    ) u
+    GROUP BY enterprise_number
+)
+__LOC_FILTER_CTE__
+SELECT
+    h.enterprise_number,
+    COALESCE(ci.name, d.denomination, h.enterprise_number) AS name,
+    e.status,
+    e.juridical_form,
+    COALESCE(jfc.category, 'commercial') AS form_category,
+    ci.city,
+    COALESCE(nl.description, ci.nace_code) AS sector,
+    e.start_date,
+    fl.revenue, fl.ebitda,
+    CASE WHEN fl.revenue > 0
+         THEN ROUND((fl.ebitda / fl.revenue * 100)::numeric, 1)
+    END AS ebitda_margin_pct,
+    fl.fte_total, fl.fiscal_year,
+    (
+        h.base
+        * (1 + 0.15 * ln(GREATEST(10, COALESCE(fl.revenue, 0) + 10)) / ln(10))
+        * CASE WHEN COALESCE(e.status, '') = 'AC' THEN 1.0 ELSE 0.3 END
+        * (1 + 0.10 * LEAST(1.0, COALESCE(cp.click_count, 0) / 50.0))
+    )::real AS score
+FROM all_hits h
+__LOC_FILTER_JOIN__
+JOIN enterprise e                     ON e.enterprise_number = h.enterprise_number
+LEFT JOIN company_info ci             ON ci.enterprise_number = h.enterprise_number
+LEFT JOIN LATERAL (
+    SELECT denomination
+    FROM denomination d2
+    WHERE d2.entity_number = h.enterprise_number
+      AND d2.type_of_denomination = '001'
+      AND d2.language IN ('2', '1')
+    ORDER BY CASE d2.language WHEN '2' THEN 1 WHEN '1' THEN 2 ELSE 3 END
+    LIMIT 1
+) d                                   ON TRUE
+LEFT JOIN financial_latest fl         ON fl.enterprise_number = h.enterprise_number
+LEFT JOIN nace_lookup nl              ON nl.nace_code = ci.nace_code
+LEFT JOIN juridical_form_category jfc ON jfc.code = e.juridical_form
+LEFT JOIN company_popularity cp       ON cp.enterprise_number = h.enterprise_number
+ORDER BY score DESC,
+         COALESCE(fl.revenue, 0) DESC,
+         name
+LIMIT %(limit)s
+"""
+
+
 _SEARCH_SQL = """
 WITH
 exact_match AS (
