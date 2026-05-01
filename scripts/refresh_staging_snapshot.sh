@@ -187,11 +187,6 @@ RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
 $$;
 SQL
   sudo -u postgres "$PSQL" -v ON_ERROR_STOP=1 -d "$db_name" \
-    -c "ALTER EXTENSION vector OWNER TO $owner_ident;" \
-    -c "ALTER EXTENSION unaccent OWNER TO $owner_ident;" \
-    -c "ALTER EXTENSION fuzzystrmatch OWNER TO $owner_ident;" \
-    -c "ALTER EXTENSION pg_trgm OWNER TO $owner_ident;" >/dev/null
-  sudo -u postgres "$PSQL" -v ON_ERROR_STOP=1 -d "$db_name" \
     -c "ALTER FUNCTION public.f_unaccent(text) OWNER TO $owner_ident;" >/dev/null
 }
 
@@ -199,7 +194,7 @@ write_filtered_restore_list() {
   local dump_file="$1"
   local restore_list="$2"
   "$PG_RESTORE" --list "$dump_file" \
-    | grep -vE 'FUNCTION public f_unaccent\(text\)' \
+    | grep -vE 'FUNCTION public f_unaccent\(text\)| EXTENSION .* (fuzzystrmatch|pg_trgm|unaccent|vector)( |$)| COMMENT .* EXTENSION (fuzzystrmatch|pg_trgm|unaccent|vector)( |$)' \
     > "$restore_list"
 }
 
