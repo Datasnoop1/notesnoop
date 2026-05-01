@@ -13,6 +13,9 @@ LOG_DIR="${LOG_DIR:-/var/log/leadpeek}"
 MIN_ROOT_FREE_GB="${MIN_ROOT_FREE_GB:-15}"
 STAGING_TABLESPACE="${STAGING_TABLESPACE:-staging_data}"
 STAGING_DATA_DIR="${DS_STAGING_DATA_DIR:-/mnt/volume-hel1-1/pgsql-staging}"
+DUMP_PREFIX="${DUMP_PREFIX:-$STAGING_DATA_DIR/leadpeek_prod_snapshot}"
+SNAPSHOT_DUMP_FILE=""
+SNAPSHOT_RESTORE_LIST=""
 
 PG_BIN_DIR="${PG_BIN_DIR:-}"
 if [ -z "$PG_BIN_DIR" ]; then
@@ -36,6 +39,19 @@ fail() {
   log "FAIL: $*"
   exit 1
 }
+
+cleanup_restore_artifacts() {
+  if [ -n "${SNAPSHOT_DUMP_FILE:-}" ]; then
+    rm -f -- "$SNAPSHOT_DUMP_FILE" || true
+    SNAPSHOT_DUMP_FILE=""
+  fi
+  if [ -n "${SNAPSHOT_RESTORE_LIST:-}" ]; then
+    rm -f -- "$SNAPSHOT_RESTORE_LIST" || true
+    SNAPSHOT_RESTORE_LIST=""
+  fi
+}
+
+trap cleanup_restore_artifacts EXIT
 
 env_value() {
   local file="$1"
@@ -156,6 +172,29 @@ terminate_db() {
   admin_psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$db_name' AND pid <> pg_backend_pid();" >/dev/null
 }
 
+prepare_restore_prereqs() {
+  local database_url="$1"
+  "$PSQL" "$database_url" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE OR REPLACE FUNCTION public.f_unaccent(text)
+RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+  SELECT public.unaccent('public.unaccent', $1)
+$$;
+SQL
+}
+
+write_filtered_restore_list() {
+  local dump_file="$1"
+  local restore_list="$2"
+  "$PG_RESTORE" --list "$dump_file" \
+    | grep -vE 'FUNCTION public f_unaccent\(text\)' \
+    > "$restore_list"
+}
+
 preflight() {
   [ -f "$PROD_ENV_FILE" ] || fail "$PROD_ENV_FILE missing"
   [ -f "$STAGING_ENV_FILE" ] || fail "$STAGING_ENV_FILE missing"
@@ -188,13 +227,19 @@ ensure_tablespace() {
 }
 
 refresh_snapshot() {
-  local prod_database_url staging_database_url next_database_url owner owner_ident tablespace_ident
+  local prod_database_url staging_database_url next_database_url owner owner_ident tablespace_ident old_umask
   prod_database_url=$(host_db_url "$(env_value "$PROD_ENV_FILE" DATABASE_URL)")
   staging_database_url=$(host_db_url "$(env_value "$STAGING_ENV_FILE" DATABASE_URL)")
   next_database_url=$(rewrite_db_url "$staging_database_url" leadpeek_staging_next)
   owner=$(db_user_from_url "$prod_database_url")
   owner_ident=$(quote_ident "$owner")
   tablespace_ident=$(quote_ident "$STAGING_TABLESPACE")
+  old_umask=$(umask)
+  umask 077
+  SNAPSHOT_DUMP_FILE=$(mktemp "${DUMP_PREFIX}.XXXXXX.dump")
+  SNAPSHOT_RESTORE_LIST=$(mktemp "${DUMP_PREFIX}.XXXXXX.list")
+  umask "$old_umask"
+  chmod 600 "$SNAPSHOT_DUMP_FILE" "$SNAPSHOT_RESTORE_LIST"
 
   log "dropping_next_if_exists"
   terminate_db leadpeek_staging_next || true
@@ -203,9 +248,18 @@ refresh_snapshot() {
   log "creating_next_database"
   admin_psql -c "CREATE DATABASE leadpeek_staging_next OWNER $owner_ident TABLESPACE $tablespace_ident;" >/dev/null
 
+  log "preparing_next_restore_prereqs"
+  prepare_restore_prereqs "$next_database_url"
+
+  log "dumping_prod_archive"
+  "$PG_DUMP" --format=custom --no-owner --no-acl --file "$SNAPSHOT_DUMP_FILE" "$prod_database_url"
+
+  log "filtering_restore_list"
+  write_filtered_restore_list "$SNAPSHOT_DUMP_FILE" "$SNAPSHOT_RESTORE_LIST"
+
   log "restoring_prod_into_next"
-  "$PG_DUMP" --format=custom --no-owner --no-acl "$prod_database_url" \
-    | "$PG_RESTORE" --no-owner --no-acl --dbname "$next_database_url"
+  "$PG_RESTORE" --exit-on-error --no-owner --no-acl --use-list "$SNAPSHOT_RESTORE_LIST" --dbname "$next_database_url" "$SNAPSHOT_DUMP_FILE"
+  cleanup_restore_artifacts
 
   log "scrubbing_next"
   "$PSQL" "$next_database_url" -v ON_ERROR_STOP=1 -f "$SCRUB_SQL" >/dev/null
