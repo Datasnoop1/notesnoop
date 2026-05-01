@@ -82,6 +82,33 @@ print(urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment)
 PY
 }
 
+host_db_url() {
+  local url="$1"
+  python3 - "$url" <<'PY'
+import sys
+from urllib.parse import urlsplit, urlunsplit
+
+parts = urlsplit(sys.argv[1])
+netloc = parts.netloc
+userinfo = ""
+hostport = netloc
+if "@" in netloc:
+    userinfo, hostport = netloc.rsplit("@", 1)
+    userinfo += "@"
+
+if hostport.startswith("["):
+    print(sys.argv[1])
+    raise SystemExit(0)
+
+host, sep, port = hostport.partition(":")
+if host == "host.docker.internal":
+    host = "127.0.0.1"
+    netloc = userinfo + host + (sep + port if sep else "")
+
+print(urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment)))
+PY
+}
+
 db_user_from_url() {
   local url="$1"
   python3 - "$url" <<'PY'
@@ -162,8 +189,8 @@ ensure_tablespace() {
 
 refresh_snapshot() {
   local prod_database_url staging_database_url next_database_url owner owner_ident tablespace_ident
-  prod_database_url=$(env_value "$PROD_ENV_FILE" DATABASE_URL)
-  staging_database_url=$(env_value "$STAGING_ENV_FILE" DATABASE_URL)
+  prod_database_url=$(host_db_url "$(env_value "$PROD_ENV_FILE" DATABASE_URL)")
+  staging_database_url=$(host_db_url "$(env_value "$STAGING_ENV_FILE" DATABASE_URL)")
   next_database_url=$(rewrite_db_url "$staging_database_url" leadpeek_staging_next)
   owner=$(db_user_from_url "$prod_database_url")
   owner_ident=$(quote_ident "$owner")
