@@ -55,6 +55,7 @@ jobs:
           python scripts/migrate.py dry-run --target=ci
           python scripts/migrate.py up --target=ci
           python scripts/migrate.py status --target=ci --json
+          python scripts/check_scrub_inventory.py --database-url "$MIGRATE_DATABASE_URL"
           pg_dump --schema-only --no-owner --no-acl "$MIGRATE_DATABASE_URL" > schema-ci.sql
 
       - name: Optional prod-replica schema diff

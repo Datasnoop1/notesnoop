@@ -77,11 +77,24 @@ cd /opt/leadpeek
 # Keeps one snapshot per deploy; prune with `rm .env.production.bak-*` if needed.
 cp .env.production ".env.production.bak-$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true
 
-echo "Applying pending schema migrations..."
+echo "Preparing migration bundle..."
 if docker ps -a --format '{{.Names}}' | grep -qx 'leadpeek-backend-1'; then
   docker exec -u root leadpeek-backend-1 rm -rf /tmp/datasnoop-migrate
   git archive HEAD | docker exec -i -u root leadpeek-backend-1 sh -lc \
     'mkdir -p /tmp/datasnoop-migrate && tar -x -C /tmp/datasnoop-migrate && chmod -R a+rX /tmp/datasnoop-migrate'
+
+  if [ -f .env.staging ]; then
+    echo "Applying pending schema migrations to staging..."
+    docker exec \
+      -e PYTHONPATH=/tmp/datasnoop-migrate/backend \
+      -w /tmp/datasnoop-migrate \
+      leadpeek-backend-1 \
+      python scripts/migrate.py up --target=staging
+  else
+    echo "WARNING: .env.staging not found; skipping staging migration hook."
+  fi
+
+  echo "Applying pending schema migrations to prod..."
   docker exec \
     -e PYTHONPATH=/tmp/datasnoop-migrate/backend \
     -w /tmp/datasnoop-migrate \

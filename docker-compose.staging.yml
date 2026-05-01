@@ -74,15 +74,14 @@ services:
         reservations:
           memory: 512M
 
-  # Staging variant of the bulk-enrichment worker. Same code, but runs
-  # against the same Postgres as prod (staging + prod share the DB —
-  # see `docs/architecture.md`). Staging is where Phase 2 pilot runs
-  # the 500-CBE seed; the operator approves the prod kickoff after the
-  # quality gate passes.
+  # Staging variant of the bulk-enrichment worker. Kept behind the
+  # test-workers profile so normal staging deploys do not double LLM/scrape
+  # spend. When explicitly enabled it runs against leadpeek_staging.
   enrichment-worker-staging:
+    profiles: ["test-workers"]
     build: ./backend
     restart: always
-    env_file: .env.production
+    env_file: .env.staging
     environment:
       STAGING_MODE: "true"
       # The semantic worker is mostly network-bound, so higher concurrency
@@ -137,23 +136,20 @@ services:
         reservations:
           memory: 256M
 
-  # Staging variant of the NBB historical backload worker. Staging shares
-  # prod Postgres, so running this alongside the prod worker would race for
-  # the same candidate CBEs and waste NBB API quota on duplicate calls.
-  # Gated behind a `test-backload` compose profile so the standard staging
-  # deploy (`deploy_staging.sh`) does NOT start it. To smoke-test the
-  # daemon on staging, run on the server:
+  # Staging variant of the NBB historical backload worker. Gated behind the
+  # shared `test-workers` profile so the standard staging deploy
+  # (`deploy_staging.sh`) does NOT start it. To smoke-test the daemon on
+  # staging, run on the server:
   #   docker compose -f docker-compose.staging.yml -p leadpeek-staging \
-  #     --profile test-backload up -d nbb-backload-worker-staging
-  # Then stop the prod worker briefly OR accept some duplicate-call waste
-  # while the test runs. See docker-compose.yml for the full design notes.
+  #     --profile test-workers up -d nbb-backload-worker-staging
+  # See docker-compose.yml for the full design notes.
   nbb-backload-worker-staging:
-    profiles: ["test-backload"]
+    profiles: ["test-workers"]
     build: ./backend
     restart: unless-stopped
     # See docker-compose.yml for rationale.
     stop_grace_period: 30s
-    env_file: .env.production
+    env_file: .env.staging
     environment:
       # STAGING_MODE is set for parity with other staging services but is
       # NOT read by nbb_nightly_backload.py — concurrency safety relies on
@@ -196,13 +192,13 @@ services:
         reservations:
           memory: 128M
 
-  # Staging variant of the dedicated Staatsblad bulk worker. Staging still
-  # shares prod Postgres, so this service remains a live-data job; the
-  # benefit is operational isolation from the web backend lifecycle.
+  # Staging variant of the dedicated Staatsblad bulk worker. Kept behind the
+  # test-workers profile and pointed at leadpeek_staging when explicitly run.
   staatsblad-bulk-worker-staging:
+    profiles: ["test-workers"]
     build: ./backend
     restart: unless-stopped
-    env_file: .env.production
+    env_file: .env.staging
     environment:
       PYTHONPATH: "/app"
       BULK_MAX_PAGES: "${BULK_MAX_PAGES:-5}"
