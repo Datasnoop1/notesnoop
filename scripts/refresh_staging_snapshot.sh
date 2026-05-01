@@ -182,16 +182,68 @@ CREATE OR REPLACE FUNCTION public.f_unaccent(text)
 RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
   SELECT public.unaccent('public.unaccent', $1)
 $$;
+
+CREATE OR REPLACE FUNCTION public.search_normalize(s text)
+RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+  SELECT NULLIF(
+    TRIM(
+      REGEXP_REPLACE(
+        LOWER(public.f_unaccent(
+          REGEXP_REPLACE(
+            COALESCE(s, ''),
+            '[[:space:][:punct:]]*(' ||
+              'nv|sa|bvba|sprl|bv|srl|cvba|scrl|vof|snc|se|scs|gcv|' ||
+              'comm\.?\s*v|scomm|asbl|vzw|aisbl|ivzw|' ||
+              'gmbh|ag|ltd|inc|sas|sarl|llc|plc|corp|spa|kg|ohg|ug|eurl' ||
+            ')[[:space:][:punct:]]*$',
+            '', 'gi'
+          )
+        )),
+        '\s+', ' ', 'g'
+      )
+    ),
+    ''
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.search_name_reversed(s text)
+RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+  SELECT NULLIF(
+    ARRAY_TO_STRING(
+      (SELECT ARRAY_AGG(tok ORDER BY tok)
+       FROM regexp_split_to_table(COALESCE(public.search_normalize(s), ''), '\s+') tok
+       WHERE tok <> ''),
+      ' '
+    ),
+    ''
+  )
+$$;
+
+CREATE OR REPLACE FUNCTION public.search_phonetic_key(s text)
+RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+  SELECT NULLIF(
+    ARRAY_TO_STRING(
+      (SELECT ARRAY_AGG(public.dmetaphone(tok))
+       FROM regexp_split_to_table(COALESCE(public.search_normalize(s), ''), '\s+') tok
+       WHERE tok <> ''),
+      ' '
+    ),
+    ''
+  )
+$$;
 SQL
   sudo -u postgres "$PSQL" -v ON_ERROR_STOP=1 -d "$db_name" \
-    -c "ALTER FUNCTION public.f_unaccent(text) OWNER TO $owner_ident;" >/dev/null
+    -c "ALTER FUNCTION public.f_unaccent(text) OWNER TO $owner_ident;" \
+    -c "ALTER FUNCTION public.search_normalize(text) OWNER TO $owner_ident;" \
+    -c "ALTER FUNCTION public.search_name_reversed(text) OWNER TO $owner_ident;" \
+    -c "ALTER FUNCTION public.search_phonetic_key(text) OWNER TO $owner_ident;" >/dev/null
 }
 
 write_filtered_restore_list() {
   local dump_file="$1"
   local restore_list="$2"
   "$PG_RESTORE" --list "$dump_file" \
-    | grep -vE 'FUNCTION public f_unaccent\(text\)| EXTENSION .* (fuzzystrmatch|pg_stat_statements|pg_trgm|plpgsql|unaccent|vector)( |$)| COMMENT .* EXTENSION (fuzzystrmatch|pg_stat_statements|pg_trgm|plpgsql|unaccent|vector)( |$)' \
+    | grep -vE 'FUNCTION public (f_unaccent|search_name_reversed|search_normalize|search_phonetic_key)\(text\)| EXTENSION .* (fuzzystrmatch|pg_stat_statements|pg_trgm|plpgsql|unaccent|vector)( |$)| COMMENT .* EXTENSION (fuzzystrmatch|pg_stat_statements|pg_trgm|plpgsql|unaccent|vector)( |$)' \
     > "$restore_list"
 }
 
