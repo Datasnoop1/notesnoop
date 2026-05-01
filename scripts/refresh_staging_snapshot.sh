@@ -175,6 +175,7 @@ prepare_restore_prereqs() {
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE OR REPLACE FUNCTION public.f_unaccent(text)
@@ -190,7 +191,7 @@ write_filtered_restore_list() {
   local dump_file="$1"
   local restore_list="$2"
   "$PG_RESTORE" --list "$dump_file" \
-    | grep -vE 'FUNCTION public f_unaccent\(text\)| EXTENSION .* (fuzzystrmatch|pg_trgm|unaccent|vector)( |$)| COMMENT .* EXTENSION (fuzzystrmatch|pg_trgm|unaccent|vector)( |$)' \
+    | grep -vE 'FUNCTION public f_unaccent\(text\)| EXTENSION .* (fuzzystrmatch|pg_stat_statements|pg_trgm|plpgsql|unaccent|vector)( |$)| COMMENT .* EXTENSION (fuzzystrmatch|pg_stat_statements|pg_trgm|plpgsql|unaccent|vector)( |$)' \
     > "$restore_list"
 }
 
