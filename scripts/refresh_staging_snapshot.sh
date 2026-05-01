@@ -244,7 +244,7 @@ write_filtered_restore_list() {
   local dump_file="$1"
   local restore_list="$2"
   "$PG_RESTORE" --list "$dump_file" \
-    | grep -vE 'FUNCTION public (f_unaccent|search_name_reversed|search_normalize|search_phonetic_key)\(text\)| EXTENSION .* (fuzzystrmatch|pg_stat_statements|pg_trgm|plpgsql|unaccent|vector)( |$)| COMMENT .* EXTENSION (fuzzystrmatch|pg_stat_statements|pg_trgm|plpgsql|unaccent|vector)( |$)' \
+    | grep -vE 'FUNCTION public (f_unaccent|search_name_reversed|search_normalize|search_phonetic_key)\(text\)| EXTENSION .* (fuzzystrmatch|pg_stat_statements|pg_trgm|plpgsql|unaccent|vector)( |$)| COMMENT .* EXTENSION (fuzzystrmatch|pg_stat_statements|pg_trgm|plpgsql|unaccent|vector)( |$)| INDEX public idx_ce_embedding_hnsw ' \
     > "$restore_list"
 }
 
