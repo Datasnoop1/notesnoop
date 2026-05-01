@@ -2,12 +2,12 @@ services:
   backend-staging:
     build: ./backend
     restart: always
-    env_file: .env.production
+    env_file: .env.staging
     environment:
       # Staging is open for browsing so the operator can verify UI without
       # signing in. Admin routes remain locked at the router level via
       # `_require_admin` dependencies, independent of STAGING_MODE.
-      STAGING_MODE: "false"
+      STAGING_MODE: "true"
       # See docker-compose.yml backend service for explanation.
       PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper-staging:8000"
       # Phase 5.2 elaboration narrative — see prod compose for details.
@@ -50,6 +50,7 @@ services:
         NEXT_PUBLIC_API_URL: ""
         NEXT_PUBLIC_SUPABASE_URL: "${NEXT_PUBLIC_SUPABASE_URL}"
         NEXT_PUBLIC_SUPABASE_ANON_KEY: "${NEXT_PUBLIC_SUPABASE_ANON_KEY}"
+    env_file: .env.staging
     environment:
       API_URL_INTERNAL: "http://backend-staging:8000"
     restart: always
