@@ -14,6 +14,7 @@ MIN_ROOT_FREE_GB="${MIN_ROOT_FREE_GB:-15}"
 STAGING_TABLESPACE="${STAGING_TABLESPACE:-staging_data}"
 STAGING_DATA_DIR="${DS_STAGING_DATA_DIR:-/mnt/volume-hel1-1/pgsql-staging}"
 DUMP_PREFIX="${DUMP_PREFIX:-$STAGING_DATA_DIR/leadpeek_prod_snapshot}"
+RESTORE_MAINTENANCE_WORK_MEM="${RESTORE_MAINTENANCE_WORK_MEM:-2GB}"
 SNAPSHOT_DUMP_FILE=""
 SNAPSHOT_RESTORE_LIST=""
 
@@ -310,7 +311,8 @@ refresh_snapshot() {
   write_filtered_restore_list "$SNAPSHOT_DUMP_FILE" "$SNAPSHOT_RESTORE_LIST"
 
   log "restoring_prod_into_next"
-  "$PG_RESTORE" --exit-on-error --no-owner --no-acl --use-list "$SNAPSHOT_RESTORE_LIST" --dbname "$next_database_url" "$SNAPSHOT_DUMP_FILE"
+  PGOPTIONS="-c maintenance_work_mem=$RESTORE_MAINTENANCE_WORK_MEM" \
+    "$PG_RESTORE" --exit-on-error --no-owner --no-acl --use-list "$SNAPSHOT_RESTORE_LIST" --dbname "$next_database_url" "$SNAPSHOT_DUMP_FILE"
   cleanup_restore_artifacts
 
   log "scrubbing_next"
