@@ -19,11 +19,7 @@ SNAPSHOT_RESTORE_LIST=""
 
 PG_BIN_DIR="${PG_BIN_DIR:-}"
 if [ -z "$PG_BIN_DIR" ]; then
-  if [ -x /usr/lib/postgresql/17/bin/pg_dump ]; then
-    PG_BIN_DIR=/usr/lib/postgresql/17/bin
-  else
-    PG_BIN_DIR=$(dirname "$(command -v pg_dump)")
-  fi
+  PG_BIN_DIR=$(dirname "$(command -v pg_dump)")
 fi
 PSQL="$PG_BIN_DIR/psql"
 PG_DUMP="$PG_BIN_DIR/pg_dump"
