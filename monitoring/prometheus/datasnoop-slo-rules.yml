@@ -1,0 +1,35 @@
+groups:
+  - name: datasnoop-api-slo
+    interval: 30s
+    rules:
+      - record: datasnoop:request_phase_duration_ms:p95_5m
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(datasnoop_request_phase_duration_ms_bucket[5m])) by (phase, le)
+          )
+
+      - record: datasnoop:request_phase_duration_ms:p99_5m
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(datasnoop_request_phase_duration_ms_bucket[5m])) by (phase, le)
+          )
+
+      - alert: DatasnoopApiTotalP95Slow
+        expr: datasnoop:request_phase_duration_ms:p95_5m{phase="total"} > 1000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DataSnoop API total p95 is above 1s"
+          description: "The phase-timing total p95 has stayed above 1000 ms for 15 minutes."
+
+      - alert: DatasnoopApiDbP95Slow
+        expr: datasnoop:request_phase_duration_ms:p95_5m{phase="db"} > 500
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DataSnoop API DB p95 is above 500 ms"
+          description: "The phase-timing db p95 has stayed above 500 ms for 15 minutes."

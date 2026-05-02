@@ -85,6 +85,10 @@ NEW_BLOCK=$(cat <<'EOF'
 # Search V2 popularity refresh — click-count ranking signal from activity_log.
 # Runs at 03:15 UTC (off-peak, after daily KBO updates finish).
 15 3 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/refresh_popularity.py --lookback-days 28 >> /opt/leadpeek/scripts/_watchdog_state/refresh_popularity.log 2>&1
+# Monthly restore drill - validates the latest physical backup payload and
+# restores a schema-only dump into a scratch DB. Runs first Sunday at 02:20 UTC,
+# after the 02:00 staging snapshot window.
+20 2 1-7 * SUN bash /opt/leadpeek/scripts/monthly_restore_drill.sh --run >> /opt/leadpeek/scripts/_watchdog_state/restore_drill.log 2>&1
 # Supabase keepalive — daily ping to prevent free-tier auto-pause.
 # Supabase pauses inactive free-tier projects after 7 days. DataSnoop only
 # uses Supabase for auth (DB is on Hetzner), so live users do not generate

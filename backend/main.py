@@ -7,7 +7,7 @@ import secrets
 import time
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.background import BackgroundTask, BackgroundTasks
@@ -888,7 +888,7 @@ async def health_check():
 
 
 @app.get("/metrics", include_in_schema=False)
-async def prometheus_metrics():
+async def prometheus_metrics(_user=Depends(admin._require_admin)):
     return metrics_response()
 
 
