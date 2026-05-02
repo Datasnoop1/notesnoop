@@ -2,12 +2,15 @@
 
 import logging
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from cache import ttl_cache
 from db import fetch_all, fetch_one, execute, get_conn
 from auth import get_current_user, optional_user
+from feature_flags import person_public_url_enabled
+from routers.admin import _require_admin
 from ai_client import ai_complete
 from search_normalization import (
     ilike_escape as _v2_ilike_escape,
@@ -31,9 +34,23 @@ def _serialize_row(row: dict) -> dict:
             out[k] = float(v)
         elif isinstance(v, (datetime.date, datetime.datetime)):
             out[k] = str(v)
+        elif isinstance(v, UUID):
+            out[k] = str(v)
         else:
             out[k] = v
     return out
+
+
+def _require_person_v1_access(user: Optional[dict]) -> Optional[dict]:
+    """Hide Person v1 from non-admins while the public URL flag is off."""
+    if person_public_url_enabled():
+        return user
+    if user is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        return _require_admin(user)
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +448,118 @@ FROM aggregated
 ORDER BY score DESC, company_count DESC, name ASC
 LIMIT 50
 """
+
+
+# ---------------------------------------------------------------------------
+# GET /api/people/person/{person_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/person/{person_id}")
+async def get_person_v1(person_id: str, user=Depends(optional_user)):
+    """Internal Person v1 audit profile by stable person_id."""
+    _require_person_v1_access(user)
+
+    try:
+        person_uuid = str(UUID(person_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    person = fetch_one(
+        """
+        SELECT
+            person_id::text,
+            canonical_name,
+            name_normalized,
+            primary_city,
+            primary_postcode,
+            role_count,
+            first_seen_date,
+            last_seen_date,
+            cluster_version,
+            status,
+            merged_into::text,
+            created_at
+        FROM person
+        WHERE person_id = %s
+        """,
+        (person_uuid,),
+    )
+    if not person:
+        raise HTTPException(status_code=404, detail="Not found")
+    if person.get("status") == "tombstone":
+        raise HTTPException(status_code=410, detail="Gone")
+
+    links = fetch_all(
+        """
+        SELECT
+            pl.id,
+            pl.source_table,
+            pl.source_pk,
+            pl.source_mention_seq,
+            pl.source_field,
+            pl.enterprise_number,
+            COALESCE(d.denomination, pl.enterprise_number) AS company_name,
+            pl.name_as_written,
+            pl.link_kind,
+            pl.confidence,
+            pl.confirmed_by_human,
+            pl.cluster_version
+        FROM person_link pl
+        LEFT JOIN denomination d
+            ON d.entity_number = pl.enterprise_number
+           AND d.type_of_denomination = '001'
+           AND d.language IN ('2', '1')
+        WHERE pl.person_id = %s
+        ORDER BY pl.confidence DESC,
+                 pl.source_table ASC,
+                 pl.enterprise_number ASC NULLS LAST,
+                 pl.id ASC
+        LIMIT 500
+        """,
+        (person_uuid,),
+    )
+
+    source_counts = fetch_all(
+        """
+        SELECT
+            source_table,
+            count(*)::int AS link_count,
+            min(confidence)::float AS min_confidence,
+            max(confidence)::float AS max_confidence
+        FROM person_link
+        WHERE person_id = %s
+        GROUP BY source_table
+        ORDER BY source_table
+        """,
+        (person_uuid,),
+    )
+
+    merge_log = fetch_all(
+        """
+        SELECT
+            id,
+            op_kind,
+            primary_id::text,
+            secondary_id::text,
+            moved_link_ids,
+            op_at,
+            op_by,
+            reason
+        FROM person_merge_log
+        WHERE primary_id = %s OR secondary_id = %s
+        ORDER BY op_at DESC, id DESC
+        LIMIT 50
+        """,
+        (person_uuid, person_uuid),
+    )
+
+    return {
+        "person": _serialize_row(person),
+        "links": [_serialize_row(r) for r in links],
+        "source_counts": [_serialize_row(r) for r in source_counts],
+        "merge_log": [_serialize_row(r) for r in merge_log],
+        "public_url_enabled": person_public_url_enabled(),
+    }
 
 
 # ---------------------------------------------------------------------------

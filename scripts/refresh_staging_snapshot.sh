@@ -173,11 +173,11 @@ prepare_restore_prereqs() {
   local db_name="$1"
   local owner_ident="$2"
   sudo -u postgres "$PSQL" -v ON_ERROR_STOP=1 -d "$db_name" <<'SQL' >/dev/null
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS unaccent;
-CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS vector; -- ALLOW-RUNTIME-DDL: scratch restore DB prerequisite
+CREATE EXTENSION IF NOT EXISTS unaccent; -- ALLOW-RUNTIME-DDL: scratch restore DB prerequisite
+CREATE EXTENSION IF NOT EXISTS fuzzystrmatch; -- ALLOW-RUNTIME-DDL: scratch restore DB prerequisite
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements; -- ALLOW-RUNTIME-DDL: scratch restore DB prerequisite
+CREATE EXTENSION IF NOT EXISTS pg_trgm; -- ALLOW-RUNTIME-DDL: scratch restore DB prerequisite
 
 CREATE OR REPLACE FUNCTION public.f_unaccent(text)
 RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
