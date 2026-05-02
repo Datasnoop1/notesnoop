@@ -221,10 +221,10 @@ def _annotate_pilot_rows(cbes: list[str]) -> list[dict]:
                      WHERE c.entity_number = ci.enterprise_number
                        AND c.contact_type = 'WEB'
                   LIMIT 1) AS _has_web,
-                   (SELECT 1 FROM shareholder s
+                   (SELECT 1 FROM shareholder_current s
                      WHERE s.enterprise_number = ci.enterprise_number
                   LIMIT 1) AS _has_shareholder,
-                   (SELECT 1 FROM participating_interest p
+                   (SELECT 1 FROM participating_interest_current p
                      WHERE p.enterprise_number = ci.enterprise_number
                   LIMIT 1) AS _has_subsidiary,
                    ce.bulk_summary::text AS bulk_summary_text,

@@ -945,7 +945,7 @@ def _build_corporate_graph(fetch_all, cbe: str) -> dict:
     shareholders = []
     try:
         rows = fetch_all(
-            """SELECT name, shareholder_type, ownership_pct FROM shareholder
+            """SELECT name, shareholder_type, ownership_pct FROM shareholder_current
                WHERE enterprise_number = %s
                ORDER BY ownership_pct DESC NULLS LAST LIMIT 10""",
             (cbe,),
@@ -965,7 +965,7 @@ def _build_corporate_graph(fetch_all, cbe: str) -> dict:
     subsidiaries = []
     try:
         rows = fetch_all(
-            """SELECT name, country, ownership_pct FROM participating_interest
+            """SELECT name, country, ownership_pct FROM participating_interest_current
                WHERE enterprise_number = %s
                ORDER BY ownership_pct DESC NULLS LAST LIMIT 10""",
             (cbe,),
@@ -985,7 +985,7 @@ def _build_corporate_graph(fetch_all, cbe: str) -> dict:
     administrators = []
     try:
         rows = fetch_all(
-            """SELECT DISTINCT name, role FROM administrator
+            """SELECT DISTINCT name, role FROM administrator_current
                WHERE enterprise_number = %s AND mandate_end IS NULL
                LIMIT 10""",
             (cbe,),
@@ -1179,7 +1179,7 @@ def _annotate_key_management(
         admin_rows = fetch_all(
             """
             SELECT name, mandate_end
-              FROM administrator
+              FROM administrator_current
              WHERE enterprise_number = %s
                AND name IS NOT NULL
             """,

@@ -66,15 +66,15 @@ async def get_company_network(
         today_str = date.today().isoformat()
         if include_historical:
             admins = fetch_all(
-                "SELECT * FROM administrator WHERE enterprise_number = %s",
+                "SELECT * FROM administrator_fact WHERE enterprise_number = %s",
                 (cbe,),
             )
             shareholders_rows = fetch_all(
-                "SELECT * FROM shareholder WHERE enterprise_number = %s",
+                "SELECT * FROM shareholder_fact WHERE enterprise_number = %s",
                 (cbe,),
             )
             pis_rows = fetch_all(
-                "SELECT * FROM participating_interest WHERE enterprise_number = %s",
+                "SELECT * FROM participating_interest_fact WHERE enterprise_number = %s",
                 (cbe,),
             )
         else:
@@ -85,19 +85,19 @@ async def get_company_network(
             # algorithm.
             admins = fetch_current_admins_for_batch([cbe])
             shareholders_rows = fetch_all(
-                "SELECT * FROM shareholder "
+                "SELECT * FROM shareholder_current "
                 "WHERE enterprise_number = %s "
                 "  AND fiscal_year = ("
-                "    SELECT MAX(fiscal_year) FROM shareholder "
+                "    SELECT MAX(fiscal_year) FROM shareholder_current "
                 "    WHERE enterprise_number = %s"
                 "  )",
                 (cbe, cbe),
             )
             pis_rows = fetch_all(
-                "SELECT * FROM participating_interest "
+                "SELECT * FROM participating_interest_current "
                 "WHERE enterprise_number = %s "
                 "  AND fiscal_year = ("
-                "    SELECT MAX(fiscal_year) FROM participating_interest "
+                "    SELECT MAX(fiscal_year) FROM participating_interest_current "
                 "    WHERE enterprise_number = %s"
                 "  )",
                 (cbe, cbe),
@@ -534,14 +534,14 @@ async def _deep_network_cached(
             if include_historical:
                 seed_admin_rows = fetch_all(
                     "SELECT enterprise_number, role "
-                    "FROM administrator "
+                    "FROM administrator_fact "
                     "WHERE name = %s "
                     "GROUP BY enterprise_number, role",
                     [person_name],
                 )
                 seed_sh_rows = fetch_all(
                     "SELECT DISTINCT enterprise_number, ownership_pct "
-                    "FROM shareholder WHERE name = %s",
+                    "FROM shareholder_fact WHERE name = %s",
                     (person_name,),
                 )
             else:
@@ -564,10 +564,10 @@ async def _deep_network_cached(
                 # has since exited doesn't seed a stale spider web.
                 seed_sh_rows = fetch_all(
                     "SELECT DISTINCT s.enterprise_number, s.ownership_pct "
-                    "FROM shareholder s "
+                    "FROM shareholder_current s "
                     "WHERE s.name = %s "
                     "  AND s.fiscal_year = ("
-                    "    SELECT MAX(fiscal_year) FROM shareholder "
+                    "    SELECT MAX(fiscal_year) FROM shareholder_current "
                     "    WHERE enterprise_number = s.enterprise_number"
                     "  )",
                     (person_name,),
@@ -656,7 +656,7 @@ async def _deep_network_cached(
             if include_historical:
                 admin_rows = fetch_all(
                     f"SELECT a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
-                    f"FROM administrator a "
+                    f"FROM administrator_fact a "
                     f"WHERE a.enterprise_number IN ({ph}) "
                     f"GROUP BY a.enterprise_number, a.name, a.role, a.person_type, a.identifier",
                     batch,
@@ -675,7 +675,7 @@ async def _deep_network_cached(
             if include_historical:
                 admin_reverse_rows = fetch_all(
                     f"SELECT a.enterprise_number, a.name, a.role, a.person_type, a.identifier "
-                    f"FROM administrator a "
+                    f"FROM administrator_fact a "
                     f"WHERE a.identifier IN ({ph}) "
                     f"GROUP BY a.enterprise_number, a.name, a.role, a.person_type, a.identifier",
                     batch,
@@ -700,22 +700,22 @@ async def _deep_network_cached(
             if include_historical:
                 sh_rows = fetch_all(
                     f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, shareholder_type "
-                    f"FROM shareholder WHERE enterprise_number IN ({ph})",
+                    f"FROM shareholder_fact WHERE enterprise_number IN ({ph})",
                     batch,
                 )
                 sh_reverse_rows = fetch_all(
                     f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, shareholder_type "
-                    f"FROM shareholder WHERE identifier IN ({ph})",
+                    f"FROM shareholder_fact WHERE identifier IN ({ph})",
                     batch,
                 )
                 pi_rows = fetch_all(
                     f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, country "
-                    f"FROM participating_interest WHERE enterprise_number IN ({ph})",
+                    f"FROM participating_interest_fact WHERE enterprise_number IN ({ph})",
                     batch,
                 )
                 pi_reverse_rows = fetch_all(
                     f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, country "
-                    f"FROM participating_interest WHERE identifier IN ({ph})",
+                    f"FROM participating_interest_fact WHERE identifier IN ({ph})",
                     batch,
                 )
             else:
@@ -723,12 +723,12 @@ async def _deep_network_cached(
                 sh_rows = fetch_all(
                     f"WITH latest AS ("
                     f"  SELECT enterprise_number, MAX(fiscal_year) AS fy "
-                    f"  FROM shareholder WHERE enterprise_number IN ({ph}) "
+                    f"  FROM shareholder_current WHERE enterprise_number IN ({ph}) "
                     f"  GROUP BY enterprise_number"
                     f") "
                     f"SELECT DISTINCT s.enterprise_number, s.name, s.identifier, "
                     f"       s.ownership_pct, s.shareholder_type "
-                    f"FROM shareholder s "
+                    f"FROM shareholder_current s "
                     f"JOIN latest l ON l.enterprise_number = s.enterprise_number "
                     f"             AND l.fy = s.fiscal_year",
                     batch,
@@ -736,12 +736,12 @@ async def _deep_network_cached(
                 pi_rows = fetch_all(
                     f"WITH latest AS ("
                     f"  SELECT enterprise_number, MAX(fiscal_year) AS fy "
-                    f"  FROM participating_interest WHERE enterprise_number IN ({ph}) "
+                    f"  FROM participating_interest_current WHERE enterprise_number IN ({ph}) "
                     f"  GROUP BY enterprise_number"
                     f") "
                     f"SELECT DISTINCT pi.enterprise_number, pi.name, pi.identifier, "
                     f"       pi.ownership_pct, pi.country "
-                    f"FROM participating_interest pi "
+                    f"FROM participating_interest_current pi "
                     f"JOIN latest l ON l.enterprise_number = pi.enterprise_number "
                     f"             AND l.fy = pi.fiscal_year",
                     batch,
@@ -760,17 +760,17 @@ async def _deep_network_cached(
                 sh_reverse_rows = fetch_all(
                     f"WITH relevant AS ("
                     f"  SELECT DISTINCT enterprise_number "
-                    f"  FROM shareholder WHERE identifier IN ({ph})"
+                    f"  FROM shareholder_current WHERE identifier IN ({ph})"
                     f"), "
                     f"latest AS ("
                     f"  SELECT s.enterprise_number, MAX(s.fiscal_year) AS fy "
-                    f"  FROM shareholder s "
+                    f"  FROM shareholder_current s "
                     f"  JOIN relevant r ON r.enterprise_number = s.enterprise_number "
                     f"  GROUP BY s.enterprise_number"
                     f") "
                     f"SELECT DISTINCT s.enterprise_number, s.name, s.identifier, "
                     f"       s.ownership_pct, s.shareholder_type "
-                    f"FROM shareholder s "
+                    f"FROM shareholder_current s "
                     f"JOIN latest l ON l.enterprise_number = s.enterprise_number "
                     f"             AND l.fy = s.fiscal_year "
                     f"WHERE s.identifier IN ({ph})",
@@ -779,17 +779,17 @@ async def _deep_network_cached(
                 pi_reverse_rows = fetch_all(
                     f"WITH relevant AS ("
                     f"  SELECT DISTINCT enterprise_number "
-                    f"  FROM participating_interest WHERE identifier IN ({ph})"
+                    f"  FROM participating_interest_current WHERE identifier IN ({ph})"
                     f"), "
                     f"latest AS ("
                     f"  SELECT pi.enterprise_number, MAX(pi.fiscal_year) AS fy "
-                    f"  FROM participating_interest pi "
+                    f"  FROM participating_interest_current pi "
                     f"  JOIN relevant r ON r.enterprise_number = pi.enterprise_number "
                     f"  GROUP BY pi.enterprise_number"
                     f") "
                     f"SELECT DISTINCT pi.enterprise_number, pi.name, pi.identifier, "
                     f"       pi.ownership_pct, pi.country "
-                    f"FROM participating_interest pi "
+                    f"FROM participating_interest_current pi "
                     f"JOIN latest l ON l.enterprise_number = pi.enterprise_number "
                     f"             AND l.fy = pi.fiscal_year "
                     f"WHERE pi.identifier IN ({ph})",

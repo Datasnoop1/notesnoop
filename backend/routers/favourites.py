@@ -339,7 +339,7 @@ async def list_people_favourites(user=Depends(get_current_user)):
                    COUNT(DISTINCT a.enterprise_number) AS company_count,
                    STRING_AGG(DISTINCT COALESCE(ci.name, a.enterprise_number), ', ' ORDER BY COALESCE(ci.name, a.enterprise_number)) AS companies
             FROM people_favourite pf
-            LEFT JOIN administrator a ON UPPER(a.name) = UPPER(pf.person_name)
+            LEFT JOIN administrator_current a ON UPPER(a.name) = UPPER(pf.person_name)
                 AND (a.mandate_end IS NULL OR a.mandate_end = '' OR a.mandate_end::date > CURRENT_DATE)
             LEFT JOIN company_info ci ON ci.enterprise_number = a.enterprise_number
             WHERE pf.user_id = %s

@@ -114,7 +114,7 @@ WITH base AS (
         concat_ws('|', sh.enterprise_number, sh.deposit_key, sh.name) AS source_pk,
         regexp_replace(coalesce(sh.identifier, ''), '\\D', '', 'g') AS identifier_digits,
         nullif(regexp_replace(upper(trim(coalesce(sh.identifier, ''))), '\\s+', '', 'g'), '') AS identifier_value
-    FROM shareholder sh
+    FROM shareholder_fact sh
     WHERE sh.enterprise_number ~ '^[0-9]{{10}}$'
       AND nullif(trim(sh.name), '') IS NOT NULL
 ),
@@ -235,7 +235,7 @@ WITH base AS (
         END AS fy,
         concat_ws('|', pi.enterprise_number, pi.deposit_key, pi.name) AS source_pk,
         regexp_replace(coalesce(pi.identifier, ''), '\\D', '', 'g') AS child_cbe
-    FROM participating_interest pi
+    FROM participating_interest_fact pi
     WHERE pi.enterprise_number ~ '^[0-9]{{10}}$'
       AND nullif(trim(pi.name), '') IS NOT NULL
 ),

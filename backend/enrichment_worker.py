@@ -234,7 +234,7 @@ def _load_kbo_context(cbe: str) -> dict:
 
     try:
         shareholders = fetch_all(
-            """SELECT name, ownership_pct FROM shareholder
+            """SELECT name, ownership_pct FROM shareholder_current
                 WHERE enterprise_number = %s
                 ORDER BY ownership_pct DESC NULLS LAST LIMIT 3""",
             (cbe,),
@@ -247,7 +247,7 @@ def _load_kbo_context(cbe: str) -> dict:
         # "controlled by" (significant minority). Without the percentage
         # the model previously had to guess from the parent name alone.
         subsidiaries = fetch_all(
-            """SELECT name, ownership_pct FROM participating_interest
+            """SELECT name, ownership_pct FROM participating_interest_current
                 WHERE enterprise_number = %s
                 ORDER BY ownership_pct DESC NULLS LAST LIMIT 5""",
             (cbe,),
@@ -256,7 +256,7 @@ def _load_kbo_context(cbe: str) -> dict:
         subsidiaries = []
     try:
         admins = fetch_all(
-            """SELECT name FROM administrator
+            """SELECT name FROM administrator_current
                 WHERE enterprise_number = %s AND name IS NOT NULL
              GROUP BY name
                 LIMIT 3""",

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 import json
 import re
 from typing import Any
@@ -117,6 +117,27 @@ def _as_float(raw: Any) -> float | None:
         return float(str(raw).replace(",", ".").strip())
     except (TypeError, ValueError):
         return None
+
+
+def _parse_date(raw: Any) -> date | None:
+    if isinstance(raw, date) and not isinstance(raw, datetime):
+        return raw
+    if isinstance(raw, datetime):
+        return raw.date()
+    if raw in (None, ""):
+        return None
+    text = str(raw).strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _exclusive_end_date(raw: Any) -> date | None:
+    parsed = _parse_date(raw)
+    return parsed + timedelta(days=1) if parsed else None
 
 
 def _person_name(person: dict[str, Any] | None) -> str:
@@ -368,6 +389,68 @@ def _insert_unique(cur, table: str, columns: tuple[str, ...], identity_columns: 
     return cur.rowcount or 0
 
 
+def _table_has_bitemporal_columns(cur, table: str) -> bool:
+    cached = _BITEMPORAL_TABLE_COLUMNS_PRESENT.get(table)
+    if cached is not None:
+        return cached
+    cur.execute(
+        """
+        SELECT COUNT(*) = 5
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = %s
+          AND column_name = ANY(%s)
+        """,
+        (table, ["valid_from", "valid_to", "source_deposit_date", "recorded_from", "recorded_to"]),
+    )
+    present = bool(cur.fetchone()[0])
+    _BITEMPORAL_TABLE_COLUMNS_PRESENT[table] = present
+    return present
+
+
+def _insert_bitemporal_unique(
+    cur,
+    table: str,
+    columns: tuple[str, ...],
+    identity_columns: tuple[str, ...],
+    row: tuple,
+    natural_where: str,
+    natural_values: tuple[Any, ...],
+) -> int:
+    identity_sql = " AND ".join(f"{column} IS NOT DISTINCT FROM %s" for column in identity_columns)
+    identity_values = tuple(row[columns.index(column)] for column in identity_columns)
+    cur.execute(f"SELECT 1 FROM {table} WHERE {identity_sql} LIMIT 1", identity_values)
+    if cur.fetchone():
+        return 0
+
+    cur.execute(
+        f"""
+        UPDATE {table}
+        SET recorded_to = NOW()
+        WHERE recorded_to IS NULL
+          AND valid_to IS NULL
+          AND {natural_where}
+        """,
+        natural_values,
+    )
+    col_sql = ", ".join(columns)
+    value_sql = ", ".join(["%s"] * len(columns))
+    cur.execute(
+        f"INSERT INTO {table} ({col_sql}) VALUES ({value_sql})",
+        tuple(row),
+    )
+    return cur.rowcount or 0
+
+
+def _with_bitemporal_values(
+    row: tuple,
+    source_deposit_date: date | None,
+    valid_from: date | None,
+    valid_to: date | None = None,
+) -> tuple:
+    return row + (source_deposit_date, valid_from, valid_to)
+
+
 def _source_pk(*parts: Any) -> str:
     return "|".join(str(part) for part in parts if part is not None)
 
@@ -565,9 +648,17 @@ def store_governance_snapshot(
     deposit_key: str,
     fiscal_year: int | str | None,
     filing_json: dict[str, Any] | None,
+    deposit_date: date | str | None = None,
 ) -> dict[str, int]:
-    """Insert governance rows for one filing. Safe to re-run."""
+    """Insert governance rows for one filing. Safe to re-run.
+
+    When bitemporal columns are present, new writes also stamp the filing's
+    source deposit date and close any prior open-ended current fact with the
+    same natural key. `valid_to` stores exclusive end dates; inclusive NBB
+    mandate end dates are shifted by one day at write time.
+    """
     rows = extract_governance_snapshot(cbe, deposit_key, fiscal_year, filing_json)
+    source_deposit_date = _parse_date(deposit_date)
     counts = {
         "administrators": 0,
         "shareholders": 0,
@@ -581,48 +672,133 @@ def store_governance_snapshot(
 
     cur = conn.cursor()
     try:
+        has_admin_bitemporal = _table_has_bitemporal_columns(cur, "administrator")
+        has_shareholder_bitemporal = _table_has_bitemporal_columns(cur, "shareholder")
+        has_pi_bitemporal = _table_has_bitemporal_columns(cur, "participating_interest")
+        has_affiliation_bitemporal = _table_has_bitemporal_columns(cur, "affiliation")
         for row in rows["administrators"]:
-            counts["administrators"] += _insert_unique(
-                cur,
-                "administrator",
-                _ADMIN_COLUMNS,
-                ("enterprise_number", "deposit_key", "name", "role"),
-                row,
-            )
+            if has_admin_bitemporal:
+                columns = _ADMIN_COLUMNS + _BITEMPORAL_INSERT_COLUMNS
+                valid_from = _parse_date(row[_ADMIN_COLUMNS.index("mandate_start")]) or source_deposit_date
+                valid_to = _exclusive_end_date(row[_ADMIN_COLUMNS.index("mandate_end")])
+                counts["administrators"] += _insert_bitemporal_unique(
+                    cur,
+                    "administrator",
+                    columns,
+                    ("enterprise_number", "deposit_key", "name", "role"),
+                    _with_bitemporal_values(row, source_deposit_date, valid_from, valid_to),
+                    "enterprise_number IS NOT DISTINCT FROM %s "
+                    "AND search_normalize(name) IS NOT DISTINCT FROM search_normalize(%s) "
+                    "AND role IS NOT DISTINCT FROM %s",
+                    (row[0], row[_ADMIN_COLUMNS.index("name")], row[_ADMIN_COLUMNS.index("role")]),
+                )
+            else:
+                counts["administrators"] += _insert_unique(
+                    cur,
+                    "administrator",
+                    _ADMIN_COLUMNS,
+                    ("enterprise_number", "deposit_key", "name", "role"),
+                    row,
+                )
         for row in rows["shareholders"]:
-            counts["shareholders"] += _insert_unique(
-                cur,
-                "shareholder",
-                _SHAREHOLDER_COLUMNS,
-                ("enterprise_number", "deposit_key", "name"),
-                row,
-            )
+            if has_shareholder_bitemporal:
+                columns = _SHAREHOLDER_COLUMNS + _BITEMPORAL_INSERT_COLUMNS
+                counts["shareholders"] += _insert_bitemporal_unique(
+                    cur,
+                    "shareholder",
+                    columns,
+                    ("enterprise_number", "deposit_key", "name"),
+                    _with_bitemporal_values(row, source_deposit_date, source_deposit_date),
+                    "enterprise_number IS NOT DISTINCT FROM %s "
+                    "AND search_normalize(name) IS NOT DISTINCT FROM search_normalize(%s) "
+                    "AND COALESCE(identifier, '') IS NOT DISTINCT FROM COALESCE(%s, '') "
+                    "AND COALESCE(address, '') IS NOT DISTINCT FROM COALESCE(%s, '')",
+                    (
+                        row[0],
+                        row[_SHAREHOLDER_COLUMNS.index("name")],
+                        row[_SHAREHOLDER_COLUMNS.index("identifier")],
+                        row[_SHAREHOLDER_COLUMNS.index("address")],
+                    ),
+                )
+            else:
+                counts["shareholders"] += _insert_unique(
+                    cur,
+                    "shareholder",
+                    _SHAREHOLDER_COLUMNS,
+                    ("enterprise_number", "deposit_key", "name"),
+                    row,
+                )
         for row in rows["participating_interests"]:
-            counts["participating_interests"] += _insert_unique(
-                cur,
-                "participating_interest",
-                _PI_COLUMNS,
-                ("enterprise_number", "deposit_key", "name"),
-                row,
-            )
+            if has_pi_bitemporal:
+                columns = _PI_COLUMNS + _BITEMPORAL_INSERT_COLUMNS
+                counts["participating_interests"] += _insert_bitemporal_unique(
+                    cur,
+                    "participating_interest",
+                    columns,
+                    ("enterprise_number", "deposit_key", "name"),
+                    _with_bitemporal_values(row, source_deposit_date, source_deposit_date),
+                    "enterprise_number IS NOT DISTINCT FROM %s "
+                    "AND COALESCE(identifier, '') IS NOT DISTINCT FROM COALESCE(%s, '') "
+                    "AND search_normalize(name) IS NOT DISTINCT FROM search_normalize(%s) "
+                    "AND COALESCE(country, '') IS NOT DISTINCT FROM COALESCE(%s, '')",
+                    (
+                        row[0],
+                        row[_PI_COLUMNS.index("identifier")],
+                        row[_PI_COLUMNS.index("name")],
+                        row[_PI_COLUMNS.index("country")],
+                    ),
+                )
+            else:
+                counts["participating_interests"] += _insert_unique(
+                    cur,
+                    "participating_interest",
+                    _PI_COLUMNS,
+                    ("enterprise_number", "deposit_key", "name"),
+                    row,
+                )
         # `affiliation` may not exist on environments that haven't yet
         # applied the affiliation migration. Probe the catalog once and
         # skip silently rather than aborting the whole snapshot — that
         # would rollback all governance writes for older deployments.
         if rows["affiliations"] and _affiliation_table_exists(cur):
             for row in rows["affiliations"]:
-                counts["affiliations"] += _insert_unique(
-                    cur,
-                    "affiliation",
-                    _AFFILIATION_COLUMNS,
-                    (
-                        "person_name",
-                        "enterprise_number",
-                        "via_enterprise_number",
-                        "affiliation_type",
-                    ),
-                    row,
-                )
+                if has_affiliation_bitemporal:
+                    columns = _AFFILIATION_COLUMNS + _BITEMPORAL_INSERT_COLUMNS
+                    counts["affiliations"] += _insert_bitemporal_unique(
+                        cur,
+                        "affiliation",
+                        columns,
+                        (
+                            "person_name",
+                            "enterprise_number",
+                            "via_enterprise_number",
+                            "affiliation_type",
+                        ),
+                        _with_bitemporal_values(row, source_deposit_date, source_deposit_date),
+                        "enterprise_number IS NOT DISTINCT FROM %s "
+                        "AND search_normalize(person_name) IS NOT DISTINCT FROM search_normalize(%s) "
+                        "AND via_enterprise_number IS NOT DISTINCT FROM %s "
+                        "AND affiliation_type IS NOT DISTINCT FROM %s",
+                        (
+                            row[_AFFILIATION_COLUMNS.index("enterprise_number")],
+                            row[_AFFILIATION_COLUMNS.index("person_name")],
+                            row[_AFFILIATION_COLUMNS.index("via_enterprise_number")],
+                            row[_AFFILIATION_COLUMNS.index("affiliation_type")],
+                        ),
+                    )
+                else:
+                    counts["affiliations"] += _insert_unique(
+                        cur,
+                        "affiliation",
+                        _AFFILIATION_COLUMNS,
+                        (
+                            "person_name",
+                            "enterprise_number",
+                            "via_enterprise_number",
+                            "affiliation_type",
+                        ),
+                        row,
+                    )
         if _ownership_edge_table_exists(cur):
             shareholder_fy = _fiscal_year_int(fiscal_year)
             child_cbe = clean_ownership_cbe(cbe)
@@ -668,6 +844,10 @@ def store_governance_snapshot(
 _AFFILIATION_TABLE_PRESENT: bool | None = None
 _OWNERSHIP_EDGE_TABLE_PRESENT: bool | None = None
 _GOVERNANCE_LOAD_LOG_TABLE_PRESENT: bool | None = None
+_BITEMPORAL_TABLE_COLUMNS_PRESENT: dict[str, bool] = {}
+
+
+_BITEMPORAL_INSERT_COLUMNS = ("source_deposit_date", "valid_from", "valid_to")
 
 
 def _safe_governance_error(error: Exception | str, limit: int = 1000) -> str:

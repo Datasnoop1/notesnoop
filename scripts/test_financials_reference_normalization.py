@@ -327,8 +327,8 @@ class FinancialReferenceNormalizationTests(unittest.TestCase):
         self.financials.put_connection = lambda _conn: None
         governance_calls = []
         self.financials.store_governance_snapshot = (
-            lambda conn, cbe, deposit_key, fiscal_year, filing_json: governance_calls.append(
-                (conn, cbe, deposit_key, fiscal_year, filing_json)
+            lambda conn, cbe, deposit_key, fiscal_year, filing_json, deposit_date=None: governance_calls.append(
+                (conn, cbe, deposit_key, fiscal_year, filing_json, deposit_date)
             ) or {
                 "administrators": 2,
                 "shareholders": 0,

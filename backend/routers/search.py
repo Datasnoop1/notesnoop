@@ -264,7 +264,7 @@ companies AS (
 ),
 people_raw AS (
     SELECT a.name, a.enterprise_number
-    FROM administrator a
+    FROM administrator_current a
     WHERE a.person_type = 'natural'
       AND a.name_normalized IS NOT NULL
       AND %(nq_pfx)s IS NOT NULL

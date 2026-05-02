@@ -424,7 +424,7 @@ def _store_filing_once(conn, cbe: str, filing_json: dict, ref_meta: dict) -> int
         # The governance retry log owns its own short transaction.
         try:
             governance_counts = store_governance_snapshot(
-                conn, cbe, deposit_key, fiscal_year, filing_json
+                conn, cbe, deposit_key, fiscal_year, filing_json, deposit_date
             )
             record_governance_load_success(conn, cbe, deposit_key, governance_counts)
         except Exception as gov_err:

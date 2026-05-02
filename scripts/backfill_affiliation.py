@@ -109,7 +109,7 @@ def fetch_candidates(conn, limit: int) -> list[tuple[str, str, str | None]]:
         cur.execute(
             """
             SELECT DISTINCT a.enterprise_number, a.deposit_key, a.fiscal_year
-            FROM administrator a
+            FROM administrator_fact a
             WHERE a.person_type = 'legal'
               AND a.identifier IS NOT NULL
               AND a.identifier <> ''
