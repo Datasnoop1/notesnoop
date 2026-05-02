@@ -33,7 +33,11 @@ load_dotenv()
 # Add backend to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
 from db import get_connection, put_connection, execute, fetch_one, fetch_all
-from nbb_governance import store_governance_snapshot
+from nbb_governance import (
+    record_governance_load_failure,
+    record_governance_load_success,
+    store_governance_snapshot,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -269,13 +273,21 @@ def process_daily_extract(target_date: str, dry_run: bool = False) -> dict:
                     )
                     conn.commit()
 
+                    # Financial rows are durable before governance extraction.
+                    # The governance retry log owns its own short transaction.
                     try:
-                        store_governance_snapshot(conn, cbe, deposit_key, fiscal_year, filing_json)
+                        governance_counts = store_governance_snapshot(
+                            conn, cbe, deposit_key, fiscal_year, filing_json, deposit_date
+                        )
+                        record_governance_load_success(
+                            conn, cbe, deposit_key, governance_counts
+                        )
                     except Exception as gov_err:
                         log.warning(
                             "Governance store failed for %s filing %s: %s",
                             cbe, deposit_key, gov_err,
                         )
+                        record_governance_load_failure(conn, cbe, deposit_key, gov_err)
 
                     total_rubrics += len(rows)
                     filings_loaded += 1
@@ -393,17 +405,20 @@ def rebuild_materialized_tables():
         conn.commit()
 
         # financial_by_year
-        cur.execute("DROP TABLE IF EXISTS financial_by_year")
+        cur.execute("TRUNCATE TABLE financial_by_year")
         cur.execute("""
-            CREATE TABLE financial_by_year AS
+            INSERT INTO financial_by_year (
+                enterprise_number, fiscal_year, filing_model,
+                revenue, ebit, da, ebitda, net_profit,
+                equity, lt_financial_debt, st_financial_debt, cash,
+                total_assets, fte_total, personnel_costs
+            )
             SELECT enterprise_number, fiscal_year, filing_model,
                    revenue, ebit, da, ebitda, net_profit,
                    equity, lt_financial_debt, st_financial_debt, cash,
                    total_assets, fte_total, personnel_costs
             FROM financial_summary
         """)
-        cur.execute("CREATE INDEX idx_fby_ent ON financial_by_year(enterprise_number)")
-        cur.execute("CREATE INDEX idx_fby_year ON financial_by_year(fiscal_year)")
         conn.commit()
 
         fl = cur.execute("SELECT COUNT(*) FROM financial_latest")

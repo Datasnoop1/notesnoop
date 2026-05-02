@@ -2,12 +2,15 @@
 
 import logging
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from cache import ttl_cache
 from db import fetch_all, fetch_one, execute, get_conn
 from auth import get_current_user, optional_user
+from feature_flags import person_public_url_enabled
+from routers.admin import _require_admin
 from ai_client import ai_complete
 from search_normalization import (
     ilike_escape as _v2_ilike_escape,
@@ -31,9 +34,23 @@ def _serialize_row(row: dict) -> dict:
             out[k] = float(v)
         elif isinstance(v, (datetime.date, datetime.datetime)):
             out[k] = str(v)
+        elif isinstance(v, UUID):
+            out[k] = str(v)
         else:
             out[k] = v
     return out
+
+
+def _require_person_v1_access(user: Optional[dict]) -> Optional[dict]:
+    """Hide Person v1 from non-admins while the public URL flag is off."""
+    if person_public_url_enabled():
+        return user
+    if user is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        return _require_admin(user)
+    except HTTPException:
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +157,7 @@ WITH
 people_hits AS MATERIALIZED (
     -- 1.0: exact normalised match OR exact reversed (order-agnostic)
     SELECT a.name, a.enterprise_number, 'admin' AS src, 1.0::real AS base
-    FROM administrator a
+    FROM administrator_current a
     WHERE a.person_type = 'natural'
       AND a.name_normalized IS NOT NULL
       AND (
@@ -149,7 +166,7 @@ people_hits AS MATERIALIZED (
       )
     UNION ALL
     SELECT s.name, s.enterprise_number, 'shareholder', 1.0::real
-    FROM shareholder s
+    FROM shareholder_current s
     WHERE s.shareholder_type = 'individual'
       AND s.name_normalized IS NOT NULL
       AND (
@@ -173,7 +190,7 @@ people_hits AS MATERIALIZED (
     -- between UNION ALL clauses, otherwise the LIMIT applies to the
     -- whole union (Postgres parse error).
     (SELECT a.name, a.enterprise_number, 'admin', 0.7::real
-     FROM administrator a
+     FROM administrator_current a
      WHERE a.person_type = 'natural'
        AND a.name_normalized IS NOT NULL
        AND %(n_tokens)s >= 1
@@ -184,7 +201,7 @@ people_hits AS MATERIALIZED (
      LIMIT 500)
     UNION ALL
     (SELECT s.name, s.enterprise_number, 'shareholder', 0.7::real
-     FROM shareholder s
+     FROM shareholder_current s
      WHERE s.shareholder_type = 'individual'
        AND s.name_normalized IS NOT NULL
        AND %(n_tokens)s >= 1
@@ -215,7 +232,7 @@ people_hits AS MATERIALIZED (
     -- handle short prefixes; trigram is purely typo tolerance.
     (SELECT a.name, a.enterprise_number, 'admin',
             LEAST(0.4, similarity(a.name_normalized, %(nq)s))::real
-     FROM administrator a
+     FROM administrator_current a
      WHERE a.person_type = 'natural'
        AND %(nq)s IS NOT NULL
        AND length(%(nq)s) >= 4
@@ -225,7 +242,7 @@ people_hits AS MATERIALIZED (
     UNION ALL
     (SELECT s.name, s.enterprise_number, 'shareholder',
             LEAST(0.4, similarity(s.name_normalized, %(nq)s))::real
-     FROM shareholder s
+     FROM shareholder_current s
      WHERE s.shareholder_type = 'individual'
        AND %(nq)s IS NOT NULL
        AND length(%(nq)s) >= 4
@@ -239,14 +256,14 @@ people_hits AS MATERIALIZED (
     -- per token so trigram similarity is degenerate here; equality is
     -- both cheaper and semantically correct.
     (SELECT a.name, a.enterprise_number, 'admin', 0.3::real
-     FROM administrator a
+     FROM administrator_current a
      WHERE %(phon)s IS NOT NULL
        AND a.person_type = 'natural'
        AND a.name_phonetic = %(phon)s
      LIMIT 200)
     UNION ALL
     (SELECT s.name, s.enterprise_number, 'shareholder', 0.3::real
-     FROM shareholder s
+     FROM shareholder_current s
      WHERE %(phon)s IS NOT NULL
        AND s.shareholder_type = 'individual'
        AND s.name_phonetic = %(phon)s
@@ -255,7 +272,7 @@ people_hits AS MATERIALIZED (
     UNION ALL
     -- 0.2: address fallback
     (SELECT a.name, a.enterprise_number, 'admin', 0.2::real
-     FROM administrator a
+     FROM administrator_current a
      JOIN address ad ON ad.entity_number = a.enterprise_number
      WHERE a.person_type = 'natural'
        AND ad.type_of_address = 'REGO'
@@ -281,7 +298,7 @@ people_hits AS MATERIALIZED (
     -- 0.55: exact normalised match OR exact reversed
     (SELECT af.person_name AS name, af.enterprise_number, 'affiliation' AS src,
             0.55::real AS base
-     FROM affiliation af
+     FROM affiliation_current af
      WHERE af.name_normalized IS NOT NULL
        AND (
            (%(nq)s IS NOT NULL AND af.name_normalized = %(nq)s)
@@ -291,7 +308,7 @@ people_hits AS MATERIALIZED (
     UNION ALL
     -- 0.4: token-AND
     (SELECT af.person_name, af.enterprise_number, 'affiliation', 0.4::real
-     FROM affiliation af
+     FROM affiliation_current af
      WHERE af.name_normalized IS NOT NULL
        AND %(n_tokens)s >= 1
        AND (%(tok1)s IS NULL OR af.name_normalized ILIKE %(tok1)s ESCAPE '\\')
@@ -304,7 +321,7 @@ people_hits AS MATERIALIZED (
     -- trigram arms above — 3-char queries fan out catastrophically.
     (SELECT af.person_name, af.enterprise_number, 'affiliation',
             LEAST(0.25, similarity(af.name_normalized, %(nq)s))::real
-     FROM affiliation af
+     FROM affiliation_current af
      WHERE %(nq)s IS NOT NULL
        AND length(%(nq)s) >= 4
        AND af.name_normalized %% %(nq)s
@@ -313,7 +330,7 @@ people_hits AS MATERIALIZED (
     UNION ALL
     -- 0.2: phonetic
     (SELECT af.person_name, af.enterprise_number, 'affiliation', 0.2::real
-     FROM affiliation af
+     FROM affiliation_current af
      WHERE %(phon)s IS NOT NULL
        AND af.name_phonetic = %(phon)s
      LIMIT 200)
@@ -434,6 +451,118 @@ LIMIT 50
 
 
 # ---------------------------------------------------------------------------
+# GET /api/people/person/{person_id}
+# ---------------------------------------------------------------------------
+
+@router.get("/person/{person_id}")
+async def get_person_v1(person_id: str, user=Depends(optional_user)):
+    """Internal Person v1 audit profile by stable person_id."""
+    _require_person_v1_access(user)
+
+    try:
+        person_uuid = str(UUID(person_id.strip()))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    person = fetch_one(
+        """
+        SELECT
+            person_id::text,
+            canonical_name,
+            name_normalized,
+            primary_city,
+            primary_postcode,
+            role_count,
+            first_seen_date,
+            last_seen_date,
+            cluster_version,
+            status,
+            merged_into::text,
+            created_at
+        FROM person
+        WHERE person_id = %s
+        """,
+        (person_uuid,),
+    )
+    if not person:
+        raise HTTPException(status_code=404, detail="Not found")
+    if person.get("status") == "tombstone":
+        raise HTTPException(status_code=410, detail="Gone")
+
+    links = fetch_all(
+        """
+        SELECT
+            pl.id,
+            pl.source_table,
+            pl.source_pk,
+            pl.source_mention_seq,
+            pl.source_field,
+            pl.enterprise_number,
+            COALESCE(d.denomination, pl.enterprise_number) AS company_name,
+            pl.name_as_written,
+            pl.link_kind,
+            pl.confidence,
+            pl.confirmed_by_human,
+            pl.cluster_version
+        FROM person_link pl
+        LEFT JOIN denomination d
+            ON d.entity_number = pl.enterprise_number
+           AND d.type_of_denomination = '001'
+           AND d.language IN ('2', '1')
+        WHERE pl.person_id = %s
+        ORDER BY pl.confidence DESC,
+                 pl.source_table ASC,
+                 pl.enterprise_number ASC NULLS LAST,
+                 pl.id ASC
+        LIMIT 500
+        """,
+        (person_uuid,),
+    )
+
+    source_counts = fetch_all(
+        """
+        SELECT
+            source_table,
+            count(*)::int AS link_count,
+            min(confidence)::float AS min_confidence,
+            max(confidence)::float AS max_confidence
+        FROM person_link
+        WHERE person_id = %s
+        GROUP BY source_table
+        ORDER BY source_table
+        """,
+        (person_uuid,),
+    )
+
+    merge_log = fetch_all(
+        """
+        SELECT
+            id,
+            op_kind,
+            primary_id::text,
+            secondary_id::text,
+            moved_link_ids,
+            op_at,
+            op_by,
+            reason
+        FROM person_merge_log
+        WHERE primary_id = %s OR secondary_id = %s
+        ORDER BY op_at DESC, id DESC
+        LIMIT 50
+        """,
+        (person_uuid, person_uuid),
+    )
+
+    return {
+        "person": _serialize_row(person),
+        "links": [_serialize_row(r) for r in links],
+        "source_counts": [_serialize_row(r) for r in source_counts],
+        "merge_log": [_serialize_row(r) for r in merge_log],
+        "public_url_enabled": person_public_url_enabled(),
+    }
+
+
+# ---------------------------------------------------------------------------
 # GET /api/people/{name}/connections
 # ---------------------------------------------------------------------------
 
@@ -461,7 +590,7 @@ async def get_person_connections(name: str):
                 fl.ebitda,
                 fl.fte_total,
                 fl.fiscal_year
-            FROM administrator a
+            FROM administrator_current a
             LEFT JOIN denomination d ON d.entity_number = a.enterprise_number
                 AND d.type_of_denomination = '001' AND d.language IN ('2','1')
             LEFT JOIN financial_latest fl ON fl.enterprise_number = a.enterprise_number
@@ -534,7 +663,7 @@ async def get_person_connections(name: str):
                     fl.ebitda,
                     fl.fte_total,
                     fl.fiscal_year AS fl_fiscal_year
-                FROM affiliation af
+                FROM affiliation_current af
                 LEFT JOIN denomination d
                     ON d.entity_number = af.enterprise_number
                     AND d.type_of_denomination = '001' AND d.language IN ('2','1')
@@ -559,7 +688,7 @@ async def get_person_connections(name: str):
                 fl.ebitda,
                 fl.fte_total,
                 fl.fiscal_year
-            FROM shareholder s
+            FROM shareholder_current s
             LEFT JOIN denomination d ON d.entity_number = s.enterprise_number
                 AND d.type_of_denomination = '001' AND d.language IN ('2','1')
             LEFT JOIN financial_latest fl ON fl.enterprise_number = s.enterprise_number
@@ -697,17 +826,10 @@ _people_enrichment_table_ensured = False
 
 
 def _ensure_people_enrichment_table():
-    """Create people_enrichment table if it does not exist (idempotent)."""
+    """Compatibility shim for people_enrichment moved to tracked migrations."""
     global _people_enrichment_table_ensured
     if _people_enrichment_table_ensured:
         return
-    execute("""
-        CREATE TABLE IF NOT EXISTS people_enrichment (
-            person_name TEXT PRIMARY KEY,
-            summary TEXT,
-            generated_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
     _people_enrichment_table_ensured = True
 
 
@@ -735,7 +857,7 @@ async def enrich_person(name: str, lang: str | None = None, user=Depends(optiona
             a.role,
             a.mandate_start,
             a.mandate_end
-        FROM administrator a
+        FROM administrator_current a
         LEFT JOIN denomination d ON d.entity_number = a.enterprise_number
             AND d.type_of_denomination = '001' AND d.language IN ('2','1')
         WHERE LOWER(a.name) = LOWER(%s)
@@ -748,7 +870,7 @@ async def enrich_person(name: str, lang: str | None = None, user=Depends(optiona
         SELECT
             COALESCE(d.denomination, s.enterprise_number) AS company_name,
             s.ownership_pct
-        FROM shareholder s
+        FROM shareholder_current s
         LEFT JOIN denomination d ON d.entity_number = s.enterprise_number
             AND d.type_of_denomination = '001' AND d.language IN ('2','1')
         WHERE LOWER(s.name) = LOWER(%s)

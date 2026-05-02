@@ -22,7 +22,7 @@ import os
 from typing import Literal, Optional
 
 import httpx
-from db import get_connection, put_connection, execute, fetch_one, fetch_all
+from db import execute, fetch_one, fetch_all
 
 logger = logging.getLogger(__name__)
 
@@ -57,41 +57,14 @@ _table_ensured = False
 
 
 def ensure_embedding_table():
-    """Create the company_embedding table with pgvector if it doesn't exist.
+    """Compatibility shim for the old company_embedding startup DDL.
 
-    Uses HNSW index (better than IVFFlat at scale, no training step needed).
-    No source_text column — derivable from company_enrichment.ai_insights.
+    Runtime DDL moved to tracked migrations in Week-1b.
     """
     global _table_ensured
     if _table_ensured:
         return
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        cur.execute(f"""
-            CREATE TABLE IF NOT EXISTS company_embedding (
-                enterprise_number VARCHAR(10) PRIMARY KEY,
-                embedding vector({EMBEDDING_DIMS}),
-                model VARCHAR(100),
-                generated_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
-        # HNSW index — works immediately (no training rows needed unlike IVFFlat)
-        cur.execute(f"""
-            CREATE INDEX IF NOT EXISTS idx_ce_embedding_hnsw
-            ON company_embedding USING hnsw (embedding vector_cosine_ops)
-            WITH (m = 16, ef_construction = 64)
-        """)
-        conn.commit()
-        cur.close()
-        _table_ensured = True
-        logger.info("company_embedding table ensured (dims=%d, HNSW index)", EMBEDDING_DIMS)
-    except Exception:
-        conn.rollback()
-        logger.exception("Failed to create company_embedding table")
-    finally:
-        put_connection(conn)
+    _table_ensured = True
 
 
 async def generate_embedding(
@@ -429,37 +402,11 @@ _query_cache_ensured = False
 
 
 def _ensure_query_embedding_cache() -> None:
-    """Create `query_embedding_cache` if missing. Idempotent."""
+    """Compatibility shim for the old query_embedding_cache startup DDL."""
     global _query_cache_ensured
     if _query_cache_ensured:
         return
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        cur.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS query_embedding_cache (
-                query_hash   TEXT PRIMARY KEY,
-                query_text   TEXT NOT NULL,
-                embedding    vector({EMBEDDING_DIMS}) NOT NULL,
-                model        TEXT NOT NULL,
-                created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            """
-        )
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_query_embedding_cache_created "
-            "ON query_embedding_cache(created_at)"
-        )
-        conn.commit()
-        cur.close()
-        _query_cache_ensured = True
-    except Exception:
-        conn.rollback()
-        logger.exception("query_embedding_cache migration failed (non-fatal)")
-    finally:
-        put_connection(conn)
+    _query_cache_ensured = True
 
 
 def _query_hash(q: str) -> str:

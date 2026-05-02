@@ -5,12 +5,19 @@ Uses a simple connection pool to avoid exhausting Supabase session pooler limits
 
 import os
 import logging
+import time
+import contextvars
+import threading
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 
 import psycopg2
+import psycopg2.extensions
 import psycopg2.extras
 import psycopg2.pool
 from dotenv import load_dotenv
+
+from middleware.timing import record_db_timing
 
 load_dotenv()
 
@@ -28,12 +35,58 @@ DB_CONNECT_TIMEOUT_S = int(os.getenv("DB_CONNECT_TIMEOUT_S", "10"))
 # anything longer is almost certainly a stuck connection. The enrichment
 # worker has its own tighter per-job ceiling on top of this.
 DB_STATEMENT_TIMEOUT_MS = int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "120000"))
+DB_CANCEL_POOL_MAXCONN = int(os.getenv("DB_CANCEL_POOL_MAXCONN", "5"))
+DB_CANCEL_STATEMENT_TIMEOUT_MS = int(os.getenv("DB_CANCEL_STATEMENT_TIMEOUT_MS", "5000"))
+DB_APPLICATION_NAME = os.getenv("DB_APPLICATION_NAME", "datasnoop")
+_REQUEST_APP_PREFIX = f"{DB_APPLICATION_NAME}:rid="
 
 # Simple pool: min 1, max 3 connections (Supabase session pooler is limited)
 _pool = None
+_cancel_pool = None
+_pool_init_lock = threading.Lock()
+_cancel_pool_init_lock = threading.Lock()
 
 
-def _get_pool():
+@dataclass
+class QueryCancelContext:
+    request_id: str
+    path: str = ""
+    current_pid: int | None = None
+    cancel_requested: bool = False
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def set_pid(self, pid: int) -> None:
+        with self._lock:
+            self.current_pid = pid
+
+    def clear_pid(self, pid: int | None = None) -> None:
+        with self._lock:
+            if pid is None or self.current_pid == pid:
+                self.current_pid = None
+
+    def snapshot(self) -> tuple[int | None, str]:
+        with self._lock:
+            return self.current_pid, self.request_id
+
+
+_query_cancel_context: contextvars.ContextVar[QueryCancelContext | None] = (
+    contextvars.ContextVar("datasnoop_query_cancel_context", default=None)
+)
+
+
+def set_query_cancel_context(ctx: QueryCancelContext):
+    return _query_cancel_context.set(ctx)
+
+
+def reset_query_cancel_context(token) -> None:
+    _query_cancel_context.reset(token)
+
+
+def get_query_cancel_context() -> QueryCancelContext | None:
+    return _query_cancel_context.get()
+
+
+def _get_pool_unlocked():
     global _pool
     if _pool is None or _pool.closed:
         if not _DATABASE_URL:
@@ -61,19 +114,151 @@ def _get_pool():
     return _pool
 
 
+def _get_cancel_pool_unlocked():
+    global _cancel_pool
+    if _cancel_pool is None or _cancel_pool.closed:
+        if not _DATABASE_URL:
+            raise RuntimeError("DATABASE_URL not set in environment / .env file")
+        _cancel_pool = psycopg2.pool.ThreadedConnectionPool(
+            1,
+            DB_CANCEL_POOL_MAXCONN,
+            _DATABASE_URL,
+            connect_timeout=DB_CONNECT_TIMEOUT_S,
+            options=(
+                f"-c statement_timeout={DB_CANCEL_STATEMENT_TIMEOUT_MS} "
+                f"-c application_name={DB_APPLICATION_NAME}-cancel"
+            ),
+        )
+    return _cancel_pool
+
+
+def _get_pool():
+    with _pool_init_lock:
+        return _get_pool_unlocked()
+
+
+def _get_cancel_pool():
+    with _cancel_pool_init_lock:
+        return _get_cancel_pool_unlocked()
+
+
+def _request_application_name(request_id: str) -> str:
+    return f"{_REQUEST_APP_PREFIX}{request_id}"
+
+
+def _run_session_setting(conn, sql: str, params: tuple) -> tuple | None:
+    """Run a session-level setting outside any transaction."""
+    old_autocommit = getattr(conn, "autocommit", False)
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone() if getattr(cur, "description", None) else None
+    finally:
+        conn.autocommit = old_autocommit
+
+
+def _tag_connection_for_cancel(conn) -> None:
+    ctx = _query_cancel_context.get()
+    if ctx is None:
+        return
+    row = _run_session_setting(
+        conn,
+        "SELECT set_config('application_name', %s, false), pg_backend_pid()",
+        (_request_application_name(ctx.request_id),),
+    )
+    if row and row[1] is not None:
+        ctx.set_pid(int(row[1]))
+
+
+def _reset_application_name(conn) -> None:
+    _run_session_setting(
+        conn,
+        "SELECT set_config('application_name', %s, false)",
+        (DB_APPLICATION_NAME,),
+    )
+
+
 def get_connection():
     """Get a pooled PostgreSQL connection."""
     conn = _get_pool().getconn()
     conn.autocommit = False
+    try:
+        _tag_connection_for_cancel(conn)
+    except Exception:
+        _discard_connection(conn)
+        raise
     return conn
 
 
 def put_connection(conn):
     """Return a connection to the pool."""
+    if conn is None:
+        return
+    ctx = _query_cancel_context.get()
+    pid = None
     try:
+        if getattr(conn, "closed", 1) != 0:
+            _discard_connection(conn)
+            return
+        try:
+            pid = conn.get_backend_pid()
+        except Exception:
+            pid = None
+
+        status = conn.info.transaction_status
+        if status != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+            _discard_connection(conn)
+            return
+
+        _reset_application_name(conn)
         _get_pool().putconn(conn)
     except Exception:
-        pass
+        _discard_connection(conn)
+    finally:
+        if ctx is not None:
+            ctx.clear_pid(pid)
+
+
+def cancel_backend_for_request(pid: int | None, request_id: str) -> bool:
+    """Cancel a running query only if the target PID still belongs to request_id."""
+    if not pid or not request_id:
+        return False
+    conn = None
+    discard = False
+    try:
+        pool = _get_cancel_pool()
+        conn = pool.getconn()
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COALESCE(bool_or(pg_cancel_backend(pid)), false)
+                FROM pg_stat_activity
+                WHERE pid = %s
+                  AND state = 'active'
+                  AND application_name = %s
+                """,
+                (int(pid), _request_application_name(request_id)),
+            )
+            row = cur.fetchone()
+        cancelled = bool(row and row[0])
+        if cancelled:
+            logger.info("Cancelled abandoned search query pid=%s", pid)
+        return cancelled
+    except Exception:
+        discard = True
+        logger.debug("Failed to cancel abandoned search query pid=%s", pid, exc_info=True)
+        return False
+    finally:
+        if conn is not None:
+            try:
+                _get_cancel_pool().putconn(conn, close=discard or getattr(conn, "closed", 1) != 0)
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
 
 @contextmanager
@@ -134,8 +319,10 @@ def fetch_all(sql: str, params: tuple | list = None) -> list[dict]:
         conn = get_connection()
         try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            t0 = time.perf_counter()
             cur.execute(sql, params)
             rows = cur.fetchall()
+            record_db_timing((time.perf_counter() - t0) * 1000.0)
             cur.close()
             conn.commit()
             return [dict(r) for r in rows]
@@ -161,8 +348,10 @@ def fetch_one(sql: str, params: tuple | list = None) -> dict | None:
         conn = get_connection()
         try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            t0 = time.perf_counter()
             cur.execute(sql, params)
             row = cur.fetchone()
+            record_db_timing((time.perf_counter() - t0) * 1000.0)
             cur.close()
             conn.commit()
             return dict(row) if row else None
@@ -187,7 +376,9 @@ def execute(sql: str, params: tuple | list = None):
         conn = get_connection()
         try:
             cur = conn.cursor()
+            t0 = time.perf_counter()
             cur.execute(sql, params)
+            record_db_timing((time.perf_counter() - t0) * 1000.0)
             conn.commit()
             cur.close()
             return
@@ -241,470 +432,42 @@ _trgm_migrated = False
 
 
 def ensure_trgm_setup():
-    """Enable pg_trgm and ensure name_normalized is populated.
+    """Compatibility shim for the old startup schema bootstrap.
 
-    Safe to call on every startup — all statements use IF NOT EXISTS / are idempotent.
-    Runs once per process (guarded by _trgm_migrated flag).
-
-    Search V2 supersedes this with a GENERATED column on company_info
-    (via migrations/2026-04-24_search_v2.sql). We detect the V2 migration
-    by the presence of `f_unaccent()` and skip the legacy backfill in
-    that case — the V2 migration owns both the column shape AND the
-    index. The legacy branch stays as a safety net for environments
-    where the operator hasn't applied the migration yet.
+    Runtime DDL moved to tracked migrations in Week-1b. Keep this callable so
+    older startup wiring stays harmless during rollout.
     """
     global _trgm_migrated
     if _trgm_migrated:
         return
-
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-
-        # 1. Enable the pg_trgm extension
-        cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
-
-        # 1b. Detect search V2 migration. If the IMMUTABLE f_unaccent()
-        #     wrapper exists, the V2 migration has been applied and
-        #     company_info.name_normalized is a GENERATED STORED column.
-        #     In that case we skip the legacy ADD COLUMN / UPDATE path —
-        #     those would either no-op (IF NOT EXISTS) or fail (can't
-        #     UPDATE a generated column).
-        cur.execute(
-            "SELECT 1 FROM pg_proc WHERE proname = 'f_unaccent' LIMIT 1"
-        )
-        v2_applied = cur.fetchone() is not None
-        if v2_applied:
-            logger.info("search V2 migration detected — skipping legacy name_normalized backfill")
-            # Still ensure the people-side GIN indexes exist (they are
-            # created by the V2 migration too, but IF NOT EXISTS makes
-            # this belt-and-suspenders safe).
-            conn.commit()
-            cur.close()
-            _trgm_migrated = True
-            return
-
-        # 2. Add name_normalized column if it doesn't exist
-        cur.execute(
-            "ALTER TABLE company_info ADD COLUMN IF NOT EXISTS name_normalized TEXT;"
-        )
-
-        # 3. Populate name_normalized for rows where it is NULL
-        #    (strip Belgian legal suffixes, lowercase, collapse whitespace)
-        cur.execute(f"""
-            UPDATE company_info
-            SET name_normalized = TRIM(REGEXP_REPLACE(
-                LOWER(REGEXP_REPLACE(
-                    name,
-                    %s,
-                    '', 'gi'
-                )),
-                '\\s+', ' ', 'g'
-            ))
-            WHERE name_normalized IS NULL AND name IS NOT NULL;
-        """, (_BELGIAN_SUFFIXES_RE,))
-        normalized_count = cur.rowcount
-
-        # 4. Create GIN trigram indexes
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_ci_name_trgm
-            ON company_info USING GIN (name_normalized gin_trgm_ops);
-        """)
-        # 5. GIN trigram indexes on people tables for ILIKE searches
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_admin_name_trgm
-            ON administrator USING GIN (name gin_trgm_ops);
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sh_name_trgm
-            ON shareholder USING GIN (name gin_trgm_ops);
-        """)
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS activity_log (
-                id              SERIAL PRIMARY KEY,
-                user_email      TEXT NOT NULL,
-                endpoint        TEXT NOT NULL,
-                method          TEXT,
-                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                session_id      TEXT,
-                ua_family       TEXT,
-                device_type     TEXT,
-                country_code    VARCHAR(2)
-            );
-        """)
-
-        # 6. activity_log indexes — the table has no indexes by default and
-        #    EVERY /api/* call hits it (INSERT via ActivityLogMiddleware +
-        #    COUNT via TierLimitMiddleware). Without these, seq-scans cost
-        #    hundreds of ms per AI call once the table grows.
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_activity_log_user_date
-            ON activity_log(user_email, created_at DESC);
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_activity_log_endpoint_date
-            ON activity_log(endpoint, created_at DESC);
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_activity_log_date
-            ON activity_log(created_at DESC);
-        """)
-
-        # 6b. Valuation AI commentary cache — generated text for each CBE so
-        #     the PDF primer + repeat on-screen lookups don't each pay an LLM
-        #     call. Refresh via scripts/generate_valuation_commentary.py.
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS valuation_commentary_cache (
-                enterprise_number TEXT PRIMARY KEY,
-                commentary        TEXT NOT NULL,
-                sector_used       TEXT,
-                source_used       TEXT,
-                lang              VARCHAR(2) DEFAULT 'en',
-                generated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-        """)
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_valuation_commentary_gen ON valuation_commentary_cache(generated_at DESC);")
-
-        # 7-OpenData. TED procurement + Regsol insolvency + Staatsblad events —
-        # open-data enrichment tables, populated by scripts/open_data_*.py.
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS procurement_award (
-                id              SERIAL PRIMARY KEY,
-                ted_notice_id   TEXT UNIQUE,
-                enterprise_number TEXT,
-                supplier_name   TEXT,
-                supplier_vat    TEXT,
-                buyer_name      TEXT,
-                award_date      DATE,
-                contract_value  NUMERIC(14,2),
-                currency        VARCHAR(3) DEFAULT 'EUR',
-                cpv_code        TEXT,
-                title           TEXT,
-                country         VARCHAR(2) DEFAULT 'BE'
-            );
-        """)
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_procurement_award_ent ON procurement_award(enterprise_number);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_procurement_award_date ON procurement_award(award_date DESC);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_procurement_award_vat ON procurement_award(supplier_vat);")
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS insolvency_case (
-                id                SERIAL PRIMARY KEY,
-                enterprise_number TEXT NOT NULL,
-                docket_number     TEXT UNIQUE,
-                case_type         TEXT,
-                court             TEXT,
-                opened_at         DATE,
-                closed_at         DATE,
-                status            TEXT,
-                curator_name      TEXT,
-                last_scraped_at   TIMESTAMPTZ DEFAULT NOW()
-            );
-        """)
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_insolvency_case_ent ON insolvency_case(enterprise_number);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_insolvency_case_opened ON insolvency_case(opened_at DESC);")
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS staatsblad_event (
-                id                SERIAL PRIMARY KEY,
-                enterprise_number TEXT NOT NULL,
-                reference         TEXT,
-                pub_date          DATE,
-                event_type        TEXT,
-                subject_name      TEXT,
-                raw_title         TEXT,
-                extracted_at      TIMESTAMPTZ DEFAULT NOW()
-            );
-        """)
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_staatsblad_event_ent ON staatsblad_event(enterprise_number, pub_date DESC);")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_staatsblad_event_type ON staatsblad_event(event_type);")
-
-        # 7a. platform_invoice — inbound invoice records from
-        #     invoice@datasnoop.be (ingested by scripts/invoice_ingest.py).
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS platform_invoice (
-                id              SERIAL PRIMARY KEY,
-                message_id      TEXT UNIQUE,
-                sender          TEXT,
-                subject         TEXT,
-                received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                invoice_date    DATE,
-                amount_cents    BIGINT,
-                currency        VARCHAR(3) DEFAULT 'EUR',
-                vendor          TEXT,
-                category        TEXT,
-                raw_body        TEXT,
-                attachment_path TEXT,
-                confirmed       BOOLEAN DEFAULT FALSE
-            );
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_platform_invoice_received
-            ON platform_invoice(received_at DESC);
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_platform_invoice_date
-            ON platform_invoice(invoice_date DESC);
-        """)
-
-        # 7. company_view_history — per-user "last visit" log, for the
-        #    "what changed since last visit" banner on company profiles.
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS company_view_history (
-                user_email         TEXT NOT NULL,
-                enterprise_number  VARCHAR(10) NOT NULL,
-                last_viewed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                prev_viewed_at     TIMESTAMPTZ,
-                PRIMARY KEY (user_email, enterprise_number)
-            );
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_company_view_history_user
-            ON company_view_history(user_email, last_viewed_at DESC);
-        """)
-
-        # 8. sector_percentiles — materialised view with percent_rank of
-        #    every company on rev/ebitda/margin/fte/fixed_assets within its
-        #    NACE-2 sector. Used by the screener rank pills and (future)
-        #    radar chart. Refresh happens at the end of the daily NBB
-        #    batch pipeline; initial build runs here on boot for a fresh
-        #    environment.
-        conn.commit()  # separate tx for the MV so partial failure doesn't roll back the indexes
-        cur.execute("SELECT to_regclass('public.sector_percentiles')")
-        if cur.fetchone()[0] is None:
-            logger.info("sector_percentiles MV missing — building (one-time, may take ~1 min on full DB)")
-            cur.execute("""
-                CREATE MATERIALIZED VIEW sector_percentiles AS
-                SELECT fl.enterprise_number,
-                       substr(ci.nace_code, 1, 2) AS nace2,
-                       percent_rank() OVER (
-                           PARTITION BY substr(ci.nace_code, 1, 2)
-                           ORDER BY fl.revenue NULLS FIRST
-                       )::real AS rev_rank,
-                       percent_rank() OVER (
-                           PARTITION BY substr(ci.nace_code, 1, 2)
-                           ORDER BY fl.ebitda NULLS FIRST
-                       )::real AS ebitda_rank,
-                       percent_rank() OVER (
-                           PARTITION BY substr(ci.nace_code, 1, 2)
-                           ORDER BY (CASE WHEN fl.revenue > 0
-                                          THEN fl.ebitda / fl.revenue END) NULLS FIRST
-                       )::real AS margin_rank,
-                       percent_rank() OVER (
-                           PARTITION BY substr(ci.nace_code, 1, 2)
-                           ORDER BY fl.fte_total NULLS FIRST
-                       )::real AS fte_rank,
-                       percent_rank() OVER (
-                           PARTITION BY substr(ci.nace_code, 1, 2)
-                           ORDER BY fl.fixed_assets NULLS FIRST
-                       )::real AS fixed_assets_rank,
-                       COUNT(*) OVER (PARTITION BY substr(ci.nace_code, 1, 2)) AS peer_count
-                FROM financial_latest fl
-                JOIN company_info ci ON ci.enterprise_number = fl.enterprise_number
-                WHERE ci.nace_code IS NOT NULL AND length(ci.nace_code) >= 2;
-            """)
-            cur.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS sector_percentiles_pkey
-                ON sector_percentiles(enterprise_number);
-            """)
-            cur.execute("""
-                CREATE INDEX IF NOT EXISTS idx_sector_percentiles_nace2
-                ON sector_percentiles(nace2);
-            """)
-        conn.commit()
-        cur.close()
-        _trgm_migrated = True
-        logger.info(
-            "pg_trgm setup complete: normalized %d company names, GIN index ensured",
-            normalized_count,
-        )
-    except Exception:
-        conn.rollback()
-        logger.exception("pg_trgm migration failed (non-fatal, will retry next startup)")
-    finally:
-        put_connection(conn)
+    _trgm_migrated = True
+    logger.info("Startup schema bootstrap skipped; schema is managed by migrations")
 
 
 # ---------------------------------------------------------------------------
-# Phase-22 schema additions
+# Phase-22 defaults
 # ---------------------------------------------------------------------------
-# These run UNCONDITIONALLY at startup, regardless of whether the search V2
-# migration has been applied. They were originally added inside
-# ``ensure_trgm_setup`` but the V2 detection in that function returns early,
-# which silently skipped every Phase-22 ALTER on prod environments where V2
-# was already in place. Pulling them into a separate function decouples
-# them from the trgm migration and makes the boot path explicit.
+# Schema DDL for these tables/columns moved to tracked migrations in Week-1b.
+# This function keeps the boot-time data seed that is still useful after the
+# migration has created invoice_vendor_pattern.
 
 _phase22_migrated = False
 
 
 def ensure_phase22_schema():
-    """Apply Phase-22 schema additions: traction columns on activity_log,
-    invoice_vendor_pattern + invoice_misclassification_log tables, deeper
-    columns on platform_invoice. Idempotent — safe to call on every
-    startup.
-    """
+    """Seed Phase-22 defaults after tracked migrations created the tables."""
     global _phase22_migrated
     if _phase22_migrated:
         return
-
-    conn = get_connection()
-    seed_pending = False
     try:
-        cur = conn.cursor()
+        from invoice_classifier import seed_default_patterns
 
-        # These tables may be absent in older/staging databases. Ensure
-        # them before ALTER/INDEX statements so one optional analytics or
-        # invoice table cannot abort the whole startup schema pass.
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS platform_invoice (
-                id              SERIAL PRIMARY KEY,
-                message_id      TEXT UNIQUE,
-                sender          TEXT,
-                subject         TEXT,
-                received_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                invoice_date    DATE,
-                amount_cents    BIGINT,
-                currency        VARCHAR(3) DEFAULT 'EUR',
-                vendor          TEXT,
-                category        TEXT,
-                raw_body        TEXT,
-                attachment_path TEXT,
-                confirmed       BOOLEAN DEFAULT FALSE
-            );
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS activity_log (
-                id              SERIAL PRIMARY KEY,
-                user_email      TEXT NOT NULL,
-                endpoint        TEXT NOT NULL,
-                method          TEXT,
-                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                session_id      TEXT,
-                ua_family       TEXT,
-                device_type     TEXT,
-                country_code    VARCHAR(2)
-            );
-        """)
-
-        # --- platform_invoice: parent/child taxonomy + classifier metadata ---
-        for stmt in (
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS parent_category TEXT",
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS child_category TEXT",
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS confidence REAL",
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS reason TEXT",
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS vendor_pattern_id INTEGER",
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS line_items JSONB",
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS classified_at TIMESTAMPTZ",
-            "ALTER TABLE platform_invoice ADD COLUMN IF NOT EXISTS classifier_model TEXT",
-        ):
-            cur.execute(stmt)
-
-        # --- invoice_vendor_pattern (operator-curated short-circuits) ---
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS invoice_vendor_pattern (
-                id              SERIAL PRIMARY KEY,
-                pattern         TEXT NOT NULL CHECK (length(pattern) BETWEEN 2 AND 200),
-                vendor_canonical TEXT,
-                parent_category TEXT NOT NULL,
-                child_category  TEXT,
-                priority        INTEGER NOT NULL DEFAULT 0,
-                created_by      TEXT,
-                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                last_used_at    TIMESTAMPTZ,
-                hit_count       INTEGER NOT NULL DEFAULT 0
-            );
-        """)
-        cur.execute("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conname = 'invoice_vendor_pattern_pattern_len'
-                ) THEN
-                    BEGIN
-                        ALTER TABLE invoice_vendor_pattern
-                            ADD CONSTRAINT invoice_vendor_pattern_pattern_len
-                            CHECK (length(pattern) BETWEEN 2 AND 200);
-                    EXCEPTION WHEN check_violation THEN
-                        NULL;
-                    END;
-                END IF;
-            END$$;
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_invoice_vendor_pattern_priority
-            ON invoice_vendor_pattern(priority DESC);
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_platform_invoice_classified
-            ON platform_invoice(classified_at DESC);
-        """)
-
-        # --- invoice_misclassification_log (operator correction trail) ---
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS invoice_misclassification_log (
-                id              SERIAL PRIMARY KEY,
-                invoice_id      INTEGER REFERENCES platform_invoice(id) ON DELETE CASCADE,
-                old_parent      TEXT,
-                old_child       TEXT,
-                new_parent      TEXT,
-                new_child       TEXT,
-                old_vendor      TEXT,
-                new_vendor      TEXT,
-                old_amount_cents BIGINT,
-                new_amount_cents BIGINT,
-                corrected_by    TEXT,
-                corrected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            );
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_invoice_misclass_invoice
-            ON invoice_misclassification_log(invoice_id);
-        """)
-
-        # --- activity_log: traction columns (sessions, UA bucket, country) ---
-        for stmt in (
-            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS session_id TEXT",
-            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS ua_family TEXT",
-            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS device_type TEXT",
-            "ALTER TABLE activity_log ADD COLUMN IF NOT EXISTS country_code VARCHAR(2)",
-        ):
-            cur.execute(stmt)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_activity_log_session
-            ON activity_log(session_id, created_at DESC)
-            WHERE session_id IS NOT NULL;
-        """)
-        cur.execute("""
-            CREATE INDEX IF NOT EXISTS idx_activity_log_ua_date
-            ON activity_log(ua_family, created_at DESC)
-            WHERE ua_family IS NOT NULL;
-        """)
-
-        conn.commit()
-        cur.close()
-        seed_pending = True
+        n = seed_default_patterns()
+        if n:
+            logger.info("Seeded %d invoice vendor patterns", n)
         _phase22_migrated = True
-        logger.info("Phase-22 schema ensured")
     except Exception:
-        conn.rollback()
-        logger.exception("Phase-22 schema migration failed (non-fatal)")
-    finally:
-        put_connection(conn)
-
-    # Post-commit: seed default vendor patterns (uses a fresh pooled
-    # connection, so the table must already be visible — i.e. the
-    # transaction above must have committed first).
-    if seed_pending:
-        try:
-            from invoice_classifier import seed_default_patterns
-            n = seed_default_patterns()
-            if n:
-                logger.info("Seeded %d invoice vendor patterns", n)
-        except Exception:
-            logger.exception("seed_default_patterns failed (non-fatal)")
+        logger.exception("Phase-22 seed defaults failed (non-fatal)")
 
 
 def normalize_name(name: str) -> str:

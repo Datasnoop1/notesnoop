@@ -91,7 +91,7 @@ def _get_filing_sync_state(cur, cbe: str, deposit_key: str) -> dict[str, int | b
             ) AS financials_loaded,
             COALESCE((
                 SELECT COUNT(*)
-                FROM administrator
+                FROM administrator_current
                 WHERE enterprise_number = %s
                   AND deposit_key = %s
             ), 0) AS admin_count
@@ -426,7 +426,12 @@ async def _do_load(
 
                 try:
                     governance_counts = store_governance_snapshot(
-                        conn, cbe, ref_number, filing_fiscal_year, filing_json,
+                        conn,
+                        cbe,
+                        ref_number,
+                        filing_fiscal_year,
+                        filing_json,
+                        deposit_date,
                     )
                     for key, value in governance_counts.items():
                         governance_loaded[key] += int(value or 0)
@@ -462,7 +467,6 @@ async def _do_load(
         logger.exception("Error loading financial data for %s", cbe)
         raise HTTPException(status_code=500, detail=f"Error loading data: {e}")
     finally:
-        from db import put_connection
         put_connection(conn)
 
     # Final flag: this CBE's recent filings are PDF-only.
@@ -494,7 +498,6 @@ async def _do_load(
                 conn2.commit()
                 cur2.close()
             finally:
-                from db import put_connection
                 put_connection(conn2)
         except Exception:
             logger.debug("Failed to stamp PDF_ONLY marker for %s", cbe, exc_info=True)

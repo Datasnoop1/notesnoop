@@ -133,7 +133,7 @@ async def changes_since(cbe: str, user=Depends(optional_user)):
         # for "new admin appeared" — not perfect but it's the only date column.
         admins = fetch_all(
             """SELECT DISTINCT name, role, mandate_start, identifier
-               FROM administrator
+               FROM administrator_current
                WHERE enterprise_number = %s
                  AND mandate_start IS NOT NULL
                  AND mandate_start > %s

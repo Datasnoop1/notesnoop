@@ -68,16 +68,7 @@ if not re.match(r"^https?://", PUBLIC_BASE_URL):
 
 
 def _ensure_log_table() -> None:
-    """Create user_digest_log if missing — runs once per invocation."""
-    execute(
-        """
-        CREATE TABLE IF NOT EXISTS user_digest_log (
-            user_email      TEXT PRIMARY KEY,
-            last_sent_at    TIMESTAMP NOT NULL DEFAULT NOW(),
-            event_count     INTEGER NOT NULL DEFAULT 0
-        )
-        """
-    )
+    """Compatibility shim for user_digest_log moved to tracked migrations."""
 
 
 def _users_with_favourites() -> list[str]:

@@ -100,6 +100,8 @@ fetch_one = _db.fetch_one
 fetch_all = _db.fetch_all
 execute = _db.execute
 store_governance_snapshot = _nbb_governance.store_governance_snapshot
+record_governance_load_success = _nbb_governance.record_governance_load_success
+record_governance_load_failure = _nbb_governance.record_governance_load_failure
 
 
 logging.basicConfig(
@@ -418,10 +420,16 @@ def _store_filing_once(conn, cbe: str, filing_json: dict, ref_meta: dict) -> int
             (cbe, deposit_key, len(rows)),
         )
         conn.commit()
+        # Financial rows are durable before governance extraction.
+        # The governance retry log owns its own short transaction.
         try:
-            store_governance_snapshot(conn, cbe, deposit_key, fiscal_year, filing_json)
+            governance_counts = store_governance_snapshot(
+                conn, cbe, deposit_key, fiscal_year, filing_json, deposit_date
+            )
+            record_governance_load_success(conn, cbe, deposit_key, governance_counts)
         except Exception as gov_err:
             log.warning("governance store failed for %s filing %s: %s", cbe, deposit_key, gov_err)
+            record_governance_load_failure(conn, cbe, deposit_key, gov_err)
         return len(rows)
     except Exception:
         try:

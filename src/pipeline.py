@@ -298,17 +298,20 @@ def rebuild_materialized_tables(conn):
     conn.commit()
 
     log("  Rebuilding financial_by_year ...")
-    conn.execute("DROP TABLE IF EXISTS financial_by_year")
+    conn.execute("TRUNCATE TABLE financial_by_year")
     conn.execute("""
-        CREATE TABLE financial_by_year AS
+        INSERT INTO financial_by_year (
+            enterprise_number, fiscal_year, filing_model,
+            revenue, ebit, da, ebitda, net_profit,
+            equity, lt_financial_debt, st_financial_debt, cash,
+            total_assets, fte_total, personnel_costs
+        )
         SELECT enterprise_number, fiscal_year, filing_model,
                revenue, ebit, da, ebitda, net_profit,
                equity, lt_financial_debt, st_financial_debt, cash,
                total_assets, fte_total, personnel_costs
         FROM financial_summary
     """)
-    conn.execute("CREATE INDEX idx_fby_ent  ON financial_by_year(enterprise_number)")
-    conn.execute("CREATE INDEX idx_fby_year ON financial_by_year(fiscal_year)")
     conn.commit()
 
     fl_count  = conn.execute("SELECT COUNT(*) FROM financial_latest").fetchone()[0]

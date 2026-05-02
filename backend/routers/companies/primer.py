@@ -76,7 +76,7 @@ def _gather(cbe: str) -> dict:
     )
     admins = fetch_all(
         """SELECT DISTINCT name, role
-           FROM administrator
+           FROM administrator_current
            WHERE enterprise_number = %s
            LIMIT 10""",
         (cbe,),

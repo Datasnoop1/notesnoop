@@ -5,9 +5,10 @@ from collections import OrderedDict
 from time import time as _time
 
 import httpx
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from db import fetch_all, fetch_one, get_conn, get_connection, put_connection
+from feature_flags import ownership_graph_read_enabled
 from utils import clean_cbe
 from ._helpers import (
     _serialize_row,
@@ -55,6 +56,100 @@ def _admin_extract_cache_record(cbe: str, count: int) -> None:
 
 
 _CHAIN_MAX_DEPTH = 3
+
+
+def _fetch_ownership_graph_structure(cbe: str) -> tuple[list[dict], list[dict], list[dict]]:
+    """Return shareholders, PIs, and parent companies from ownership_edge_current."""
+    shareholders = fetch_all("""
+        SELECT
+            COALESCE(p.canonical_name, owner_d.denomination, oe.parent_name_raw, oe.parent_id) AS name,
+            CASE
+                WHEN oe.parent_kind = 'company' THEN oe.parent_id
+                ELSE oe.parent_identifier_value
+            END AS identifier,
+            oe.pct AS ownership_pct,
+            CASE WHEN oe.parent_kind = 'person' THEN 'individual' ELSE 'entity' END AS shareholder_type,
+            NULL::real AS shares_held,
+            oe.fiscal_year,
+            oe.edge_kind AS ownership_source,
+            oe.parent_kind
+        FROM ownership_edge_current oe
+        LEFT JOIN person p
+          ON oe.parent_kind = 'person'
+         AND p.person_id::text = oe.parent_id
+        LEFT JOIN LATERAL (
+            SELECT d.denomination
+            FROM denomination d
+            WHERE d.entity_number = oe.parent_id
+              AND d.type_of_denomination = '001'
+              AND d.language IN ('2', '1')
+            ORDER BY CASE d.language WHEN '2' THEN 0 WHEN '1' THEN 1 ELSE 2 END
+            LIMIT 1
+        ) owner_d ON oe.parent_kind = 'company'
+        WHERE oe.child_kind = 'company'
+          AND oe.child_id = %s
+        ORDER BY oe.source_rank ASC,
+                 oe.pct DESC NULLS LAST,
+                 name NULLS LAST
+    """, (cbe,))
+
+    participating_interests = fetch_all("""
+        SELECT
+            COALESCE(child_d.denomination, oe.child_id) AS name,
+            oe.child_id AS identifier,
+            oe.pct AS ownership_pct,
+            'BE' AS country,
+            NULL::real AS equity_value,
+            NULL::real AS net_result,
+            oe.fiscal_year,
+            oe.edge_kind AS ownership_source
+        FROM ownership_edge_current oe
+        LEFT JOIN LATERAL (
+            SELECT d.denomination
+            FROM denomination d
+            WHERE d.entity_number = oe.child_id
+              AND d.type_of_denomination = '001'
+              AND d.language IN ('2', '1')
+            ORDER BY CASE d.language WHEN '2' THEN 0 WHEN '1' THEN 1 ELSE 2 END
+            LIMIT 1
+        ) child_d ON true
+        WHERE oe.parent_kind = 'company'
+          AND oe.parent_id = %s
+          AND oe.child_kind = 'company'
+          AND oe.child_id <> %s
+        ORDER BY oe.source_rank ASC,
+                 oe.pct DESC NULLS LAST,
+                 name NULLS LAST
+    """, (cbe, cbe))
+
+    parent_companies = fetch_all("""
+        SELECT
+            oe.parent_id AS enterprise_number,
+            oe.pct AS ownership_pct,
+            'BE' AS country,
+            oe.fiscal_year,
+            COALESCE(owner_d.denomination, oe.parent_name_raw, oe.parent_id) AS name,
+            oe.edge_kind AS ownership_source
+        FROM ownership_edge_current oe
+        LEFT JOIN LATERAL (
+            SELECT d.denomination
+            FROM denomination d
+            WHERE d.entity_number = oe.parent_id
+              AND d.type_of_denomination = '001'
+              AND d.language IN ('2', '1')
+            ORDER BY CASE d.language WHEN '2' THEN 0 WHEN '1' THEN 1 ELSE 2 END
+            LIMIT 1
+        ) owner_d ON true
+        WHERE oe.child_kind = 'company'
+          AND oe.child_id = %s
+          AND oe.parent_kind = 'company'
+          AND oe.parent_id <> %s
+        ORDER BY oe.source_rank ASC,
+                 oe.pct DESC NULLS LAST,
+                 name NULLS LAST
+    """, (cbe, cbe))
+
+    return shareholders, participating_interests, parent_companies
 
 
 def _build_representation_chains(
@@ -116,7 +211,7 @@ def _build_representation_chains(
             SELECT a.enterprise_number,
                    a.name, a.role, a.person_type, a.identifier,
                    a.mandate_start, a.mandate_end
-            FROM administrator a
+            FROM administrator_current a
             WHERE a.enterprise_number IN ({ph})
               AND a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
               AND (a.mandate_end IS NULL OR a.mandate_end >= %s)
@@ -147,7 +242,7 @@ def _build_representation_chains(
                    af.affiliation_type AS role,
                    'natural' AS person_type,
                    NULL AS identifier
-            FROM affiliation af
+            FROM affiliation_current af
             WHERE af.enterprise_number IN ({ph})
             ORDER BY af.enterprise_number, af.person_name,
                      af.last_seen_at DESC NULLS LAST
@@ -268,7 +363,7 @@ async def get_company_structure(cbe: str, response: Response):
             WITH latest AS (
                 SELECT a.deposit_key AS dk,
                        MAX(fs.deposit_date) AS deposit_date
-                FROM administrator a
+                FROM administrator_current a
                 LEFT JOIN financial_summary fs
                   ON fs.enterprise_number = a.enterprise_number
                  AND fs.deposit_key = a.deposit_key
@@ -283,7 +378,7 @@ async def get_company_structure(cbe: str, response: Response):
                    a.name, a.role, a.person_type, a.identifier,
                    a.mandate_start, a.mandate_end, a.representative_name,
                    a.fiscal_year, a.deposit_key, l.deposit_date
-            FROM administrator a
+            FROM administrator_current a
             JOIN latest l ON a.deposit_key = l.dk
             WHERE a.enterprise_number = %s
               AND a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
@@ -311,7 +406,7 @@ async def get_company_structure(cbe: str, response: Response):
         pis = fetch_all("""
             SELECT DISTINCT ON (name) name, identifier, ownership_pct, country,
                    equity_value, net_result, fiscal_year
-            FROM participating_interest
+            FROM participating_interest_current
             WHERE enterprise_number = %s
             ORDER BY name, deposit_key DESC
         """, (cbe,))
@@ -320,7 +415,7 @@ async def get_company_structure(cbe: str, response: Response):
         shareholders = fetch_all("""
             SELECT DISTINCT ON (name) name, identifier, ownership_pct,
                    shareholder_type, shares_held, fiscal_year
-            FROM shareholder
+            FROM shareholder_current
             WHERE enterprise_number = %s
             ORDER BY name, deposit_key DESC
         """, (cbe,))
@@ -343,13 +438,13 @@ async def get_company_structure(cbe: str, response: Response):
         parent_companies = fetch_all("""
             WITH relevant AS (
                 SELECT DISTINCT enterprise_number
-                FROM participating_interest
+                FROM participating_interest_current
                 WHERE identifier = %s
                   AND enterprise_number <> %s
             ),
             latest AS (
                 SELECT pi.enterprise_number, MAX(pi.fiscal_year) AS fy
-                FROM participating_interest pi
+                FROM participating_interest_current pi
                 JOIN relevant r ON r.enterprise_number = pi.enterprise_number
                 GROUP BY pi.enterprise_number
             )
@@ -359,7 +454,7 @@ async def get_company_structure(cbe: str, response: Response):
                    pi.country,
                    pi.fiscal_year,
                    COALESCE(d.denomination, pi.enterprise_number) AS name
-            FROM participating_interest pi
+            FROM participating_interest_current pi
             JOIN latest l ON l.enterprise_number = pi.enterprise_number
                          AND l.fy = pi.fiscal_year
             LEFT JOIN denomination d
@@ -370,6 +465,10 @@ async def get_company_structure(cbe: str, response: Response):
             ORDER BY pi.enterprise_number,
                      CASE d.language WHEN '2' THEN 0 WHEN '1' THEN 1 ELSE 2 END
         """, (cbe, cbe, cbe))
+        ownership_graph_enabled = ownership_graph_read_enabled()
+        if ownership_graph_enabled:
+            shareholders, pis, parent_companies = _fetch_ownership_graph_structure(cbe)
+
         sb_pubs = fetch_all(
             "SELECT pub_date, pub_type, reference, pdf_url FROM staatsblad_publication "
             "WHERE enterprise_number = %s ORDER BY pub_date DESC",
@@ -400,7 +499,7 @@ async def get_company_structure(cbe: str, response: Response):
                     af.fiscal_year,
                     af.affiliation_type,
                     af.last_seen_at
-                FROM affiliation af
+                FROM affiliation_current af
                 LEFT JOIN denomination via_d
                     ON via_d.entity_number = af.via_enterprise_number
                     AND via_d.type_of_denomination = '001' AND via_d.language IN ('2','1')
@@ -457,6 +556,49 @@ async def get_company_structure(cbe: str, response: Response):
         }
     except Exception as e:
         logger.exception("Company structure query failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{cbe}/ownership-graph")
+async def get_company_ownership_graph(
+    cbe: str,
+    max_depth: int = Query(6, ge=1, le=12),
+):
+    """Ownership graph read path, gated until production soak is complete."""
+    if not ownership_graph_read_enabled():
+        raise HTTPException(status_code=404, detail="Ownership graph is not enabled")
+
+    cbe = clean_cbe(cbe)
+    if not isinstance(max_depth, int):
+        max_depth = 6
+    try:
+        shareholders, participating_interests, parent_companies = _fetch_ownership_graph_structure(cbe)
+        ubo_walk = fetch_all("""
+            SELECT depth,
+                   parent_kind,
+                   parent_id,
+                   parent_name_raw,
+                   child_id,
+                   pct,
+                   edge_kind,
+                   source_rank,
+                   path,
+                   cycle
+            FROM ownership_ubo_walk(%s, %s)
+            ORDER BY depth ASC,
+                     source_rank ASC,
+                     pct DESC NULLS LAST,
+                     parent_name_raw NULLS LAST
+        """, (cbe, max_depth))
+        return {
+            "shareholders": [_serialize_row(r) for r in shareholders],
+            "participating_interests": [_serialize_row(r) for r in participating_interests],
+            "parent_companies": [_serialize_row(r) for r in parent_companies],
+            "ubo_walk": [_serialize_row(r) for r in ubo_walk],
+            "max_depth": max_depth,
+        }
+    except Exception:
+        logger.exception("Ownership graph query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -535,7 +677,7 @@ async def extract_admins_from_staatsblad(cbe: str):
 
     try:
         existing = fetch_one(
-            "SELECT COUNT(*) AS cnt FROM administrator WHERE enterprise_number = %s",
+            "SELECT COUNT(*) AS cnt FROM administrator_current WHERE enterprise_number = %s",
             (cbe,),
         )
         if existing and existing["cnt"] > 0:
@@ -579,10 +721,10 @@ async def extract_admins_from_staatsblad(cbe: str):
                         cur.execute("""
                             INSERT INTO administrator
                                 (enterprise_number, deposit_key, name, role,
-                                 mandate_start, person_type)
-                            VALUES (%s, %s, %s, %s, %s, %s)
+                                 mandate_start, person_type, valid_from)
+                            VALUES (%s, %s, %s, %s, %s, %s, NULLIF(%s, '')::date)
                             ON CONFLICT DO NOTHING
-                        """, (cbe, deposit_key, name, role, pub_date, person_type))
+                        """, (cbe, deposit_key, name, role, pub_date, person_type, pub_date))
                         if cur.rowcount > 0:
                             inserted += 1
                     except Exception:
@@ -591,11 +733,12 @@ async def extract_admins_from_staatsblad(cbe: str):
                     try:
                         cur.execute("""
                             UPDATE administrator
-                            SET mandate_end = %s
+                            SET mandate_end = %s,
+                                valid_to = (NULLIF(%s, '')::date + INTERVAL '1 day')::date
                             WHERE enterprise_number = %s
                               AND LOWER(name) = LOWER(%s)
                               AND mandate_end IS NULL
-                        """, (pub_date, cbe, name))
+                        """, (pub_date, pub_date, cbe, name))
                     except Exception:
                         pass
             conn.commit()

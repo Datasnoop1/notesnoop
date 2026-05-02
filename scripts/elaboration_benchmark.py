@@ -203,7 +203,7 @@ def fetch_admin_names(conn, cbe: str) -> list[str]:
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT DISTINCT name FROM administrator
+        SELECT DISTINCT name FROM administrator_current
          WHERE enterprise_number = %s
            AND (mandate_end IS NULL OR mandate_end > CURRENT_DATE)
          LIMIT 5

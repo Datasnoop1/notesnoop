@@ -909,6 +909,62 @@ export interface PersonProfile {
   affiliations?: PersonAffiliation[];
 }
 
+export interface PersonV1Record {
+  person_id: string;
+  canonical_name: string;
+  name_normalized: string | null;
+  primary_city: string | null;
+  primary_postcode: string | null;
+  role_count: number | null;
+  first_seen_date: string | null;
+  last_seen_date: string | null;
+  cluster_version: string | null;
+  status: "active" | "merged" | "tombstone";
+  merged_into: string | null;
+  created_at: string | null;
+}
+
+export interface PersonV1Link {
+  id: number;
+  source_table: "administrator" | "shareholder" | "staatsblad_event" | "affiliation" | string;
+  source_pk: string;
+  source_mention_seq: number;
+  source_field: string | null;
+  enterprise_number: string | null;
+  company_name: string | null;
+  name_as_written: string | null;
+  link_kind: "deterministic" | "probabilistic" | "manual" | string;
+  confidence: number;
+  confirmed_by_human: boolean | null;
+  cluster_version: string | null;
+}
+
+export interface PersonV1SourceCount {
+  source_table: string;
+  link_count: number;
+  min_confidence: number | null;
+  max_confidence: number | null;
+}
+
+export interface PersonV1MergeLog {
+  id: number;
+  op_kind: string;
+  primary_id: string;
+  secondary_id: string | null;
+  moved_link_ids: number[] | null;
+  op_at: string | null;
+  op_by: string | null;
+  reason: string | null;
+}
+
+export interface PersonV1Profile {
+  person: PersonV1Record;
+  links: PersonV1Link[];
+  source_counts: PersonV1SourceCount[];
+  merge_log: PersonV1MergeLog[];
+  public_url_enabled: boolean;
+}
+
 export const searchPeople = (q: string, signal?: AbortSignal) =>
   apiFetch<PersonResult[]>(
     `/api/people/search?q=${encodeURIComponent(q)}`,
@@ -919,6 +975,9 @@ export const getPersonConnections = (name: string) =>
   apiFetch<PersonProfile>(
     `/api/people/${encodeURIComponent(name)}/connections`
   );
+
+export const getPersonV1 = (id: string) =>
+  apiFetch<PersonV1Profile>(`/api/people/person/${encodeURIComponent(id)}`);
 
 // ── Favourites ─────────────────────────────────────────────
 export interface FavouriteItem {

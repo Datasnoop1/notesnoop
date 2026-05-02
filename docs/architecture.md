@@ -38,10 +38,10 @@ decisions, and gotchas that would otherwise need to be relearned.
 Three containers per environment: `backend`, `frontend`, `nginx`.
 Prod and staging run on the **same Hetzner VPS**
 in separate docker-compose projects (`leadpeek` vs `leadpeek-staging`).
-Prod shares the DB with staging — **there is no staging DB**; staging
-reads from the same Postgres that prod does. Implications: data loads
-on staging write to the prod DB. Destructive DB migrations tested on
-staging affect prod.
+Staging uses an independent `leadpeek_staging` Postgres database restored
+nightly from prod and scrubbed by `scripts/staging_scrub.sql` before the
+rename swap. Worker variants are behind the `test-workers` compose profile
+so they do not run during normal staging deploys.
 
 ---
 
@@ -121,7 +121,7 @@ assuming every admin-labelled surface is already aligned.
 ### Commands
 
 ```
-# Staging (port 8080, plain HTTP, same DB as prod)
+# Staging (port 8080, plain HTTP, independent scrubbed DB clone)
 ./scripts/deploy_staging.sh <SERVER_IP> <SSH_KEY_PATH>
 
 # Prod (port 443, Let's Encrypt)
@@ -143,6 +143,11 @@ assuming every admin-labelled surface is already aligned.
   rebuild (`--build`). Keep this file limited to non-sensitive build-time
   values such as `NEXT_PUBLIC_*`; runtime secrets belong in
   `.env.production`.
+- `/opt/leadpeek/.env.staging` — staging runtime env. It currently mirrors
+  production external-service values by operator decisions (2026-05-01 and
+  2026-05-02) but points `DATABASE_URL` at `leadpeek_staging` and sets
+  `STAGING_MODE=true`. Stripe/Supabase isolation remains deferred after
+  Bitemporal Phase A; see `docs/staging-isolation-evidence-2026-05-02.md`.
 - `/opt/leadpeek/.env.production` — **runtime env**. The backend +
   frontend containers read this via `env_file`. Changing values here
   requires **`docker compose up -d --force-recreate`**, not a plain
@@ -213,14 +218,14 @@ assuming every admin-labelled surface is already aligned.
    Management API or a support ticket.
 5. **`docker compose restart` doesn't re-read env_file.** Only
    `up -d --force-recreate` does.
-6. **Staging and prod share the same DB.** Any write via staging
-   hits prod's data. No isolation.
+6. **Staging has its own scrubbed DB clone.** The nightly snapshot restores
+   prod into `leadpeek_staging_next`, applies `scripts/staging_scrub.sql`,
+   then swaps it into `leadpeek_staging`. Stripe/Supabase isolation remains
+   intentionally deferred per operator decisions on 2026-05-01 and
+   2026-05-02.
 7. **`STAGING_MODE` env** gates a "staging admin-only" middleware.
-   If staging remains connected to the shared prod DB, it must be
-   treated as privileged/internal-only; do not rely on anonymous-public
-   staging for workflows that can mutate queue, enrichment, or billing
-   state. Admin routes are still gated at the router level via
-   `_require_admin`.
+   It is true in `.env.staging`; admin routes are still gated at the
+   router level via `_require_admin`.
 8. **Nginx `scrollbar-none` class** (Tailwind utility) hides the
    native scrollbar — if a table has `overflow-x-auto scrollbar-none`,
    mobile users have no visual cue that they can scroll. Drop
@@ -324,8 +329,9 @@ tier3_no_web|template>`. Priorities (`PRIORITY_TIER1..TEMPLATE`) live in
 `meta.enrichment_enabled=false` pauses. The `bulk_*` columns and
 `company_embedding` are additive — no destructive migration.
 
-**Warning: staging and prod share the same DB. Never run queue-destructive
-commands from a staging shell.**
+**Staging safety:** staging workers are behind the `test-workers` compose
+profile, and queue/user/API/business-state tables are scrubbed from the
+nightly `leadpeek_staging` clone before it becomes live.
 
 If you need to restart the queue from zero, truncate it only from the
 production backend context:

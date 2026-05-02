@@ -4,9 +4,8 @@ Responsibilities:
   - Compute a stable content hash over everything that should invalidate a
     cached ranking (target financials, target insights, the retrieved
     candidate set, the focus parameter, the prompt version, and the model).
-  - Lazily ensure the ai_similar_cache table and its auxiliary columns and
-    index exist. This mirrors the inline-migration pattern already used
-    elsewhere in backend/ (see embeddings.ensure_embedding_table).
+  - Provide a compatibility schema hook for callers while the actual
+    ai_similar_cache schema is managed by tracked migrations.
 
 The primary key stays ``enterprise_number`` for backwards compatibility —
 the content hash is a lookup predicate, not a key. One row per CBE is
@@ -17,57 +16,20 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
-
-from db import get_connection, put_connection
-
-logger = logging.getLogger(__name__)
-
 _schema_ensured = False
 
 
 def ensure_similar_cache_schema() -> None:
-    """Create / upgrade the ai_similar_cache table. Idempotent.
+    """Compatibility shim for the old ai_similar_cache runtime DDL.
 
-    Safe to call on every request — the guard flag makes subsequent calls
-    within the same process no-ops. Schema changes are additive and use
-    IF NOT EXISTS so this can run ahead of an out-of-band migration too.
+    Runtime DDL moved to tracked migrations in Week-1b. Safe to call on every
+    request; the guard flag makes subsequent calls within the same process
+    no-ops.
     """
     global _schema_ensured
     if _schema_ensured:
         return
-    conn = get_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS ai_similar_cache (
-                enterprise_number VARCHAR(10) PRIMARY KEY,
-                ranked_cbes TEXT,
-                reasons TEXT,
-                generated_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
-        cur.execute("ALTER TABLE ai_similar_cache ADD COLUMN IF NOT EXISTS content_hash TEXT")
-        cur.execute(
-            "ALTER TABLE ai_similar_cache "
-            "ADD COLUMN IF NOT EXISTS focus TEXT NOT NULL DEFAULT 'activity'"
-        )
-        cur.execute("ALTER TABLE ai_similar_cache ADD COLUMN IF NOT EXISTS match_scores TEXT")
-        cur.execute("ALTER TABLE ai_similar_cache ADD COLUMN IF NOT EXISTS provenance TEXT")
-        cur.execute("ALTER TABLE ai_similar_cache ADD COLUMN IF NOT EXISTS signals TEXT")
-        cur.execute("ALTER TABLE ai_similar_cache ADD COLUMN IF NOT EXISTS model_used TEXT")
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS ai_similar_cache_hash_idx "
-            "ON ai_similar_cache (enterprise_number, focus, content_hash)"
-        )
-        conn.commit()
-        cur.close()
-        _schema_ensured = True
-    except Exception:
-        conn.rollback()
-        logger.exception("Failed to ensure ai_similar_cache schema (will retry next call)")
-    finally:
-        put_connection(conn)
+    _schema_ensured = True
 
 
 def compute_content_hash(

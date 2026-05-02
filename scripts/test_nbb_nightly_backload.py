@@ -46,6 +46,8 @@ def _load_backload_module():
 
     nbb_governance = types.ModuleType("nbb_governance")
     nbb_governance.store_governance_snapshot = lambda *_args, **_kwargs: {}
+    nbb_governance.record_governance_load_success = lambda *_args, **_kwargs: None
+    nbb_governance.record_governance_load_failure = lambda *_args, **_kwargs: None
     sys.modules["nbb_governance"] = nbb_governance
 
     spec = importlib.util.spec_from_file_location("nbb_nightly_backload", TARGET)

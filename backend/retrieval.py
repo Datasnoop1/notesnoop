@@ -356,7 +356,7 @@ def _build_group_profiles(rows_by_cbe: dict[str, dict]) -> dict[str, dict]:
         shareholder_rows = fetch_all(
             f"""
             SELECT enterprise_number, identifier, name, ownership_pct, shareholder_type
-            FROM shareholder
+            FROM shareholder_current
             WHERE enterprise_number IN ({placeholders})
               AND COALESCE(shareholder_type, 'entity') <> 'individual'
             """,
@@ -388,7 +388,7 @@ def _build_group_profiles(rows_by_cbe: dict[str, dict]) -> dict[str, dict]:
         subsidiary_rows = fetch_all(
             f"""
             SELECT enterprise_number, identifier, name, ownership_pct
-            FROM participating_interest
+            FROM participating_interest_current
             WHERE enterprise_number IN ({placeholders})
             """,
             tuple(cbes),

@@ -1,20 +1,16 @@
-"""Phase 5.0 — unified-summary schema migration.
+"""Phase 5.0 — unified-summary backfill helper.
 
-Additive only. Reversible. Idempotent.
-
-Adds 6 columns + 1 check constraint + 1 index to `company_enrichment`,
-plus a small `try_parse_jsonb()` helper function. Backfills `unified_summary`
-from existing `ai_insights` (preferred) or `bulk_summary` (fallback) in
-batches.
+The Phase 5.0 schema is now owned by tracked migrations. This script remains
+as the data backfill and verification helper for `company_enrichment`.
 
 Run inside the enrichment-worker container so DATABASE_URL is in env.
 
 Usage:
-    python /app/scripts/migrate_phase_5_0.py --phase schema   # add columns/index/fn
+    python /app/scripts/migrate_phase_5_0.py --phase schema   # verify schema
     python /app/scripts/migrate_phase_5_0.py --phase backfill --limit 1000   # smoke
     python /app/scripts/migrate_phase_5_0.py --phase backfill   # full
     python /app/scripts/migrate_phase_5_0.py --phase verify    # post-checks
-    python /app/scripts/migrate_phase_5_0.py --phase rollback   # drop the additions
+    python /app/scripts/migrate_phase_5_0.py --phase rollback   # disabled; schema is migration-owned
 """
 from __future__ import annotations
 
@@ -25,74 +21,20 @@ import time
 from typing import Iterable
 
 import psycopg2
-from psycopg2 import sql
 
-
-SCHEMA_STATEMENTS: list[tuple[str, str]] = [
-    (
-        "add unified_summary column",
-        "ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS unified_summary JSONB",
-    ),
-    (
-        "add quality_tier column",
-        "ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS quality_tier TEXT",
-    ),
-    (
-        "add quality_tier_at column",
-        "ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS quality_tier_at TIMESTAMPTZ",
-    ),
-    (
-        "add model_chain column",
-        "ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS model_chain JSONB",
-    ),
-    (
-        "add bulk_website_text column",
-        "ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS bulk_website_text TEXT",
-    ),
-    (
-        "add bulk_website_text_at column",
-        "ALTER TABLE company_enrichment ADD COLUMN IF NOT EXISTS bulk_website_text_at TIMESTAMPTZ",
-    ),
-]
 
 CONSTRAINT_NAME = "enrichment_quality_tier_check"
+INDEX_NAME = "idx_enrichment_quality_tier"
+FUNCTION_NAME = "try_parse_jsonb"
 
-CHECK_CONSTRAINT_SQL = """
-ALTER TABLE company_enrichment
-ADD CONSTRAINT enrichment_quality_tier_check
-CHECK (quality_tier IS NULL OR quality_tier IN
-  ('bulk_only', 'bulk_escalated', 'narrative_lite', 'narrative_full'))
-"""
-
-INDEX_SQL = """
-CREATE INDEX IF NOT EXISTS idx_enrichment_quality_tier
-ON company_enrichment (quality_tier, quality_tier_at)
-"""
-
-TRY_PARSE_FN_SQL = """
-CREATE OR REPLACE FUNCTION try_parse_jsonb(t text) RETURNS jsonb AS $$
-BEGIN
-  RETURN t::jsonb;
-EXCEPTION WHEN others THEN
-  RETURN NULL;
-END;
-$$ LANGUAGE plpgsql IMMUTABLE
-"""
-
-ROLLBACK_STATEMENTS: list[tuple[str, str]] = [
-    ("drop index", "DROP INDEX IF EXISTS idx_enrichment_quality_tier"),
-    (
-        "drop check constraint",
-        "ALTER TABLE company_enrichment DROP CONSTRAINT IF EXISTS enrichment_quality_tier_check",
-    ),
-    ("drop bulk_website_text_at", "ALTER TABLE company_enrichment DROP COLUMN IF EXISTS bulk_website_text_at"),
-    ("drop bulk_website_text", "ALTER TABLE company_enrichment DROP COLUMN IF EXISTS bulk_website_text"),
-    ("drop model_chain", "ALTER TABLE company_enrichment DROP COLUMN IF EXISTS model_chain"),
-    ("drop quality_tier_at", "ALTER TABLE company_enrichment DROP COLUMN IF EXISTS quality_tier_at"),
-    ("drop quality_tier", "ALTER TABLE company_enrichment DROP COLUMN IF EXISTS quality_tier"),
-    ("drop unified_summary", "ALTER TABLE company_enrichment DROP COLUMN IF EXISTS unified_summary"),
-    ("drop try_parse_jsonb", "DROP FUNCTION IF EXISTS try_parse_jsonb(text)"),
-]
+REQUIRED_COLUMNS = {
+    "unified_summary",
+    "quality_tier",
+    "quality_tier_at",
+    "model_chain",
+    "bulk_website_text",
+    "bulk_website_text_at",
+}
 
 
 def get_conn():
@@ -121,24 +63,46 @@ def constraint_exists(cur, name: str) -> bool:
 
 
 def phase_schema() -> None:
-    print("\n=== schema additions ===", flush=True)
+    print("\n=== schema verification ===", flush=True)
     conn = get_conn()
-    conn.autocommit = False
     try:
         with conn.cursor() as cur:
-            for label, stmt in SCHEMA_STATEMENTS:
-                run_statement(cur, label, stmt)
-            if constraint_exists(cur, CONSTRAINT_NAME):
-                print(f"  add quality_tier check constraint: skipped (already exists)", flush=True)
-            else:
-                run_statement(cur, "add quality_tier check constraint", CHECK_CONSTRAINT_SQL)
-            run_statement(cur, "create idx_enrichment_quality_tier", INDEX_SQL)
-            run_statement(cur, "create try_parse_jsonb fn", TRY_PARSE_FN_SQL)
-        conn.commit()
-        print("schema: committed", flush=True)
-    except Exception as e:
-        conn.rollback()
-        sys.exit(f"schema: rolled back: {e!r}")
+            cur.execute(
+                """
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'company_enrichment'
+                """
+            )
+            present_columns = {row[0] for row in cur.fetchall()}
+            missing_columns = sorted(REQUIRED_COLUMNS - present_columns)
+            if missing_columns:
+                sys.exit(f"schema: missing columns: {', '.join(missing_columns)}")
+            print("  required columns: ok", flush=True)
+
+            if not constraint_exists(cur, CONSTRAINT_NAME):
+                sys.exit(f"schema: missing constraint: {CONSTRAINT_NAME}")
+            print("  quality_tier check constraint: ok", flush=True)
+
+            cur.execute(
+                """
+                SELECT 1
+                  FROM pg_indexes
+                 WHERE schemaname = 'public'
+                   AND tablename = 'company_enrichment'
+                   AND indexname = %s
+                """,
+                (INDEX_NAME,),
+            )
+            if cur.fetchone() is None:
+                sys.exit(f"schema: missing index: {INDEX_NAME}")
+            print("  quality_tier index: ok", flush=True)
+
+            cur.execute("SELECT to_regprocedure(%s)", (f"{FUNCTION_NAME}(text)",))
+            if cur.fetchone()[0] is None:
+                sys.exit(f"schema: missing function: {FUNCTION_NAME}(text)")
+            print("  try_parse_jsonb(text): ok", flush=True)
     finally:
         conn.close()
 
@@ -293,20 +257,7 @@ def phase_verify() -> None:
 
 
 def phase_rollback() -> None:
-    print("\n=== rollback (drop everything Phase 5.0 added) ===", flush=True)
-    conn = get_conn()
-    conn.autocommit = False
-    try:
-        with conn.cursor() as cur:
-            for label, stmt in ROLLBACK_STATEMENTS:
-                run_statement(cur, label, stmt)
-        conn.commit()
-        print("rollback: committed", flush=True)
-    except Exception as e:
-        conn.rollback()
-        sys.exit(f"rollback: rolled back: {e!r}")
-    finally:
-        conn.close()
+    sys.exit("rollback disabled: Phase 5.0 schema is owned by tracked migrations")
 
 
 def main() -> int:

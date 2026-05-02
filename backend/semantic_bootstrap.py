@@ -37,18 +37,6 @@ _REQUIRED_ENV_VARS = (
     "ENRICHMENT_ADMIN_PASSWORD",
 )
 
-_SEMANTIC_COLUMNS = (
-    ("website_summary", "TEXT"),
-    ("linkedin_summary", "TEXT"),
-    ("website_url", "TEXT"),
-    ("ai_insights", "TEXT"),
-    ("bulk_summary", "JSONB"),
-    ("bulk_summary_at", "TIMESTAMPTZ"),
-    ("bulk_website_hash", "TEXT"),
-    ("bulk_website_url", "TEXT"),
-    ("bulk_confidence", "TEXT"),
-)
-
 _SKIPLIST_SEEDS = (
     ("pappers.be", "domain", "seed: KBO aggregator"),
     ("bsearch.be", "domain", "seed: business directory"),
@@ -116,37 +104,10 @@ def _parse_iso(ts: str | None) -> datetime | None:
 
 
 def ensure_company_enrichment_table() -> None:
-    """Ensure the semantic columns exist on `company_enrichment`.
-
-    The on-profile enrichment routes also create this table lazily. We
-    duplicate the minimal DDL here so the bulk semantic pipeline can be
-    bootstrapped independently from profile traffic.
-    """
-    execute(
-        """
-        CREATE TABLE IF NOT EXISTS company_enrichment (
-            enterprise_number VARCHAR(10) PRIMARY KEY,
-            summary TEXT,
-            generated_at TIMESTAMP DEFAULT NOW()
-        )
-        """
-    )
-    for column, typ in _SEMANTIC_COLUMNS:
-        execute(
-            f"ALTER TABLE company_enrichment "
-            f"ADD COLUMN IF NOT EXISTS {column} {typ}"
-        )
+    """Compatibility shim for enrichment schema moved to migrations."""
 
 
 def ensure_meta_defaults() -> None:
-    execute(
-        """
-        CREATE TABLE IF NOT EXISTS meta (
-            variable TEXT PRIMARY KEY,
-            value TEXT
-        )
-        """
-    )
     if meta_flag("enrichment_enabled") is None:
         set_meta_flag("enrichment_enabled", "true")
     if meta_flag("enrichment_daily_budget") is None:
@@ -154,19 +115,6 @@ def ensure_meta_defaults() -> None:
 
 
 def ensure_aggregator_skiplist() -> None:
-    execute(
-        """
-        CREATE TABLE IF NOT EXISTS aggregator_skiplist (
-            id          SERIAL PRIMARY KEY,
-            pattern     TEXT NOT NULL,
-            kind        TEXT NOT NULL DEFAULT 'domain',
-            reason      TEXT,
-            added_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            added_by    TEXT,
-            UNIQUE (pattern, kind)
-        )
-        """
-    )
     for pattern, kind, reason in _SKIPLIST_SEEDS:
         execute(
             """

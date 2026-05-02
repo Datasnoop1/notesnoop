@@ -16,6 +16,8 @@
 #   - open_data_staatsblad_events.py at 04:30
 #   - open_data_regsol.py at 03:30 (batch 200)
 #   - alert_digest.py weekly Mondays 07:00
+#   - person_resolver.py daily at 07:30
+#   - retry_failed_governance.py daily at 07:45
 #
 # NOTE: the NBB historical backload now runs as the `nbb-backload-worker`
 # compose service (continuously), not as a cron entry. See
@@ -36,6 +38,7 @@ FILTERED=$(echo "$CURRENT" | awk '
   /^# DATASNOOP-MANAGED-END$/ { skip=0; next }
   /\/opt\/leadpeek\/scripts\/daily_update\.sh/ { next }
   /backfill_affiliation\.py/ { next }
+  /retry_failed_governance\.py/ { next }
   # Strip pre-2026-04-27 backload cron entries — replaced by the long-running
   # `nbb-backload-worker` compose service. Keeping the filter idempotent so
   # operators can re-run install_crons.sh on a host with the legacy crons.
@@ -79,12 +82,20 @@ NEW_BLOCK=$(cat <<'EOF'
 30 5 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/generate_valuation_commentary.py --max-calls 50 >> /opt/leadpeek/scripts/_watchdog_state/valuation_commentary.log 2>&1
 # Weekly favourites digest
 0 7 * * MON cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/alert_digest.py --send >> /opt/leadpeek/scripts/_watchdog_state/digest.log 2>&1
+# Person v1 deterministic resolver - internal-only profile clusters.
+30 7 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/person_resolver.py --incremental >> /var/log/person_resolver.log 2>&1
+# NBB governance durability retry - repairs filings logged after financial load.
+45 7 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/retry_failed_governance.py --limit 200 >> /opt/leadpeek/scripts/_watchdog_state/governance_retry.log 2>&1
 # Nightly automated-process health report — emails t.braet@gmail.com at 06:00 UTC
 # with a per-job GREEN/RED status + Claude-ready prompts for any red items.
 0 6 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/nightly_health_report.py --send >> /opt/leadpeek/scripts/_watchdog_state/health_report.log 2>&1
 # Search V2 popularity refresh — click-count ranking signal from activity_log.
 # Runs at 03:15 UTC (off-peak, after daily KBO updates finish).
 15 3 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/refresh_popularity.py --lookback-days 28 >> /opt/leadpeek/scripts/_watchdog_state/refresh_popularity.log 2>&1
+# Monthly restore drill - validates the latest physical backup payload and
+# restores a schema-only dump into a scratch DB. Runs first Sunday at 02:20 UTC,
+# after the 02:00 staging snapshot window.
+20 2 1-7 * SUN bash /opt/leadpeek/scripts/monthly_restore_drill.sh --run >> /opt/leadpeek/scripts/_watchdog_state/restore_drill.log 2>&1
 # Supabase keepalive — daily ping to prevent free-tier auto-pause.
 # Supabase pauses inactive free-tier projects after 7 days. DataSnoop only
 # uses Supabase for auth (DB is on Hetzner), so live users do not generate
