@@ -273,6 +273,8 @@ def process_daily_extract(target_date: str, dry_run: bool = False) -> dict:
                     )
                     conn.commit()
 
+                    # Financial rows are durable before governance extraction.
+                    # The governance retry log owns its own short transaction.
                     try:
                         governance_counts = store_governance_snapshot(
                             conn, cbe, deposit_key, fiscal_year, filing_json

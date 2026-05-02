@@ -420,6 +420,8 @@ def _store_filing_once(conn, cbe: str, filing_json: dict, ref_meta: dict) -> int
             (cbe, deposit_key, len(rows)),
         )
         conn.commit()
+        # Financial rows are durable before governance extraction.
+        # The governance retry log owns its own short transaction.
         try:
             governance_counts = store_governance_snapshot(
                 conn, cbe, deposit_key, fiscal_year, filing_json

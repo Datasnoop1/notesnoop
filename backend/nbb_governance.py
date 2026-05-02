@@ -737,7 +737,11 @@ def record_governance_load_success(
     deposit_key: str,
     counts: dict[str, int],
 ) -> None:
-    """Mark one filing's governance extraction durable and successful."""
+    """Mark one filing's governance extraction durable and successful.
+
+    Callers invoke this after the financial load has committed. This helper
+    owns a short log transaction so retry state is not lost later in the loop.
+    """
     cur = conn.cursor()
     try:
         if not _governance_load_log_table_exists(cur):
@@ -773,7 +777,11 @@ def record_governance_load_failure(
     deposit_key: str,
     error: Exception | str,
 ) -> None:
-    """Persist one failed governance extraction for retry."""
+    """Persist one failed governance extraction for retry.
+
+    Callers invoke this after the financial load has committed. This helper
+    owns a short log transaction so retry state is not lost later in the loop.
+    """
     cur = conn.cursor()
     try:
         if not _governance_load_log_table_exists(cur):
