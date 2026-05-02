@@ -21,3 +21,7 @@ def env_flag_enabled(name: str, default: bool = False) -> bool:
 
 def person_public_url_enabled() -> bool:
     return env_flag_enabled("PERSON_PUBLIC_URL_ENABLED", False)
+
+
+def ownership_graph_read_enabled() -> bool:
+    return env_flag_enabled("OWNERSHIP_GRAPH_READ_ENABLED", False)

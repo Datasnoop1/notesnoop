@@ -545,8 +545,42 @@ rationale.
 
 ## Phase Weeks-11-14 — Ownership graph (pure SQL)
 
-(Format placeholder. Note: `OWNERSHIP_GRAPH_READ_ENABLED` flag gates
-the frontend cutover; default OFF until soak.)
+- **Status**: Green — closed 2026-05-02; read cutover remains gated
+  OFF pending soak.
+- **Preconditions**:
+  - Week-0 through Person v1 internal-only phases are green on
+    `docs/architecture-r25`.
+  - Apache AGE remains excluded; this phase is Postgres SQL plus thin
+    application read gating only.
+  - `OWNERSHIP_GRAPH_READ_ENABLED` defaults OFF in every environment
+    until the graph has soaked.
+- **Files**: `migrations/2026-05-02_ownership_graph.sql`;
+  `src/schema.sql`; `backend/ownership_id.py`;
+  `backend/nbb_governance.py`; `scripts/ownership_edge_etl.py`;
+  `backend/feature_flags.py`; `backend/routers/companies/structure.py`;
+  focused tests and evidence docs.
+- **Commands**:
+  ```bash
+  python scripts/migrate.py up --target=staging
+  python scripts/ownership_edge_etl.py --database-url "$STAGING_DATABASE_URL"
+  pytest backend/tests/test_ownership_id.py backend/tests/test_ownership_graph_sql.py
+  python scripts/migrate.py up --target=prod
+  docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/ownership_edge_etl.py
+  ```
+- **Postconditions**:
+  - `ownership_edge` exists with parent-kind CHECK enforcement for
+    `company`, `person`, `external_org`, and `unknown`.
+  - `ownership_edge_current`, `ownership_edge_as_of(date)`, and the
+    recursive UBO SQL helper are present and handle NULL `valid_from`
+    using the r25 convention.
+  - Historical NBB shareholder, NBB participating-interest, and relevant
+    Staatsblad ownership events have loaded idempotently.
+  - New NBB governance writes dual-write ownership edges when the table
+    exists.
+  - Read cutover is gated by `OWNERSHIP_GRAPH_READ_ENABLED`; default OFF
+    preserves the legacy structure/network UI until soak.
+- **Approval gate**: Y — production schema migration + historical graph
+  load mutate prod; review must be green before the prod tail step.
 
 ## Phase Weeks-15-22 — Bitemporal append-only fact tables
 

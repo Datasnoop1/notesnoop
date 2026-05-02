@@ -5,9 +5,10 @@ from collections import OrderedDict
 from time import time as _time
 
 import httpx
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from db import fetch_all, fetch_one, get_conn, get_connection, put_connection
+from feature_flags import ownership_graph_read_enabled
 from utils import clean_cbe
 from ._helpers import (
     _serialize_row,
@@ -55,6 +56,100 @@ def _admin_extract_cache_record(cbe: str, count: int) -> None:
 
 
 _CHAIN_MAX_DEPTH = 3
+
+
+def _fetch_ownership_graph_structure(cbe: str) -> tuple[list[dict], list[dict], list[dict]]:
+    """Return shareholders, PIs, and parent companies from ownership_edge_current."""
+    shareholders = fetch_all("""
+        SELECT
+            COALESCE(p.canonical_name, owner_d.denomination, oe.parent_name_raw, oe.parent_id) AS name,
+            CASE
+                WHEN oe.parent_kind = 'company' THEN oe.parent_id
+                ELSE oe.parent_identifier_value
+            END AS identifier,
+            oe.pct AS ownership_pct,
+            CASE WHEN oe.parent_kind = 'person' THEN 'individual' ELSE 'entity' END AS shareholder_type,
+            NULL::real AS shares_held,
+            oe.fiscal_year,
+            oe.edge_kind AS ownership_source,
+            oe.parent_kind
+        FROM ownership_edge_current oe
+        LEFT JOIN person p
+          ON oe.parent_kind = 'person'
+         AND p.person_id::text = oe.parent_id
+        LEFT JOIN LATERAL (
+            SELECT d.denomination
+            FROM denomination d
+            WHERE d.entity_number = oe.parent_id
+              AND d.type_of_denomination = '001'
+              AND d.language IN ('2', '1')
+            ORDER BY CASE d.language WHEN '2' THEN 0 WHEN '1' THEN 1 ELSE 2 END
+            LIMIT 1
+        ) owner_d ON oe.parent_kind = 'company'
+        WHERE oe.child_kind = 'company'
+          AND oe.child_id = %s
+        ORDER BY oe.source_rank ASC,
+                 oe.pct DESC NULLS LAST,
+                 name NULLS LAST
+    """, (cbe,))
+
+    participating_interests = fetch_all("""
+        SELECT
+            COALESCE(child_d.denomination, oe.child_id) AS name,
+            oe.child_id AS identifier,
+            oe.pct AS ownership_pct,
+            'BE' AS country,
+            NULL::real AS equity_value,
+            NULL::real AS net_result,
+            oe.fiscal_year,
+            oe.edge_kind AS ownership_source
+        FROM ownership_edge_current oe
+        LEFT JOIN LATERAL (
+            SELECT d.denomination
+            FROM denomination d
+            WHERE d.entity_number = oe.child_id
+              AND d.type_of_denomination = '001'
+              AND d.language IN ('2', '1')
+            ORDER BY CASE d.language WHEN '2' THEN 0 WHEN '1' THEN 1 ELSE 2 END
+            LIMIT 1
+        ) child_d ON true
+        WHERE oe.parent_kind = 'company'
+          AND oe.parent_id = %s
+          AND oe.child_kind = 'company'
+          AND oe.child_id <> %s
+        ORDER BY oe.source_rank ASC,
+                 oe.pct DESC NULLS LAST,
+                 name NULLS LAST
+    """, (cbe, cbe))
+
+    parent_companies = fetch_all("""
+        SELECT
+            oe.parent_id AS enterprise_number,
+            oe.pct AS ownership_pct,
+            'BE' AS country,
+            oe.fiscal_year,
+            COALESCE(owner_d.denomination, oe.parent_name_raw, oe.parent_id) AS name,
+            oe.edge_kind AS ownership_source
+        FROM ownership_edge_current oe
+        LEFT JOIN LATERAL (
+            SELECT d.denomination
+            FROM denomination d
+            WHERE d.entity_number = oe.parent_id
+              AND d.type_of_denomination = '001'
+              AND d.language IN ('2', '1')
+            ORDER BY CASE d.language WHEN '2' THEN 0 WHEN '1' THEN 1 ELSE 2 END
+            LIMIT 1
+        ) owner_d ON true
+        WHERE oe.child_kind = 'company'
+          AND oe.child_id = %s
+          AND oe.parent_kind = 'company'
+          AND oe.parent_id <> %s
+        ORDER BY oe.source_rank ASC,
+                 oe.pct DESC NULLS LAST,
+                 name NULLS LAST
+    """, (cbe, cbe))
+
+    return shareholders, participating_interests, parent_companies
 
 
 def _build_representation_chains(
@@ -370,6 +465,10 @@ async def get_company_structure(cbe: str, response: Response):
             ORDER BY pi.enterprise_number,
                      CASE d.language WHEN '2' THEN 0 WHEN '1' THEN 1 ELSE 2 END
         """, (cbe, cbe, cbe))
+        ownership_graph_enabled = ownership_graph_read_enabled()
+        if ownership_graph_enabled:
+            shareholders, pis, parent_companies = _fetch_ownership_graph_structure(cbe)
+
         sb_pubs = fetch_all(
             "SELECT pub_date, pub_type, reference, pdf_url FROM staatsblad_publication "
             "WHERE enterprise_number = %s ORDER BY pub_date DESC",
@@ -457,6 +556,49 @@ async def get_company_structure(cbe: str, response: Response):
         }
     except Exception as e:
         logger.exception("Company structure query failed")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/{cbe}/ownership-graph")
+async def get_company_ownership_graph(
+    cbe: str,
+    max_depth: int = Query(6, ge=1, le=12),
+):
+    """Ownership graph read path, gated until production soak is complete."""
+    if not ownership_graph_read_enabled():
+        raise HTTPException(status_code=404, detail="Ownership graph is not enabled")
+
+    cbe = clean_cbe(cbe)
+    if not isinstance(max_depth, int):
+        max_depth = 6
+    try:
+        shareholders, participating_interests, parent_companies = _fetch_ownership_graph_structure(cbe)
+        ubo_walk = fetch_all("""
+            SELECT depth,
+                   parent_kind,
+                   parent_id,
+                   parent_name_raw,
+                   child_id,
+                   pct,
+                   edge_kind,
+                   source_rank,
+                   path,
+                   cycle
+            FROM ownership_ubo_walk(%s, %s)
+            ORDER BY depth ASC,
+                     source_rank ASC,
+                     pct DESC NULLS LAST,
+                     parent_name_raw NULLS LAST
+        """, (cbe, max_depth))
+        return {
+            "shareholders": [_serialize_row(r) for r in shareholders],
+            "participating_interests": [_serialize_row(r) for r in participating_interests],
+            "parent_companies": [_serialize_row(r) for r in parent_companies],
+            "ubo_walk": [_serialize_row(r) for r in ubo_walk],
+            "max_depth": max_depth,
+        }
+    except Exception:
+        logger.exception("Ownership graph query failed")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
