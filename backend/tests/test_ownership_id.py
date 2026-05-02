@@ -1,11 +1,15 @@
+import os
 import sys
 from pathlib import Path
 
 
+os.environ.setdefault("SUPABASE_HS256_FALLBACK", "1")
+os.environ.setdefault("ACTIVITY_LOG_IP_SALT", "test-salt")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import feature_flags  # noqa: E402
+from routers.companies import structure  # noqa: E402
 from ownership_id import (  # noqa: E402
     classify_nbb_owner,
     clean_cbe,
@@ -68,3 +72,23 @@ def test_classify_name_only_owner_uses_unknown_parent():
     assert parent.parent_kind == "unknown"
     assert parent.parent_identifier_scheme is None
     assert parent.parent_id.startswith("unknown:")
+
+
+def test_ownership_graph_direct_handler_coerces_query_default(monkeypatch):
+    monkeypatch.setenv("OWNERSHIP_GRAPH_READ_ENABLED", "true")
+    monkeypatch.setattr(
+        structure,
+        "_fetch_ownership_graph_structure",
+        lambda _cbe: ([{"name": "Holder"}], [], []),
+    )
+    monkeypatch.setattr(
+        structure,
+        "fetch_all",
+        lambda _sql, params=None: [{"depth": params[1]}],
+    )
+
+    import asyncio
+
+    payload = asyncio.run(structure.get_company_ownership_graph("0403170701"))
+
+    assert payload["ubo_walk"] == [{"depth": 6}]
