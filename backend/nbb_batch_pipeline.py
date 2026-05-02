@@ -33,7 +33,11 @@ load_dotenv()
 # Add backend to path for imports
 sys.path.insert(0, os.path.dirname(__file__))
 from db import get_connection, put_connection, execute, fetch_one, fetch_all
-from nbb_governance import store_governance_snapshot
+from nbb_governance import (
+    record_governance_load_failure,
+    record_governance_load_success,
+    store_governance_snapshot,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -270,12 +274,18 @@ def process_daily_extract(target_date: str, dry_run: bool = False) -> dict:
                     conn.commit()
 
                     try:
-                        store_governance_snapshot(conn, cbe, deposit_key, fiscal_year, filing_json)
+                        governance_counts = store_governance_snapshot(
+                            conn, cbe, deposit_key, fiscal_year, filing_json
+                        )
+                        record_governance_load_success(
+                            conn, cbe, deposit_key, governance_counts
+                        )
                     except Exception as gov_err:
                         log.warning(
                             "Governance store failed for %s filing %s: %s",
                             cbe, deposit_key, gov_err,
                         )
+                        record_governance_load_failure(conn, cbe, deposit_key, gov_err)
 
                     total_rubrics += len(rows)
                     filings_loaded += 1

@@ -584,7 +584,41 @@ rationale.
 
 ## Phase Weeks-15-22 — Bitemporal append-only fact tables
 
-(Format placeholder.)
+- **Status**: Open — prerequisite sub-branch
+  `feat/bitemporal-governance-durability`.
+- **Preconditions**:
+  - Week-0 through Ownership graph are green on `docs/architecture-r25`.
+  - NBB governance durability is shipped before any bitemporal table work:
+    either financial rows and `store_governance_snapshot()` are atomic in
+    the same transaction, or a durable `governance_load_log` plus retry
+    cron exists.
+  - No silent semantic changes: every read site touching administrator,
+    shareholder, participating-interest, or affiliation data must be
+    classified current-state or history-aware before cutover.
+- **Files**: prerequisite durability migration/code; then bitemporal
+  migrations for `administrator`, `shareholder`, `participating_interest`,
+  and `affiliation`; `src/schema.sql`; NBB caller plumbing; read-path audit
+  evidence; focused tests.
+- **Commands**:
+  ```bash
+  python scripts/migrate.py up --target=staging
+  pytest backend/tests/test_nbb_governance_durability.py
+  python scripts/migrate.py up --target=prod
+  # Later bitemporal phases repeat staging/prod migration + targeted read tests.
+  ```
+- **Postconditions**:
+  - Failed governance extraction after a successful financial parse is
+    never lost silently; it is either rolled back with the filing or logged
+    for retry.
+  - Bitemporal columns/views/functions land additively with r22 interval
+    semantics and r25 NULL `valid_from` handling.
+  - `<table>_current`, `<table>_fact`, and `admins_as_of(valid_at, known_at)`
+    helpers are verified before any read-path switch.
+  - `SELECT count(*) FROM <table> WHERE valid_from IS NULL = 0` is recorded
+    per table before tightening NULLability.
+- **Approval gate**: Y — production schema changes and loader durability
+  changes touch shared prod ingestion; review must be green before prod
+  tail steps.
 
 ---
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+import json
 from typing import Any
 
 from ownership_id import (
@@ -665,6 +666,7 @@ def store_governance_snapshot(
 
 _AFFILIATION_TABLE_PRESENT: bool | None = None
 _OWNERSHIP_EDGE_TABLE_PRESENT: bool | None = None
+_GOVERNANCE_LOAD_LOG_TABLE_PRESENT: bool | None = None
 
 
 def _affiliation_table_exists(cur) -> bool:
@@ -696,3 +698,89 @@ def _ownership_edge_table_exists(cur) -> bool:
     )
     _OWNERSHIP_EDGE_TABLE_PRESENT = bool(cur.fetchone()[0])
     return _OWNERSHIP_EDGE_TABLE_PRESENT
+
+
+def _governance_load_log_table_exists(cur) -> bool:
+    """Return True if the governance retry log migration has landed."""
+    global _GOVERNANCE_LOAD_LOG_TABLE_PRESENT
+    if _GOVERNANCE_LOAD_LOG_TABLE_PRESENT is not None:
+        return _GOVERNANCE_LOAD_LOG_TABLE_PRESENT
+    cur.execute(
+        "SELECT to_regclass('public.governance_load_log') IS NOT NULL"
+    )
+    _GOVERNANCE_LOAD_LOG_TABLE_PRESENT = bool(cur.fetchone()[0])
+    return _GOVERNANCE_LOAD_LOG_TABLE_PRESENT
+
+
+def record_governance_load_success(
+    conn,
+    cbe: str,
+    deposit_key: str,
+    counts: dict[str, int],
+) -> None:
+    """Mark one filing's governance extraction durable and successful."""
+    cur = conn.cursor()
+    try:
+        if not _governance_load_log_table_exists(cur):
+            return
+        cur.execute(
+            """
+            INSERT INTO governance_load_log (
+                enterprise_number, deposit_key, status, attempts,
+                last_error, counts_json, last_attempt_at, next_retry_at
+            )
+            VALUES (%s, %s, 'ok', 0, NULL, %s::jsonb, NOW(), NULL)
+            ON CONFLICT (enterprise_number, deposit_key) DO UPDATE
+            SET status = 'ok',
+                last_error = NULL,
+                counts_json = EXCLUDED.counts_json,
+                last_attempt_at = NOW(),
+                next_retry_at = NULL,
+                updated_at = NOW()
+            """,
+            (cbe, deposit_key, json.dumps(counts, sort_keys=True)),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+
+
+def record_governance_load_failure(
+    conn,
+    cbe: str,
+    deposit_key: str,
+    error: Exception | str,
+) -> None:
+    """Persist one failed governance extraction for retry."""
+    cur = conn.cursor()
+    try:
+        if not _governance_load_log_table_exists(cur):
+            return
+        message = str(error)[:4000]
+        cur.execute(
+            """
+            INSERT INTO governance_load_log (
+                enterprise_number, deposit_key, status, attempts,
+                last_error, counts_json, last_attempt_at, next_retry_at
+            )
+            VALUES (%s, %s, 'error', 1, %s, NULL, NOW(), NOW() + INTERVAL '1 hour')
+            ON CONFLICT (enterprise_number, deposit_key) DO UPDATE
+            SET status = 'error',
+                attempts = governance_load_log.attempts + 1,
+                last_error = EXCLUDED.last_error,
+                counts_json = NULL,
+                last_attempt_at = NOW(),
+                next_retry_at = NOW() + INTERVAL '1 hour',
+                updated_at = NOW()
+            """,
+            (cbe, deposit_key, message),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
