@@ -326,26 +326,33 @@ no staging webhooks, no snapshot cron.**
 - **Approval gate**: Y — touches scheduled-task surface + `docs/architecture.md`.
 - **Detail**: deep-dive Stage R22-A + Week 2b row.
 
-## Phase Week-2 (parallel) — §5c FTS
+## Phase Week-2 (parallel) — §5c FTS — ✅ STAGING GREEN (2026-05-01)
 
-Not gated on Week-2a — FTS doesn't touch external surfaces. Can ship
-in parallel by a different reviewer.
+Not gated on Week-2a — FTS doesn't touch external surfaces. Shipped via
+PRs #33 (initial FTS path) + #34 (smoke fix — split UNION ALL into two
+app-level queries with single-token skip-condition).
 
-- **Preconditions**: migrations runner live.
-- **Files**: `migrations/2026-MM-DD_company_fts_index.sql` (new);
-  `migrations/2026-MM-DD_denomination_fts_index.sql` (new);
-  `backend/routers/companies/search.py` (add FTS query as separate
-  app-level call, not UNION arm).
-- **Commands**: per deep-dive §5c. Migration is `no-tx` because of
-  `CREATE INDEX CONCURRENTLY`.
-- **Postconditions**:
-  - FTS query path returns within p95 < 100ms on the five r19.5 bench
-    categories (Belgian common surnames, NL/FR variants, etc.).
-  - `SEARCH_FTS_ENABLED=true` env var on staging flips the search
-    path to FTS-first; `SEARCH_FTS_ENABLED=false` reverts to trigram-only.
-  - Activity-log click-through rate doesn't regress > 5% in 24h soak
-    after prod ramp.
-- **Approval gate**: Y — prod deploy of search path change.
+- **Preconditions**: migrations runner live. ✓
+- **Files shipped**: two FTS migrations (expression GIN on
+  `company_info.name_normalized` + `denomination.denomination_normalized`);
+  `backend/routers/companies/search.py` (FTS as separate app-level call,
+  not UNION arm — matches deep-dive §5c decision).
+- **Commands shipped**: migrations applied to staging via
+  `python3 scripts/migrate.py up --target=staging`; both migrations
+  registered in `schema_migrations.applied_by_env='staging'`.
+- **Postconditions** (verified):
+  - ✓ FTS query path p95 = **81.9 ms** worst-category, against the §5c
+    100 ms target. All five r19.5 bench categories tested: trailing
+    legal forms (74.4 ms), leading legal forms (28.4 ms), accent
+    variants (71.2 ms), NL/FR variants (68.3 ms), common surnames
+    (81.9 ms). Evidence: `docs/fts-staging-evidence-2026-05-01.md`.
+  - ✓ `SEARCH_FTS_ENABLED` flag verified end-to-end. False-toggle
+    probe returned `fts_called=False`; flipped back to `true` for soak.
+  - ⏳ Activity-log click-through rate regression check — post-prod-ramp
+    soak item; checked after prod flag flip.
+- **Approval gate**: Y — prod deploy of search path change. **Held
+  pending operator approval after staging soak.**
+- **Two-review-agent gate**: ✓ correctness PASS + security PASS via Ollama.
 
 ---
 
@@ -413,6 +420,66 @@ the frontend cutover; default OFF until soak.)
 ## Phase Weeks-15-22 — Bitemporal append-only fact tables
 
 (Format placeholder.)
+
+---
+
+## Phase End-of-project — Deferred isolation hardening
+
+**Trigger:** after Bitemporal lands. Operator-decided revisit point
+(2026-05-01) for the staging-isolation items punted from Week-2a to
+keep the foundation rollout moving.
+
+This phase closes out the full Stage R22-C four-check matrix that
+Week-2a abbreviated. None of these are blockers for any earlier phase;
+they're a final-pass hardening of the staging environment so future
+work can rely on full prod-isolation guarantees.
+
+### Items parked
+
+- **Separate Stripe test-mode key for staging.** Today staging shares
+  the same Stripe key as prod (in whichever mode prod uses). End-of-
+  project: switch `/opt/leadpeek/.env.staging::STRIPE_SECRET_KEY` to a
+  Stripe `sk_test_…` key from the same Stripe account's Test mode (no
+  new account; just toggle the dashboard to Test and copy the key).
+- **Separate Stripe webhook endpoint for staging.** Today: no separate
+  webhook; staging shares prod's webhook URL. End-of-project: create a
+  Stripe webhook endpoint pointing at the staging backend, copy the
+  signing secret into `/opt/leadpeek/.env.staging::STRIPE_WEBHOOK_SECRET`.
+- **Separate Supabase project for staging.** Today: staging uses prod's
+  Supabase project (`fpsyraglybfazambxuqb`). End-of-project: create
+  `datasnoop-staging` Supabase project, copy URL + anon key into
+  `/opt/leadpeek/.env.staging::NEXT_PUBLIC_SUPABASE_URL` +
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Update
+  `STAGING_SUPABASE_URL_ALLOWLIST` to match.
+- **Re-expand the Stage R22-C verification script** from the Week-2a
+  one-check abbreviation back to the full four-check matrix:
+  Stripe key namespace, Stripe webhook routing, Supabase project,
+  DATABASE_URL.
+
+### Postconditions
+
+- Inside `backend-staging`: `printenv STRIPE_SECRET_KEY` starts `sk_test_`.
+- A Stripe CLI test webhook lands at the staging backend log, NOT prod.
+- `printenv NEXT_PUBLIC_SUPABASE_URL` = staging-allowlisted URL,
+  distinct from `fpsyraglybfazambxuqb`.
+- `psql $DATABASE_URL -tAc "SELECT current_database()"` from
+  backend-staging = `leadpeek_staging` (already met since Week-2b).
+- Updated `docs/staging-isolation-evidence-<date>.md` committed,
+  showing all four checks GREEN. The original
+  `docs/staging-isolation-evidence-2026-05-01.md` (one-check-only,
+  three-DEFERRED) remains in the audit trail.
+
+### Approval gate
+
+Y — touches billing surface (new Stripe webhook), auth surface (new
+Supabase project), and `.env.staging` rewrites. Operator-approved
+twice, same pattern as Week-2a.
+
+### Cross-reference
+
+Origin of the deferral: Week-2a evidence doc
+`docs/staging-isolation-evidence-2026-05-01.md` and PR #21
+("Week-2a: staging env split (Stripe/Supabase isolation deferred)").
 
 ---
 
