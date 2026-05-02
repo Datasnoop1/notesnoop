@@ -184,8 +184,11 @@ association, perceived inaccuracy in displayed data.
 Before flipping `PERSON_PUBLIC_URL_ENABLED=true` on production, the
 following operational items must be in place:
 
-- [ ] `privacy@datasnoop.be` mailbox provisioned on Stalwart mail server
-- [ ] Forwarding rule from `privacy@datasnoop.be` → operator primary inbox
+- [x] `privacy@datasnoop.be` mailbox provisioned on Stalwart mail server
+      *(Stalwart list principal id=11 created 2026-05-02)*
+- [x] Forwarding rule from `privacy@datasnoop.be` → operator primary inbox
+      *(externalMembers=[t.braet@gmail.com] on the list principal;
+      direct SMTP forward, no local copy stored)*
 - [ ] `nginx/default.conf` adds `limit_req` zone for `/person/*`
       (same shape as `/companies/*`) per §2
 - [ ] Frontend `/person/<id>` page links to `privacy@datasnoop.be`
