@@ -570,6 +570,8 @@ async def get_company_ownership_graph(
         raise HTTPException(status_code=404, detail="Ownership graph is not enabled")
 
     cbe = clean_cbe(cbe)
+    if not isinstance(max_depth, int):
+        max_depth = 6
     try:
         shareholders, participating_interests, parent_companies = _fetch_ownership_graph_structure(cbe)
         ubo_walk = fetch_all("""
