@@ -23,7 +23,7 @@ separate legal, policy, and golden-set gates.
 
 ## Staging Evidence
 
-- Branch deployed: `feat/person-v1-internal` at `a036fd6`.
+- Branch deployed: `feat/person-v1-internal` at `b0bb2d2`.
 - `python3 scripts/migrate.py dry-run --target staging` reported one
   pending migration: `2026-05-02_person_v1.sql`.
 - `python3 scripts/migrate.py up --target staging` applied one migration.
@@ -41,6 +41,7 @@ separate legal, policy, and golden-set gates.
   - Tier C `affiliation` links: 49,815
   - Role counts updated: 1,158,921
 - Resolver idempotency rerun:
+  - Tier A persons: 0
   - Tier A links: 0
   - Tier B links: 0
   - Tier C links across all sources: 0
