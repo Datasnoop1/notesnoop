@@ -416,6 +416,10 @@ updated AS (
     FROM counts
     WHERE p.person_id = counts.person_id
       AND p.status = 'active'
+      AND (
+          p.role_count IS DISTINCT FROM counts.role_count
+          OR p.cluster_version IS DISTINCT FROM %(cluster_version)s
+      )
     RETURNING 1
 )
 SELECT count(*) FROM updated
