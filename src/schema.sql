@@ -1436,6 +1436,19 @@ CREATE INDEX IF NOT EXISTS idx_sb_person_rev_trgm
 CREATE INDEX IF NOT EXISTS idx_sb_person_phon_trgm
   ON staatsblad_event USING GIN (person_name_phonetic gin_trgm_ops);
 
+-- Person v1 domicile anchors. Code already reads these fields; keeping them
+-- in the canonical schema makes fresh installs match live databases.
+ALTER TABLE staatsblad_event
+  ADD COLUMN IF NOT EXISTS person_domicile_city TEXT;
+ALTER TABLE staatsblad_event
+  ADD COLUMN IF NOT EXISTS person_domicile_postcode TEXT;
+ALTER TABLE staatsblad_event
+  ADD COLUMN IF NOT EXISTS person_domicile_country TEXT;
+ALTER TABLE staatsblad_event
+  ADD COLUMN IF NOT EXISTS person_domicile_confidence REAL;
+ALTER TABLE staatsblad_event
+  ADD COLUMN IF NOT EXISTS person_domicile_extracted_at TIMESTAMPTZ;
+
 
 -- -----------------------------------------------------------------------
 -- Phase 5 — denomination (3-7 min — the widest rewrite).
@@ -1548,6 +1561,87 @@ CREATE INDEX IF NOT EXISTS idx_affiliation_name_rev_trgm
 CREATE INDEX IF NOT EXISTS idx_affiliation_name_phon_trgm
     ON affiliation USING GIN (name_phonetic gin_trgm_ops);
 
+-- -----------------------------------------------------------------------
+-- Person v1 internal-only identity graph.
+-- -----------------------------------------------------------------------
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE TABLE IF NOT EXISTS person (
+    person_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    canonical_name      TEXT NOT NULL,
+    name_normalized     TEXT GENERATED ALWAYS AS (search_normalize(canonical_name)) STORED,
+    primary_city        TEXT,
+    primary_postcode    TEXT,
+    role_count          INT DEFAULT 0,
+    first_seen_date     DATE,
+    last_seen_date      DATE,
+    cluster_version     TEXT,
+    status              TEXT NOT NULL DEFAULT 'active',
+    merged_into         UUID REFERENCES person(person_id),
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT person_status_check
+        CHECK (status IN ('active', 'merged', 'tombstone')),
+    CONSTRAINT person_merged_into_check
+        CHECK ((status = 'merged' AND merged_into IS NOT NULL) OR status <> 'merged')
+);
+
+CREATE TABLE IF NOT EXISTS person_link (
+    id                  BIGSERIAL PRIMARY KEY,
+    person_id           UUID NOT NULL REFERENCES person(person_id),
+    source_table        TEXT NOT NULL,
+    source_pk           TEXT NOT NULL,
+    source_mention_seq  INTEGER NOT NULL DEFAULT 0,
+    source_field        TEXT,
+    enterprise_number   TEXT,
+    name_as_written     TEXT,
+    link_kind           TEXT NOT NULL,
+    confidence          REAL NOT NULL,
+    confirmed_by_human  BOOLEAN DEFAULT FALSE,
+    cluster_version     TEXT,
+    CONSTRAINT person_link_source_unique
+        UNIQUE (source_table, source_pk, source_mention_seq),
+    CONSTRAINT person_link_mention_seq_check
+        CHECK (source_mention_seq >= 0),
+    CONSTRAINT person_link_confidence_check
+        CHECK (confidence >= 0 AND confidence <= 1),
+    CONSTRAINT person_link_kind_check
+        CHECK (link_kind IN ('deterministic', 'probabilistic', 'manual'))
+);
+
+CREATE TABLE IF NOT EXISTS person_merge_log (
+    id              BIGSERIAL PRIMARY KEY,
+    op_kind         TEXT NOT NULL,
+    primary_id      UUID NOT NULL REFERENCES person(person_id),
+    secondary_id    UUID REFERENCES person(person_id),
+    moved_link_ids  BIGINT[],
+    op_at           TIMESTAMPTZ DEFAULT NOW(),
+    op_by           TEXT,
+    reason          TEXT,
+    CONSTRAINT person_merge_log_kind_check
+        CHECK (op_kind IN ('merge', 'split', 'manual_correct', 'tombstone'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_person_status
+    ON person(status);
+CREATE INDEX IF NOT EXISTS idx_person_name_tsv
+    ON person USING GIN (to_tsvector('simple', name_normalized));
+CREATE INDEX IF NOT EXISTS idx_person_name_norm_trgm
+    ON person USING GIN (name_normalized gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_person_link_person
+    ON person_link(person_id);
+CREATE INDEX IF NOT EXISTS idx_person_link_enterprise
+    ON person_link(enterprise_number);
+CREATE INDEX IF NOT EXISTS idx_person_link_kind
+    ON person_link(link_kind);
+CREATE INDEX IF NOT EXISTS idx_person_link_source_table
+    ON person_link(source_table);
+CREATE INDEX IF NOT EXISTS idx_pml_primary
+    ON person_merge_log(primary_id);
+CREATE INDEX IF NOT EXISTS idx_pml_secondary
+    ON person_merge_log(secondary_id);
+
 
 
 -- -----------------------------------------------------------------------
@@ -1558,6 +1652,11 @@ BEGIN
     IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'leadpeek') THEN
         EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON affiliation TO leadpeek';
         EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON affiliation_backfill_log TO leadpeek';
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON person TO leadpeek';
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON person_link TO leadpeek';
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON person_merge_log TO leadpeek';
+        EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE person_link_id_seq TO leadpeek';
+        EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE person_merge_log_id_seq TO leadpeek';
     END IF;
 END $$;
 

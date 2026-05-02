@@ -253,11 +253,11 @@ verify_backup_payload() {
 prepare_restore_prereqs() {
   local owner_ident="$1"
   restore_psql <<'SQL' >/dev/null
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS unaccent;
-CREATE EXTENSION IF NOT EXISTS fuzzystrmatch;
-CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS vector; -- ALLOW-RUNTIME-DDL: scratch restore DB prerequisite
+CREATE EXTENSION IF NOT EXISTS unaccent; -- ALLOW-RUNTIME-DDL: scratch restore DB prerequisite
+CREATE EXTENSION IF NOT EXISTS fuzzystrmatch; -- ALLOW-RUNTIME-DDL: scratch restore DB prerequisite
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements; -- ALLOW-RUNTIME-DDL: scratch restore DB prerequisite
+CREATE EXTENSION IF NOT EXISTS pg_trgm; -- ALLOW-RUNTIME-DDL: scratch restore DB prerequisite
 
 CREATE OR REPLACE FUNCTION public.f_unaccent(text)
 RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$

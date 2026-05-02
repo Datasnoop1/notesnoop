@@ -457,18 +457,52 @@ app-level queries with single-token skip-condition).
 
 ## Phase Weeks-5-10 — Person v1 (internal-only by default)
 
-- **Preconditions**: Week 1, 2 green; `docs/person-v1-policy.md`
-  EXISTS even if mostly-stub; legal memo in flight.
-- **Files**: `migrations/2026-MM-DD_person.sql`, `_person_link.sql`,
-  `_person_merge_log.sql`; `backend/routers/people.py` extensions;
-  `frontend/app/person/[id]/page.tsx` (admin-gated for v1).
+- **Preconditions**:
+  - Week 1 through Week 4 green.
+  - `docs/person-v1-policy.md` exists, even if mostly stubbed.
+  - Legal memo remains in flight; it gates public URL work only.
+- **Files**:
+  - `migrations/2026-05-02_person_v1.sql`
+  - `src/schema.sql`
+  - `scripts/person_resolver.py`
+  - `scripts/install_crons.sh`
+  - `backend/feature_flags.py`
+  - `backend/routers/people.py`
+  - `backend/tests/test_person_v1.py`
+  - `frontend/src/lib/api.ts`
+  - `frontend/src/app/person/[id]/page.tsx`
+  - `docs/person-v1-metrics.md`
+  - `docs/person-v1-internal-evidence-2026-05-02.md`
+- **Commands**:
+  - `python scripts/check_migration_style.py`
+  - `bash scripts/check_no_runtime_ddl.sh`
+  - `pytest backend/tests/test_person_v1.py -q`
+  - `python -m py_compile backend/feature_flags.py backend/routers/people.py scripts/person_resolver.py`
+  - `npm --prefix frontend run lint`
+  - `python scripts/migrate.py dry-run --target staging`
+  - `python scripts/migrate.py up --target staging`
+  - `docker compose -f docker-compose.staging.yml up -d --force-recreate backend-staging frontend-staging`
+  - `docker exec -e PYTHONPATH=/app leadpeek-backend-staging-1 python /app/scripts/person_resolver.py --incremental`
+  - `python scripts/migrate.py dry-run --target prod`
+  - `python scripts/migrate.py up --target prod` (Gate Y)
+  - `docker compose up -d --force-recreate backend frontend`
+  - `docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/person_resolver.py --incremental`
+  - `bash /opt/leadpeek/scripts/install_crons.sh`
 - **Postconditions**:
   - `PERSON_PUBLIC_URL_ENABLED=false` is the default; the env var
     is read on every request via the feature-flag wrapper.
   - Admin-authenticated access to `/person/<id>` returns the audit
     page; non-admin returns 404.
-  - Tier-A linker precision/recall measured against the ~500-row
-    stratified golden set; numbers committed to `docs/person-v1-metrics.md`.
+  - `person`, `person_link`, and `person_merge_log` exist in staging
+    and prod; `person_link` includes `source_mention_seq` and
+    `source_field`.
+  - Tier-A/B/C deterministic resolver is idempotent and includes
+    `affiliation`.
+  - Internal smoke metrics are committed to `docs/person-v1-metrics.md`.
+    Public-ramp metrics against the ~500-row stratified golden set remain
+    blocked until the separate public URL gate opens.
+- **Detail**: Deep-dive §1 Person v1 schema, deterministic resolver, and
+  three public-URL prerequisites; r25 `source_mention_seq` correction.
 - **Approval gate**: Y — schema changes + new PII surface.
 
 ## Phase Person — public URL ramp (SEPARATE stage)
