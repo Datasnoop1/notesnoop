@@ -189,12 +189,16 @@ following operational items must be in place:
 - [x] Forwarding rule from `privacy@datasnoop.be` → operator primary inbox
       *(externalMembers=[t.braet@gmail.com] on the list principal;
       direct SMTP forward, no local copy stored)*
-- [ ] `nginx/default.conf` adds `limit_req` zone for `/person/*`
+- [x] `nginx/default.conf` adds `limit_req` zone for `/person/*`
       (same shape as `/companies/*`) per §2
-- [ ] Frontend `/person/<id>` page links to `privacy@datasnoop.be`
+      *(validated 2026-05-02; see
+      `docs/person-v1-public-checklist-evidence-2026-05-02.md`)*
+- [x] Frontend `/person/<id>` page links to `privacy@datasnoop.be`
       footer for DSAR/appeal access per §4 + §7
-- [ ] `robots.txt` updated per §3 (`Allow: /person/`); sitemap
+      *(implemented 2026-05-02)*
+- [x] `robots.txt` updated per §3 (`Allow: /person/`); sitemap
       generator includes person profiles
+      *(implemented 2026-05-02; feed remains flag-gated until launch)*
 - [ ] Golden-set precision/recall measurement complete (Codex
       deliverable; ~500-row stratified set; threshold per the
       deep-dive Person v1 spec)

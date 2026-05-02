@@ -509,35 +509,50 @@ app-level queries with single-token skip-condition).
 
 ## Phase Person — public URL ramp (SEPARATE stage)
 
-**Cannot start until both gates pass (r26 — recalibrated 2026-05-02; the
-earlier "Belgian privacy lawyer's memo signed" gate moved to recommended-
-not-blocking against competitor precedent):**
-
-1. `docs/person-v1-policy.md` has a written answer (not a placeholder)
-   in every section. **Status: ✅ green as of 2026-05-02.**
-2. Person v1 metrics meet the precision/recall threshold from the
-   policy record (~500-row stratified golden set).
-
-External Belgian privacy-lawyer engagement remains recommended for
-incident response (post-launch DSAR / complaint handling) but does
-NOT gate the public URL launch. See deep-dive r26 callout for the
-rationale.
-
-- **Files**: `frontend/app/person/[id]/page.tsx` (drop admin gate);
-  `frontend/middleware.ts` or equivalent (rate-limit per the policy);
-  `nginx/default.conf` (`limit_req` zone for `/person/*` defence-in-depth);
-  `frontend/app/robots.txt` (per policy).
+- **Status**: In progress — operational checklist items 3-5 are being
+  closed before the golden-set metric gate. `PERSON_PUBLIC_URL_ENABLED`
+  remains OFF until the metric threshold passes and the operator-approved
+  flag flip is executed.
+- **Preconditions**:
+  - Person v1 internal-only is green in production.
+  - `docs/person-v1-policy.md` has a written answer (not a placeholder)
+    in every section. **Status: ✅ green as of 2026-05-02.**
+  - `privacy@datasnoop.be` mailbox and forwarding are provisioned.
+  - External Belgian privacy-lawyer engagement remains recommended for
+    incident response, but does NOT gate the public URL launch per r26.
+  - Person v1 metrics must meet the policy precision/recall threshold
+    before the final public flag flip.
+- **Files**:
+  - `nginx/default.conf` (`limit_req` zone for `/person/*` defence-in-depth).
+  - `frontend/src/app/person/[id]/page.tsx` (DSAR/appeal footer link).
+  - `frontend/public/robots.txt` and `frontend/src/app/sitemap.xml/route.ts`
+    (public indexing and sitemap inclusion once the flag is on).
+  - `backend/routers/screener.py` (flag-gated person sitemap feed).
+  - `docs/person-v1-golden-set-metrics-<date>.md`.
+  - `docs/person-v1-public-ramp-evidence-<date>.md`.
 - **Commands**:
   ```bash
+  npx eslint "src/app/person/[id]/page.tsx" "src/app/sitemap.xml/route.ts" --max-warnings=0
+  pytest backend/tests/test_person_v1.py -q
+  docker compose exec -T nginx nginx -t
+  docker compose exec -T nginx nginx -s reload
+  # Golden-set metric build/evaluation command, documented in the metric PR.
   echo PERSON_PUBLIC_URL_ENABLED=true >> /opt/leadpeek/.env.production
   docker compose up -d --force-recreate frontend backend
   ```
 - **Postconditions**:
+  - nginx config validates and `/person/*` rate limiting fires at the
+    configured cap.
+  - DSAR / erasure / merge channels are documented in the policy and the
+    public page routes users to `privacy@datasnoop.be`.
+  - `robots.txt` allows `/person/`; the sitemap includes person profiles
+    only when `PERSON_PUBLIC_URL_ENABLED=true`.
+  - Golden-set precision/recall meets the policy threshold before public
+    launch.
   - `curl https://datasnoop.be/person/<id>` (anon) returns 200 OR
     the policy-decided auth response (302/401).
-  - Rate limit fires at the configured cap.
-  - DSAR / erasure / merge channels documented in the policy and
-    routed to the operator-named owner.
+- **Detail**: Deep-dive §1 Person v1 public URL ramp and
+  `docs/person-v1-policy.md` pre-flag-flip checklist.
 - **Approval gate**: Y — public PII surface; explicit operator
   approval after every above check.
 

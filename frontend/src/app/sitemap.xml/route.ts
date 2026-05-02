@@ -56,9 +56,10 @@ export async function GET() {
   ];
 
   let companyPages: UrlEntry[] = [];
+  let personPages: UrlEntry[] = [];
   if (!API_BASE) {
     console.error(
-      "[sitemap] API base URL not set (API_URL_INTERNAL / NEXT_PUBLIC_API_URL) \u2014 skipping dynamic company entries",
+      "[sitemap] API base URL not set (API_URL_INTERNAL / NEXT_PUBLIC_API_URL) \u2014 skipping dynamic entries",
     );
   } else {
     try {
@@ -84,9 +85,33 @@ export async function GET() {
         err,
       );
     }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/sitemap/persons`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        console.error(
+          `[sitemap] ${API_BASE}/api/sitemap/persons returned ${res.status}`,
+        );
+      } else {
+        const personIds = (await res.json()) as string[];
+        personPages = personIds.map((personId) => ({
+          loc: `${BASE}/person/${personId}`,
+          lastmod: now,
+          changefreq: "monthly",
+          priority: 0.5,
+        }));
+      }
+    } catch (err) {
+      console.error(
+        `[sitemap] ${API_BASE}/api/sitemap/persons threw`,
+        err,
+      );
+    }
   }
 
-  const xml = toXml([...staticPages, ...companyPages]);
+  const xml = toXml([...staticPages, ...companyPages, ...personPages]);
   return new NextResponse(xml, {
     status: 200,
     headers: {

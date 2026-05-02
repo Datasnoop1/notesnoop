@@ -12,6 +12,7 @@ import {
   ExternalLink,
   GitMerge,
   Loader2,
+  Mail,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
@@ -316,6 +317,17 @@ export default function PersonV1Page() {
           <div className="px-4 py-8 text-sm text-slate-400">No merge events.</div>
         )}
       </section>
+
+      <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 py-5 text-sm text-slate-500">
+        <span>DSAR, rectification, or appeal request</span>
+        <a
+          href="mailto:privacy@datasnoop.be"
+          className="inline-flex items-center gap-2 font-medium text-brand hover:underline"
+        >
+          <Mail className="h-4 w-4" />
+          privacy@datasnoop.be
+        </a>
+      </footer>
     </main>
   );
 }

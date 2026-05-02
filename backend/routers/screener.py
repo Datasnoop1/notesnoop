@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from db import fetch_all, fetch_one, execute
 from auth import get_current_user, optional_user
 from cache import ttl_cache
+from feature_flags import person_public_url_enabled
 from utils import parse_nace_list
 
 logger = logging.getLogger(__name__)
@@ -555,3 +556,18 @@ async def sitemap_companies():
         LIMIT 50000
     """)
     return [r["enterprise_number"] for r in rows]
+
+
+@sitemap_router.get("/persons")
+async def sitemap_persons():
+    """Return public Person v1 profile ids for sitemap generation."""
+    if not person_public_url_enabled():
+        return []
+    rows = fetch_all("""
+        SELECT person_id::text
+        FROM person
+        WHERE status = 'active'
+        ORDER BY role_count DESC NULLS LAST, person_id
+        LIMIT 50000
+    """)
+    return [r["person_id"] for r in rows]
