@@ -95,6 +95,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 SEARCH_FTS_UNDERFLOW_LIMIT = 5
+SEARCH_FTS_CANDIDATE_LIMIT = 20
 LEADING_LEGAL_FORMS = frozenset({
     "nv", "sa", "bvba", "sprl", "bv", "srl", "cvba", "scrl", "vof",
     "snc", "se", "scs", "gcv", "comm", "scomm", "asbl", "vzw",
@@ -483,17 +484,37 @@ def _search_companies_fts(
     if not variants:
         return []
 
-    sql = _SEARCH_FTS_SQL.replace("__LOC_FILTER_CTE__", loc_filter_cte)
-    sql = sql.replace("__LOC_FILTER_JOIN__", loc_filter_join)
+    company_sql = _SEARCH_FTS_COMPANY_SQL.replace("__LOC_FILTER_CTE__", loc_filter_cte)
+    company_sql = company_sql.replace("__LOC_FILTER_JOIN__", loc_filter_join)
+    denom_sql = _SEARCH_FTS_DENOM_SQL.replace("__LOC_FILTER_CTE__", loc_filter_cte)
+    denom_sql = denom_sql.replace("__LOC_FILTER_JOIN__", loc_filter_join)
 
     rows: list[dict] = []
     for variant in variants:
         params = dict(base_params)
         params["fts_q"] = variant
+        result_limit = max(int(base_params["limit"]), 20)
+        params["fts_candidate_limit"] = min(
+            max(result_limit, SEARCH_FTS_CANDIDATE_LIMIT),
+            50,
+        )
         rows = _merge_ranked_rows(
             rows,
-            fetch_all(sql, params),
-            max(int(base_params["limit"]), 20),
+            fetch_all(company_sql, params),
+            result_limit,
+        )
+        # Single-token queries are the high-fanout case (common surnames,
+        # municipalities, legal-suffix-stripped names). Once registered-name
+        # FTS has enough hits for those, avoid paying the trade-name scan.
+        if len(rows) >= result_limit or (
+            len(rows) >= SEARCH_FTS_UNDERFLOW_LIMIT
+            and len(variant.split()) == 1
+        ):
+            break
+        rows = _merge_ranked_rows(
+            rows,
+            fetch_all(denom_sql, params),
+            result_limit,
         )
         if len(rows) >= SEARCH_FTS_UNDERFLOW_LIMIT:
             break
@@ -687,45 +708,11 @@ LIMIT 30
 # (%(name)s). No f-strings or string concatenation into the SQL body.
 # The ILIKE patterns (tok1..tok4, addr_like) are pre-wrapped in Python
 # with the user's tokens, and pg_trgm % operator uses bound values.
-_SEARCH_FTS_SQL = """
-WITH
-q AS (
-    SELECT websearch_to_tsquery('simple', %(fts_q)s) AS tsq
-),
-ci_fts AS (
-    SELECT ci.enterprise_number,
-           (0.90 + LEAST(0.40, ts_rank_cd(to_tsvector('simple', ci.name_normalized), q.tsq)))::real AS base
-    FROM company_info ci
-    CROSS JOIN q
-    WHERE ci.name_normalized IS NOT NULL
-      AND to_tsvector('simple', ci.name_normalized) @@ q.tsq
-    ORDER BY ts_rank_cd(to_tsvector('simple', ci.name_normalized), q.tsq) DESC,
-             ci.name_normalized
-    LIMIT 200
-),
-denom_fts AS (
-    SELECT d.entity_number AS enterprise_number,
-           (0.80 + LEAST(0.35, ts_rank_cd(to_tsvector('simple', d.denomination_normalized), q.tsq)))::real AS base
-    FROM denomination d
-    CROSS JOIN q
-    WHERE d.denomination_normalized IS NOT NULL
-      AND d.type_of_denomination IN ('001', '002', '003')
-      AND to_tsvector('simple', d.denomination_normalized) @@ q.tsq
-    ORDER BY ts_rank_cd(to_tsvector('simple', d.denomination_normalized), q.tsq) DESC,
-             d.denomination_normalized
-    LIMIT 100
-),
-all_hits AS (
-    SELECT enterprise_number, MAX(base) AS base FROM (
-        SELECT * FROM ci_fts
-        UNION ALL SELECT * FROM denom_fts
-    ) u
-    GROUP BY enterprise_number
-)
+_SEARCH_FTS_RESULT_SQL = """
 __LOC_FILTER_CTE__
 SELECT
     h.enterprise_number,
-    COALESCE(ci.name, d.denomination, h.enterprise_number) AS name,
+    __FTS_NAME_EXPR__ AS name,
     e.status,
     e.juridical_form,
     COALESCE(jfc.category, 'commercial') AS form_category,
@@ -747,15 +734,7 @@ FROM all_hits h
 __LOC_FILTER_JOIN__
 JOIN enterprise e                     ON e.enterprise_number = h.enterprise_number
 LEFT JOIN company_info ci             ON ci.enterprise_number = h.enterprise_number
-LEFT JOIN LATERAL (
-    SELECT denomination
-    FROM denomination d2
-    WHERE d2.entity_number = h.enterprise_number
-      AND d2.type_of_denomination = '001'
-      AND d2.language IN ('2', '1')
-    ORDER BY CASE d2.language WHEN '2' THEN 1 WHEN '1' THEN 2 ELSE 3 END
-    LIMIT 1
-) d                                   ON TRUE
+__FTS_DENOM_JOIN__
 LEFT JOIN financial_latest fl         ON fl.enterprise_number = h.enterprise_number
 LEFT JOIN nace_lookup nl              ON nl.nace_code = ci.nace_code
 LEFT JOIN juridical_form_category jfc ON jfc.code = e.juridical_form
@@ -765,6 +744,69 @@ ORDER BY score DESC,
          name
 LIMIT %(limit)s
 """
+
+_SEARCH_FTS_DENOM_JOIN_SQL = """
+LEFT JOIN LATERAL (
+    SELECT denomination
+    FROM denomination d2
+    WHERE d2.entity_number = h.enterprise_number
+      AND d2.type_of_denomination = '001'
+      AND d2.language IN ('2', '1')
+    ORDER BY CASE d2.language WHEN '2' THEN 1 WHEN '1' THEN 2 ELSE 3 END
+    LIMIT 1
+) d                                   ON TRUE
+"""
+
+_SEARCH_FTS_COMPANY_RESULT_SQL = (
+    _SEARCH_FTS_RESULT_SQL
+    .replace("__FTS_NAME_EXPR__", "COALESCE(ci.name, h.enterprise_number)")
+    .replace("__FTS_DENOM_JOIN__", "")
+)
+
+_SEARCH_FTS_DENOM_RESULT_SQL = (
+    _SEARCH_FTS_RESULT_SQL
+    .replace("__FTS_NAME_EXPR__", "COALESCE(ci.name, d.denomination, h.enterprise_number)")
+    .replace("__FTS_DENOM_JOIN__", _SEARCH_FTS_DENOM_JOIN_SQL)
+)
+
+_SEARCH_FTS_COMPANY_SQL = """
+WITH
+q AS (
+    SELECT websearch_to_tsquery('simple', %(fts_q)s) AS tsq
+),
+all_hits AS (
+    SELECT ci.enterprise_number,
+           (0.90 + LEAST(0.40, ts_rank_cd(to_tsvector('simple', ci.name_normalized), q.tsq)))::real AS base
+    FROM company_info ci
+    CROSS JOIN q
+    WHERE ci.name_normalized IS NOT NULL
+      AND to_tsvector('simple', ci.name_normalized) @@ q.tsq
+    LIMIT %(fts_candidate_limit)s
+)
+""" + _SEARCH_FTS_COMPANY_RESULT_SQL
+
+_SEARCH_FTS_DENOM_SQL = """
+WITH
+q AS (
+    SELECT websearch_to_tsquery('simple', %(fts_q)s) AS tsq
+),
+denom_fts AS (
+    SELECT d.entity_number AS enterprise_number,
+           (0.80 + LEAST(0.35, ts_rank_cd(to_tsvector('simple', d.denomination_normalized), q.tsq)))::real AS base
+    FROM denomination d
+    CROSS JOIN q
+    WHERE d.entity_number IS NOT NULL
+      AND d.denomination_normalized IS NOT NULL
+      AND d.type_of_denomination IN ('001', '002', '003')
+      AND to_tsvector('simple', d.denomination_normalized) @@ q.tsq
+    LIMIT %(fts_candidate_limit)s
+),
+all_hits AS (
+    SELECT enterprise_number, MAX(base) AS base
+    FROM denom_fts
+    GROUP BY enterprise_number
+)
+""" + _SEARCH_FTS_DENOM_RESULT_SQL
 
 
 _SEARCH_SQL = """
