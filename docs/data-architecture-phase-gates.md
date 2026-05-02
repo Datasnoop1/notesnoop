@@ -411,7 +411,47 @@ app-level queries with single-token skip-condition).
 
 ## Phase Week-4 — Restore drill + observability stack
 
-(Format placeholder.)
+- **Preconditions**: Week-3 cancellation watchdog and WAL archiving green;
+  first compressed base backup exists under `DS_BACKUP_DIR`; backend
+  phase-timing middleware from Week-1d is live.
+- **Files**: `backend/main.py`, `backend/tests/test_metrics_admin_gate.py`,
+  `scripts/monthly_restore_drill.sh`, `scripts/install_crons.sh`,
+  `monitoring/prometheus/datasnoop-slo-rules.yml`,
+  `docs/observability-slo-dashboards-2026-05-02.md`,
+  `docs/week-4-restore-observability-evidence-2026-05-02.md`.
+- **Commands**:
+  ```bash
+  python -m pytest backend/tests/test_metrics_admin_gate.py -q
+  python -m py_compile backend/main.py
+  bash -n scripts/monthly_restore_drill.sh scripts/install_crons.sh
+  ./scripts/deploy_staging.sh 62.238.14.150
+  # staging smoke: /metrics rejects anonymous callers; admin-authenticated
+  # /metrics returns Prometheus text with phase histograms
+  # Gate Y tail, operator-approved production run:
+  #   sudo bash /opt/leadpeek/scripts/monthly_restore_drill.sh --run
+  #   sudo bash /opt/leadpeek/scripts/install_crons.sh
+  ```
+- **Postconditions**:
+  - `/metrics` is no longer public; it uses the existing admin role
+    dependency shared with `/api/admin/*`.
+  - Admin-authenticated `/metrics` still returns
+    `datasnoop_request_phase_duration_ms_*` Prometheus histograms.
+  - Monthly restore-drill cron is installed in the managed cron block.
+  - First restore drill writes a green
+    `/opt/leadpeek/scripts/_watchdog_state/restore_drill_last.json`.
+    Verified 2026-05-02: full run parsed the manifest, verified all three
+    compressed tar payloads, restored schema into a scratch DB, passed core
+    relation smoke, and cleanup left `0` scratch DBs behind after the fix.
+  - SLO recording/alert rules for total and DB phase p95 are committed.
+  - PgBouncer remains deferred unless live connection-budget evidence appears.
+- **Approval gate**: Y — backend deploy changes an operational endpoint, and
+  the restore-drill cron creates/drops a scratch DB on prod during the first
+  run. Prepare branch, PR, staging deploy, and exact production commands
+  autonomously; pause for operator approval before the prod-mutating tail.
+  ✓ operator approved Codex-run and production postconditions were captured
+  on 2026-05-02.
+- **Detail**: deep-dive Week 4 row; Week-1d phase-timing middleware; Week-3
+  base-backup evidence.
 
 ---
 
