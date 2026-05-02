@@ -212,7 +212,7 @@ SELECT count(*) FROM inserted
 TIER_C_SQL_BY_SOURCE = {
     "staatsblad_event": """
 WITH source AS (
-    SELECT
+    SELECT DISTINCT
         md5(%(uuid_ns)s || 'C|staatsblad_event|' || e.id::text)::uuid AS person_id,
         e.id::text AS source_pk,
         e.enterprise_number,
@@ -260,7 +260,7 @@ SELECT count(*) FROM links
 """,
     "administrator": """
 WITH source AS (
-    SELECT
+    SELECT DISTINCT
         md5(%(uuid_ns)s || 'C|administrator|' ||
             concat_ws('|', enterprise_number, deposit_key, name, role))::uuid AS person_id,
         concat_ws('|', enterprise_number, deposit_key, name, role) AS source_pk,
@@ -305,7 +305,7 @@ SELECT count(*) FROM links
 """,
     "shareholder": """
 WITH source AS (
-    SELECT
+    SELECT DISTINCT
         md5(%(uuid_ns)s || 'C|shareholder|' ||
             concat_ws('|', enterprise_number, deposit_key, name))::uuid AS person_id,
         concat_ws('|', enterprise_number, deposit_key, name) AS source_pk,
@@ -350,7 +350,7 @@ SELECT count(*) FROM links
 """,
     "affiliation": """
 WITH source AS (
-    SELECT
+    SELECT DISTINCT
         md5(%(uuid_ns)s || 'C|affiliation|' ||
             concat_ws('|', person_name, enterprise_number, via_enterprise_number, affiliation_type))::uuid AS person_id,
         concat_ws('|', person_name, enterprise_number, via_enterprise_number, affiliation_type) AS source_pk,
