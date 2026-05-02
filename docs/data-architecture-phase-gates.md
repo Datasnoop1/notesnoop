@@ -457,6 +457,8 @@ app-level queries with single-token skip-condition).
 
 ## Phase Weeks-5-10 — Person v1 (internal-only by default)
 
+- **Status**: Green — closed 2026-05-02 as internal-only. Public URL
+  work remains blocked by the separate Person public URL ramp gates.
 - **Preconditions**:
   - Week 1 through Week 4 green.
   - `docs/person-v1-policy.md` exists, even if mostly stubbed.

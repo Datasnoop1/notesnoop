@@ -60,7 +60,41 @@ separate legal, policy, and golden-set gates.
 
 ## Production Gate Y Evidence
 
-- Pending.
+- PR #38 merged into `docs/architecture-r25` at `f537079`.
+- Server checkout reset to merged `docs/architecture-r25`.
+- `python3 scripts/migrate.py dry-run --target prod` reported one
+  pending migration: `2026-05-02_person_v1.sql`.
+- `python3 scripts/migrate.py up --target prod` applied one migration.
+- `python3 scripts/migrate.py status --target prod --json` reported
+  21 files, 21 applied, 0 pending, 0 extra applied, 0 checksum mismatches.
+- Production backend and frontend rebuilt and became healthy.
+- Backend in-container `/api/health` returned `{"status":"ok","service":"datasnoop-api"}`.
+- Resolver first production run:
+  - Tier A persons: 14,817
+  - Tier A links: 15,671
+  - Tier B links: 12,229
+  - Tier C `staatsblad_event` links: 89,844
+  - Tier C `administrator` links: 1,002,915
+  - Tier C `shareholder` links: 13,026
+  - Tier C `affiliation` links: 52,917
+  - Role counts updated: 3,694
+- Immediate production reruns while live loaders were active caught 65
+  then 11 new administrator links; all other tiers and role-count updates
+  stayed at 0.
+- Production DB counts after resolver:
+  - `person`: 1,173,595
+  - `person_link`: 1,186,678
+  - `person_merge_log`: 0
+  - Tier A links: 15,671
+  - Tier B links: 12,229
+  - Tier C links: 1,158,778
+  - Affiliation links: 53,081
+- Anonymous production API request to a sample `/api/people/person/<id>`
+  returned HTTP 404.
+- `PERSON_PUBLIC_URL_ENABLED` is unset in production, which means the
+  request-time feature flag defaults to false.
+- Managed cron installed:
+  `30 7 * * * cd /opt/leadpeek && docker exec -e PYTHONPATH=/app leadpeek-backend-1 python /app/scripts/person_resolver.py --incremental >> /var/log/person_resolver.log 2>&1`.
 
 ## Deferred Public URL Gates
 

@@ -23,9 +23,16 @@ are all green.
 | Staging Tier C links | 1,144,104 |
 | Staging affiliation links | 49,975 |
 | Staging merge log rows | 0 |
+| Production person rows | 1,173,595 |
+| Production person links | 1,186,678 |
+| Production Tier A links | 15,671 |
+| Production Tier B links | 12,229 |
+| Production Tier C links | 1,158,778 |
+| Production affiliation links | 53,081 |
+| Production merge log rows | 0 |
 
-Production counts are recorded in
-`docs/person-v1-internal-evidence-2026-05-02.md` after the Gate Y resolver run.
+Production evidence is recorded in
+`docs/person-v1-internal-evidence-2026-05-02.md`.
 
 ## Public-Ramp Golden Set
 
