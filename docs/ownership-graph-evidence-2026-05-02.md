@@ -1,6 +1,6 @@
 # Ownership graph evidence - 2026-05-02
 
-Branch: `feat/ownership-graph`  
+Branch: `feat/ownership-graph`
 Base: `docs/architecture-r25`
 
 ## Local validation

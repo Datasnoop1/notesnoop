@@ -1,6 +1,6 @@
 # NBB governance durability evidence - 2026-05-02
 
-Branch: `feat/bitemporal-governance-durability`  
+Branch: `feat/bitemporal-governance-durability`
 Purpose: Bitemporal prerequisite.
 
 ## Local validation
