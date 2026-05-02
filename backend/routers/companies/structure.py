@@ -553,7 +553,6 @@ async def get_company_structure(cbe: str, response: Response):
             "parent_companies": [_serialize_row(r) for r in parent_companies],
             "staatsblad_publications": [_serialize_row(r) for r in sb_pubs],
             "affiliations": [_serialize_row(r) for r in affiliations_dedup.values()],
-            "ownership_graph_enabled": ownership_graph_enabled,
         }
     except Exception as e:
         logger.exception("Company structure query failed")
