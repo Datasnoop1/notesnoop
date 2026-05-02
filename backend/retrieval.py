@@ -353,10 +353,13 @@ def _build_group_profiles(rows_by_cbe: dict[str, dict]) -> dict[str, dict]:
     placeholders = ",".join(["%s"] * len(cbes))
 
     try:
+        # DELIBERATELY uses base table, not _current view; see
+        # docs/find-similar-bitemporal-fix-2026-05-02.md for context.
+        # Will be re-evaluated when Phase 2 lands.
         shareholder_rows = fetch_all(
             f"""
             SELECT enterprise_number, identifier, name, ownership_pct, shareholder_type
-            FROM shareholder_current
+            FROM shareholder
             WHERE enterprise_number IN ({placeholders})
               AND COALESCE(shareholder_type, 'entity') <> 'individual'
             """,
@@ -385,10 +388,13 @@ def _build_group_profiles(rows_by_cbe: dict[str, dict]) -> dict[str, dict]:
             profile["controlling_shareholder_names"].add(name)
 
     try:
+        # DELIBERATELY uses base table, not _current view; see
+        # docs/find-similar-bitemporal-fix-2026-05-02.md for context.
+        # Will be re-evaluated when Phase 2 lands.
         subsidiary_rows = fetch_all(
             f"""
             SELECT enterprise_number, identifier, name, ownership_pct
-            FROM participating_interest_current
+            FROM participating_interest
             WHERE enterprise_number IN ({placeholders})
             """,
             tuple(cbes),
