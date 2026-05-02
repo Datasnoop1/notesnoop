@@ -16,6 +16,13 @@ are all green.
 | Tier C rule | residual singleton per source row |
 | Existing links | preserved with `ON CONFLICT DO NOTHING` |
 | Public URL flag default | off |
+| Staging person rows | 1,158,921 |
+| Staging person links | 1,171,963 |
+| Staging Tier A links | 15,671 |
+| Staging Tier B links | 12,188 |
+| Staging Tier C links | 1,144,104 |
+| Staging affiliation links | 49,975 |
+| Staging merge log rows | 0 |
 
 Production counts are recorded in
 `docs/person-v1-internal-evidence-2026-05-02.md` after the Gate Y resolver run.
