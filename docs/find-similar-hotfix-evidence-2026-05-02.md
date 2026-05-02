@@ -108,7 +108,23 @@ and `score_floor`). The existing non-AI sector-peer route returned 4 DASSY
 peers and 15 DOVESCO peers on `leadpeek_staging`, so the hotfix was amended to
 use that route as the empty-blend degradation path.
 
-Final staging smoke after the sector-fallback amendment: pending.
+Final staging smoke after the sector-fallback amendment (`c681093`):
+
+| CBE | Count | Expected | Elapsed | Provenance | Result |
+|---|---:|---:|---:|---|---|
+| `0400378485` | 8 | >=5 | 59,694 ms | `embedding_only`, `embedding+nace` | PASS |
+| `0895825682` | 4 | >=1 | 58,080 ms | `sector_fallback` | PASS |
+| `0685601641` | 10 | >=1 | 850 ms | `sector_fallback` | PASS |
+
+Notes:
+
+- Staging was rebuilt from PR #50 commit `c681093` and uses
+  `leadpeek_staging`.
+- The public staging API is admin-gated, so the smoke invoked the same
+  FastAPI route function inside `leadpeek-staging-backend-staging-1`.
+- The empty-list user regression is unblocked for the known failing targets.
+- DASSY remains slow at roughly 58 seconds, so Phase 2 should still diagnose
+  query latency and blend-filter disposition before the permanent fix.
 
 ## Prod Gate
 
