@@ -460,7 +460,7 @@ async def get_person_v1(person_id: str, user=Depends(optional_user)):
     _require_person_v1_access(user)
 
     try:
-        person_uuid = str(UUID(person_id))
+        person_uuid = str(UUID(person_id.strip()))
     except ValueError:
         raise HTTPException(status_code=404, detail="Not found")
 

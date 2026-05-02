@@ -48,6 +48,11 @@ function sourceLabel(source: string): string {
 }
 
 
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+
 function SourceStat({ stat }: { stat: PersonV1SourceCount }) {
   return (
     <Card className="rounded-md border-slate-200 shadow-none">
@@ -128,6 +133,7 @@ export default function PersonV1Page() {
     if (Array.isArray(rawId) && rawId.length > 0) return rawId[0];
     return "";
   }, [rawId]);
+  const validId = isUuid(id);
 
   const [result, setResult] = useState<{
     id: string;
@@ -136,23 +142,26 @@ export default function PersonV1Page() {
   } | null>(null);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !validId) return;
     let active = true;
     getPersonV1(id)
       .then((value) => {
         if (active) setResult({ id, profile: value, error: null });
       })
-      .catch(() => {
-        if (active) setResult({ id, profile: null, error: "Person profile unavailable." });
+      .catch((err) => {
+        const message = err instanceof Error && err.message.startsWith("API 410")
+          ? "Person profile retired."
+          : "Person profile unavailable.";
+        if (active) setResult({ id, profile: null, error: message });
       });
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [id, validId]);
 
-  const loading = !!id && result?.id !== id;
+  const loading = !!id && validId && result?.id !== id;
   const profile = result?.id === id ? result.profile : null;
-  const error = result?.id === id ? result.error : null;
+  const error = !validId ? "Person profile unavailable." : result?.id === id ? result.error : null;
 
   if (loading) {
     return (

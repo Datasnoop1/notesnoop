@@ -91,6 +91,15 @@ upserted AS (
         last_seen_date = GREATEST(person.last_seen_date, EXCLUDED.last_seen_date),
         cluster_version = EXCLUDED.cluster_version
     WHERE person.status = 'active'
+      AND (
+          person.canonical_name IS DISTINCT FROM EXCLUDED.canonical_name
+          OR person.primary_city IS NULL AND EXCLUDED.primary_city IS NOT NULL
+          OR person.primary_postcode IS NULL AND EXCLUDED.primary_postcode IS NOT NULL
+          OR person.role_count IS DISTINCT FROM GREATEST(person.role_count, EXCLUDED.role_count)
+          OR person.first_seen_date IS DISTINCT FROM LEAST(person.first_seen_date, EXCLUDED.first_seen_date)
+          OR person.last_seen_date IS DISTINCT FROM GREATEST(person.last_seen_date, EXCLUDED.last_seen_date)
+          OR person.cluster_version IS DISTINCT FROM EXCLUDED.cluster_version
+      )
     RETURNING 1
 )
 SELECT count(*) FROM upserted
