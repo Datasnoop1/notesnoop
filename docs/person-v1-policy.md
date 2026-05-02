@@ -177,6 +177,20 @@ association, perceived inaccuracy in displayed data.
   if Belgian DPA guidance materially changes or if operational
   incidents reveal policy gaps)
 
+### Public-ramp residual risk
+
+The 2026-05-02 golden-set measurement met the >=0.99 precision floor
+(528 labelled mention-pairs, precision 1.00, false positives 0). It also
+identified 80 false negatives, all in the foreign/no-domicile repeat-positive
+stratum. Those people may see incomplete or fragmented role history across
+multiple Person pages in v1. This is an accepted launch tradeoff: DataSnoop
+gates the public ramp on precision to avoid false merges, while explicitly
+accepting recall limitations for launch. DataSnoop prefers singleton pages over
+speculative merges until a future resolver version can safely lift those rows.
+DSAR, rectification, and appeal requests for this case use
+`privacy@datasnoop.be` and follow the 30-day operator-owned process in §4 and
+§7.
+
 ---
 
 ## Pre-flag-flip operational checklist
@@ -199,9 +213,12 @@ following operational items must be in place:
 - [x] `robots.txt` updated per §3 (`Allow: /person/`); sitemap
       generator includes person profiles
       *(implemented 2026-05-02; feed remains flag-gated until launch)*
-- [ ] Golden-set precision/recall measurement complete (Codex
+- [x] Golden-set precision/recall measurement complete (Codex
       deliverable; ~500-row stratified set; threshold per the
       deep-dive Person v1 spec)
+      *(528 labelled mention-pairs measured 2026-05-02; precision 1.00
+      against >=0.99 floor; see
+      `docs/person-v1-golden-set-metrics-2026-05-02.md`)*
 
 Once all six items are green AND the operator has reviewed this
 policy doc one final time, the `PERSON_PUBLIC_URL_ENABLED` flag flips

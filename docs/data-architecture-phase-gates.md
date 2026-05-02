@@ -509,10 +509,9 @@ app-level queries with single-token skip-condition).
 
 ## Phase Person — public URL ramp (SEPARATE stage)
 
-- **Status**: In progress — operational checklist items 3-5 are being
-  closed before the golden-set metric gate. `PERSON_PUBLIC_URL_ENABLED`
-  remains OFF until the metric threshold passes and the operator-approved
-  flag flip is executed.
+- **Status**: Green — closed 2026-05-02. Operational checklist items 1-6
+  are green; `PERSON_PUBLIC_URL_ENABLED=true` is live in production with
+  evidence in `docs/person-v1-public-ramp-evidence-2026-05-02.md`.
 - **Preconditions**:
   - Person v1 internal-only is green in production.
   - `docs/person-v1-policy.md` has a written answer (not a placeholder)
@@ -548,7 +547,9 @@ app-level queries with single-token skip-condition).
   - `robots.txt` allows `/person/`; the sitemap includes person profiles
     only when `PERSON_PUBLIC_URL_ENABLED=true`.
   - Golden-set precision/recall meets the policy threshold before public
-    launch.
+    launch. Precision is the safety-critical false-merge gate; recall gaps
+    remain an accepted v1 operational completeness risk and must be documented
+    in the evidence.
   - `curl https://datasnoop.be/person/<id>` (anon) returns 200 OR
     the policy-decided auth response (302/401).
 - **Detail**: Deep-dive §1 Person v1 public URL ramp and

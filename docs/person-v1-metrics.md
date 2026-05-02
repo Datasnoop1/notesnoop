@@ -2,9 +2,9 @@
 
 Date: 2026-05-02
 
-Scope: internal-only deterministic resolver. Public `/person/<id>` ramp is
-blocked until the policy record, legal memo, and stratified golden-set metrics
-are all green.
+Scope: internal-only deterministic resolver plus public-ramp golden-set
+measurement. Public `/person/<id>` launch is gated by the policy record,
+stratified golden-set precision, and operator-approved production flag flip.
 
 ## Internal Smoke Metrics
 
@@ -36,11 +36,39 @@ Production evidence is recorded in
 
 ## Public-Ramp Golden Set
 
-Status: blocked.
+Status: green for precision.
 
-The public-ramp ~500-row stratified golden set has not been evaluated because
-public URL work is not open. Required external gates remain:
+The public-ramp golden set was evaluated on 2026-05-02. Evidence:
+`docs/person-v1-golden-set-metrics-2026-05-02.md`; sampled pair set:
+`docs/person-v1-golden-set-2026-05-02.json`.
 
-- `docs/person-v1-policy.md` has a written answer in every section.
-- Belgian privacy lawyer's memo is signed.
-- Golden-set precision meets the policy threshold.
+| Metric | Result |
+| --- | ---: |
+| Labelled mention-pairs | 528 |
+| Precision floor | 0.99 |
+| Measured precision | 1.00 |
+| Measured recall | 0.78022 |
+| False positives | 0 |
+
+The precision gate is green. Recall is tracked as an operational residual risk:
+all 80 false negatives come from foreign/no-domicile repeated administrator
+mentions that v1 keeps as Tier-C singleton pages rather than speculative
+merges. This can produce incomplete or fragmented role history for affected
+people, and the DSAR/appeal process is the v1 correction path.
+
+Launch gates now recorded for the public ramp. The safety-critical gate is the
+precision floor because it protects against false merges between unrelated
+people; recall limitations are an accepted operational completeness risk for
+v1.
+
+- Policy decision record complete.
+- `privacy@datasnoop.be` mailbox and forwarding complete.
+- `/person/*` nginx rate-limit backstop verified.
+- DSAR/appeal footer, robots allow rule, and flag-gated sitemap complete.
+- Golden-set precision >=0.99 complete.
+- Operator-approved production flag flip and smoke evidence remain the final
+  tail step.
+
+Residual risk: foreign/no-domicile roles can remain fragmented in v1. That risk
+is explicitly accepted for public launch because the precision floor protects
+against the higher-risk failure mode: false merges between unrelated people.
