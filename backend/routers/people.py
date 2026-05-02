@@ -157,7 +157,7 @@ WITH
 people_hits AS MATERIALIZED (
     -- 1.0: exact normalised match OR exact reversed (order-agnostic)
     SELECT a.name, a.enterprise_number, 'admin' AS src, 1.0::real AS base
-    FROM administrator a
+    FROM administrator_current a
     WHERE a.person_type = 'natural'
       AND a.name_normalized IS NOT NULL
       AND (
@@ -166,7 +166,7 @@ people_hits AS MATERIALIZED (
       )
     UNION ALL
     SELECT s.name, s.enterprise_number, 'shareholder', 1.0::real
-    FROM shareholder s
+    FROM shareholder_current s
     WHERE s.shareholder_type = 'individual'
       AND s.name_normalized IS NOT NULL
       AND (
@@ -190,7 +190,7 @@ people_hits AS MATERIALIZED (
     -- between UNION ALL clauses, otherwise the LIMIT applies to the
     -- whole union (Postgres parse error).
     (SELECT a.name, a.enterprise_number, 'admin', 0.7::real
-     FROM administrator a
+     FROM administrator_current a
      WHERE a.person_type = 'natural'
        AND a.name_normalized IS NOT NULL
        AND %(n_tokens)s >= 1
@@ -201,7 +201,7 @@ people_hits AS MATERIALIZED (
      LIMIT 500)
     UNION ALL
     (SELECT s.name, s.enterprise_number, 'shareholder', 0.7::real
-     FROM shareholder s
+     FROM shareholder_current s
      WHERE s.shareholder_type = 'individual'
        AND s.name_normalized IS NOT NULL
        AND %(n_tokens)s >= 1
@@ -232,7 +232,7 @@ people_hits AS MATERIALIZED (
     -- handle short prefixes; trigram is purely typo tolerance.
     (SELECT a.name, a.enterprise_number, 'admin',
             LEAST(0.4, similarity(a.name_normalized, %(nq)s))::real
-     FROM administrator a
+     FROM administrator_current a
      WHERE a.person_type = 'natural'
        AND %(nq)s IS NOT NULL
        AND length(%(nq)s) >= 4
@@ -242,7 +242,7 @@ people_hits AS MATERIALIZED (
     UNION ALL
     (SELECT s.name, s.enterprise_number, 'shareholder',
             LEAST(0.4, similarity(s.name_normalized, %(nq)s))::real
-     FROM shareholder s
+     FROM shareholder_current s
      WHERE s.shareholder_type = 'individual'
        AND %(nq)s IS NOT NULL
        AND length(%(nq)s) >= 4
@@ -256,14 +256,14 @@ people_hits AS MATERIALIZED (
     -- per token so trigram similarity is degenerate here; equality is
     -- both cheaper and semantically correct.
     (SELECT a.name, a.enterprise_number, 'admin', 0.3::real
-     FROM administrator a
+     FROM administrator_current a
      WHERE %(phon)s IS NOT NULL
        AND a.person_type = 'natural'
        AND a.name_phonetic = %(phon)s
      LIMIT 200)
     UNION ALL
     (SELECT s.name, s.enterprise_number, 'shareholder', 0.3::real
-     FROM shareholder s
+     FROM shareholder_current s
      WHERE %(phon)s IS NOT NULL
        AND s.shareholder_type = 'individual'
        AND s.name_phonetic = %(phon)s
@@ -272,7 +272,7 @@ people_hits AS MATERIALIZED (
     UNION ALL
     -- 0.2: address fallback
     (SELECT a.name, a.enterprise_number, 'admin', 0.2::real
-     FROM administrator a
+     FROM administrator_current a
      JOIN address ad ON ad.entity_number = a.enterprise_number
      WHERE a.person_type = 'natural'
        AND ad.type_of_address = 'REGO'
@@ -298,7 +298,7 @@ people_hits AS MATERIALIZED (
     -- 0.55: exact normalised match OR exact reversed
     (SELECT af.person_name AS name, af.enterprise_number, 'affiliation' AS src,
             0.55::real AS base
-     FROM affiliation af
+     FROM affiliation_current af
      WHERE af.name_normalized IS NOT NULL
        AND (
            (%(nq)s IS NOT NULL AND af.name_normalized = %(nq)s)
@@ -308,7 +308,7 @@ people_hits AS MATERIALIZED (
     UNION ALL
     -- 0.4: token-AND
     (SELECT af.person_name, af.enterprise_number, 'affiliation', 0.4::real
-     FROM affiliation af
+     FROM affiliation_current af
      WHERE af.name_normalized IS NOT NULL
        AND %(n_tokens)s >= 1
        AND (%(tok1)s IS NULL OR af.name_normalized ILIKE %(tok1)s ESCAPE '\\')
@@ -321,7 +321,7 @@ people_hits AS MATERIALIZED (
     -- trigram arms above — 3-char queries fan out catastrophically.
     (SELECT af.person_name, af.enterprise_number, 'affiliation',
             LEAST(0.25, similarity(af.name_normalized, %(nq)s))::real
-     FROM affiliation af
+     FROM affiliation_current af
      WHERE %(nq)s IS NOT NULL
        AND length(%(nq)s) >= 4
        AND af.name_normalized %% %(nq)s
@@ -330,7 +330,7 @@ people_hits AS MATERIALIZED (
     UNION ALL
     -- 0.2: phonetic
     (SELECT af.person_name, af.enterprise_number, 'affiliation', 0.2::real
-     FROM affiliation af
+     FROM affiliation_current af
      WHERE %(phon)s IS NOT NULL
        AND af.name_phonetic = %(phon)s
      LIMIT 200)
@@ -590,7 +590,7 @@ async def get_person_connections(name: str):
                 fl.ebitda,
                 fl.fte_total,
                 fl.fiscal_year
-            FROM administrator a
+            FROM administrator_current a
             LEFT JOIN denomination d ON d.entity_number = a.enterprise_number
                 AND d.type_of_denomination = '001' AND d.language IN ('2','1')
             LEFT JOIN financial_latest fl ON fl.enterprise_number = a.enterprise_number
@@ -663,7 +663,7 @@ async def get_person_connections(name: str):
                     fl.ebitda,
                     fl.fte_total,
                     fl.fiscal_year AS fl_fiscal_year
-                FROM affiliation af
+                FROM affiliation_current af
                 LEFT JOIN denomination d
                     ON d.entity_number = af.enterprise_number
                     AND d.type_of_denomination = '001' AND d.language IN ('2','1')
@@ -688,7 +688,7 @@ async def get_person_connections(name: str):
                 fl.ebitda,
                 fl.fte_total,
                 fl.fiscal_year
-            FROM shareholder s
+            FROM shareholder_current s
             LEFT JOIN denomination d ON d.entity_number = s.enterprise_number
                 AND d.type_of_denomination = '001' AND d.language IN ('2','1')
             LEFT JOIN financial_latest fl ON fl.enterprise_number = s.enterprise_number
@@ -857,7 +857,7 @@ async def enrich_person(name: str, lang: str | None = None, user=Depends(optiona
             a.role,
             a.mandate_start,
             a.mandate_end
-        FROM administrator a
+        FROM administrator_current a
         LEFT JOIN denomination d ON d.entity_number = a.enterprise_number
             AND d.type_of_denomination = '001' AND d.language IN ('2','1')
         WHERE LOWER(a.name) = LOWER(%s)
@@ -870,7 +870,7 @@ async def enrich_person(name: str, lang: str | None = None, user=Depends(optiona
         SELECT
             COALESCE(d.denomination, s.enterprise_number) AS company_name,
             s.ownership_pct
-        FROM shareholder s
+        FROM shareholder_current s
         LEFT JOIN denomination d ON d.entity_number = s.enterprise_number
             AND d.type_of_denomination = '001' AND d.language IN ('2','1')
         WHERE LOWER(s.name) = LOWER(%s)

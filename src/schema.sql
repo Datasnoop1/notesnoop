@@ -350,6 +350,11 @@ CREATE TABLE IF NOT EXISTS administrator (
     mandate_start       TEXT,
     mandate_end         TEXT,
     representative_name TEXT,               -- permanent rep for legal persons
+    valid_from          DATE,               -- NULL = unknown start; treated as in-force by current/as-of views
+    valid_to            DATE,               -- exclusive end; NBB inclusive mandate_end is stored as +1 day
+    source_deposit_date DATE,
+    recorded_from       TIMESTAMPTZ DEFAULT NOW(),
+    recorded_to         TIMESTAMPTZ,
     PRIMARY KEY (enterprise_number, deposit_key, name, role)
 );
 
@@ -368,6 +373,11 @@ CREATE TABLE IF NOT EXISTS participating_interest (
     ownership_pct       REAL,
     equity_value        REAL,
     net_result          REAL,
+    valid_from          DATE,               -- NULL = unknown start; treated as in-force by current/as-of views
+    valid_to            DATE,               -- exclusive end
+    source_deposit_date DATE,
+    recorded_from       TIMESTAMPTZ DEFAULT NOW(),
+    recorded_to         TIMESTAMPTZ,
     PRIMARY KEY (enterprise_number, deposit_key, name)
 );
 
@@ -389,6 +399,11 @@ CREATE TABLE IF NOT EXISTS shareholder (
     address                 TEXT,
     shares_held             REAL,
     ownership_pct           REAL,
+    valid_from              DATE,           -- NULL = unknown start; treated as in-force by current/as-of views
+    valid_to                DATE,           -- exclusive end
+    source_deposit_date     DATE,
+    recorded_from           TIMESTAMPTZ DEFAULT NOW(),
+    recorded_to             TIMESTAMPTZ,
     PRIMARY KEY (enterprise_number, deposit_key, name)
 );
 
@@ -1532,6 +1547,11 @@ CREATE TABLE IF NOT EXISTS affiliation (
     person_identifier       TEXT,
     first_seen_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    valid_from              DATE,           -- NULL = unknown start; treated as in-force by current/as-of views
+    valid_to                DATE,           -- exclusive end
+    source_deposit_date     DATE,
+    recorded_from           TIMESTAMPTZ DEFAULT NOW(),
+    recorded_to             TIMESTAMPTZ,
     -- Generated search columns — mirror the administrator/shareholder
     -- pattern from migrations/2026-04-24_search_v2.sql so the people
     -- search arm can reuse the same query shape.
@@ -1582,6 +1602,147 @@ CREATE INDEX IF NOT EXISTS idx_affiliation_name_rev_trgm
     ON affiliation USING GIN (name_reversed gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_affiliation_name_phon_trgm
     ON affiliation USING GIN (name_phonetic gin_trgm_ops);
+
+-- -----------------------------------------------------------------------
+-- Bitemporal Phase A: explicit current/fact views and as-of helpers for
+-- NBB governance fact tables. NULL valid_from means unknown start and is
+-- treated as in-force by current/as-of reads until per-table backfill quality
+-- permits NOT NULL tightening.
+-- -----------------------------------------------------------------------
+
+CREATE OR REPLACE VIEW administrator_current AS
+SELECT *
+FROM administrator
+WHERE (valid_from IS NULL OR valid_from <= CURRENT_DATE)
+  AND (valid_to IS NULL OR valid_to > CURRENT_DATE)
+  AND recorded_to IS NULL;
+
+CREATE OR REPLACE VIEW shareholder_current AS
+SELECT *
+FROM shareholder
+WHERE (valid_from IS NULL OR valid_from <= CURRENT_DATE)
+  AND (valid_to IS NULL OR valid_to > CURRENT_DATE)
+  AND recorded_to IS NULL;
+
+CREATE OR REPLACE VIEW participating_interest_current AS
+SELECT *
+FROM participating_interest
+WHERE (valid_from IS NULL OR valid_from <= CURRENT_DATE)
+  AND (valid_to IS NULL OR valid_to > CURRENT_DATE)
+  AND recorded_to IS NULL;
+
+CREATE OR REPLACE VIEW affiliation_current AS
+SELECT *
+FROM affiliation
+WHERE (valid_from IS NULL OR valid_from <= CURRENT_DATE)
+  AND (valid_to IS NULL OR valid_to > CURRENT_DATE)
+  AND recorded_to IS NULL;
+
+CREATE OR REPLACE VIEW administrator_fact AS SELECT * FROM administrator;
+CREATE OR REPLACE VIEW shareholder_fact AS SELECT * FROM shareholder;
+CREATE OR REPLACE VIEW participating_interest_fact AS SELECT * FROM participating_interest;
+CREATE OR REPLACE VIEW affiliation_fact AS SELECT * FROM affiliation;
+
+CREATE OR REPLACE FUNCTION admins_as_of(
+    valid_at DATE,
+    known_at TIMESTAMPTZ DEFAULT NOW()
+)
+RETURNS SETOF administrator
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT *
+    FROM administrator
+    WHERE (valid_from IS NULL OR valid_from <= valid_at)
+      AND (valid_to IS NULL OR valid_to > valid_at)
+      AND recorded_from <= known_at
+      AND (recorded_to IS NULL OR recorded_to > known_at)
+$$;
+
+CREATE OR REPLACE FUNCTION shareholders_as_of(
+    valid_at DATE,
+    known_at TIMESTAMPTZ DEFAULT NOW()
+)
+RETURNS SETOF shareholder
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT *
+    FROM shareholder
+    WHERE (valid_from IS NULL OR valid_from <= valid_at)
+      AND (valid_to IS NULL OR valid_to > valid_at)
+      AND recorded_from <= known_at
+      AND (recorded_to IS NULL OR recorded_to > known_at)
+$$;
+
+CREATE OR REPLACE FUNCTION participating_interests_as_of(
+    valid_at DATE,
+    known_at TIMESTAMPTZ DEFAULT NOW()
+)
+RETURNS SETOF participating_interest
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT *
+    FROM participating_interest
+    WHERE (valid_from IS NULL OR valid_from <= valid_at)
+      AND (valid_to IS NULL OR valid_to > valid_at)
+      AND recorded_from <= known_at
+      AND (recorded_to IS NULL OR recorded_to > known_at)
+$$;
+
+CREATE OR REPLACE FUNCTION affiliations_as_of(
+    valid_at DATE,
+    known_at TIMESTAMPTZ DEFAULT NOW()
+)
+RETURNS SETOF affiliation
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT *
+    FROM affiliation
+    WHERE (valid_from IS NULL OR valid_from <= valid_at)
+      AND (valid_to IS NULL OR valid_to > valid_at)
+      AND recorded_from <= known_at
+      AND (recorded_to IS NULL OR recorded_to > known_at)
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_admin_bitemporal_window
+    ON administrator(enterprise_number, valid_from, valid_to, recorded_from, recorded_to);
+CREATE INDEX IF NOT EXISTS idx_shareholder_bitemporal_window
+    ON shareholder(enterprise_number, valid_from, valid_to, recorded_from, recorded_to);
+CREATE INDEX IF NOT EXISTS idx_pi_bitemporal_window
+    ON participating_interest(enterprise_number, valid_from, valid_to, recorded_from, recorded_to);
+CREATE INDEX IF NOT EXISTS idx_affiliation_bitemporal_window
+    ON affiliation(enterprise_number, valid_from, valid_to, recorded_from, recorded_to);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_current_natural
+    ON administrator(enterprise_number, search_normalize(name), role)
+    WHERE recorded_to IS NULL AND valid_to IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_shareholder_current_natural
+    ON shareholder(
+        enterprise_number,
+        search_normalize(name),
+        COALESCE(identifier, ''),
+        COALESCE(address, '')
+    )
+    WHERE recorded_to IS NULL AND valid_to IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_current_natural
+    ON participating_interest(
+        enterprise_number,
+        COALESCE(identifier, ''),
+        search_normalize(name),
+        COALESCE(country, '')
+    )
+    WHERE recorded_to IS NULL AND valid_to IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_affiliation_current_natural
+    ON affiliation(
+        enterprise_number,
+        search_normalize(person_name),
+        via_enterprise_number,
+        affiliation_type
+    )
+    WHERE recorded_to IS NULL AND valid_to IS NULL;
 
 -- -----------------------------------------------------------------------
 -- Person v1 internal-only identity graph.
@@ -1905,6 +2066,18 @@ BEGIN
         EXECUTE 'GRANT SELECT ON ownership_edge_current TO leadpeek';
         EXECUTE 'GRANT EXECUTE ON FUNCTION ownership_edge_as_of(DATE) TO leadpeek';
         EXECUTE 'GRANT EXECUTE ON FUNCTION ownership_ubo_walk(TEXT, INT) TO leadpeek';
+        EXECUTE 'GRANT SELECT ON administrator_current TO leadpeek';
+        EXECUTE 'GRANT SELECT ON shareholder_current TO leadpeek';
+        EXECUTE 'GRANT SELECT ON participating_interest_current TO leadpeek';
+        EXECUTE 'GRANT SELECT ON affiliation_current TO leadpeek';
+        EXECUTE 'GRANT SELECT ON administrator_fact TO leadpeek';
+        EXECUTE 'GRANT SELECT ON shareholder_fact TO leadpeek';
+        EXECUTE 'GRANT SELECT ON participating_interest_fact TO leadpeek';
+        EXECUTE 'GRANT SELECT ON affiliation_fact TO leadpeek';
+        EXECUTE 'GRANT EXECUTE ON FUNCTION admins_as_of(DATE, TIMESTAMPTZ) TO leadpeek';
+        EXECUTE 'GRANT EXECUTE ON FUNCTION shareholders_as_of(DATE, TIMESTAMPTZ) TO leadpeek';
+        EXECUTE 'GRANT EXECUTE ON FUNCTION participating_interests_as_of(DATE, TIMESTAMPTZ) TO leadpeek';
+        EXECUTE 'GRANT EXECUTE ON FUNCTION affiliations_as_of(DATE, TIMESTAMPTZ) TO leadpeek';
         EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE person_link_id_seq TO leadpeek';
         EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE person_merge_log_id_seq TO leadpeek';
         EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE ownership_edge_id_seq TO leadpeek';

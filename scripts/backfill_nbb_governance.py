@@ -78,11 +78,11 @@ def fetch_existing_counts(conn, cbe: str, deposit_key: str) -> dict[str, int]:
         cur.execute(
             """
             SELECT
-                (SELECT COUNT(*) FROM administrator
+                (SELECT COUNT(*) FROM administrator_fact
                  WHERE enterprise_number = %s AND deposit_key = %s) AS admin_count,
-                (SELECT COUNT(*) FROM shareholder
+                (SELECT COUNT(*) FROM shareholder_fact
                  WHERE enterprise_number = %s AND deposit_key = %s) AS shareholder_count,
-                (SELECT COUNT(*) FROM participating_interest
+                (SELECT COUNT(*) FROM participating_interest_fact
                  WHERE enterprise_number = %s AND deposit_key = %s) AS pi_count
             """,
             (cbe, deposit_key, cbe, deposit_key, cbe, deposit_key),

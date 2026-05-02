@@ -106,7 +106,7 @@ async def company_timeline(cbe: str, limit: int = 200):
         adm_rows = fetch_all(
             """
             SELECT DISTINCT name, mandate_start, mandate_end, role
-            FROM administrator
+            FROM administrator_fact
             WHERE enterprise_number = %s
               AND name IS NOT NULL
             ORDER BY mandate_start DESC NULLS LAST

@@ -206,7 +206,7 @@ async def repeat_offenders(
                         THEN 'healthy'
                         ELSE 'other'
                     END AS bucket
-                FROM administrator a
+                FROM administrator_current a
                 INNER JOIN enterprise e ON e.enterprise_number = a.enterprise_number
                 WHERE a.person_type = 'natural'
                   AND a.name IS NOT NULL
@@ -437,7 +437,7 @@ async def director_aging(
                         THEN to_date(SUBSTRING(a.mandate_end, 1, 10), 'YYYY-MM-DD')
                         ELSE NULL
                     END AS mandate_end_d
-                FROM administrator a
+                FROM administrator_current a
                 JOIN bankrupt_companies bc
                     ON bc.enterprise_number = a.enterprise_number
                 WHERE a.person_type = 'natural'
@@ -575,7 +575,7 @@ async def person_failed_companies(name: str):
                 fl.ebitda,
                 fl.fte_total,
                 fl.fiscal_year
-            FROM administrator a
+            FROM administrator_current a
             JOIN enterprise e ON e.enterprise_number = a.enterprise_number
             LEFT JOIN denomination d ON d.entity_number = a.enterprise_number
                 AND d.type_of_denomination = '001' AND d.language IN ('2','1')
@@ -598,7 +598,7 @@ async def person_failed_companies(name: str):
                 fl.ebitda,
                 fl.fte_total,
                 fl.fiscal_year
-            FROM administrator a
+            FROM administrator_current a
             JOIN enterprise e ON e.enterprise_number = a.enterprise_number
             LEFT JOIN denomination d ON d.entity_number = a.enterprise_number
                 AND d.type_of_denomination = '001' AND d.language IN ('2','1')

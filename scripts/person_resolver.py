@@ -160,7 +160,7 @@ source AS (
         'person_name' AS source_field,
         adm.enterprise_number,
         adm.name AS name_as_written
-    FROM administrator adm
+    FROM administrator_fact adm
     JOIN tier_a_anchor a
       ON a.name_normalized = adm.name_normalized
      AND a.enterprise_number = adm.enterprise_number
@@ -177,7 +177,7 @@ source AS (
         'name',
         sh.enterprise_number,
         sh.name
-    FROM shareholder sh
+    FROM shareholder_fact sh
     JOIN tier_a_anchor a
       ON a.name_normalized = sh.name_normalized
      AND a.enterprise_number = sh.enterprise_number
@@ -194,7 +194,7 @@ source AS (
         'person_name',
         af.enterprise_number,
         af.person_name
-    FROM affiliation af
+    FROM affiliation_fact af
     JOIN tier_a_anchor a
       ON a.name_normalized = af.name_normalized
      AND a.enterprise_number = af.enterprise_number
@@ -275,7 +275,7 @@ WITH source AS (
         concat_ws('|', enterprise_number, deposit_key, name, role) AS source_pk,
         enterprise_number,
         trim(name) AS canonical_name
-    FROM administrator
+    FROM administrator_fact administrator
     WHERE person_type = 'natural'
       AND name IS NOT NULL
       AND nullif(trim(name), '') IS NOT NULL
@@ -320,7 +320,7 @@ WITH source AS (
         concat_ws('|', enterprise_number, deposit_key, name) AS source_pk,
         enterprise_number,
         trim(name) AS canonical_name
-    FROM shareholder
+    FROM shareholder_fact shareholder
     WHERE shareholder_type = 'individual'
       AND name IS NOT NULL
       AND nullif(trim(name), '') IS NOT NULL
@@ -367,7 +367,7 @@ WITH source AS (
         trim(person_name) AS canonical_name,
         first_seen_at::date AS first_seen_date,
         last_seen_at::date AS last_seen_date
-    FROM affiliation
+    FROM affiliation_fact affiliation
     WHERE person_name IS NOT NULL
       AND nullif(trim(person_name), '') IS NOT NULL
       AND NOT EXISTS (

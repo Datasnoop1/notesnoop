@@ -277,7 +277,7 @@ def process_daily_extract(target_date: str, dry_run: bool = False) -> dict:
                     # The governance retry log owns its own short transaction.
                     try:
                         governance_counts = store_governance_snapshot(
-                            conn, cbe, deposit_key, fiscal_year, filing_json
+                            conn, cbe, deposit_key, fiscal_year, filing_json, deposit_date
                         )
                         record_governance_load_success(
                             conn, cbe, deposit_key, governance_counts

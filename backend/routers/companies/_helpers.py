@@ -121,19 +121,19 @@ def _fetch_connections(cbes: list, include_historical: bool = False) -> tuple:
         if include_historical:
             cur.execute(
                 f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, country "
-                f"FROM participating_interest WHERE enterprise_number IN ({ph})",
+                f"FROM participating_interest_current WHERE enterprise_number IN ({ph})",
                 list(cbes),
             )
         else:
             cur.execute(
                 f"WITH latest AS ("
                 f"  SELECT enterprise_number, MAX(fiscal_year) AS fy "
-                f"  FROM participating_interest WHERE enterprise_number IN ({ph}) "
+                f"  FROM participating_interest_current WHERE enterprise_number IN ({ph}) "
                 f"  GROUP BY enterprise_number"
                 f") "
                 f"SELECT DISTINCT pi.enterprise_number, pi.name, pi.identifier, "
                 f"       pi.ownership_pct, pi.country "
-                f"FROM participating_interest pi "
+                f"FROM participating_interest_current pi "
                 f"JOIN latest l ON l.enterprise_number = pi.enterprise_number "
                 f"             AND l.fy = pi.fiscal_year",
                 list(cbes),
@@ -143,19 +143,19 @@ def _fetch_connections(cbes: list, include_historical: bool = False) -> tuple:
         if include_historical:
             cur.execute(
                 f"SELECT DISTINCT enterprise_number, name, identifier, ownership_pct, shareholder_type "
-                f"FROM shareholder WHERE enterprise_number IN ({ph})",
+                f"FROM shareholder_current WHERE enterprise_number IN ({ph})",
                 list(cbes),
             )
         else:
             cur.execute(
                 f"WITH latest AS ("
                 f"  SELECT enterprise_number, MAX(fiscal_year) AS fy "
-                f"  FROM shareholder WHERE enterprise_number IN ({ph}) "
+                f"  FROM shareholder_current WHERE enterprise_number IN ({ph}) "
                 f"  GROUP BY enterprise_number"
                 f") "
                 f"SELECT DISTINCT s.enterprise_number, s.name, s.identifier, "
                 f"       s.ownership_pct, s.shareholder_type "
-                f"FROM shareholder s "
+                f"FROM shareholder_current s "
                 f"JOIN latest l ON l.enterprise_number = s.enterprise_number "
                 f"             AND l.fy = s.fiscal_year",
                 list(cbes),
@@ -194,7 +194,7 @@ def _fetch_latest_nbb_admins_batch(
         rf"""
         WITH candidates AS (
             SELECT a.enterprise_number, a.deposit_key
-            FROM administrator a
+            FROM administrator_current a
             WHERE {scope}
               AND a.deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'
         ),
@@ -209,7 +209,7 @@ def _fetch_latest_nbb_admins_batch(
                    a.enterprise_number,
                    a.deposit_key AS dk,
                    MAX(fd.deposit_date) AS deposit_date
-            FROM administrator a
+            FROM administrator_current a
             JOIN candidates c
               ON c.enterprise_number = a.enterprise_number
             LEFT JOIN financial_data fd
@@ -226,7 +226,7 @@ def _fetch_latest_nbb_admins_batch(
                a.enterprise_number, a.name, a.role, a.person_type,
                a.identifier, a.mandate_start, a.mandate_end,
                a.fiscal_year, a.deposit_key, l.deposit_date
-        FROM administrator a
+        FROM administrator_current a
         JOIN latest l ON l.enterprise_number = a.enterprise_number
                      AND l.dk = a.deposit_key
         ORDER BY a.enterprise_number, a.name, a.role
@@ -335,7 +335,7 @@ def fetch_current_admin_companies_for_person(name: str) -> list[dict]:
     candidates = fetch_all(
         r"""
         SELECT DISTINCT enterprise_number
-        FROM administrator
+        FROM administrator_current
         WHERE LOWER(REGEXP_REPLACE(name, '[.,]', '', 'g'))
             = LOWER(REGEXP_REPLACE(%s, '[.,]', '', 'g'))
           AND deposit_key NOT LIKE 'sb\_%%' ESCAPE '\'

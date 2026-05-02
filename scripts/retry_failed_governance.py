@@ -75,13 +75,14 @@ def _headers() -> dict[str, str]:
     }
 
 
-def fetch_retry_rows(conn, limit: int, max_attempts: int) -> list[tuple[str, str, int | None]]:
+def fetch_retry_rows(conn, limit: int, max_attempts: int) -> list[tuple[str, str, int | None, str | None]]:
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT gl.enterprise_number,
                    gl.deposit_key,
-                   fs.fiscal_year
+                   fs.fiscal_year,
+                   fs.deposit_date
             FROM governance_load_log gl
             LEFT JOIN financial_summary fs
               ON fs.enterprise_number = gl.enterprise_number
@@ -95,7 +96,7 @@ def fetch_retry_rows(conn, limit: int, max_attempts: int) -> list[tuple[str, str
             """,
             (max_attempts, limit),
         )
-        return [(row[0], row[1], row[2]) for row in cur.fetchall()]
+        return [(row[0], row[1], row[2], row[3]) for row in cur.fetchall()]
 
 
 def fetch_filing(session: requests.Session, deposit_key: str) -> dict | None:
@@ -115,6 +116,7 @@ def retry_once(
     cbe: str,
     deposit_key: str,
     fiscal_year: int | None,
+    deposit_date: str | None,
     *,
     dry_run: bool,
 ) -> bool:
@@ -124,7 +126,9 @@ def retry_once(
         return True
 
     try:
-        counts = store_governance_snapshot(conn, cbe, deposit_key, fiscal_year, filing_json)
+        counts = store_governance_snapshot(
+            conn, cbe, deposit_key, fiscal_year, filing_json, deposit_date
+        )
         record_governance_load_success(conn, cbe, deposit_key, counts)
         LOG.info("%s %s: governance retry succeeded: %s", cbe, deposit_key, counts)
         return True
@@ -164,7 +168,7 @@ def main() -> int:
         failed = 0
         prestore_failures = 0
         with requests.Session() as session:
-            for cbe, deposit_key, fiscal_year in rows:
+            for cbe, deposit_key, fiscal_year, deposit_date in rows:
                 try:
                     if retry_once(
                         conn,
@@ -172,6 +176,7 @@ def main() -> int:
                         cbe,
                         deposit_key,
                         fiscal_year,
+                        deposit_date,
                         dry_run=args.dry_run,
                     ):
                         ok += 1
