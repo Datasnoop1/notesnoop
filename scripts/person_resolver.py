@@ -133,7 +133,7 @@ SELECT count(*) FROM inserted
 
 TIER_B_LINK_SQL = """
 WITH tier_a_anchor AS (
-    SELECT p.name_normalized, pl.enterprise_number, min(pl.person_id) AS person_id
+    SELECT p.name_normalized, pl.enterprise_number, min(pl.person_id::text)::uuid AS person_id
     FROM person_link pl
     JOIN person p ON p.person_id = pl.person_id
     WHERE pl.source_table = 'staatsblad_event'
