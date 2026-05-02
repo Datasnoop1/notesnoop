@@ -585,11 +585,12 @@ rationale.
 
 ## Phase Weeks-15-22 — Bitemporal append-only fact tables
 
-- **Status**: Open — Phase A green on `feat/bitemporal-phase-a`
-  (2026-05-02): NBB governance durability prerequisite, additive
-  bitemporal columns/views/functions, read-path split, staging/prod
-  migrations, and backend/NBB worker smokes complete. `valid_from` NULL
-  tightening remains deferred until per-table unknown-start counts reach zero.
+- **Status**: Green — additive Bitemporal Phase A + Phase B live on
+  production (2026-05-02). Evidence:
+  `docs/bitemporal-phase-a-evidence-2026-05-02.md` and
+  `docs/bitemporal-phase-b-evidence-2026-05-02.md`. `valid_from` NULL
+  tightening remains data-quality gated and is tracked as the next closeout
+  phase.
 - **Preconditions**:
   - Week-0 through Ownership graph are green on `docs/architecture-r25`.
   - NBB governance durability is shipped before any bitemporal table work:
@@ -618,6 +619,8 @@ rationale.
     semantics and r25 NULL `valid_from` handling.
   - `<table>_current`, `<table>_fact`, and `admins_as_of(valid_at, known_at)`
     helpers are verified before any read-path switch.
+  - `shareholders_as_of`, `participating_interests_as_of`, and
+    `affiliations_as_of` are verified on staging and production.
   - `SELECT count(*) FROM <table> WHERE valid_from IS NULL = 0` is recorded
     per table before tightening NULLability.
 - **Approval gate**: Y — production schema changes and loader durability
