@@ -589,8 +589,9 @@ rationale.
   production (2026-05-02). Evidence:
   `docs/bitemporal-phase-a-evidence-2026-05-02.md` and
   `docs/bitemporal-phase-b-evidence-2026-05-02.md`. `valid_from` NULL
-  tightening remains data-quality gated and is tracked as the next closeout
-  phase.
+  tightening was checked on 2026-05-02; no table qualifies yet, so nullable
+  unknown-start handling remains active. Evidence:
+  `docs/bitemporal-valid-from-tightening-2026-05-02.md`.
 - **Preconditions**:
   - Week-0 through Ownership graph are green on `docs/architecture-r25`.
   - NBB governance durability is shipped before any bitemporal table work:
@@ -622,7 +623,8 @@ rationale.
   - `shareholders_as_of`, `participating_interests_as_of`, and
     `affiliations_as_of` are verified on staging and production.
   - `SELECT count(*) FROM <table> WHERE valid_from IS NULL = 0` is recorded
-    per table before tightening NULLability.
+    per table before tightening NULLability; all four tables remained
+    nonzero on 2026-05-02, so no NOT NULL migration shipped.
 - **Approval gate**: Y — production schema changes and loader durability
   changes touch shared prod ingestion; review must be green before prod
   tail steps.
