@@ -79,6 +79,48 @@ startup and DB-backed health remained green.
 
 ## Prod gate
 
-Pending. Production tail must apply the migration through the runner, rebuild
-backend + NBB worker, run the same table/view/as-of checks, and smoke backend
-health before merge.
+Gate Y comment: PR #42 comment
+`https://github.com/Datasnoop1/platform/pull/42#issuecomment-4364033936`.
+
+Migration runner:
+
+```text
+database: leadpeek
+Applied 1 migration(s).
+
+target: prod
+database: leadpeek
+baseline_as_of: 2026-04-28
+schema_migrations_exists: True
+files: 24
+applied: 24
+pending: 0
+checksum_mismatches: 0
+```
+
+Post-migration table checks:
+
+```text
+administrator: valid_from_null=228207 recorded_from_null=0 recorded_to_closed=509864
+shareholder: valid_from_null=7808 recorded_from_null=0 recorded_to_closed=22012
+participating_interest: valid_from_null=32900 recorded_from_null=0 recorded_to_closed=115309
+affiliation: valid_from_null=9 recorded_from_null=0 recorded_to_closed=1828
+administrator_current_exists: True
+shareholder_current_exists: True
+participating_interest_current_exists: True
+affiliation_current_exists: True
+admins_as_of_count: 578310
+```
+
+Backend + worker smoke:
+
+```text
+leadpeek-backend-1: Up (healthy)
+leadpeek-nbb-backload-worker-1: Up (healthy)
+backend health: {"status":"ok","service":"datasnoop-api"}
+```
+
+The production tail rebuilt and recreated `backend` and
+`nbb-backload-worker`. The only compose warnings were the existing unset
+`NEXT_PUBLIC_API_URL` warning and an orphan staging scraper container notice;
+neither affected the migrated production services.
