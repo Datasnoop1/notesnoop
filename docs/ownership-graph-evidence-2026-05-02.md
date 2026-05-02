@@ -94,8 +94,78 @@ direct_flag_on_ubo: 75
   returned `401 staging_admin_only` before route dispatch, which is expected for
   the admin-gated staging surface.
 
-## Prod gate
+## Prod migration and load
 
-Production schema migration and historical graph load remain the Gate Y tail
-step. Exact prod command and expected output will be posted on the PR before
-the prod mutation is run.
+Target database verified with `SELECT current_database()`: `leadpeek`.
+
+Migration runner:
+
+```text
+database: leadpeek
+Applied 1 migration(s).
+
+target: prod
+database: leadpeek
+baseline_as_of: 2026-04-28
+schema_migrations_exists: True
+files: 22
+applied: 22
+pending: 0
+checksum_mismatches: 0
+```
+
+Initial historical ETL:
+
+```text
+shareholder changed rows: 44192
+participating_interest changed rows: 135113
+staatsblad_event changed rows: 15589
+total_edges: 194894
+shareholder_edges: 44192
+participating_edges: 135113
+staatsblad_edges: 15589
+person_edges: 13121
+external_org_edges: 4683
+unknown_edges: 20625
+```
+
+Idempotency rerun:
+
+```text
+shareholder changed rows: 0
+participating_interest changed rows: 0
+staatsblad_event changed rows: 0
+total_edges: 194894
+```
+
+## Prod object and app checks
+
+```text
+objects: true,true,true,true
+parent_kind company: 156465
+parent_kind external_org: 4683
+parent_kind person: 13121
+parent_kind unknown: 20625
+source_table participating_interest: 135113
+source_table shareholder: 44192
+source_table staatsblad_event: 15589
+sample_child: 0219511295
+sample_ubo_rows: 75
+current_null_valid_from_rows: 6
+```
+
+- `leadpeek-backend-1` rebuilt from `feat/ownership-graph` and is healthy.
+- Internal backend `/api/health` returned `{"status":"ok","service":"datasnoop-api"}`.
+- `OWNERSHIP_GRAPH_READ_ENABLED` is unset in prod; default OFF is active.
+- Direct FastAPI handler call with the flag OFF returned `404`.
+- Direct one-off handler call with `OWNERSHIP_GRAPH_READ_ENABLED=true` returned:
+
+```text
+direct_flag_on_shareholders: 75
+direct_flag_on_participating: 10
+direct_flag_on_parents: 75
+direct_flag_on_ubo: 75
+```
+
+The public read path remains disabled until the separate soak/cutover
+decision flips `OWNERSHIP_GRAPH_READ_ENABLED=true`.

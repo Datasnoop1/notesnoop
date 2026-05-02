@@ -545,7 +545,8 @@ rationale.
 
 ## Phase Weeks-11-14 — Ownership graph (pure SQL)
 
-- **Status**: Open — implementation branch `feat/ownership-graph`.
+- **Status**: Green — closed 2026-05-02; read cutover remains gated
+  OFF pending soak.
 - **Preconditions**:
   - Week-0 through Person v1 internal-only phases are green on
     `docs/architecture-r25`.
