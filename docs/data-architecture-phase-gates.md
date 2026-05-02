@@ -509,13 +509,19 @@ app-level queries with single-token skip-condition).
 
 ## Phase Person — public URL ramp (SEPARATE stage)
 
-**Cannot start until all three gates pass:**
+**Cannot start until both gates pass (r26 — recalibrated 2026-05-02; the
+earlier "Belgian privacy lawyer's memo signed" gate moved to recommended-
+not-blocking against competitor precedent):**
 
 1. `docs/person-v1-policy.md` has a written answer (not a placeholder)
-   in every section.
-2. Belgian privacy lawyer's memo signed.
-3. Person v1 metrics meet the precision/recall threshold from the
-   policy record.
+   in every section. **Status: ✅ green as of 2026-05-02.**
+2. Person v1 metrics meet the precision/recall threshold from the
+   policy record (~500-row stratified golden set).
+
+External Belgian privacy-lawyer engagement remains recommended for
+incident response (post-launch DSAR / complaint handling) but does
+NOT gate the public URL launch. See deep-dive r26 callout for the
+rationale.
 
 - **Files**: `frontend/app/person/[id]/page.tsx` (drop admin gate);
   `frontend/middleware.ts` or equivalent (rate-limit per the policy);

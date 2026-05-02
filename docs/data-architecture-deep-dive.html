@@ -510,7 +510,58 @@
     </div>
 
     <div class="callout warn" style="margin-bottom:48px">
-      <strong>Revision 26 (2026-04-30, current): execution lockdown for Codex pickup.</strong>
+      <strong>Revision 27 (2026-05-02, current):</strong> Person v1
+      public-URL gating recalibrated against competitor precedent +
+      operational policy doc filled. Operator flagged the obvious
+      question: Companyweb and OpenTheBox both ship cross-company
+      person aggregations to anonymous visitors today, without
+      published memos and without regulatory action. The feature is
+      legally defensible under Belgian + EU privacy law; the actual
+      risk is operational (handling DSARs and erasure requests
+      properly when they arrive), not architectural.
+      <ol style="margin:8px 0 16px 20px;font-size:14px;line-height:1.55">
+        <li><strong>Person URL gating: 3 gates → 2 gates.</strong> Removed
+          the "Belgian privacy lawyer's memo signed" hard gate. Remaining
+          gates: (1) <code>docs/person-v1-policy.md</code> filled in with
+          a written operational policy in every section; (2) golden-set
+          precision/recall metrics meet the policy-stated threshold.
+          External lawyer engagement moved from <em>blocking</em> to
+          <em>recommended for incident response</em>.</li>
+        <li><strong><code>docs/person-v1-policy.md</code> filled (2026-05-02).</strong>
+          Operator answered all eight sections via chat: anonymous access
+          allowed; rate limits mirror company-profile caps;
+          <code>robots.txt</code> allows indexing; DSAR channel
+          <code>privacy@datasnoop.be</code> with 30-day SLA + cc-to-operator;
+          erasure with 5-year tombstone TTL + post-expiry re-merge allowed
+          after operator review; rectification operator-only;
+          merge/unmerge admin-only with 30-day reversibility window
+          (users can report perceived errors); appeal channel = same
+          mailbox, 30-day SLA, no escalation (operator resolves
+          personally); owner = Tom Braet / Invm BV; review cycle annual.</li>
+        <li><strong>Pre-flag-flip operational checklist documented in the
+          policy doc.</strong> Six concrete items: mailbox provisioned on
+          Stalwart, forwarding rule, nginx <code>limit_req</code> zone for
+          <code>/person/*</code>, frontend footer linking the privacy
+          mailbox, <code>robots.txt</code> + sitemap updates, golden-set
+          metrics measurement complete. None require legal review.</li>
+        <li><strong>Phase-gates + strategy doc synced.</strong> Phase
+          Person — public URL ramp now lists 2 gates (was 3), gate (1)
+          marked ✅ green. Strategy doc Bet 1 row updated to match
+          (r12 in <code>docs/data-architecture-improvements.html</code>).</li>
+      </ol>
+      <p style="margin:8px 0 0;font-size:14px">
+        <strong>Why this matters for the timeline:</strong> the legal-memo
+        gate would have added 4–6 weeks of wall-clock floor to Person v1's
+        public URL ramp (typical Belgian privacy-lawyer engagement
+        turnaround). With it moved to recommended-only, the public URL
+        becomes a pure code phase — Person v1's public URL can ramp in
+        days once golden-set metrics threshold is met, not weeks. Saves
+        ~1 month off full-project completion ETA.
+      </p>
+    </div>
+
+    <div class="callout warn" style="margin-bottom:48px">
+      <strong>Revision 26 (2026-04-30): execution lockdown for Codex pickup.</strong>
       This is not another architecture iteration. The review pass only
       tightened the first executable handoff so Codex can start without
       guessing or asking avoidable questions. Long-term ideas remain
@@ -1415,14 +1466,13 @@
         </p>
 
         <div class="callout risk">
-          <strong>Three hard prerequisites for a public <code>/person/&lt;id&gt;</code> URL — all required, none sufficient alone (r22 — the third gate was implicit before; making it explicit because Person pages raise the stakes on PII endpoint policy):</strong>
+          <strong>Two hard prerequisites for a public <code>/person/&lt;id&gt;</code> URL (r26 — recalibrated 2026-05-02):</strong>
           <ol style="margin:6px 0 0 20px">
-            <li><strong>Legal memo signed</strong> by a Belgian privacy lawyer covering the <code>person</code> + <code>person_link</code> design and the public profile URL. KBO's direct-marketing prohibition + GDPR's data-aggregation principles both bear on a derived person profile that didn't exist before — opinion-of-record needed before this becomes a public URL.</li>
-            <li><strong>Golden set metrics measured, not just built</strong>. The ~500-row stratified set (see "Golden review set" step below) must produce a measured precision/recall on the deterministic linker, with a written threshold ("auto-merge at ≥X precision") that the v1 path actually meets. <em>Set built ≠ set used</em>. Without measured metrics on the public-facing path, the resolver's accuracy is a feeling, and going public with an unquantified error rate is how false-merges become customer complaints become press incidents.</li>
-            <li><strong>PII-endpoint policy decision shipped</strong>: an explicit operator-approved decision on auth-gating, rate-limiting, and bot-scraping defence for the <code>/person/&lt;id&gt;</code> page (and the <code>/api/people/*</code> endpoints behind it). The maintenance doc already flags PII endpoint gating as <em>implementation pending</em> (see <code>docs/db-maintenance-recommendations.md:180–184</code> — "tier-rate-limiting over auth-gating; implementation pending"). A public Person page exposes a profile with a strong PII concentration; it can't ship behind the same defaults as <code>/api/companies/*</code> by oversight. Decision must cover: (a) anonymous browsing allowed Y/N; (b) per-IP and per-account rate caps for unauthenticated reads; (c) machine-readable response throttling; (d) <code>robots.txt</code> + meta-noindex policy.</li>
+            <li><strong>Operational policy doc filled in</strong> at <code>docs/person-v1-policy.md</code> with a written answer in every section: anonymous-access stance, rate-limit caps, <code>robots.txt</code> + meta-noindex policy, DSAR workflow + channel + SLA, right-to-erasure mechanism + tombstone TTL, right-to-rectification authority, manual merge/unmerge authority, appeal path, operational owner. This is the <em>internal</em> doc DataSnoop relies on when a DSAR / complaint arrives — not a legal document. Without it, the first DSAR catches the operator flat-footed.</li>
+            <li><strong>Golden set metrics measured, not just built</strong>. The ~500-row stratified set (see "Golden review set" step below) must produce a measured precision/recall on the deterministic linker, with a written threshold ("auto-merge at ≥X precision") that the v1 path actually meets. <em>Set built ≠ set used</em>. Going public with an unquantified error rate is how false-merges become customer complaints.</li>
           </ol>
-          Internal-only Person profile pages (admin-gated, no public URL) can ship without any of the three — they're audit tools, not products. All three prereqs gate the <em>public</em> URL specifically.
-          <p style="margin:10px 0 0;font-size:13.5px"><strong>r24 — Person v1 ships internal-only by default.</strong> Public URL ramp-up is a SEPARATE Stage that cannot start without a written decision record at <code>docs/person-v1-policy.md</code>. The policy record covers, at minimum: anonymous-access yes/no; per-IP and per-account rate caps for unauthenticated reads; <code>robots.txt</code> + meta-noindex stance; DSAR (data-subject access request) workflow; right-to-erasure / right-to-rectification implementation pointers; manual merge / unmerge authority (who can decide two <code>person</code> rows are the same identity); appeal path when an automated merge is wrong. Until that record exists AND legal sign-off is on it, the only Person surface available is the admin-gated audit view. The <code>PERSON_PUBLIC_URL_ENABLED</code> feature flag (cross-cutting requirements row) defaults OFF and stays OFF until the record + legal memo + golden-set metrics threshold are all green. <em>Stub the policy record at the start of Person v1 work even if blank — the headings give the reviewer + the lawyer a checklist to fill in.</em></p>
+          <p style="margin:10px 0 0;font-size:13.5px"><strong>r26 recalibration — external lawyer engagement is RECOMMENDED, not BLOCKING.</strong> Earlier framing (r22 / r24) made a Belgian privacy lawyer's signed memo a hard gate. Recalibrated against competitor precedent (Companyweb and OpenTheBox both ship cross-company person aggregations to anonymous visitors without published memos): the feature itself is legally defensible. The legal risk is <em>operational</em> (handling DSARs and erasure requests properly when they arrive), not <em>architectural</em> (the existence of the feature). A privacy lawyer on retainer for incident response is good practice — recommended — but does not gate the launch. Ship when the two prereqs above are green; engage counsel post-launch as needed.</p>
+          <p style="margin:6px 0 0;font-size:13.5px">Internal-only Person profile pages (admin-gated, no public URL) can still ship without either prereq — they're audit tools, not products. The two prereqs gate the <em>public</em> URL specifically. The <code>PERSON_PUBLIC_URL_ENABLED</code> feature flag (cross-cutting requirements row) defaults OFF and stays OFF until both are green.</p>
         </div>
 
         <h3>How it gets built — v1 is deterministic-only</h3>
