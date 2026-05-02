@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 import time
 import uuid
@@ -41,6 +42,28 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 NBB_BASE_URL = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be").rstrip("/")
 NBB_KEY = os.getenv("NBB_AUTHENTIC_KEY", "")
 USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence)"
+MAX_RETRY_ATTEMPTS = int(os.getenv("GOVERNANCE_RETRY_MAX_ATTEMPTS", "7"))
+PRESTORE_CIRCUIT_BREAKER = int(os.getenv("GOVERNANCE_RETRY_CIRCUIT_BREAKER", "5"))
+
+
+def _safe_error(error: Exception | str, limit: int = 1000) -> str:
+    """Redact secrets before an error reaches cron logs or governance_load_log."""
+    message = str(error) or error.__class__.__name__
+    message = message.replace("\r", " ").replace("\n", " ")
+    if NBB_KEY:
+        message = message.replace(NBB_KEY, "[redacted]")
+    message = re.sub(r"(?i)\bBearer\s+[^\s,;]+", "Bearer [redacted]", message)
+    message = re.sub(
+        r"(?i)\b((?:NBB-CBSO-Subscription-Key|Authorization|api[_-]?key|token|password|secret)\s*[:=]\s*)[^\s,;]+",
+        r"\1[redacted]",
+        message,
+    )
+    message = re.sub(
+        r"(?i)([?&](?:api[_-]?key|apikey|key|token|password|secret)=)[^&\s]+",
+        r"\1[redacted]",
+        message,
+    )
+    return message[:limit]
 
 
 def _headers() -> dict[str, str]:
@@ -52,7 +75,7 @@ def _headers() -> dict[str, str]:
     }
 
 
-def fetch_retry_rows(conn, limit: int) -> list[tuple[str, str, int | None]]:
+def fetch_retry_rows(conn, limit: int, max_attempts: int) -> list[tuple[str, str, int | None]]:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -65,11 +88,12 @@ def fetch_retry_rows(conn, limit: int) -> list[tuple[str, str, int | None]]:
              AND fs.deposit_key = gl.deposit_key
             WHERE gl.status = 'error'
               AND (gl.next_retry_at IS NULL OR gl.next_retry_at <= NOW())
+              AND gl.attempts < %s
             ORDER BY gl.last_attempt_at NULLS FIRST,
                      gl.created_at ASC
             LIMIT %s
             """,
-            (limit,),
+            (max_attempts, limit),
         )
         return [(row[0], row[1], row[2]) for row in cur.fetchall()]
 
@@ -105,14 +129,17 @@ def retry_once(
         LOG.info("%s %s: governance retry succeeded: %s", cbe, deposit_key, counts)
         return True
     except Exception as exc:
-        LOG.warning("%s %s: governance retry failed: %s", cbe, deposit_key, exc)
-        record_governance_load_failure(conn, cbe, deposit_key, exc)
+        safe_error = _safe_error(exc)
+        LOG.warning("%s %s: governance retry failed: %s", cbe, deposit_key, safe_error)
+        record_governance_load_failure(conn, cbe, deposit_key, safe_error)
         return False
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=200)
+    parser.add_argument("--max-attempts", type=int, default=MAX_RETRY_ATTEMPTS)
+    parser.add_argument("--circuit-breaker", type=int, default=PRESTORE_CIRCUIT_BREAKER)
     parser.add_argument("--sleep-seconds", type=float, default=1.0)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -128,13 +155,14 @@ def main() -> int:
     )
 
     with psycopg2.connect(DATABASE_URL) as conn:
-        rows = fetch_retry_rows(conn, max(args.limit, 1))
+        rows = fetch_retry_rows(conn, max(args.limit, 1), max(args.max_attempts, 1))
         LOG.info("retry candidates: %d", len(rows))
         if not rows:
             return 0
 
         ok = 0
         failed = 0
+        prestore_failures = 0
         with requests.Session() as session:
             for cbe, deposit_key, fiscal_year in rows:
                 try:
@@ -149,11 +177,20 @@ def main() -> int:
                         ok += 1
                     else:
                         failed += 1
+                    prestore_failures = 0
                 except Exception as exc:
                     failed += 1
-                    LOG.warning("%s %s: retry failed before store: %s", cbe, deposit_key, exc)
+                    prestore_failures += 1
+                    safe_error = _safe_error(exc)
+                    LOG.warning("%s %s: retry failed before store: %s", cbe, deposit_key, safe_error)
                     if not args.dry_run:
-                        record_governance_load_failure(conn, cbe, deposit_key, exc)
+                        record_governance_load_failure(conn, cbe, deposit_key, safe_error)
+                    if prestore_failures >= max(args.circuit_breaker, 1):
+                        LOG.error(
+                            "stopping after %d consecutive pre-store failures",
+                            prestore_failures,
+                        )
+                        break
                 time.sleep(max(args.sleep_seconds, 0.0))
 
     LOG.info("done: ok=%d failed=%d", ok, failed)

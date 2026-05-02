@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 import json
+import re
 from typing import Any
 
 from ownership_id import (
@@ -669,6 +670,24 @@ _OWNERSHIP_EDGE_TABLE_PRESENT: bool | None = None
 _GOVERNANCE_LOAD_LOG_TABLE_PRESENT: bool | None = None
 
 
+def _safe_governance_error(error: Exception | str, limit: int = 1000) -> str:
+    """Return a short, single-line error safe for durable retry storage."""
+    message = str(error) or error.__class__.__name__
+    message = message.replace("\r", " ").replace("\n", " ")
+    message = re.sub(r"(?i)\bBearer\s+[^\s,;]+", "Bearer [redacted]", message)
+    message = re.sub(
+        r"(?i)\b((?:NBB-CBSO-Subscription-Key|Authorization|api[_-]?key|token|password|secret)\s*[:=]\s*)[^\s,;]+",
+        r"\1[redacted]",
+        message,
+    )
+    message = re.sub(
+        r"(?i)([?&](?:api[_-]?key|apikey|key|token|password|secret)=)[^&\s]+",
+        r"\1[redacted]",
+        message,
+    )
+    return message[:limit]
+
+
 def _affiliation_table_exists(cur) -> bool:
     """Return True if the `affiliation` table is present in the current schema.
 
@@ -759,7 +778,7 @@ def record_governance_load_failure(
     try:
         if not _governance_load_log_table_exists(cur):
             return
-        message = str(error)[:4000]
+        message = _safe_governance_error(error)
         cur.execute(
             """
             INSERT INTO governance_load_log (
@@ -773,7 +792,12 @@ def record_governance_load_failure(
                 last_error = EXCLUDED.last_error,
                 counts_json = NULL,
                 last_attempt_at = NOW(),
-                next_retry_at = NOW() + INTERVAL '1 hour',
+                next_retry_at = NOW() + (
+                    LEAST(
+                        POWER(2, LEAST(governance_load_log.attempts + 1, 5))::int,
+                        24
+                    ) * INTERVAL '1 hour'
+                ),
                 updated_at = NOW()
             """,
             (cbe, deposit_key, message),

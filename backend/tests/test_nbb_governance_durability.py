@@ -72,7 +72,26 @@ def test_record_governance_failure_increments_retry(monkeypatch):
     sql, params = conn.statements[0]
     assert "status = 'error'" in sql
     assert "attempts = governance_load_log.attempts + 1" in sql
+    assert "POWER(2" in sql
     assert params == ("0403170701", "2024-00000001", "boom")
+
+
+def test_record_governance_failure_redacts_and_truncates(monkeypatch):
+    conn = FakeConn()
+    monkeypatch.setattr(nbb_governance, "_governance_load_log_table_exists", lambda _cur: True)
+
+    nbb_governance.record_governance_load_failure(
+        conn,
+        "0403170701",
+        "2024-00000001",
+        "Bearer abc123 NBB-CBSO-Subscription-Key=secret " + ("x" * 2000),
+    )
+
+    _sql, params = conn.statements[0]
+    assert "abc123" not in params[2]
+    assert "secret" not in params[2]
+    assert "[redacted]" in params[2]
+    assert len(params[2]) == 1000
 
 
 def test_record_governance_skips_before_migration(monkeypatch):
@@ -84,3 +103,14 @@ def test_record_governance_skips_before_migration(monkeypatch):
     assert conn.statements == []
     assert conn.commits == 0
     assert conn.rollbacks == 0
+
+
+def test_retry_script_has_retry_caps_and_redaction():
+    script = (
+        Path(__file__).resolve().parents[2] / "scripts" / "retry_failed_governance.py"
+    ).read_text(encoding="utf-8")
+
+    assert "GOVERNANCE_RETRY_MAX_ATTEMPTS" in script
+    assert "GOVERNANCE_RETRY_CIRCUIT_BREAKER" in script
+    assert "AND gl.attempts < %s" in script
+    assert "def _safe_error" in script
