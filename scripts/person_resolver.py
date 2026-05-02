@@ -56,7 +56,7 @@ WITH source AS (
     SELECT
         md5(%(uuid_ns)s || 'A|' || person_name_normalized || '|' ||
             upper(trim(person_domicile_postcode)) || '|' ||
-            search_normalize(person_domicile_city))::uuid AS person_id,
+            coalesce(search_normalize(person_domicile_city), lower(trim(person_domicile_city))))::uuid AS person_id,
         min(trim(person_name)) AS canonical_name,
         min(nullif(trim(person_domicile_city), '')) AS primary_city,
         min(nullif(trim(person_domicile_postcode), '')) AS primary_postcode,
@@ -71,7 +71,7 @@ WITH source AS (
       AND nullif(trim(person_domicile_postcode), '') IS NOT NULL
     GROUP BY person_name_normalized,
              upper(trim(person_domicile_postcode)),
-             search_normalize(person_domicile_city)
+             coalesce(search_normalize(person_domicile_city), lower(trim(person_domicile_city)))
 ),
 upserted AS (
     INSERT INTO person (
@@ -102,7 +102,7 @@ WITH source AS (
     SELECT
         md5(%(uuid_ns)s || 'A|' || person_name_normalized || '|' ||
             upper(trim(person_domicile_postcode)) || '|' ||
-            search_normalize(person_domicile_city))::uuid AS person_id,
+            coalesce(search_normalize(person_domicile_city), lower(trim(person_domicile_city))))::uuid AS person_id,
         id::text AS source_pk,
         enterprise_number,
         trim(person_name) AS name_as_written
