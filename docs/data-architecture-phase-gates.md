@@ -584,8 +584,9 @@ rationale.
 
 ## Phase Weeks-15-22 — Bitemporal append-only fact tables
 
-- **Status**: Open — prerequisite sub-branch
-  `feat/bitemporal-governance-durability`.
+- **Status**: Open — NBB governance durability prerequisite green on
+  `feat/bitemporal-governance-durability` (2026-05-02); bitemporal
+  table work starts after this prerequisite PR is merged.
 - **Preconditions**:
   - Week-0 through Ownership graph are green on `docs/architecture-r25`.
   - NBB governance durability is shipped before any bitemporal table work:
