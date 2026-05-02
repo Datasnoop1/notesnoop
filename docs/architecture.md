@@ -144,10 +144,10 @@ assuming every admin-labelled surface is already aligned.
   values such as `NEXT_PUBLIC_*`; runtime secrets belong in
   `.env.production`.
 - `/opt/leadpeek/.env.staging` — staging runtime env. It currently mirrors
-  production external-service values by operator decision (2026-05-01) but
-  points `DATABASE_URL` at `leadpeek_staging` and sets `STAGING_MODE=true`.
-  Stripe/Supabase isolation is deferred until end-of-project hardening after
-  Bitemporal lands.
+  production external-service values by operator decisions (2026-05-01 and
+  2026-05-02) but points `DATABASE_URL` at `leadpeek_staging` and sets
+  `STAGING_MODE=true`. Stripe/Supabase isolation remains deferred after
+  Bitemporal Phase A; see `docs/staging-isolation-evidence-2026-05-02.md`.
 - `/opt/leadpeek/.env.production` — **runtime env**. The backend +
   frontend containers read this via `env_file`. Changing values here
   requires **`docker compose up -d --force-recreate`**, not a plain
@@ -220,8 +220,9 @@ assuming every admin-labelled surface is already aligned.
    `up -d --force-recreate` does.
 6. **Staging has its own scrubbed DB clone.** The nightly snapshot restores
    prod into `leadpeek_staging_next`, applies `scripts/staging_scrub.sql`,
-   then swaps it into `leadpeek_staging`. Stripe/Supabase isolation is
-   intentionally deferred per operator decision on 2026-05-01.
+   then swaps it into `leadpeek_staging`. Stripe/Supabase isolation remains
+   intentionally deferred per operator decisions on 2026-05-01 and
+   2026-05-02.
 7. **`STAGING_MODE` env** gates a "staging admin-only" middleware.
    It is true in `.env.staging`; admin routes are still gated at the
    router level via `_require_admin`.

@@ -631,6 +631,11 @@ rationale.
 (2026-05-01) for the staging-isolation items punted from Week-2a to
 keep the foundation rollout moving.
 
+**Status:** Deferred by operator decision on 2026-05-02. Bitemporal Phase A
+landed and database isolation remains green, but Stripe test-mode/webhook
+isolation and Supabase project isolation are explicitly skipped for now.
+Evidence: `docs/staging-isolation-evidence-2026-05-02.md`.
+
 This phase closes out the full Stage R22-C four-check matrix that
 Week-2a abbreviated. None of these are blockers for any earlier phase;
 they're a final-pass hardening of the staging environment so future
@@ -658,18 +663,21 @@ work can rely on full prod-isolation guarantees.
   Stripe key namespace, Stripe webhook routing, Supabase project,
   DATABASE_URL.
 
-### Postconditions
+### Target postconditions when reopened
 
 - Inside `backend-staging`: `printenv STRIPE_SECRET_KEY` starts `sk_test_`.
 - A Stripe CLI test webhook lands at the staging backend log, NOT prod.
 - `printenv NEXT_PUBLIC_SUPABASE_URL` = staging-allowlisted URL,
   distinct from `fpsyraglybfazambxuqb`.
 - `psql $DATABASE_URL -tAc "SELECT current_database()"` from
-  backend-staging = `leadpeek_staging` (already met since Week-2b).
+  backend-staging = `leadpeek_staging` (already met since Week-2b; on
+  2026-05-02 the same check used the backend Python/Postgres driver because
+  `psql` is not installed in `backend-staging`).
 - Updated `docs/staging-isolation-evidence-<date>.md` committed,
   showing all four checks GREEN. The original
   `docs/staging-isolation-evidence-2026-05-01.md` (one-check-only,
-  three-DEFERRED) remains in the audit trail.
+  three-DEFERRED) and `docs/staging-isolation-evidence-2026-05-02.md`
+  remain in the audit trail.
 
 ### Approval gate
 
