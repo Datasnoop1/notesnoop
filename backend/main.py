@@ -17,6 +17,7 @@ from routers import dashboard, screener, companies, stats, people, favourites, f
 from auth import ensure_jwks_bootstrapped
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup, ensure_phase22_schema
+from middleware.cancel_watchdog import SearchCancelWatchdogMiddleware
 from middleware.timing import TimingMiddleware, metrics_response
 
 load_dotenv()
@@ -843,6 +844,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(SearchCancelWatchdogMiddleware)
 app.add_middleware(TimingMiddleware)
 
 # ---------------------------------------------------------------------------

@@ -365,7 +365,49 @@ app-level queries with single-token skip-condition).
 
 ## Phase Week-3 — Cancellation watchdog + WAL archiving
 
-(Format placeholder — convert when this phase starts.)
+- **Preconditions**: Week 1 and Week 2 foundation green; Week-2 FTS prod
+  ramp executed, with the 24h click-through soak tracked separately.
+  Production Postgres volume paths exist in `/opt/leadpeek/.env.production`
+  as `DS_WAL_ARCHIVE_DIR` and `DS_BACKUP_DIR`.
+- **Files**: `backend/db.py`, `backend/main.py`,
+  `backend/middleware/cancel_watchdog.py`,
+  `backend/tests/test_cancel_watchdog.py`,
+  `backend/tests/test_db_pool_safety.py`,
+  `scripts/configure_wal_archiving.sh`, `scripts/take_base_backup.sh`,
+  `docs/week-3-watchdog-wal-evidence-2026-05-02.md`.
+- **Commands**:
+  ```bash
+  pytest backend/tests/test_cancel_watchdog.py backend/tests/test_db_pool_safety.py
+  ./scripts/deploy_staging.sh 62.238.14.150
+  # staging smoke: cancelled search leaves backend healthy and pool reusable
+  # read-only prod audit: SHOW archive_mode/archive_command/wal_level; df -h
+  # Gate Y tail, operator-approved production run during quiet window:
+  #   sudo bash /opt/leadpeek/scripts/configure_wal_archiving.sh --apply --restart-if-required
+  #   sudo bash /opt/leadpeek/scripts/take_base_backup.sh
+  ```
+- **Postconditions**:
+  - Search-only watchdog is enabled for read-only search endpoints and uses
+    a dedicated cancel pool with `pg_cancel_backend()` guarded by both PID
+    and `application_name=datasnoop:rid=<request-id>`.
+  - `backend/db.py::put_connection()` resets `application_name` before pool
+    return and discards any non-idle transaction state instead of handing a
+    poisoned connection to the next request.
+  - Staging deploy is healthy after the watchdog change; a cancelled search
+    smoke leaves the next search request successful.
+  - WAL archiving writes rotated WALs under `DS_WAL_ARCHIVE_DIR`; the first
+    base backup lands under `DS_BACKUP_DIR`; `pg_reload_conf()` and any
+    required Postgres restart output is captured in the evidence doc.
+    Verified 2026-05-02: archive probe
+    `0000000100000045000000A0`, compressed base backup
+    `base-20260502T095716Z` size `20G`, manifest present, backend healthy.
+- **Approval gate**: Y — production Postgres config edit + reload/restart
+  if required by current `archive_mode`, plus first base backup. Prepare the
+  branch, PR, staging deploy, read-only audit, and exact command
+  autonomously; pause for the operator to approve the prod-mutating tail
+  command. ✓ operator approved Codex-run and production postconditions were
+  captured on 2026-05-02.
+- **Detail**: deep-dive §5b cancellation watchdog + Week 3 row; r21
+  `application_name` reset; r25 discard-or-rollback safety net.
 
 ## Phase Week-4 — Restore drill + observability stack
 
