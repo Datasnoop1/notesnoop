@@ -6,9 +6,13 @@ Uses a simple connection pool to avoid exhausting Supabase session pooler limits
 import os
 import logging
 import time
+import contextvars
+import threading
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 
 import psycopg2
+import psycopg2.extensions
 import psycopg2.extras
 import psycopg2.pool
 from dotenv import load_dotenv
@@ -31,12 +35,58 @@ DB_CONNECT_TIMEOUT_S = int(os.getenv("DB_CONNECT_TIMEOUT_S", "10"))
 # anything longer is almost certainly a stuck connection. The enrichment
 # worker has its own tighter per-job ceiling on top of this.
 DB_STATEMENT_TIMEOUT_MS = int(os.getenv("DB_STATEMENT_TIMEOUT_MS", "120000"))
+DB_CANCEL_POOL_MAXCONN = int(os.getenv("DB_CANCEL_POOL_MAXCONN", "5"))
+DB_CANCEL_STATEMENT_TIMEOUT_MS = int(os.getenv("DB_CANCEL_STATEMENT_TIMEOUT_MS", "5000"))
+DB_APPLICATION_NAME = os.getenv("DB_APPLICATION_NAME", "datasnoop")
+_REQUEST_APP_PREFIX = f"{DB_APPLICATION_NAME}:rid="
 
 # Simple pool: min 1, max 3 connections (Supabase session pooler is limited)
 _pool = None
+_cancel_pool = None
+_pool_init_lock = threading.Lock()
+_cancel_pool_init_lock = threading.Lock()
 
 
-def _get_pool():
+@dataclass
+class QueryCancelContext:
+    request_id: str
+    path: str = ""
+    current_pid: int | None = None
+    cancel_requested: bool = False
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def set_pid(self, pid: int) -> None:
+        with self._lock:
+            self.current_pid = pid
+
+    def clear_pid(self, pid: int | None = None) -> None:
+        with self._lock:
+            if pid is None or self.current_pid == pid:
+                self.current_pid = None
+
+    def snapshot(self) -> tuple[int | None, str]:
+        with self._lock:
+            return self.current_pid, self.request_id
+
+
+_query_cancel_context: contextvars.ContextVar[QueryCancelContext | None] = (
+    contextvars.ContextVar("datasnoop_query_cancel_context", default=None)
+)
+
+
+def set_query_cancel_context(ctx: QueryCancelContext):
+    return _query_cancel_context.set(ctx)
+
+
+def reset_query_cancel_context(token) -> None:
+    _query_cancel_context.reset(token)
+
+
+def get_query_cancel_context() -> QueryCancelContext | None:
+    return _query_cancel_context.get()
+
+
+def _get_pool_unlocked():
     global _pool
     if _pool is None or _pool.closed:
         if not _DATABASE_URL:
@@ -64,19 +114,151 @@ def _get_pool():
     return _pool
 
 
+def _get_cancel_pool_unlocked():
+    global _cancel_pool
+    if _cancel_pool is None or _cancel_pool.closed:
+        if not _DATABASE_URL:
+            raise RuntimeError("DATABASE_URL not set in environment / .env file")
+        _cancel_pool = psycopg2.pool.ThreadedConnectionPool(
+            1,
+            DB_CANCEL_POOL_MAXCONN,
+            _DATABASE_URL,
+            connect_timeout=DB_CONNECT_TIMEOUT_S,
+            options=(
+                f"-c statement_timeout={DB_CANCEL_STATEMENT_TIMEOUT_MS} "
+                f"-c application_name={DB_APPLICATION_NAME}-cancel"
+            ),
+        )
+    return _cancel_pool
+
+
+def _get_pool():
+    with _pool_init_lock:
+        return _get_pool_unlocked()
+
+
+def _get_cancel_pool():
+    with _cancel_pool_init_lock:
+        return _get_cancel_pool_unlocked()
+
+
+def _request_application_name(request_id: str) -> str:
+    return f"{_REQUEST_APP_PREFIX}{request_id}"
+
+
+def _run_session_setting(conn, sql: str, params: tuple) -> tuple | None:
+    """Run a session-level setting outside any transaction."""
+    old_autocommit = getattr(conn, "autocommit", False)
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone() if getattr(cur, "description", None) else None
+    finally:
+        conn.autocommit = old_autocommit
+
+
+def _tag_connection_for_cancel(conn) -> None:
+    ctx = _query_cancel_context.get()
+    if ctx is None:
+        return
+    row = _run_session_setting(
+        conn,
+        "SELECT set_config('application_name', %s, false), pg_backend_pid()",
+        (_request_application_name(ctx.request_id),),
+    )
+    if row and row[1] is not None:
+        ctx.set_pid(int(row[1]))
+
+
+def _reset_application_name(conn) -> None:
+    _run_session_setting(
+        conn,
+        "SELECT set_config('application_name', %s, false)",
+        (DB_APPLICATION_NAME,),
+    )
+
+
 def get_connection():
     """Get a pooled PostgreSQL connection."""
     conn = _get_pool().getconn()
     conn.autocommit = False
+    try:
+        _tag_connection_for_cancel(conn)
+    except Exception:
+        _discard_connection(conn)
+        raise
     return conn
 
 
 def put_connection(conn):
     """Return a connection to the pool."""
+    if conn is None:
+        return
+    ctx = _query_cancel_context.get()
+    pid = None
     try:
+        if getattr(conn, "closed", 1) != 0:
+            _discard_connection(conn)
+            return
+        try:
+            pid = conn.get_backend_pid()
+        except Exception:
+            pid = None
+
+        status = conn.info.transaction_status
+        if status != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+            _discard_connection(conn)
+            return
+
+        _reset_application_name(conn)
         _get_pool().putconn(conn)
     except Exception:
-        pass
+        _discard_connection(conn)
+    finally:
+        if ctx is not None:
+            ctx.clear_pid(pid)
+
+
+def cancel_backend_for_request(pid: int | None, request_id: str) -> bool:
+    """Cancel a running query only if the target PID still belongs to request_id."""
+    if not pid or not request_id:
+        return False
+    conn = None
+    discard = False
+    try:
+        pool = _get_cancel_pool()
+        conn = pool.getconn()
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COALESCE(bool_or(pg_cancel_backend(pid)), false)
+                FROM pg_stat_activity
+                WHERE pid = %s
+                  AND state = 'active'
+                  AND application_name = %s
+                """,
+                (int(pid), _request_application_name(request_id)),
+            )
+            row = cur.fetchone()
+        cancelled = bool(row and row[0])
+        if cancelled:
+            logger.info("Cancelled abandoned search query pid=%s", pid)
+        return cancelled
+    except Exception:
+        discard = True
+        logger.debug("Failed to cancel abandoned search query pid=%s", pid, exc_info=True)
+        return False
+    finally:
+        if conn is not None:
+            try:
+                _get_cancel_pool().putconn(conn, close=discard or getattr(conn, "closed", 1) != 0)
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
 
 @contextmanager
