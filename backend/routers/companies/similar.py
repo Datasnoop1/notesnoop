@@ -534,6 +534,43 @@ def _fallback_reason_from_payload(
     return _structured_reason(activity, size, geography)
 
 
+def _sector_fallback_result(raw_row: dict, target: dict, rank: int) -> dict:
+    """Shape a legacy sector-peer row for /similar/ai empty-blend degradation."""
+    serialized = _sanitize_similar_result_row(raw_row)
+    row_city = (raw_row.get("city") or "").strip().lower()
+    target_city = (target.get("city") or "").strip().lower()
+    geo_label = "same_city" if row_city and row_city == target_city else "different"
+
+    revenue_ratio = None
+    row_revenue = raw_row.get("revenue")
+    target_revenue = target.get("revenue")
+    if (
+        isinstance(row_revenue, (int, float))
+        and isinstance(target_revenue, (int, float))
+        and target_revenue > 0
+    ):
+        revenue_ratio = round(row_revenue / target_revenue, 3)
+
+    reason = _structured_reason(
+        _describe_nace_match("exact", target.get("nace_code"), target.get("nace_desc")),
+        _describe_size_match(revenue_ratio, raw_row.get("fte_total")),
+        _describe_geo_match(geo_label, raw_row.get("city")),
+    )
+    serialized["ai_reason"] = reason
+    serialized["ai_reason_sections"] = _extract_reason_sections(reason)
+    serialized["match_score"] = max(15, 35 - rank)
+    serialized["provenance"] = "sector_fallback"
+    serialized["signals"] = {
+        "embedding_similarity": None,
+        "nace_match": "exact",
+        "revenue_ratio": revenue_ratio,
+        "activity_overlap": None,
+        "activity_anchor": target.get("nace_desc") or target.get("nace_code"),
+        "geo_match": geo_label,
+    }
+    return serialized
+
+
 def _normalize_reason(
     ai_reason: Optional[str],
     fallback_reason: str,
@@ -788,6 +825,17 @@ async def get_similar_companies_ai(
         log_event["candidates_after_merge"] = len(blended)
 
         if not blended:
+            try:
+                fallback_rows = await get_similar_companies(cbe)
+            except Exception:
+                logger.exception("Sector fallback failed for %s", cbe)
+                fallback_rows = []
+            if fallback_rows:
+                log_event["degraded"] = "sector_fallback_no_candidates"
+                return [
+                    _sector_fallback_result(row, target, idx)
+                    for idx, row in enumerate(fallback_rows[:limit])
+                ]
             log_event["degraded"] = "no_candidates"
             return []
 
