@@ -31,12 +31,30 @@ Direct SQL sample discovery found these live two-hop ownership chains in
 
 ## Prod gate
 
-Pending. The gated step must:
+Gate Y comment: PR #45 comment
+`https://github.com/Datasnoop1/platform/pull/45#issuecomment-4364503613`.
 
-1. Set `OWNERSHIP_GRAPH_READ_ENABLED=true` in
-   `/opt/leadpeek/.env.production` without printing any secrets.
-2. Recreate the production backend with `--force-recreate`.
-3. Smoke `/api/companies/<cbe>/structure` and `/api/companies/<cbe>/ownership-graph`
-   for 3-5 sample companies.
-4. Verify the graph-backed read path returns immediate parents in
-   `/structure` and multi-hop chains in `ownership-graph.ubo_walk`.
+The first smoke started before the recreated backend had reached healthy and
+failed with connection refused. The health wait was rerun without further env
+changes and the endpoint probes passed.
+
+Backend recreate and flag state:
+
+```text
+leadpeek-backend-1: Up (healthy)
+ownership_flag_true: True
+```
+
+Endpoint smoke from inside the production backend container:
+
+```text
+0437312028: structure_parent=True ubo_depth_max=2 grandparent_seen=True parent_companies=1 ubo_edges=2
+0476943753: structure_parent=True ubo_depth_max=3 grandparent_seen=True parent_companies=1 ubo_edges=4
+0443891695: structure_parent=True ubo_depth_max=2 grandparent_seen=True parent_companies=1 ubo_edges=2
+0431404530: structure_parent=True ubo_depth_max=2 grandparent_seen=True parent_companies=1 ubo_edges=2
+backend health: {"status":"ok","service":"datasnoop-api"}
+```
+
+The `/structure` response now uses the graph-backed immediate-parent read path
+for each sample, and `/ownership-graph?max_depth=6` returns the expected
+multi-hop UBO chain.

@@ -545,8 +545,9 @@ rationale.
 
 ## Phase Weeks-11-14 — Ownership graph (pure SQL)
 
-- **Status**: Green — closed 2026-05-02; read cutover remains gated
-  OFF pending soak.
+- **Status**: Green — closed 2026-05-02; production read cutover flipped
+  ON 2026-05-02 with evidence in
+  `docs/ownership-graph-prod-flip-evidence-2026-05-02.md`.
 - **Preconditions**:
   - Week-0 through Person v1 internal-only phases are green on
     `docs/architecture-r25`.
@@ -577,8 +578,8 @@ rationale.
     Staatsblad ownership events have loaded idempotently.
   - New NBB governance writes dual-write ownership edges when the table
     exists.
-  - Read cutover is gated by `OWNERSHIP_GRAPH_READ_ENABLED`; default OFF
-    preserves the legacy structure/network UI until soak.
+  - Read cutover is gated by `OWNERSHIP_GRAPH_READ_ENABLED`; production
+    is ON as of 2026-05-02, with rollback by env flip plus backend recreate.
 - **Approval gate**: Y — production schema migration + historical graph
   load mutate prod; review must be green before the prod tail step.
 
