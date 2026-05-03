@@ -120,6 +120,21 @@ echo ""
 echo "Waiting for services to start..."
 sleep 10
 docker compose ps
+
+echo ""
+echo "Running deploy smoke test..."
+# Imports every cron-invoked module inside the freshly built backend
+# container. Catches path / import drift the moment a deploy lands rather
+# than at the next 06:00 cron tick. See scripts/_deploy_smoke.py.
+if ! docker exec leadpeek-backend-1 python /app/scripts/_deploy_smoke.py; then
+    echo "==================================="
+    echo "DEPLOY SMOKE TEST FAILED"
+    echo "Containers are up but at least one cron-invoked module"
+    echo "did not import cleanly. Cron jobs depending on those"
+    echo "modules will fail at their next scheduled run."
+    echo "==================================="
+    exit 1
+fi
 START
 
 echo ""

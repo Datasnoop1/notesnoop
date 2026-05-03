@@ -78,6 +78,18 @@ echo ""
 echo "Waiting for services to start..."
 sleep 10
 docker compose -f docker-compose.staging.yml -p leadpeek-staging ps
+
+echo ""
+echo "Running deploy smoke test on staging backend..."
+# Imports every cron-invoked module inside the staging backend container
+# so import / path drift surfaces here instead of when the equivalent
+# prod cron fires the next morning. See scripts/_deploy_smoke.py.
+if ! docker exec leadpeek-staging-backend-staging-1 python /app/scripts/_deploy_smoke.py; then
+    echo "==================================="
+    echo "STAGING SMOKE TEST FAILED"
+    echo "==================================="
+    exit 1
+fi
 START
 
 echo ""

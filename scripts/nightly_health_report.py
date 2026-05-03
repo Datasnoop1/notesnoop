@@ -350,36 +350,225 @@ def check_staatsblad_events() -> CheckResult:
     )
 
 
-def check_regsol() -> CheckResult:
-    """Regsol insolvency scraper (03:30)."""
-    tail = _read_log("regsol.log", 60)
-    if "ZENROWS_API_KEY not set" in tail:
-        # Zenrows was intentionally disabled on 2026-04-25 pending the
-        # Playwright + Webshare replacement service. Treat the missing key
-        # as expected, not as an incident.
-        return CheckResult(
-            name="Regsol scraper",
-            status="YELLOW",
-            summary="Regsol scraper paused — Zenrows disabled, awaiting Webshare replacement",
-            detail=tail[-800:],
+def check_kbo_daily() -> CheckResult:
+    """KBO daily updater (06:00 cron, scripts/kbo_update.sh).
+
+    Looks at two signals:
+      1. The wrapper log (kbo_update.log) should contain a success marker
+         line written within the last 25h. Either "KBO daily update complete"
+         (full success including ANALYZE) or "No new updates available"
+         (KBO portal genuinely had no new ZIPs — also a clean exit).
+      2. The kbo_extract_log table's max applied_at should not be older
+         than 35 days (KBO publishes monthly + interim weekday updates;
+         a >35 day gap means we're missing the next monthly drop).
+
+    Combining both lets us distinguish "wrapper running fine, KBO is just
+    quiet" from "wrapper hasn't run in days" or "wrapper runs but never
+    applies anything useful".
+    """
+    tail = _read_log("kbo_update.log", 200)
+    lines = [ln for ln in tail.splitlines() if ln.strip()]
+
+    # 1) Wrapper completion marker.
+    success_pat = re.compile(
+        r"KBO daily update complete|No new updates available", re.IGNORECASE
+    )
+    error_pat = re.compile(r"ERROR.*KBO daily update failed", re.IGNORECASE)
+    last_success_ts = None
+    last_error_line = None
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=25)
+
+    for ln in reversed(lines):
+        if last_success_ts is None and success_pat.search(ln):
+            mts = re.match(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)", ln)
+            if mts:
+                try:
+                    last_success_ts = datetime.fromisoformat(
+                        mts.group(1).replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    pass
+        if last_error_line is None and error_pat.search(ln):
+            last_error_line = ln
+        if last_success_ts and last_error_line:
+            break
+
+    wrapper_ok = last_success_ts is not None and last_success_ts >= cutoff
+
+    # 2) Database staleness: how old is the latest applied KBO extract?
+    # `applied_at` is stored as TEXT (not TIMESTAMP) — parse defensively.
+    extract_age_days = None
+    try:
+        row = fetch_one(
+            "SELECT MAX(applied_at) AS last_applied FROM kbo_extract_log"
         )
-    if not tail.strip():
+        last_applied_raw = row["last_applied"] if row else None
+        if last_applied_raw:
+            last_applied = None
+            if isinstance(last_applied_raw, datetime):
+                last_applied = last_applied_raw
+            else:
+                # Common KBO formats: "YYYY-MM-DD HH:MM:SS" and ISO 8601.
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+                    try:
+                        last_applied = datetime.strptime(str(last_applied_raw), fmt)
+                        break
+                    except ValueError:
+                        continue
+                if last_applied is None:
+                    try:
+                        last_applied = datetime.fromisoformat(
+                            str(last_applied_raw).replace("Z", "+00:00")
+                        )
+                    except ValueError:
+                        log.warning(
+                            "could not parse kbo_extract_log.applied_at=%r",
+                            last_applied_raw,
+                        )
+            if last_applied is not None:
+                if last_applied.tzinfo is None:
+                    last_applied = last_applied.replace(tzinfo=timezone.utc)
+                extract_age_days = (
+                    datetime.now(timezone.utc) - last_applied
+                ).total_seconds() / 86400
+    except Exception as e:
+        log.warning("kbo_extract_log query failed: %s", e)
+
+    # Decision
+    if wrapper_ok and (extract_age_days is None or extract_age_days < 35):
+        bits = []
+        if last_success_ts:
+            bits.append(f"wrapper OK at {last_success_ts.strftime('%H:%MZ')}")
+        if extract_age_days is not None:
+            bits.append(f"latest extract {extract_age_days:.0f}d old")
         return CheckResult(
-            name="Regsol scraper",
-            status="RED",
-            summary="regsol.log empty — cron may not have fired",
-            detail="",
+            name="KBO daily updater",
+            status="GREEN",
+            summary=" / ".join(bits) or "wrapper success marker present",
         )
-    # Green if most recent line doesn't contain ERROR/FAIL
-    last = tail.splitlines()[-1] if tail.splitlines() else ""
-    if "ERROR" in last.upper() or "FAIL" in last.upper():
+
+    # RED — figure out which signal failed.
+    failure_summaries = []
+    if not wrapper_ok:
+        if last_error_line:
+            failure_summaries.append(
+                f"wrapper failing — last error: {last_error_line[-100:]}"
+            )
+        elif last_success_ts:
+            age_h = (datetime.now(timezone.utc) - last_success_ts).total_seconds() / 3600
+            failure_summaries.append(
+                f"wrapper success marker is {age_h:.0f}h old (need <25h)"
+            )
+        else:
+            failure_summaries.append("no wrapper success marker found in log")
+    if extract_age_days is not None and extract_age_days >= 35:
+        failure_summaries.append(
+            f"kbo_extract_log latest applied is {extract_age_days:.0f}d old"
+        )
+    return CheckResult(
+        name="KBO daily updater",
+        status="RED",
+        summary="; ".join(failure_summaries) or "unknown failure",
+        detail=tail[-2000:],
+        claude_prompt=(
+            "KBO daily updater is failing or stale. Check "
+            "/opt/leadpeek/scripts/_watchdog_state/kbo_update.log for the "
+            "most recent run, then run `bash /opt/leadpeek/scripts/kbo_update.sh` "
+            "manually to reproduce. Common cause: wrapper points at the wrong "
+            "Python path inside the backend container — the script lives at "
+            "/app/kbo_daily_update.py, not /app/backend/..."
+        ),
+    )
+
+
+# Patterns that indicate a cron run failed or partially failed. Looked up
+# in any *.log file under _watchdog_state/ that was modified in the last
+# 25h, so a wrapper exiting non-zero will be caught even if no per-cron
+# check function exists yet. Chosen to be specific enough to avoid
+# matching transient warnings: each pattern needs context that suggests a
+# whole-process-failure rather than a recoverable per-record issue.
+_CRON_FAILURE_PATTERNS = [
+    re.compile(r"ERROR.*failed with exit\s+\d+", re.IGNORECASE),
+    re.compile(r"failed with exit code\s+\d+", re.IGNORECASE),
+    re.compile(r"can't open file '.+': \[Errno 2\]"),
+    re.compile(r"ModuleNotFoundError|ImportError"),
+    re.compile(r"Traceback \(most recent call last\):"),
+]
+
+# Logs the watchdog produces but which already have dedicated check
+# functions above. Skip them here to avoid double-reporting.
+_CRON_LOG_SKIP = {
+    "watchdog.log",          # check_nbb_watchdog
+    "nightly.log",           # check_nbb_backload
+    "staatsblad_events.log", # check_staatsblad_events
+    "kbo_update.log",        # check_kbo_daily
+    "regsol.log",            # intentionally not monitored — Zenrows retired
+    "health_report.log",     # this script's own log; self-reference noise
+    "ted.log",               # check_log_has_recent_success below
+    "invoices.log",          # check_log_has_recent_success below
+    "valuation_commentary.log",  # check_log_has_recent_success below
+    "cron.log",              # NBB watchdog dispatcher; same data as watchdog.log
+}
+
+
+def check_cron_log_failures() -> CheckResult:
+    """Catch-all: scan every *.log under _watchdog_state/ that's been written
+    in the last 25h and look for failure markers. This is the safety net for
+    any cron we haven't written a dedicated check for — and the early-warning
+    line for new crons added in the future. Logs that already have a
+    dedicated check are skipped to avoid duplicate alerts.
+    """
+    cutoff_ts = datetime.now().timestamp() - 25 * 3600
+    findings: list[str] = []
+    scanned = 0
+    for d in _LOG_DIRS:
+        if not d.exists():
+            continue
+        for p in sorted(d.glob("*.log")):
+            if p.name in _CRON_LOG_SKIP:
+                continue
+            try:
+                if p.stat().st_mtime < cutoff_ts:
+                    continue
+            except OSError:
+                continue
+            scanned += 1
+            try:
+                with p.open("r", errors="replace") as f:
+                    # Read at most the last 500 lines per file — enough for
+                    # daily crons, cheap on huge logs.
+                    lines = f.readlines()[-500:]
+            except Exception as e:
+                findings.append(f"{p.name}: read failed ({e})")
+                continue
+            for ln in lines:
+                if any(pat.search(ln) for pat in _CRON_FAILURE_PATTERNS):
+                    snippet = ln.rstrip()[:160]
+                    findings.append(f"{p.name}: {snippet}")
+                    break  # one finding per log is enough for the digest
+        # Once we've scanned a directory that exists, don't double-scan its
+        # symlinked twin (the two _LOG_DIRS often resolve to the same place).
+        break
+
+    if not findings:
         return CheckResult(
-            name="Regsol scraper",
-            status="RED",
-            summary="error on last run",
-            detail=tail[-1500:],
+            name="Cron log scan",
+            status="GREEN",
+            summary=f"{scanned} active log(s), no failure markers",
         )
-    return CheckResult(name="Regsol scraper", status="GREEN", summary="last run clean")
+    return CheckResult(
+        name="Cron log scan",
+        status="RED",
+        summary=f"{len(findings)} cron log(s) showing failure markers",
+        detail="\n".join(findings),
+        claude_prompt=(
+            "One or more cron logs under /opt/leadpeek/scripts/_watchdog_state/ "
+            "contain failure markers from the last 24h. Inspect each named "
+            "log, identify the failing job, and fix or silence accordingly. "
+            "If a cron has been intentionally retired, add its log filename "
+            "to _CRON_LOG_SKIP in scripts/nightly_health_report.py."
+        ),
+    )
 
 
 def check_log_has_recent_success(
@@ -418,17 +607,21 @@ def check_log_has_recent_success(
 # ---------------------------------------------------------------------------
 def _run_all_checks() -> list[CheckResult]:
     """Each check returns in a second or two — no external I/O beyond the local
-    Postgres and reading watchdog log tails. KBO daily/full are not yet
-    covered here; they log to /var/log/{kbo_update,datapeak_daily}.log on
-    the host which isn't mounted into this container. Add a host volume for
-    those logs later to extend the report.
+    Postgres and reading watchdog log tails. The catch-all `check_cron_log_failures`
+    scans every other *.log under _watchdog_state/ for failure markers, so
+    new crons get baseline monitoring even before a dedicated check is written.
+
+    Note: check_regsol was retired 2026-05-03 — Zenrows is not coming back,
+    so the cron is silenced and we don't want false alarms. Re-add when a
+    replacement scraper ships.
     """
     checks: list[Callable[[], CheckResult]] = [
         check_nbb_watchdog,
         check_nbb_daily,
         check_nbb_backload,
+        check_kbo_daily,
         check_staatsblad_events,
-        check_regsol,
+        check_cron_log_failures,
         lambda: check_log_has_recent_success(
             "TED procurement",
             "ted.log",
