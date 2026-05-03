@@ -63,7 +63,11 @@ run_backend() {
 }
 
 log "Starting KBO daily update"
-if run_backend python /app/backend/kbo_daily_update.py; then
+# The backend Dockerfile copies `backend/` directly into `/app`, so the
+# script lives at `/app/kbo_daily_update.py` (no `backend/` prefix). An
+# earlier path of `/app/backend/...` silently failed every morning from
+# 2026-05-01 → 2026-05-03 before this was corrected.
+if run_backend python /app/kbo_daily_update.py; then
     log "KBO updater finished"
 else
     exit_code=$?
@@ -77,7 +81,7 @@ tables_literal="${tables_literal%, }"
 
 if run_backend python - "$tables_literal" <<'PY'
 import sys
-sys.path.insert(0, "/app/backend")
+sys.path.insert(0, "/app")
 from db import get_connection, put_connection
 
 tables = [name.strip().strip("'") for name in sys.argv[1].split(",")]
