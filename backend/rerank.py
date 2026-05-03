@@ -698,6 +698,55 @@ async def _sleep_before_retry(attempt: int, max_retries: int, backoff_s: float) 
         await asyncio.sleep(backoff_s)
 
 
+def _timeout_meta(model: str, latency_ms: int) -> dict:
+    return {
+        "text": "",
+        "model": model,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "ok": False,
+        "error": "timeout",
+        "status_code": None,
+        "latency_ms": latency_ms,
+    }
+
+
+async def _call_llm_with_walltime(
+    *,
+    prompt: str,
+    model: str,
+    max_tokens: int,
+    temperature: float | None,
+    timeout_s: float,
+    wall_timeout_s: float,
+    pass_name: str | None = None,
+    target_cbe: str | None = None,
+) -> dict:
+    started = asyncio.get_running_loop().time()
+    try:
+        return await asyncio.wait_for(
+            ai_complete_with_meta(
+                prompt,
+                system="",
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout_s=timeout_s,
+            ),
+            timeout=wall_timeout_s,
+        )
+    except asyncio.TimeoutError:
+        elapsed_ms = int((asyncio.get_running_loop().time() - started) * 1000)
+        logger.warning(
+            "LLM hard wall-clock cancel after %.1fs on %s pass for %s via %s",
+            wall_timeout_s,
+            pass_name or "rerank",
+            target_cbe or "unknown",
+            model,
+        )
+        return _timeout_meta(model, elapsed_ms)
+
+
 async def call_rerank_llm(
     prompt: str,
     tier: str,
@@ -790,6 +839,8 @@ async def call_userpath_rerank_llm(
     tier: str,
     n_candidates: int,
     schema: str = "reason_text",
+    pass_name: str | None = None,
+    target_cbe: str | None = None,
 ) -> dict:
     """Find-similar user-path envelope: 8s calls, no Ollama timeout retry.
 
@@ -802,6 +853,7 @@ async def call_userpath_rerank_llm(
     max_tokens = cfg.get("max_tokens", 1200)
     temperature = cfg.get("temperature", 0.2)
     timeout_s = float(SIMILAR_COMPANIES_ROUTING.get("REQUEST_TIMEOUT_S", 8))
+    wall_timeout_s = float(SIMILAR_COMPANIES_ROUTING.get("WALL_TIMEOUT_S", timeout_s + 0.5))
     max_retries = int(SIMILAR_COMPANIES_ROUTING.get("MAX_RETRIES_PER_MODEL", 1))
     backoff_s = float(SIMILAR_COMPANIES_ROUTING.get("RETRY_BACKOFF_S", 1.0))
     userpath_fallback = str(
@@ -822,13 +874,15 @@ async def call_userpath_rerank_llm(
         for attempt in range(max_retries + 1):
             retrying_for_parse = attempt > 0 and errors and errors[-1].startswith("parse:")
             call_prompt = prompt + _JSON_RETRY_HINT if retrying_for_parse else prompt
-            meta = await ai_complete_with_meta(
-                call_prompt,
-                system="",
+            meta = await _call_llm_with_walltime(
+                prompt=call_prompt,
                 model=model,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 timeout_s=timeout_s,
+                wall_timeout_s=wall_timeout_s,
+                pass_name=pass_name,
+                target_cbe=target_cbe,
             )
             attempted.append(model)
             latencies[model] = max(latencies.get(model, 0), meta.get("latency_ms", 0))

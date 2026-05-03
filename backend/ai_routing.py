@@ -80,6 +80,7 @@ SIMILAR_COMPANIES_ROUTING = {
     # OLLAMA_API_KEY (for example `ollama:kimi-k2.6`).
     "SHORTLIST_SIZE": 15,
     "REQUEST_TIMEOUT_S": 8,
+    "WALL_TIMEOUT_S": 8.5,
     "MAX_RETRIES_PER_MODEL": 1,
     "RETRY_BACKOFF_S": 1.0,
     "USERPATH_FALLBACK_MODEL": "anthropic/claude-haiku-4-5",

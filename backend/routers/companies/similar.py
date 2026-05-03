@@ -645,6 +645,13 @@ def _candidate_to_result(
     return serialized
 
 
+def _candidate_to_shortlist_only_result(c: dict) -> dict:
+    row = _candidate_to_result(c, None)
+    provenance = row.get("provenance") or "shortlist_only"
+    row["provenance"] = f"{provenance}_shortlist_only"
+    return row
+
+
 def _emit_log(event: dict) -> None:
     """Write one structured JSON line to stdout. Never raises."""
     try:
@@ -681,12 +688,24 @@ async def _call_rerank_userpath_timed(
         tier,
         n_candidates=n_candidates,
         schema=schema,
+        pass_name=pass_name,
+        target_cbe=str(log_event.get("cbe_target") or ""),
     )
     elapsed_ms = int((time.monotonic() - started) * 1000)
     log_event.setdefault("llm_pass_latency_ms", {})[pass_name] = elapsed_ms
     log_event.setdefault("llm_pass_model_used", {})[pass_name] = result.get("model_used")
     log_event.setdefault("llm_pass_errors", {})[pass_name] = result.get("errors", [])
     return result
+
+
+def _shortlist_used_fallback(shortlist_result: dict) -> bool:
+    model_used = str(shortlist_result.get("model_used") or "")
+    attempted = [str(model) for model in shortlist_result.get("attempted", [])]
+    return (
+        bool(model_used)
+        and not model_used.startswith("ollama:")
+        and any(model.startswith("ollama:") for model in attempted)
+    )
 
 
 def _apply_ranked_shortlist(candidates: list[dict], items: list[dict], limit: int) -> list[dict]:
@@ -762,6 +781,8 @@ async def get_similar_companies_ai(
         "llm_pass_latency_ms": {},
         "llm_pass_model_used": {},
         "llm_pass_errors": {},
+        "llm_final_skipped": False,
+        "llm_final_skip_reason": None,
         "total_latency_ms": 0,
         "input_tokens": 0,
         "output_tokens": 0,
@@ -937,6 +958,33 @@ async def get_similar_companies_ai(
             )
         else:
             shortlisted_candidates = candidates[:shortlist_limit]
+
+        shortlist_elapsed_ms = int(
+            (log_event.get("llm_pass_latency_ms") or {}).get("shortlist") or 0
+        )
+        shortlist_fell_back = _shortlist_used_fallback(shortlist_result)
+        if shortlist_fell_back or shortlist_elapsed_ms > 5000:
+            skip_reason = "shortlist_openrouter_fallback" if shortlist_fell_back else "shortlist_slow"
+            log_event["degraded"] = "shortlist_only"
+            log_event["llm_final_skipped"] = True
+            log_event["llm_final_skip_reason"] = skip_reason
+            model_used = shortlist_result.get("model_used")
+            log_event["model_succeeded"] = model_used
+            log_event["llm_returned_count"] = len(shortlist_items)
+            log_event["llm_valid_count"] = len(shortlist_items)
+            full_result = [
+                _candidate_to_shortlist_only_result(c)
+                for c in shortlisted_candidates[:MAX_RANKED_ITEMS]
+            ]
+            _upsert_cache(
+                cbe,
+                focus,
+                content_hash,
+                f"{model_used} -> shortlist_only" if model_used else "shortlist_only",
+                full_result,
+                candidates,
+            )
+            return full_result[:limit]
 
         final_limit = max(5, min(MAX_RANKED_ITEMS, len(shortlisted_candidates)))
         final_prompt = render_final_prompt(target, shortlisted_candidates, final_limit)
