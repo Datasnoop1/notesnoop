@@ -53,6 +53,12 @@ def test_production_reads_do_not_query_bare_fact_tables():
         r"\bFROM affiliation\b",
         r"\bJOIN affiliation\b",
     )
+    allowed_bare_fact_reads = {
+        # Temporary find-similar hotfix; see
+        # docs/find-similar-bitemporal-fix-2026-05-02.md for context.
+        ("backend/retrieval.py", r"\bFROM shareholder\b"),
+        ("backend/retrieval.py", r"\bFROM participating_interest\b"),
+    }
     allowed_prefixes = ("backend/tests/", "scripts/test_")
     offenders: list[str] = []
 
@@ -66,6 +72,8 @@ def test_production_reads_do_not_query_bare_fact_tables():
                 import re
 
                 if re.search(pattern, text):
+                    if (rel, pattern) in allowed_bare_fact_reads:
+                        continue
                     offenders.append(f"{rel}: {pattern}")
 
     assert offenders == []
