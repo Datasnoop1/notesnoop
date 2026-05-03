@@ -110,7 +110,20 @@ true-flag probe returned 18 results and reported `fts_called=True`.
 - 24h post-ramp click-through soak started on 2026-05-02.
 - Automation/reminder id: `week-2-fts-click-through-soak-check`.
 - Gate: activity-log click-through rate must not regress more than 5% before Week-2 FTS is marked fully closed.
-- Status at evidence commit time: in progress, not passed yet.
-- Pass/fail data is intentionally absent here because the 24h window is
-  still running. The follow-up soak check must add the final pass/fail
-  result before the phase is marked closed.
+- Final check ran after the full soak window completed:
+  `2026-05-02 08:05:00` through `2026-05-03 08:05:00` UTC.
+- Click-through signal source: `activity_log`, using company search API calls
+  followed by company-detail API views in the same actor/session within
+  30 minutes.
+- Pre 24h window (`2026-05-01 08:05:00` to `2026-05-02 08:05:00` UTC):
+  2 search sessions, 36 search calls, 0 click sessions, CTR `0.00%`.
+- Post 24h window (`2026-05-02 08:05:00` to `2026-05-03 08:05:00` UTC):
+  4 search sessions, 46 search calls, 0 click sessions, CTR `0.00%`.
+- Regression: `0.00` percentage points. Gate result: PASS.
+- Caveat: activity volume was low and neither window produced a positive
+  click-through event, so this is a regression check rather than a strong
+  relevance-quality proof. It verifies the required soak condition: no observed
+  click-through regression greater than 5%.
+- Privacy note: this evidence records aggregate `activity_log` counts only.
+  It contains no raw user identifiers, session identifiers, IPs, secrets, or
+  database connection strings.

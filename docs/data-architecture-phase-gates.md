@@ -326,7 +326,7 @@ no staging webhooks, no snapshot cron.**
 - **Approval gate**: Y — touches scheduled-task surface + `docs/architecture.md`.
 - **Detail**: deep-dive Stage R22-A + Week 2b row.
 
-## Phase Week-2 (parallel) — §5c FTS — PROD RAMP SOAK IN PROGRESS (2026-05-02)
+## Phase Week-2 (parallel) — §5c FTS — GREEN (2026-05-03)
 
 Not gated on Week-2a — FTS doesn't touch external surfaces. Shipped via
 PRs #33 (initial FTS path) + #34 (smoke fix — split UNION ALL into two
@@ -353,12 +353,14 @@ app-level queries with single-token skip-condition).
     prod smoke passed with maximum category p95 **32.7 ms** after the
     rollback-path validation restored the flag to true. Evidence:
     `docs/fts-prod-ramp-evidence-2026-05-02.md`.
-  - ⏳ Activity-log click-through rate regression check — 24h
-    post-prod-ramp soak in progress. Must not regress > 5% before this
-    phase is marked fully closed.
+  - ✓ Activity-log click-through rate regression check — 24h
+    post-prod-ramp soak completed after `2026-05-03 08:05:00` UTC.
+    Pre 24h CTR `0.00%`; post 24h CTR `0.00%`; regression `0.00`
+    percentage points. Low-volume caveat recorded in
+    `docs/fts-prod-ramp-evidence-2026-05-02.md`.
 - **Approval gate**: Y — prod deploy of search path change. ✓ operator
-  approved and prod ramp executed on 2026-05-02. This phase is not yet
-  closed; final closure waits for the 24h click-through soak.
+  approved and prod ramp executed on 2026-05-02; 24h soak gate passed
+  on 2026-05-03.
 - **Two-review-agent gate**: ✓ correctness PASS + security PASS via Ollama.
 
 ---
