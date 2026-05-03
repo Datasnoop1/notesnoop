@@ -41,3 +41,15 @@ When Phase 2 lands, re-evaluate whether find-similar should:
    current-only views expose.
 2. Return to `_current` views after adding the necessary indexes and fixing
    any over-firing filter logic.
+
+## Phase 3 Decision
+
+Phase 2 closed on 2026-05-03 and refuted the `_current` view swap as the
+remaining latency root cause. The slow path was the embedding KNN SQL shape
+bypassing `idx_ce_embedding_hnsw`; the empty strict blend was caused by
+activity/profile filters dropping NACE-backed candidates before re-rank.
+
+Find-similar keeps the base-table group-profile exception for now because this
+heuristic recommendation path benefits from broader ownership evidence than a
+strict current-only read. Revisit only with a dedicated bitemporal read-path
+classification change, not as part of the embedding-latency fix.

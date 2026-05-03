@@ -18,9 +18,11 @@ from __future__ import annotations
 import logging
 import math
 import re
+import time
 from typing import Any, Iterable
 
-from db import fetch_all, fetch_one, normalize_name
+from db import fetch_all, fetch_one, get_connection, normalize_name, put_connection
+from middleware.timing import record_db_timing
 from similarity_profile import (
     build_similarity_profile,
     compute_activity_overlap_score,
@@ -48,8 +50,32 @@ FALLBACK_TRIGGER = 30       # leg C runs only if A+B together yield fewer than t
 LEG_A_LIMIT = 80
 LEG_B_LIMIT = 80
 LEG_C_LIMIT = 60
+HNSW_EF_SEARCH = 100
 
 GROUP_CONTROL_THRESHOLD_PCT = 50.0
+HOLDING_VEHICLE_NACE_CODES = {
+    "64190",
+    "64200",
+    "64201",
+    "64202",
+    "64300",
+    "64910",
+    "64921",
+    "64922",
+    "64991",
+    "64992",
+    "64999",
+    "70100",
+}
+HOLDING_VEHICLE_NACE_PREFIXES = ("642", "643")
+HOLDING_VEHICLE_MIN_SUBSIDIARIES = 3
+HOLDING_VEHICLE_MAX_REVENUE = 2_000_000.0
+HOLDING_WEAK_ACTIVITY_FLOOR = 0.0
+HOLDING_NACE_ONLY_MIN_ACTIVITY_OVERLAP = 0.0
+HOLDING_MIN_SCORE_FLOOR = 8
+NACE_LOW_ACTIVITY_MIN_EXACT_REVENUE_SCORE = 0.10
+NACE_LOW_ACTIVITY_MIN_RELATED_REVENUE_SCORE = 0.90
+NACE_LOW_ACTIVITY_SCORE_FLOOR = 10
 ACTIVITY_DETAIL_BONUS = {
     "activity": 0.04,
     "size": 0.02,
@@ -66,6 +92,61 @@ ACTIVITY_FOCUS_MIN_EMBEDDING = 0.60
 # Leg A — pgvector nearest neighbours
 # ──────────────────────────────────────────────────────────────────────────
 
+def _fetch_embedding_neighbors(target_cbe: str) -> list[dict]:
+    """Run the pgvector KNN lookup in one transaction so SET LOCAL applies."""
+    conn = get_connection()
+    cur = None
+    try:
+        cur = conn.cursor()
+        t0 = time.perf_counter()
+        cur.execute(
+            "SELECT embedding::text FROM company_embedding WHERE enterprise_number = %s",
+            (target_cbe,),
+        )
+        target_row = cur.fetchone()
+        if not target_row or not target_row[0]:
+            record_db_timing((time.perf_counter() - t0) * 1000.0)
+            conn.commit()
+            return []
+
+        target_embedding = target_row[0]
+        cur.execute("SELECT set_config('hnsw.ef_search', %s, true)", (str(HNSW_EF_SEARCH),))
+        cur.execute(
+            """
+            SELECT ce.enterprise_number,
+                   1 - (ce.embedding <=> %s::vector) AS embedding_similarity
+            FROM company_embedding ce
+            WHERE ce.enterprise_number != %s
+            ORDER BY ce.embedding <=> %s::vector
+            LIMIT %s
+            """,
+            (target_embedding, target_cbe, target_embedding, LEG_A_LIMIT),
+        )
+        rows = cur.fetchall()
+        record_db_timing((time.perf_counter() - t0) * 1000.0)
+        conn.commit()
+        return [
+            {
+                "enterprise_number": row[0],
+                "embedding_similarity": row[1],
+            }
+            for row in rows
+        ]
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        put_connection(conn)
+
+
 def retrieve_by_embedding(target_cbe: str, has_embedding: bool) -> list[dict]:
     """Fetch up to LEG_A_LIMIT candidates by cosine similarity on company_embedding.
 
@@ -75,20 +156,7 @@ def retrieve_by_embedding(target_cbe: str, has_embedding: bool) -> list[dict]:
     if not has_embedding:
         return []
     try:
-        rows = fetch_all(
-            """
-            SELECT ce.enterprise_number,
-                   1 - (ce.embedding <=> target.embedding) AS embedding_similarity
-            FROM company_embedding ce
-            CROSS JOIN (
-                SELECT embedding FROM company_embedding WHERE enterprise_number = %s
-            ) target
-            WHERE ce.enterprise_number != %s
-            ORDER BY ce.embedding <=> target.embedding
-            LIMIT %s
-            """,
-            (target_cbe, target_cbe, LEG_A_LIMIT),
-        )
+        rows = _fetch_embedding_neighbors(target_cbe)
     except Exception:
         logger.exception("retrieve_by_embedding failed for %s", target_cbe)
         return []
@@ -286,6 +354,36 @@ def _clean_identifier_as_cbe(identifier: str | None) -> str:
     return clean_cbe(digits)
 
 
+def _normalize_nace_code(nace_code: str | None) -> str:
+    return re.sub(r"\D+", "", str(nace_code or ""))
+
+
+def _is_holding_vehicle_target(target: dict, target_group: dict | None) -> bool:
+    nace = _normalize_nace_code(target.get("nace_code"))
+    if nace in HOLDING_VEHICLE_NACE_CODES or nace[:3] in HOLDING_VEHICLE_NACE_PREFIXES:
+        return True
+
+    group = target_group or {}
+    subsidiary_count = len(group.get("subsidiary_ids", set()))
+    revenue = _as_number(target.get("revenue"))
+    return (
+        subsidiary_count >= HOLDING_VEHICLE_MIN_SUBSIDIARIES
+        and (revenue is None or revenue <= HOLDING_VEHICLE_MAX_REVENUE)
+    )
+
+
+def _is_nace_revenue_backed_candidate(
+    source_set: set[str],
+    nace: float,
+    rev_score: float,
+) -> bool:
+    if source_set != {"nace"}:
+        return False
+    if nace >= 1.0 and rev_score >= NACE_LOW_ACTIVITY_MIN_EXACT_REVENUE_SCORE:
+        return True
+    return nace >= 0.4 and rev_score >= NACE_LOW_ACTIVITY_MIN_RELATED_REVENUE_SCORE
+
+
 def _hydrate_candidates(cbes: list[str]) -> dict[str, dict]:
     """Batch-load info+financials for all merged candidates.
 
@@ -353,9 +451,9 @@ def _build_group_profiles(rows_by_cbe: dict[str, dict]) -> dict[str, dict]:
     placeholders = ",".join(["%s"] * len(cbes))
 
     try:
-        # DELIBERATELY uses base table, not _current view; see
-        # docs/find-similar-bitemporal-fix-2026-05-02.md for context.
-        # Will be re-evaluated when Phase 2 lands.
+        # DELIBERATELY uses the base table, not the _current view. Phase 2
+        # diagnosis refuted _current reads as the latency root cause; see
+        # docs/find-similar-diagnosis-2026-05-03.md.
         shareholder_rows = fetch_all(
             f"""
             SELECT enterprise_number, identifier, name, ownership_pct, shareholder_type
@@ -388,9 +486,9 @@ def _build_group_profiles(rows_by_cbe: dict[str, dict]) -> dict[str, dict]:
             profile["controlling_shareholder_names"].add(name)
 
     try:
-        # DELIBERATELY uses base table, not _current view; see
-        # docs/find-similar-bitemporal-fix-2026-05-02.md for context.
-        # Will be re-evaluated when Phase 2 lands.
+        # DELIBERATELY uses the base table, not the _current view. Phase 2
+        # diagnosis refuted _current reads as the latency root cause; see
+        # docs/find-similar-diagnosis-2026-05-03.md.
         subsidiary_rows = fetch_all(
             f"""
             SELECT enterprise_number, identifier, name, ownership_pct
@@ -524,6 +622,16 @@ def blend_candidates(
         },
     )
     target_group = group_profiles.get(target_cbe, {})
+    is_holding_vehicle_target = _is_holding_vehicle_target(target, target_group)
+    weak_activity_floor = (
+        HOLDING_WEAK_ACTIVITY_FLOOR if is_holding_vehicle_target else WEAK_ACTIVITY_FLOOR
+    )
+    nace_only_min_activity_overlap = (
+        HOLDING_NACE_ONLY_MIN_ACTIVITY_OVERLAP
+        if is_holding_vehicle_target
+        else NACE_ONLY_MIN_ACTIVITY_OVERLAP
+    )
+    score_floor = HOLDING_MIN_SCORE_FLOOR if is_holding_vehicle_target else MIN_SCORE_FLOOR
 
     scored: list[dict] = []
     for cbe, sig in merged.items():
@@ -560,30 +668,47 @@ def blend_candidates(
         )
 
         source_set = source_tags[cbe]
+        is_nace_revenue_backed = _is_nace_revenue_backed_candidate(
+            source_set,
+            nace,
+            rev_score,
+        )
         if (
             "size_band" in source_set
             and nace < 0.4
             and emb < 0.55
-            and activity_overlap < WEAK_ACTIVITY_FLOOR
+            and activity_overlap < weak_activity_floor
         ):
             continue
         if (
             source_set == {"embedding"}
             and nace < 0.4
             and emb < 0.60
-            and activity_overlap < WEAK_ACTIVITY_FLOOR
+            and activity_overlap < weak_activity_floor
         ):
             continue
-        if has_profile_signal and source_set == {"nace"} and activity_overlap < NACE_ONLY_MIN_ACTIVITY_OVERLAP:
+        if (
+            has_profile_signal
+            and source_set == {"nace"}
+            and activity_overlap < nace_only_min_activity_overlap
+            and not is_nace_revenue_backed
+        ):
             continue
         nace_effective = nace
-        if has_profile_signal and activity_overlap < ACTIVITY_FOCUS_MIN_ACTIVITY_OVERLAP:
+        if (
+            has_profile_signal
+            and activity_overlap < ACTIVITY_FOCUS_MIN_ACTIVITY_OVERLAP
+            and not (is_holding_vehicle_target and nace >= 0.7)
+            and not is_nace_revenue_backed
+        ):
             nace_effective = min(nace_effective, NACE_PROFILE_DISCOUNT_FLOOR)
         if (
             has_profile_signal
             and focus == "activity"
             and activity_overlap < ACTIVITY_FOCUS_MIN_ACTIVITY_OVERLAP
             and emb < ACTIVITY_FOCUS_MIN_EMBEDDING
+            and not (is_holding_vehicle_target and nace >= 0.7)
+            and not is_nace_revenue_backed
         ):
             continue
 
@@ -596,7 +721,12 @@ def blend_candidates(
         )
         blended = min(1.0, blended + ACTIVITY_DETAIL_BONUS.get(focus, 0.0) * activity_overlap)
         match_score = int(round(100 * blended))
-        if match_score < MIN_SCORE_FLOOR:
+        candidate_score_floor = (
+            min(score_floor, NACE_LOW_ACTIVITY_SCORE_FLOOR)
+            if is_nace_revenue_backed
+            else score_floor
+        )
+        if match_score < candidate_score_floor:
             continue
 
         revenue_ratio = None
