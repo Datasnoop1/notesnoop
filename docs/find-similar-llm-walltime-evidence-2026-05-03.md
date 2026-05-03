@@ -113,3 +113,32 @@ The staging HNSW omission in `scripts/refresh_staging_snapshot.sh` is a
 separate follow-up. It should be fixed so future staging route-level latency
 tests can validate the full production execution plan without read-only prod
 probes.
+
+## Post-Review Changes
+
+PR #54 correctness and security review passed, with two major cleanup items
+folded into the same branch before merge:
+
+- Deleted the unreachable legacy one-pass LLM re-rank block after
+  `return full_result[:limit]` in
+  `backend/routers/companies/similar.py`.
+- Chose option (a) for the `shortlist_only` cache-poisoning risk:
+  `shortlist_only` responses are not cached. This avoids writing degraded
+  rows under the same `content_hash` used by a full shortlist plus final
+  pipeline result. The tradeoff is repeat degraded views re-run the bounded
+  shortlist path for now; a separate cache key can be added later if needed.
+
+Prod read-only validation was rerun after these changes using the same
+cache-bypassing harness. No prod deploy, code mutation, cache delete, or cache
+write was performed.
+
+| CBE | Count | Total elapsed | Shortlist provider | Shortlist elapsed | Final | Provenance | Result |
+|---|---:|---:|---|---:|---|---|---|
+| `0400378485` | 10 | 10,040 ms | `anthropic/claude-haiku-4-5` | 9,434 ms | skipped: `shortlist_openrouter_fallback` | `embedding+nace_shortlist_only`, `embedding_only_shortlist_only` | PASS |
+| `0895825682` | 10 | 11,449 ms | `anthropic/claude-haiku-4-5` | 10,970 ms | skipped: `shortlist_openrouter_fallback` | `nace_only_shortlist_only` | PASS |
+| `0685601641` | 10 | 10,034 ms | `anthropic/claude-haiku-4-5` | 9,646 ms | skipped: `shortlist_openrouter_fallback` | `nace_only_shortlist_only` | PASS |
+
+All three still return 10 results, complete under 15s, and preserve
+`*_shortlist_only` provenance. The shape is unchanged; the only behavior
+change is that degraded `shortlist_only` rows are no longer persisted into the
+30-day full-pipeline cache slot.

@@ -976,14 +976,6 @@ async def get_similar_companies_ai(
                 _candidate_to_shortlist_only_result(c)
                 for c in shortlisted_candidates[:MAX_RANKED_ITEMS]
             ]
-            _upsert_cache(
-                cbe,
-                focus,
-                content_hash,
-                f"{model_used} -> shortlist_only" if model_used else "shortlist_only",
-                full_result,
-                candidates,
-            )
             return full_result[:limit]
 
         final_limit = max(5, min(MAX_RANKED_ITEMS, len(shortlisted_candidates)))
@@ -1034,41 +1026,6 @@ async def get_similar_companies_ai(
             )
 
         _upsert_cache(cbe, focus, content_hash, model_used, full_result, candidates)
-        return full_result[:limit]
-
-        prompt = render_prompt(target, candidates, MAX_RANKED_ITEMS)
-        llm_result = await call_userpath_rerank_llm(prompt, tier_key, n_candidates=len(candidates))
-
-        log_event["model_attempted"] = llm_result.get("attempted", [])
-        log_event["llm_latency_ms"] = sum(llm_result.get("latencies", {}).values())
-        for model, usage in (llm_result.get("usage") or {}).items():
-            log_event["input_tokens"] += usage.get("input_tokens", 0)
-            log_event["output_tokens"] += usage.get("output_tokens", 0)
-            log_event["cost_usd_estimated"] += estimate_cost_usd(
-                model, usage.get("input_tokens", 0), usage.get("output_tokens", 0),
-            )
-
-        items = llm_result.get("items")
-        if items is None:
-            log_event["degraded"] = "llm_unavailable"
-            log_event["llm_returned_count"] = 0
-            log_event["llm_valid_count"] = 0
-            # Blended fallback: return the top candidates sliced to `limit`.
-            return [_candidate_to_result(c, None) for c in candidates[:limit]]
-
-        model_used = llm_result.get("model_used")
-        log_event["model_succeeded"] = model_used
-        log_event["llm_returned_count"] = len(items)
-        log_event["llm_valid_count"] = len(items)
-
-        # ── Reorder candidates by LLM ranks ───────────────────────
-        # Build the full ranking (up to MAX_RANKED_ITEMS) once, cache it,
-        # then slice to the client's `limit`.
-        full_result = _apply_llm_ranking(candidates, items, MAX_RANKED_ITEMS)
-
-        # ── UPSERT cache ──────────────────────────────────────────
-        _upsert_cache(cbe, focus, content_hash, model_used, full_result, candidates)
-
         return full_result[:limit]
 
     except Exception:
