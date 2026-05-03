@@ -73,6 +73,8 @@ HOLDING_VEHICLE_MAX_REVENUE = 2_000_000.0
 HOLDING_WEAK_ACTIVITY_FLOOR = 0.0
 HOLDING_NACE_ONLY_MIN_ACTIVITY_OVERLAP = 0.0
 HOLDING_MIN_SCORE_FLOOR = 8
+EXACT_NACE_LOW_ACTIVITY_MIN_REVENUE_SCORE = 0.10
+EXACT_NACE_LOW_ACTIVITY_SCORE_FLOOR = 10
 ACTIVITY_DETAIL_BONUS = {
     "activity": 0.04,
     "size": 0.02,
@@ -369,6 +371,18 @@ def _is_holding_vehicle_target(target: dict, target_group: dict | None) -> bool:
     )
 
 
+def _is_exact_nace_revenue_backed_candidate(
+    source_set: set[str],
+    nace: float,
+    rev_score: float,
+) -> bool:
+    return (
+        source_set == {"nace"}
+        and nace >= 1.0
+        and rev_score >= EXACT_NACE_LOW_ACTIVITY_MIN_REVENUE_SCORE
+    )
+
+
 def _hydrate_candidates(cbes: list[str]) -> dict[str, dict]:
     """Batch-load info+financials for all merged candidates.
 
@@ -653,6 +667,11 @@ def blend_candidates(
         )
 
         source_set = source_tags[cbe]
+        is_exact_nace_revenue_backed = _is_exact_nace_revenue_backed_candidate(
+            source_set,
+            nace,
+            rev_score,
+        )
         if (
             "size_band" in source_set
             and nace < 0.4
@@ -671,6 +690,7 @@ def blend_candidates(
             has_profile_signal
             and source_set == {"nace"}
             and activity_overlap < nace_only_min_activity_overlap
+            and not is_exact_nace_revenue_backed
         ):
             continue
         nace_effective = nace
@@ -678,6 +698,7 @@ def blend_candidates(
             has_profile_signal
             and activity_overlap < ACTIVITY_FOCUS_MIN_ACTIVITY_OVERLAP
             and not (is_holding_vehicle_target and nace >= 0.7)
+            and not is_exact_nace_revenue_backed
         ):
             nace_effective = min(nace_effective, NACE_PROFILE_DISCOUNT_FLOOR)
         if (
@@ -686,6 +707,7 @@ def blend_candidates(
             and activity_overlap < ACTIVITY_FOCUS_MIN_ACTIVITY_OVERLAP
             and emb < ACTIVITY_FOCUS_MIN_EMBEDDING
             and not (is_holding_vehicle_target and nace >= 0.7)
+            and not is_exact_nace_revenue_backed
         ):
             continue
 
@@ -698,7 +720,12 @@ def blend_candidates(
         )
         blended = min(1.0, blended + ACTIVITY_DETAIL_BONUS.get(focus, 0.0) * activity_overlap)
         match_score = int(round(100 * blended))
-        if match_score < score_floor:
+        candidate_score_floor = (
+            min(score_floor, EXACT_NACE_LOW_ACTIVITY_SCORE_FLOOR)
+            if is_exact_nace_revenue_backed
+            else score_floor
+        )
+        if match_score < candidate_score_floor:
             continue
 
         revenue_ratio = None
