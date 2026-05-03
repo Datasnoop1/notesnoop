@@ -35,7 +35,7 @@ from retrieval import (
 )
 from rerank import (
     MIN_CANDIDATES_FOR_LLM,
-    call_rerank_llm,
+    call_userpath_rerank_llm,
     render_final_prompt,
     render_shortlist_prompt,
 )
@@ -666,6 +666,29 @@ def _record_llm_result(log_event: dict, llm_result: dict) -> None:
         )
 
 
+async def _call_rerank_userpath_timed(
+    log_event: dict,
+    pass_name: str,
+    prompt: str,
+    tier: str,
+    *,
+    n_candidates: int,
+    schema: str,
+) -> dict:
+    started = time.monotonic()
+    result = await call_userpath_rerank_llm(
+        prompt,
+        tier,
+        n_candidates=n_candidates,
+        schema=schema,
+    )
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    log_event.setdefault("llm_pass_latency_ms", {})[pass_name] = elapsed_ms
+    log_event.setdefault("llm_pass_model_used", {})[pass_name] = result.get("model_used")
+    log_event.setdefault("llm_pass_errors", {})[pass_name] = result.get("errors", [])
+    return result
+
+
 def _apply_ranked_shortlist(candidates: list[dict], items: list[dict], limit: int) -> list[dict]:
     items_sorted = sorted(items, key=lambda x: x["rank"])
     shortlisted: list[dict] = []
@@ -736,6 +759,9 @@ async def get_similar_companies_ai(
         "llm_returned_count": 0,
         "llm_valid_count": 0,
         "llm_latency_ms": 0,
+        "llm_pass_latency_ms": {},
+        "llm_pass_model_used": {},
+        "llm_pass_errors": {},
         "total_latency_ms": 0,
         "input_tokens": 0,
         "output_tokens": 0,
@@ -889,13 +915,18 @@ async def get_similar_companies_ai(
         # "Find more" view without a second round-trip to the model.
         shortlist_limit = max(5, min(SHORTLIST_SIZE, len(candidates)))
         shortlist_prompt = render_shortlist_prompt(target, candidates, shortlist_limit)
-        shortlist_result = await call_rerank_llm(
+        shortlist_result = await _call_rerank_userpath_timed(
+            log_event,
+            "shortlist",
             shortlist_prompt,
             tier_key,
             n_candidates=len(candidates),
             schema="rank_only",
         )
         _record_llm_result(log_event, shortlist_result)
+        if shortlist_result.get("error") == "timeout":
+            log_event["degraded"] = "shortlist_llm_timeout"
+            return [_candidate_to_result(c, None) for c in candidates[:limit]]
 
         shortlist_items = shortlist_result.get("items") or []
         if shortlist_items:
@@ -909,13 +940,18 @@ async def get_similar_companies_ai(
 
         final_limit = max(5, min(MAX_RANKED_ITEMS, len(shortlisted_candidates)))
         final_prompt = render_final_prompt(target, shortlisted_candidates, final_limit)
-        final_result = await call_rerank_llm(
+        final_result = await _call_rerank_userpath_timed(
+            log_event,
+            "final",
             final_prompt,
             final_tier,
             n_candidates=len(shortlisted_candidates),
             schema="structured_reason",
         )
         _record_llm_result(log_event, final_result)
+        if final_result.get("error") == "timeout":
+            log_event["degraded"] = "final_llm_timeout"
+            return [_candidate_to_result(c, None) for c in candidates[:limit]]
 
         final_items = final_result.get("items")
         if final_items is None:
@@ -953,7 +989,7 @@ async def get_similar_companies_ai(
         return full_result[:limit]
 
         prompt = render_prompt(target, candidates, MAX_RANKED_ITEMS)
-        llm_result = await call_rerank_llm(prompt, tier_key, n_candidates=len(candidates))
+        llm_result = await call_userpath_rerank_llm(prompt, tier_key, n_candidates=len(candidates))
 
         log_event["model_attempted"] = llm_result.get("attempted", [])
         log_event["llm_latency_ms"] = sum(llm_result.get("latencies", {}).values())

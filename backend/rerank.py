@@ -14,6 +14,7 @@ PROMPT_TEMPLATE``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -672,6 +673,31 @@ _JSON_RETRY_HINT = (
 )
 
 
+def _is_ollama_model(model: str) -> bool:
+    return isinstance(model, str) and model.startswith("ollama:")
+
+
+def _is_timeout(meta: dict) -> bool:
+    return meta.get("error") == "timeout"
+
+
+def _parse_items_for_schema(
+    raw_text: str,
+    n_candidates: int,
+    schema: str,
+) -> tuple[list[dict] | None, str | None]:
+    if schema == "rank_only":
+        return validate_rank_only_output(raw_text, n_candidates)
+    if schema == "structured_reason":
+        return validate_structured_reason_output(raw_text, n_candidates)
+    return validate_llm_output(raw_text, n_candidates)
+
+
+async def _sleep_before_retry(attempt: int, max_retries: int, backoff_s: float) -> None:
+    if attempt < max_retries and backoff_s > 0:
+        await asyncio.sleep(backoff_s)
+
+
 async def call_rerank_llm(
     prompt: str,
     tier: str,
@@ -747,6 +773,107 @@ async def call_rerank_llm(
             # Parse failure counts as an attempt; the retry slot appends the
             # JSON hint. If that still fails, the outer loop moves on.
             errors.append(f"parse:{parse_err}")
+
+    return {
+        "items": None,
+        "model_used": None,
+        "attempted": attempted,
+        "latencies": latencies,
+        "usage": usage,
+        "error": "llm_unavailable",
+        "errors": errors,
+    }
+
+
+async def call_userpath_rerank_llm(
+    prompt: str,
+    tier: str,
+    n_candidates: int,
+    schema: str = "reason_text",
+) -> dict:
+    """Find-similar user-path envelope: 8s calls, no Ollama timeout retry.
+
+    Ollama timeouts jump straight to the named OpenRouter Haiku fallback.
+    OpenRouter timeouts return ``error="timeout"`` so the route can skip
+    AI re-rank and return the raw strict-blend ranking.
+    """
+    cfg = get_tier_config(tier)
+    primary = cfg["model"]
+    max_tokens = cfg.get("max_tokens", 1200)
+    temperature = cfg.get("temperature", 0.2)
+    timeout_s = float(SIMILAR_COMPANIES_ROUTING.get("REQUEST_TIMEOUT_S", 8))
+    max_retries = int(SIMILAR_COMPANIES_ROUTING.get("MAX_RETRIES_PER_MODEL", 1))
+    backoff_s = float(SIMILAR_COMPANIES_ROUTING.get("RETRY_BACKOFF_S", 1.0))
+    userpath_fallback = str(
+        SIMILAR_COMPANIES_ROUTING.get("USERPATH_FALLBACK_MODEL")
+        or "anthropic/claude-haiku-4-5"
+    )
+
+    chain = get_fallback_chain(primary, tier=tier)
+    if _is_ollama_model(primary):
+        chain = [primary, userpath_fallback]
+
+    attempted: list[str] = []
+    errors: list[str] = []
+    latencies: dict[str, int] = {}
+    usage: dict[str, dict] = {}
+
+    for model in chain:
+        for attempt in range(max_retries + 1):
+            retrying_for_parse = attempt > 0 and errors and errors[-1].startswith("parse:")
+            call_prompt = prompt + _JSON_RETRY_HINT if retrying_for_parse else prompt
+            meta = await ai_complete_with_meta(
+                call_prompt,
+                system="",
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout_s=timeout_s,
+            )
+            attempted.append(model)
+            latencies[model] = max(latencies.get(model, 0), meta.get("latency_ms", 0))
+            usage[model] = {
+                "input_tokens": meta.get("input_tokens", 0),
+                "output_tokens": meta.get("output_tokens", 0),
+            }
+
+            if not meta.get("ok"):
+                error = meta.get("error") or "unknown"
+                errors.append(error)
+                if _is_timeout(meta):
+                    if _is_ollama_model(model):
+                        break
+                    logger.warning(
+                        "Find-similar rerank OpenRouter timeout on %s after %.1fs",
+                        model,
+                        timeout_s,
+                    )
+                    return {
+                        "items": None,
+                        "model_used": None,
+                        "attempted": attempted,
+                        "latencies": latencies,
+                        "usage": usage,
+                        "error": "timeout",
+                        "errors": errors,
+                    }
+                await _sleep_before_retry(attempt, max_retries, backoff_s)
+                continue
+
+            items, parse_err = _parse_items_for_schema(meta["text"], n_candidates, schema)
+            if items is not None:
+                return {
+                    "items": items,
+                    "model_used": model,
+                    "attempted": attempted,
+                    "latencies": latencies,
+                    "usage": usage,
+                    "error": None,
+                    "errors": errors,
+                }
+
+            errors.append(f"parse:{parse_err}")
+            await _sleep_before_retry(attempt, max_retries, backoff_s)
 
     return {
         "items": None,
