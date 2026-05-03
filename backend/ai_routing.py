@@ -26,15 +26,10 @@ def _env_chain(name: str, default: list[str]) -> list[str]:
 
 
 _DEFAULT_FALLBACK_CHAIN = [
-    "ollama:kimi-k2.6",
-    "google/gemini-2.5-flash",
-    "openai/gpt-4o-mini",
     "anthropic/claude-haiku-4-5",
 ]
 
 _FINAL_FALLBACK_CHAIN = [
-    "anthropic/claude-sonnet-4.6",
-    "google/gemini-2.5-flash",
     "anthropic/claude-haiku-4-5",
 ]
 
@@ -78,12 +73,17 @@ SIMILAR_COMPANIES_ROUTING = {
         "SIMILAR_COMPANIES_FINAL_FALLBACK_CHAIN",
         _FINAL_FALLBACK_CHAIN,
     ),
-    # Chains are tried in order on timeout, 5xx, or JSON-parse failure.
+    # Chains are tried in order on 5xx or JSON-parse failure. User-adjacent
+    # timeout handling is stricter in rerank.py: Ollama timeouts jump straight
+    # to Haiku, while OpenRouter timeouts return the raw scored candidates.
     # Models prefixed with `ollama:` route through OLLAMA_BASE_URL using
     # OLLAMA_API_KEY (for example `ollama:kimi-k2.6`).
     "SHORTLIST_SIZE": 15,
-    "REQUEST_TIMEOUT_S": 15,
+    "REQUEST_TIMEOUT_S": 8,
+    "WALL_TIMEOUT_S": 8.5,
     "MAX_RETRIES_PER_MODEL": 1,
+    "RETRY_BACKOFF_S": 1.0,
+    "USERPATH_FALLBACK_MODEL": "anthropic/claude-haiku-4-5",
 }
 
 

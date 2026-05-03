@@ -35,7 +35,7 @@ from retrieval import (
 )
 from rerank import (
     MIN_CANDIDATES_FOR_LLM,
-    call_rerank_llm,
+    call_userpath_rerank_llm,
     render_final_prompt,
     render_shortlist_prompt,
 )
@@ -645,6 +645,13 @@ def _candidate_to_result(
     return serialized
 
 
+def _candidate_to_shortlist_only_result(c: dict) -> dict:
+    row = _candidate_to_result(c, None)
+    provenance = row.get("provenance") or "shortlist_only"
+    row["provenance"] = f"{provenance}_shortlist_only"
+    return row
+
+
 def _emit_log(event: dict) -> None:
     """Write one structured JSON line to stdout. Never raises."""
     try:
@@ -664,6 +671,41 @@ def _record_llm_result(log_event: dict, llm_result: dict) -> None:
         log_event["cost_usd_estimated"] += estimate_cost_usd(
             model, usage.get("input_tokens", 0), usage.get("output_tokens", 0),
         )
+
+
+async def _call_rerank_userpath_timed(
+    log_event: dict,
+    pass_name: str,
+    prompt: str,
+    tier: str,
+    *,
+    n_candidates: int,
+    schema: str,
+) -> dict:
+    started = time.monotonic()
+    result = await call_userpath_rerank_llm(
+        prompt,
+        tier,
+        n_candidates=n_candidates,
+        schema=schema,
+        pass_name=pass_name,
+        target_cbe=str(log_event.get("cbe_target") or ""),
+    )
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    log_event.setdefault("llm_pass_latency_ms", {})[pass_name] = elapsed_ms
+    log_event.setdefault("llm_pass_model_used", {})[pass_name] = result.get("model_used")
+    log_event.setdefault("llm_pass_errors", {})[pass_name] = result.get("errors", [])
+    return result
+
+
+def _shortlist_used_fallback(shortlist_result: dict) -> bool:
+    model_used = str(shortlist_result.get("model_used") or "")
+    attempted = [str(model) for model in shortlist_result.get("attempted", [])]
+    return (
+        bool(model_used)
+        and not model_used.startswith("ollama:")
+        and any(model.startswith("ollama:") for model in attempted)
+    )
 
 
 def _apply_ranked_shortlist(candidates: list[dict], items: list[dict], limit: int) -> list[dict]:
@@ -736,6 +778,11 @@ async def get_similar_companies_ai(
         "llm_returned_count": 0,
         "llm_valid_count": 0,
         "llm_latency_ms": 0,
+        "llm_pass_latency_ms": {},
+        "llm_pass_model_used": {},
+        "llm_pass_errors": {},
+        "llm_final_skipped": False,
+        "llm_final_skip_reason": None,
         "total_latency_ms": 0,
         "input_tokens": 0,
         "output_tokens": 0,
@@ -889,13 +936,18 @@ async def get_similar_companies_ai(
         # "Find more" view without a second round-trip to the model.
         shortlist_limit = max(5, min(SHORTLIST_SIZE, len(candidates)))
         shortlist_prompt = render_shortlist_prompt(target, candidates, shortlist_limit)
-        shortlist_result = await call_rerank_llm(
+        shortlist_result = await _call_rerank_userpath_timed(
+            log_event,
+            "shortlist",
             shortlist_prompt,
             tier_key,
             n_candidates=len(candidates),
             schema="rank_only",
         )
         _record_llm_result(log_event, shortlist_result)
+        if shortlist_result.get("error") == "timeout":
+            log_event["degraded"] = "shortlist_llm_timeout"
+            return [_candidate_to_result(c, None) for c in candidates[:limit]]
 
         shortlist_items = shortlist_result.get("items") or []
         if shortlist_items:
@@ -907,15 +959,39 @@ async def get_similar_companies_ai(
         else:
             shortlisted_candidates = candidates[:shortlist_limit]
 
+        shortlist_elapsed_ms = int(
+            (log_event.get("llm_pass_latency_ms") or {}).get("shortlist") or 0
+        )
+        shortlist_fell_back = _shortlist_used_fallback(shortlist_result)
+        if shortlist_fell_back or shortlist_elapsed_ms > 5000:
+            skip_reason = "shortlist_openrouter_fallback" if shortlist_fell_back else "shortlist_slow"
+            log_event["degraded"] = "shortlist_only"
+            log_event["llm_final_skipped"] = True
+            log_event["llm_final_skip_reason"] = skip_reason
+            model_used = shortlist_result.get("model_used")
+            log_event["model_succeeded"] = model_used
+            log_event["llm_returned_count"] = len(shortlist_items)
+            log_event["llm_valid_count"] = len(shortlist_items)
+            full_result = [
+                _candidate_to_shortlist_only_result(c)
+                for c in shortlisted_candidates[:MAX_RANKED_ITEMS]
+            ]
+            return full_result[:limit]
+
         final_limit = max(5, min(MAX_RANKED_ITEMS, len(shortlisted_candidates)))
         final_prompt = render_final_prompt(target, shortlisted_candidates, final_limit)
-        final_result = await call_rerank_llm(
+        final_result = await _call_rerank_userpath_timed(
+            log_event,
+            "final",
             final_prompt,
             final_tier,
             n_candidates=len(shortlisted_candidates),
             schema="structured_reason",
         )
         _record_llm_result(log_event, final_result)
+        if final_result.get("error") == "timeout":
+            log_event["degraded"] = "final_llm_timeout"
+            return [_candidate_to_result(c, None) for c in candidates[:limit]]
 
         final_items = final_result.get("items")
         if final_items is None:
@@ -950,41 +1026,6 @@ async def get_similar_companies_ai(
             )
 
         _upsert_cache(cbe, focus, content_hash, model_used, full_result, candidates)
-        return full_result[:limit]
-
-        prompt = render_prompt(target, candidates, MAX_RANKED_ITEMS)
-        llm_result = await call_rerank_llm(prompt, tier_key, n_candidates=len(candidates))
-
-        log_event["model_attempted"] = llm_result.get("attempted", [])
-        log_event["llm_latency_ms"] = sum(llm_result.get("latencies", {}).values())
-        for model, usage in (llm_result.get("usage") or {}).items():
-            log_event["input_tokens"] += usage.get("input_tokens", 0)
-            log_event["output_tokens"] += usage.get("output_tokens", 0)
-            log_event["cost_usd_estimated"] += estimate_cost_usd(
-                model, usage.get("input_tokens", 0), usage.get("output_tokens", 0),
-            )
-
-        items = llm_result.get("items")
-        if items is None:
-            log_event["degraded"] = "llm_unavailable"
-            log_event["llm_returned_count"] = 0
-            log_event["llm_valid_count"] = 0
-            # Blended fallback: return the top candidates sliced to `limit`.
-            return [_candidate_to_result(c, None) for c in candidates[:limit]]
-
-        model_used = llm_result.get("model_used")
-        log_event["model_succeeded"] = model_used
-        log_event["llm_returned_count"] = len(items)
-        log_event["llm_valid_count"] = len(items)
-
-        # ── Reorder candidates by LLM ranks ───────────────────────
-        # Build the full ranking (up to MAX_RANKED_ITEMS) once, cache it,
-        # then slice to the client's `limit`.
-        full_result = _apply_llm_ranking(candidates, items, MAX_RANKED_ITEMS)
-
-        # ── UPSERT cache ──────────────────────────────────────────
-        _upsert_cache(cbe, focus, content_hash, model_used, full_result, candidates)
-
         return full_result[:limit]
 
     except Exception:
