@@ -235,10 +235,23 @@ def check_nbb_backload() -> CheckResult:
 
 
 def check_nbb_watchdog() -> CheckResult:
-    """NBB key watchdog (*/15 cron): >95% GREEN probes in the last 24h."""
-    tail = _read_log("watchdog.log", 200)
-    lines = [ln for ln in tail.splitlines() if ln.strip()]
-    last96 = lines[-96:]
+    """NBB key watchdog (*/15 cron).
+
+    Counts probe outcomes, not log lines: a GREEN probe writes 1 line, but
+    a transient-RED probe writes 2-3 lines (the RED, the streak update,
+    and "below threshold" or alert log) — so a line-based percentage
+    skews lower than the actual probe success rate. We only count the
+    outcome line of each probe (`GREEN` or `RED -`).
+
+    Threshold is 90% probe-success over the last 96 probes (~24h at the
+    15-min cadence). Below that means real NBB instability worth a flag,
+    but a handful of upstream blips still leaves us GREEN.
+    """
+    tail = _read_log("watchdog.log", 600)
+    # Outcome lines only — these are the cron-tick decisions.
+    outcome_pat = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\s+(GREEN|RED\b)")
+    outcomes = [ln for ln in tail.splitlines() if outcome_pat.match(ln)]
+    last96 = outcomes[-96:]
     if not last96:
         return CheckResult(
             name="NBB key watchdog",
@@ -246,14 +259,14 @@ def check_nbb_watchdog() -> CheckResult:
             summary="no watchdog probes logged",
             detail=tail[-1000:],
         )
-    green = sum(1 for ln in last96 if "GREEN" in ln)
+    green = sum(1 for ln in last96 if " GREEN" in ln)
     total = len(last96)
     pct = (green / total) * 100 if total else 0
     if pct < 90:
         return CheckResult(
             name="NBB key watchdog",
             status="RED",
-            summary=f"{green}/{total} GREEN ({pct:.0f}%) — auth instability",
+            summary=f"{green}/{total} GREEN probes ({pct:.0f}%) — auth instability",
             detail="\n".join(last96[-20:]),
             claude_prompt=(
                 "NBB key watchdog is below 90% green. Check scripts/nbb_watchdog.sh "
