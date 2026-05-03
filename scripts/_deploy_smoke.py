@@ -28,7 +28,8 @@ BACKEND_MODULES = [
 
 # Modules that live at /app/scripts/<name>.py (mounted from the repo's
 # scripts/ directory). These are the shorter cron-invoked utilities and
-# the daily monitoring digest.
+# the daily monitoring digest. Anything in install_crons.sh that ends up
+# running `python /app/scripts/<name>.py` belongs here.
 SCRIPT_MODULES = [
     "alert_digest",
     "backfill_affiliation",
@@ -36,10 +37,15 @@ SCRIPT_MODULES = [
     "invoice_ingest",
     "nightly_health_report",
     "open_data_ted",
+    "person_resolver",
     "refresh_popularity",
+    "retry_failed_governance",
     "staatsblad_batch_every_2d",
     "staatsblad_embed",
 ]
+# Note: open_data_regsol is intentionally excluded — Zenrows is not coming
+# back, and the cron has been silenced. Re-add when a replacement scraper
+# ships.
 
 
 def _import_each(modules: list[str]) -> list[str]:

@@ -354,10 +354,12 @@ def check_kbo_daily() -> CheckResult:
     """KBO daily updater (06:00 cron, scripts/kbo_update.sh).
 
     Looks at two signals:
-      1. The wrapper log (kbo_update.log) should contain a success marker
-         line written within the last 25h. Either "KBO daily update complete"
-         (full success including ANALYZE) or "No new updates available"
-         (KBO portal genuinely had no new ZIPs — also a clean exit).
+      1. The wrapper log (kbo_update.log) should contain a wrapper-prefixed
+         success marker (`YYYY-MM-DDTHH:MM:SSZ KBO daily update complete`)
+         written within the last 25h. The wrapper emits this line both on
+         no-new-updates and on real applies, so the freshness check covers
+         "did the wrapper run?" without needing a separate parse for each
+         outcome.
       2. The kbo_extract_log table's max applied_at should not be older
          than 35 days (KBO publishes monthly + interim weekday updates;
          a >35 day gap means we're missing the next monthly drop).
@@ -370,9 +372,13 @@ def check_kbo_daily() -> CheckResult:
     lines = [ln for ln in tail.splitlines() if ln.strip()]
 
     # 1) Wrapper completion marker.
-    success_pat = re.compile(
-        r"KBO daily update complete|No new updates available", re.IGNORECASE
-    )
+    # Only `KBO daily update complete` is wrapper-prefixed with the ISO-Z
+    # timestamp we parse below — `No new updates available` is emitted by
+    # the inner Python with a different timestamp format and would not
+    # satisfy the parse, so we don't list it here. The wrapper still emits
+    # `KBO daily update complete` on no-new-updates days because the
+    # ANALYZE step runs unconditionally.
+    success_pat = re.compile(r"KBO daily update complete", re.IGNORECASE)
     error_pat = re.compile(r"ERROR.*KBO daily update failed", re.IGNORECASE)
     last_success_ts = None
     last_error_line = None
@@ -508,6 +514,11 @@ _CRON_LOG_SKIP = {
     "invoices.log",          # check_log_has_recent_success below
     "valuation_commentary.log",  # check_log_has_recent_success below
     "cron.log",              # NBB watchdog dispatcher; same data as watchdog.log
+    "digest.log",            # alert_digest.py uses log.exception() per
+                             # failed recipient, which writes a Traceback
+                             # the catch-all would otherwise flag — the
+                             # job-level outcome is fine, individual
+                             # recipient failures are not a SEV.
 }
 
 
