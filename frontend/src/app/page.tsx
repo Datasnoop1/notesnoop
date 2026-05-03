@@ -126,7 +126,7 @@ export default function Home() {
             <div className="text-left">
               {/* Eyebrow */}
               <div className="text-[11px] sm:text-[11.5px] font-bold text-[#1687E8] uppercase tracking-[0.14em] mb-3 sm:mb-5">
-                Belgian Company Intelligence
+                Company Intelligence
               </div>
 
               {/* Headline — serif-flavoured weight, refined on desktop.

@@ -10,7 +10,7 @@ product is being shaped.
 
 ## What DataSnoop is
 
-A **Belgian company intelligence platform** that combines three
+A **company intelligence platform** that combines three
 public data sources into a single screener / profile / benchmark tool:
 
 1. **KBO** (Kruispuntbank van Ondernemingen / Crossroads Bank for

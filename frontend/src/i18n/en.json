@@ -69,7 +69,7 @@
     "signInTitle": "Sign in to Datasnoop",
     "createAccountTitle": "Create your account",
     "resetPasswordTitle": "Reset your password",
-    "subtitle": "Belgian Company Intelligence",
+    "subtitle": "Company Intelligence",
     "resetSubtitle": "Enter your email and we'll send you a reset link",
     "email": "Email",
     "emailPlaceholder": "you@company.com",
@@ -712,7 +712,7 @@
 
   "guide": {
     "title": "User Guide",
-    "intro": "DataSnoop is a Belgian company intelligence platform combining KBO registry data with NBB annual accounts. This guide covers every feature.",
+    "intro": "DataSnoop is a company intelligence platform combining KBO registry data with NBB annual accounts. This guide covers every feature.",
     "backToDashboard": "Back to Dashboard",
     "searchTitle": "Search",
     "searchBody": "Search for any Belgian company by name, CBE number, or keyword. Results appear instantly as you type, powered by trigram fuzzy matching. Click any result to open the full company profile.",

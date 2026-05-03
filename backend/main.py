@@ -1,4 +1,4 @@
-"""Datasnoop FastAPI backend — Belgian company intelligence API."""
+"""Datasnoop FastAPI backend — Company intelligence API."""
 
 import hashlib
 import logging
@@ -57,7 +57,7 @@ def _hash_client_id(ip: str) -> str:
 
 app = FastAPI(
     title="Datasnoop API",
-    description="Belgian company intelligence — KBO registry + NBB annual accounts",
+    description="Company intelligence — KBO registry + NBB annual accounts",
     version="0.1.0",
     docs_url=None,
     redoc_url=None,

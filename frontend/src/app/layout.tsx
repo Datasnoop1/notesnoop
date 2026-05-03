@@ -20,14 +20,14 @@ const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 
 export const metadata: Metadata = {
   title: {
-    default: "DataSnoop — Belgian Company Intelligence",
+    default: "DataSnoop — Company Intelligence",
     template: "%s | DataSnoop",
   },
   description:
     "Screen 170K+ Belgian companies by sector, revenue, EBITDA, margins, and more. Combines KBO registry data with NBB annual accounts for PE deal sourcing and screening.",
   metadataBase: new URL("https://datasnoop.be"),
   openGraph: {
-    title: "DataSnoop — Belgian Company Intelligence",
+    title: "DataSnoop — Company Intelligence",
     description: "Screen 170K+ Belgian companies by financials, sector, and structure. Built for PE deal sourcing.",
     url: "https://datasnoop.be",
     siteName: "DataSnoop",
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "DataSnoop — Belgian Company Intelligence",
+    title: "DataSnoop — Company Intelligence",
     description: "Screen 170K+ Belgian companies by financials, sector, and structure.",
   },
   robots: {
@@ -90,7 +90,7 @@ export default function RootLayout({
               "@type": "WebSite",
               name: "DataSnoop",
               url: "https://datasnoop.be",
-              description: "Belgian company intelligence platform combining KBO registry data with NBB annual accounts for PE deal sourcing and screening.",
+              description: "Company intelligence platform combining KBO registry data with NBB annual accounts for PE deal sourcing and screening.",
               potentialAction: {
                 "@type": "SearchAction",
                 target: "https://datasnoop.be/search?q={search_term_string}",
@@ -107,7 +107,7 @@ export default function RootLayout({
               "@type": "Organization",
               name: "DataSnoop",
               url: "https://datasnoop.be",
-              description: "Belgian company intelligence for PE deal sourcing",
+              description: "Company intelligence for PE deal sourcing",
               sameAs: [],
             }),
           }}

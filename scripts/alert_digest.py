@@ -296,7 +296,7 @@ def _check_nbb_keys(send: bool, alert_to: str | None) -> int:
                         "Accept": "application/json",
                         "NBB-CBSO-Subscription-Key": key,
                         "X-Request-Id": str(_uuid.uuid4()),
-                        "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
+                        "User-Agent": "Datasnoop/1.0 (Company Intelligence)",
                     },
                     timeout=20,
                 )

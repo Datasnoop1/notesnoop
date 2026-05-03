@@ -88,7 +88,7 @@ logging.getLogger("httpcore").setLevel(logging.WARNING)
 log = logging.getLogger("bulk_scrape")
 
 EJUSTICE_LIST_URL = "https://www.ejustice.just.fgov.be/cgi_tsv/list.pl"
-USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence; +https://datasnoop.be)"
+USER_AGENT = "Datasnoop/1.0 (Company Intelligence; +https://datasnoop.be)"
 DEFAULT_PROXY_FILE = "/root/webshare_proxies.txt"
 MAX_PAGES = max(1, int(os.getenv("BULK_MAX_PAGES", "1")))
 

@@ -206,7 +206,7 @@ async def _do_load(
         "Accept": "application/json",
         "NBB-CBSO-Subscription-Key": nbb_key,
         "X-Request-Id": str(uuid.uuid4()),
-        "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
+        "User-Agent": "Datasnoop/1.0 (Company Intelligence)",
     }
     ref_params = {}
     if fiscal_year:
@@ -318,7 +318,7 @@ async def _do_load(
                     "Accept": "application/x.jsonxbrl",
                     "NBB-CBSO-Subscription-Key": nbb_key,
                     "X-Request-Id": str(uuid.uuid4()),
-                    "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
+                    "User-Agent": "Datasnoop/1.0 (Company Intelligence)",
                 }
                 try:
                     filing_resp = await _nbb_get(

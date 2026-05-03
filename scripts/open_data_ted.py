@@ -39,7 +39,7 @@ logging.basicConfig(
 log = logging.getLogger("open_data_ted")
 
 TED_API = "https://ted.europa.eu/api/v3.0/notices/search"
-USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence)"
+USER_AGENT = "Datasnoop/1.0 (Company Intelligence)"
 
 
 def vat_to_cbe(vat: str) -> Optional[str]:

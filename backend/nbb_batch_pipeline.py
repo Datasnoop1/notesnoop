@@ -57,7 +57,7 @@ def _nbb_headers(key: str) -> dict:
     return {
         "NBB-CBSO-Subscription-Key": key,
         "X-Request-Id": str(uuid.uuid4()),
-        "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
+        "User-Agent": "Datasnoop/1.0 (Company Intelligence)",
     }
 
 

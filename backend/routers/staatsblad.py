@@ -26,7 +26,7 @@ async def _fetch_publications(cbe: str):
     # Identify ourselves to the Belgian government endpoint so they can
     # contact us before IP-banning. Faking a generic browser UA was the
     # previous behaviour and is bad netiquette toward a public service.
-    headers = {"User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence; +https://datasnoop.be)"}
+    headers = {"User-Agent": "Datasnoop/1.0 (Company Intelligence; +https://datasnoop.be)"}
     publications = []
     page = 1
 

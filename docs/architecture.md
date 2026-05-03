@@ -209,7 +209,7 @@ assuming every admin-labelled surface is already aligned.
    silently keep the old key — see gotcha #5.
 2. **NBB User-Agent matters.** NBB's Azure WAF rejects
    `Mozilla/5.0` and `python-urllib/*` headers with 403/500 from
-   data-centre IPs. Use `Datasnoop/1.0 (Belgian Company Intelligence)`.
+   data-centre IPs. Use `Datasnoop/1.0 (Company Intelligence)`.
 3. **NBB politeness.** 1.5s between requests, 3-wide concurrency cap
    on `/api/companies/{cbe}/load`. Don't lower these.
 4. **Supabase OAuth fallback cache is sticky.** When Site URL changes,

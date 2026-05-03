@@ -113,7 +113,7 @@ log = logging.getLogger("nbb_backload")
 
 NBB_BASE_URL = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
 NBB_KEY = os.getenv("NBB_AUTHENTIC_KEY", "")
-USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence)"
+USER_AGENT = "Datasnoop/1.0 (Company Intelligence)"
 # Rate limit. 1.25s keeps us well under NBB quota while being ~20% faster
 # than the original 1.5s. If NBB returns 429, the run stops and the watchdog
 # handles key rotation — so this is safe to tune.

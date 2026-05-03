@@ -69,7 +69,7 @@ class NBBClient:
         # routes already use this identifying UA — keep the loader
         # scripts consistent so they don't get blocked either.
         self.session.headers.update({
-            "User-Agent": "Datasnoop/1.0 (Belgian Company Intelligence)",
+            "User-Agent": "Datasnoop/1.0 (Company Intelligence)",
         })
 
     def _request(self, method, path, accept, **kwargs):

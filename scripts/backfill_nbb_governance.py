@@ -39,7 +39,7 @@ log = logging.getLogger("backfill_nbb_governance")
 NBB_BASE_URL = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
 NBB_KEY = os.getenv("NBB_AUTHENTIC_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence)"
+USER_AGENT = "Datasnoop/1.0 (Company Intelligence)"
 
 
 def _clean_cbe(raw: str) -> str:

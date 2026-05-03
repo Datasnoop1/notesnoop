@@ -41,7 +41,7 @@ LOG = logging.getLogger("retry_failed_governance")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 NBB_BASE_URL = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be").rstrip("/")
 NBB_KEY = os.getenv("NBB_AUTHENTIC_KEY", "")
-USER_AGENT = "Datasnoop/1.0 (Belgian Company Intelligence)"
+USER_AGENT = "Datasnoop/1.0 (Company Intelligence)"
 MAX_RETRY_ATTEMPTS = int(os.getenv("GOVERNANCE_RETRY_MAX_ATTEMPTS", "7"))
 PRESTORE_CIRCUIT_BREAKER = int(os.getenv("GOVERNANCE_RETRY_CIRCUIT_BREAKER", "5"))
 
