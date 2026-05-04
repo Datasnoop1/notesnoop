@@ -52,7 +52,7 @@ router = APIRouter()
 # v2.4.0 (2026-05-04): NACE leg dropped revenue gate + adopted embedding-
 # similarity ordering; MAX_RANKED_ITEMS bumped 30 -> 100; backfill from full
 # blended pool past the LLM-ranked top.
-PROMPT_VERSION = "v2.4.0"
+PROMPT_VERSION = "v2.4.1"
 
 FOCUS_VALUES = ("activity", "size", "geography")
 

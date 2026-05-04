@@ -41,7 +41,12 @@ FOCUS_WEIGHTS = {
 }
 
 
-MIN_SCORE_FLOOR = 15        # candidates below this 0–100 score are dropped (§3.4)
+MIN_SCORE_FLOOR = 5         # candidates below this 0–100 score are dropped (§3.4).
+                            # Lowered from 15 (2026-05-04) for the exhaustive-list
+                            # view: low-signal targets like real-estate agencies
+                            # without revenue can only score in the low double
+                            # digits even with exact NACE + same city, so the
+                            # tighter floor was dropping 76% of legitimate peers.
 LLM_INPUT_SET_SIZE = 150    # trim to this many before sending to the re-ranker
 FALLBACK_TRIGGER = 30       # leg C runs only if A+B together yield fewer than this
 
@@ -86,8 +91,14 @@ ACTIVITY_DETAIL_BONUS = {
 }
 WEAK_ACTIVITY_FLOOR = 0.08
 NACE_PROFILE_DISCOUNT_FLOOR = 0.15
-NACE_ONLY_MIN_ACTIVITY_OVERLAP = 0.12
-ACTIVITY_FOCUS_MIN_ACTIVITY_OVERLAP = 0.10
+# Lowered 0.12 -> 0.0 (2026-05-04). Was dropping 77% of NACE-exact peers
+# whose bulk_summary text didn't lexically overlap with the target's
+# bulk_summary — even though same NACE 5-digit class. The exhaustive-list
+# product direction surfaces those peers at lower ranks rather than
+# excluding them entirely.
+NACE_ONLY_MIN_ACTIVITY_OVERLAP = 0.0
+# Lowered 0.10 -> 0.0 (2026-05-04). Same rationale.
+ACTIVITY_FOCUS_MIN_ACTIVITY_OVERLAP = 0.0
 ACTIVITY_FOCUS_MIN_EMBEDDING = 0.60
 
 
