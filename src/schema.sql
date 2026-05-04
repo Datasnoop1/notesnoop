@@ -1133,7 +1133,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 --    and expression indexes. `unaccent()` is STABLE by default which
 --    blocks index-building; f_unaccent asserts immutability.
 -- -----------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION f_unaccent(text)
+CREATE OR REPLACE FUNCTION public.f_unaccent(text)
 RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
   SELECT public.unaccent('public.unaccent', $1)
 $$;
@@ -1142,12 +1142,16 @@ $$;
 -- exactly. Strips TRAILING Belgian + foreign legal suffixes. The '$'
 -- anchor is critical: without it we would strip the leading "NV" from
 -- names like "NVidia Belgium".
-CREATE OR REPLACE FUNCTION search_normalize(s text)
+-- All inner function references are schema-qualified to public so that
+-- autoanalyze workers and parallel workers (which run with restricted
+-- search_paths) can inline this function without raising
+-- "function ... does not exist" during query planning.
+CREATE OR REPLACE FUNCTION public.search_normalize(s text)
 RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
   SELECT NULLIF(
     TRIM(
       REGEXP_REPLACE(
-        LOWER(f_unaccent(
+        LOWER(public.f_unaccent(
           REGEXP_REPLACE(
             COALESCE(s, ''),
             '[[:space:][:punct:]]*(' ||
@@ -1166,12 +1170,12 @@ RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
 $$;
 
 -- Sorted-tokens reversed key. "tim braet" and "braet tim" both → "braet tim".
-CREATE OR REPLACE FUNCTION search_name_reversed(s text)
+CREATE OR REPLACE FUNCTION public.search_name_reversed(s text)
 RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
   SELECT NULLIF(
     ARRAY_TO_STRING(
       (SELECT ARRAY_AGG(tok ORDER BY tok)
-       FROM regexp_split_to_table(COALESCE(search_normalize(s), ''), '\s+') tok
+       FROM regexp_split_to_table(COALESCE(public.search_normalize(s), ''), '\s+') tok
        WHERE tok <> ''),
       ' '
     ),
@@ -1181,12 +1185,12 @@ $$;
 
 -- Double-Metaphone key per token, space-joined. Empty if input empty.
 -- dmetaphone() from `fuzzystrmatch`.
-CREATE OR REPLACE FUNCTION search_phonetic_key(s text)
+CREATE OR REPLACE FUNCTION public.search_phonetic_key(s text)
 RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
   SELECT NULLIF(
     ARRAY_TO_STRING(
-      (SELECT ARRAY_AGG(dmetaphone(tok))
-       FROM regexp_split_to_table(COALESCE(search_normalize(s), ''), '\s+') tok
+      (SELECT ARRAY_AGG(public.dmetaphone(tok))
+       FROM regexp_split_to_table(COALESCE(public.search_normalize(s), ''), '\s+') tok
        WHERE tok <> ''),
       ' '
     ),
