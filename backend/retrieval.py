@@ -42,13 +42,16 @@ FOCUS_WEIGHTS = {
 
 
 MIN_SCORE_FLOOR = 15        # candidates below this 0–100 score are dropped (§3.4)
-LLM_INPUT_SET_SIZE = 40     # trim to this many before sending to the re-ranker
+LLM_INPUT_SET_SIZE = 150    # trim to this many before sending to the re-ranker
 FALLBACK_TRIGGER = 30       # leg C runs only if A+B together yield fewer than this
 
 # Per-leg fetch caps. Larger than LLM_INPUT_SET_SIZE because the blend can
 # reorder candidates, and because dedup across legs shrinks the merged pool.
 LEG_A_LIMIT = 80
-LEG_B_LIMIT = 80
+LEG_B_LIMIT = 300           # bumped from 80 (2026-05-04) — operator wants
+                            # exhaustive list returned to the UI; LLM still
+                            # only ranks the top SHORTLIST_SIZE slot, the
+                            # rest are score-sorted with template reasons.
 LEG_C_LIMIT = 60
 HNSW_EF_SEARCH = 100
 
@@ -175,45 +178,99 @@ def retrieve_by_embedding(target_cbe: str, has_embedding: bool) -> list[dict]:
 # Leg B — NACE peers
 # ──────────────────────────────────────────────────────────────────────────
 
-def retrieve_by_nace(target_cbe: str, target_nace: str, target_revenue: float | None) -> list[dict]:
-    """Fetch NACE peers; rank same-code first, then by revenue log-distance.
+def retrieve_by_nace(
+    target_cbe: str,
+    target_nace: str,
+    target_revenue: float | None,
+    target_embedding: str | None = None,
+) -> list[dict]:
+    """Fetch NACE peers; rank same-code first, then by best-peer signal.
 
-    Uses a revenue placeholder of 1.0 when the target has no revenue so the
-    SQL expression stays well-defined — revenue ordering becomes arbitrary
-    in that case, which is the desired behaviour (we still prefer exact
-    NACE matches).
+    Uses a LEFT JOIN to financial_latest so peers without an NBB filing
+    (or with a filing that has no revenue) remain eligible. Many sectors
+    file abridged accounts that omit revenue — real estate agencies,
+    accountants, doctors, lawyers — and a hard inner-join silently
+    excluded ~99% of NACE peers in those segments, so find-similar
+    returned almost nothing for those targets.
+
+    When the target has an embedding, the secondary ordering is by
+    cosine similarity to the target embedding (peers with embeddings
+    sort first by distance ascending; peers without embeddings sort
+    last, then by revenue similarity, then enterprise_number for
+    stability). This avoids the previous "oldest CBE wins" tiebreaker
+    that surfaced 1970s shell companies ahead of well-described modern
+    peers when the target had no revenue.
+
+    Falls back to revenue-only ordering when the target has no
+    embedding. Revenue placeholder of 1.0 keeps the LN expression
+    well-defined; with NULL revenue rows GREATEST(NULL, 1) → 1, so
+    revenue-less peers sort together with distance 0 when target also
+    lacks revenue and to the back when target has revenue.
     """
     if not target_nace:
         return []
     rev_arg = float(target_revenue) if target_revenue and target_revenue > 0 else 1.0
     try:
-        rows = fetch_all(
-            """
-            SELECT ci.enterprise_number,
-                   CASE
-                     WHEN ci.nace_code = %s THEN 1.0
-                     WHEN LEFT(ci.nace_code, 3) = LEFT(%s, 3) THEN 0.7
-                     WHEN LEFT(ci.nace_code, 2) = LEFT(%s, 2) THEN 0.4
-                     ELSE 0.0
-                   END AS nace_score
-            FROM company_info ci
-            JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
-            WHERE ci.enterprise_number != %s
-              AND (ci.nace_code = %s OR LEFT(ci.nace_code, 2) = LEFT(%s, 2))
-              AND fl.revenue IS NOT NULL
-            ORDER BY (CASE WHEN ci.nace_code = %s THEN 0 ELSE 1 END),
-                     ABS(LN(GREATEST(fl.revenue, 1)) - LN(GREATEST(%s, 1))) ASC
-            LIMIT %s
-            """,
-            (
-                target_nace, target_nace, target_nace,
-                target_cbe,
-                target_nace, target_nace,
-                target_nace,
-                rev_arg,
-                LEG_B_LIMIT,
-            ),
-        )
+        if target_embedding:
+            rows = fetch_all(
+                """
+                SELECT ci.enterprise_number,
+                       CASE
+                         WHEN ci.nace_code = %s THEN 1.0
+                         WHEN LEFT(ci.nace_code, 3) = LEFT(%s, 3) THEN 0.7
+                         WHEN LEFT(ci.nace_code, 2) = LEFT(%s, 2) THEN 0.4
+                         ELSE 0.0
+                       END AS nace_score
+                FROM company_info ci
+                LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+                LEFT JOIN company_embedding ce_emb ON ce_emb.enterprise_number = ci.enterprise_number
+                WHERE ci.enterprise_number != %s
+                  AND (ci.nace_code = %s OR LEFT(ci.nace_code, 2) = LEFT(%s, 2))
+                ORDER BY (CASE WHEN ci.nace_code = %s THEN 0 ELSE 1 END),
+                         (CASE WHEN ce_emb.embedding IS NULL THEN 1 ELSE 0 END),
+                         (ce_emb.embedding <=> %s::vector) ASC NULLS LAST,
+                         ABS(LN(GREATEST(fl.revenue, 1)) - LN(GREATEST(%s, 1))) ASC,
+                         ci.enterprise_number ASC
+                LIMIT %s
+                """,
+                (
+                    target_nace, target_nace, target_nace,
+                    target_cbe,
+                    target_nace, target_nace,
+                    target_nace,
+                    target_embedding,
+                    rev_arg,
+                    LEG_B_LIMIT,
+                ),
+            )
+        else:
+            rows = fetch_all(
+                """
+                SELECT ci.enterprise_number,
+                       CASE
+                         WHEN ci.nace_code = %s THEN 1.0
+                         WHEN LEFT(ci.nace_code, 3) = LEFT(%s, 3) THEN 0.7
+                         WHEN LEFT(ci.nace_code, 2) = LEFT(%s, 2) THEN 0.4
+                         ELSE 0.0
+                       END AS nace_score
+                FROM company_info ci
+                LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+                WHERE ci.enterprise_number != %s
+                  AND (ci.nace_code = %s OR LEFT(ci.nace_code, 2) = LEFT(%s, 2))
+                ORDER BY (CASE WHEN ci.nace_code = %s THEN 0 ELSE 1 END),
+                         ABS(LN(GREATEST(fl.revenue, 1)) - LN(GREATEST(%s, 1))) ASC,
+                         ci.enterprise_number ASC
+                LIMIT %s
+                """,
+                (
+                    target_nace, target_nace, target_nace,
+                    target_cbe,
+                    target_nace, target_nace,
+                    target_nace,
+                    rev_arg,
+                    LEG_B_LIMIT,
+                ),
+            )
     except Exception:
         logger.exception("retrieve_by_nace failed for %s", target_cbe)
         return []
