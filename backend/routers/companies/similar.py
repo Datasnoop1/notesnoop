@@ -49,15 +49,20 @@ router = APIRouter()
 
 # Bumped whenever §4.2 prompt text or §4.3 output schema changes. Any bump
 # forces cache invalidation for every CBE because the hash includes it.
-PROMPT_VERSION = "v2.3.0"
+# v2.4.0 (2026-05-04): NACE leg dropped revenue gate + adopted embedding-
+# similarity ordering; MAX_RANKED_ITEMS bumped 30 -> 100; backfill from full
+# blended pool past the LLM-ranked top.
+PROMPT_VERSION = "v2.4.0"
 
 FOCUS_VALUES = ("activity", "size", "geography")
 
-# We always ask the LLM for up to this many items and cache the full ranking.
+# We always materialize the full ranking up to this many items and cache it.
 # The client-supplied `limit` is then applied as a post-filter so "Find more"
-# (which expands limit from 10 to 20) doesn't trigger a cache miss and a
-# redundant LLM call. 20 matches the upper bound of the `limit` query param.
-MAX_RANKED_ITEMS = 30
+# (which expands the limit) doesn't trigger a cache miss and a redundant LLM
+# call. Bumped from 30 to 100 (2026-05-04) to support the operator's
+# exhaustive-list view; the LLM only reasons over the SHORTLIST_SIZE top
+# items, the rest are score-sorted with template reasons.
+MAX_RANKED_ITEMS = 100
 SHORTLIST_SIZE = int(SIMILAR_COMPANIES_ROUTING.get("SHORTLIST_SIZE", 15))
 MAX_REASONABLE_SIMILAR_FTE = 50_000
 LARGE_SIMILAR_FTE_THRESHOLD = 10_000
@@ -324,7 +329,8 @@ async def get_similar_companies(cbe: str):
 # Response field set — every row must have every key (null-padded) so the
 # frontend can rely on a stable shape regardless of degradation path.
 _RESULT_FIELDS = (
-    "enterprise_number", "name", "city",
+    "enterprise_number", "name", "city", "zipcode",
+    "nace_code",
     "revenue", "ebitda", "fte_total", "fiscal_year",
     "ebit", "net_profit", "equity", "total_assets", "personnel_costs",
 )
@@ -743,7 +749,7 @@ def _compose_pipeline_model_used(shortlist_model: str | None, final_model: str |
 async def get_similar_companies_ai(
     cbe: str,
     focus: Literal["activity", "size", "geography"] = Query("activity"),
-    limit: int = Query(10, ge=1, le=30),
+    limit: int = Query(10, ge=1, le=100),
     user=Depends(optional_user),
 ):
     """Blend NACE, embedding, and size-band peers; re-rank with an LLM.
@@ -836,15 +842,22 @@ async def get_similar_companies_ai(
             log_event["degraded"] = "target_not_found"
             return []
 
-        # Is there an embedding row for the target?
+        # Fetch the target embedding once so both retrieval legs can use it.
+        # Leg A uses it for HNSW KNN search; Leg B uses it as the secondary
+        # ordering signal so NACE peers are ranked by content similarity to
+        # the target rather than by enterprise_number ASC (which silently
+        # surfaced 1970s shell companies for low-revenue targets).
         try:
-            has_embedding_row = fetch_one(
-                "SELECT 1 FROM company_embedding WHERE enterprise_number = %s", (cbe,),
+            target_emb_row = fetch_one(
+                "SELECT embedding::text FROM company_embedding WHERE enterprise_number = %s",
+                (cbe,),
             )
         except Exception:
-            # pgvector may be missing in some environments — treat as no embedding.
-            has_embedding_row = None
-        has_embedding = bool(has_embedding_row)
+            target_emb_row = None
+        target_embedding_text = (
+            target_emb_row["embedding"] if target_emb_row and target_emb_row.get("embedding") else None
+        )
+        has_embedding = bool(target_embedding_text)
 
         target_nace = target.get("nace_code")
         if not target_nace and not has_embedding:
@@ -854,7 +867,10 @@ async def get_similar_companies_ai(
         # ── Run retrieval legs ────────────────────────────────────
         try:
             leg_a = retrieve_by_embedding(cbe, has_embedding)
-            leg_b = retrieve_by_nace(cbe, target_nace, target.get("revenue"))
+            leg_b = retrieve_by_nace(
+                cbe, target_nace, target.get("revenue"),
+                target_embedding=target_embedding_text,
+            )
             legs = {"embedding": leg_a, "nace": leg_b, "size_band": []}
             log_event["leg_a_count"] = len(leg_a)
             log_event["leg_b_count"] = len(leg_b)
@@ -972,10 +988,22 @@ async def get_similar_companies_ai(
             log_event["model_succeeded"] = model_used
             log_event["llm_returned_count"] = len(shortlist_items)
             log_event["llm_valid_count"] = len(shortlist_items)
+            # Top of the list comes from the shortlisted (LLM-ranked) set,
+            # then we extend with the broader blended candidates so the
+            # large-list view still hits MAX_RANKED_ITEMS rows.
+            shortlisted_cbes = {
+                c.get("enterprise_number") for c in shortlisted_candidates
+            }
             full_result = [
                 _candidate_to_shortlist_only_result(c)
                 for c in shortlisted_candidates[:MAX_RANKED_ITEMS]
             ]
+            for cand in candidates:
+                if len(full_result) >= MAX_RANKED_ITEMS:
+                    break
+                if cand.get("enterprise_number") in shortlisted_cbes:
+                    continue
+                full_result.append(_candidate_to_result(cand, None))
             return full_result[:limit]
 
         final_limit = max(5, min(MAX_RANKED_ITEMS, len(shortlisted_candidates)))
@@ -1005,6 +1033,7 @@ async def get_similar_companies_ai(
                     shortlisted_candidates,
                     shortlist_items,
                     MAX_RANKED_ITEMS,
+                    backfill_from=candidates,
                 )
             else:
                 log_event["degraded"] = "llm_unavailable"
@@ -1023,6 +1052,7 @@ async def get_similar_companies_ai(
                 shortlisted_candidates,
                 final_items,
                 MAX_RANKED_ITEMS,
+                backfill_from=candidates,
             )
 
         _upsert_cache(cbe, focus, content_hash, model_used, full_result, candidates)
@@ -1121,6 +1151,7 @@ def _try_cache(cbe: str, focus: str, content_hash: str, candidates: list[dict], 
                        )
                    ) AS name,
                    ci.city,
+                   ci.zipcode,
                    ci.nace_code,
                    COALESCE(nl.description, ci.nace_code) AS nace_desc,
                    fl.revenue, fl.ebitda, fl.fte_total, fl.fiscal_year,
@@ -1197,24 +1228,39 @@ def _entry_reason_sections(entry: dict) -> dict[str, str] | None:
     return extracted or None
 
 
-def _apply_llm_ranking(candidates: list[dict], items: list[dict], limit: int) -> list[dict]:
+def _apply_llm_ranking(
+    candidates: list[dict],
+    items: list[dict],
+    limit: int,
+    backfill_from: list[dict] | None = None,
+) -> list[dict]:
     """Reorder candidates by LLM ranks, then backfill from blended candidates.
 
     This keeps the model in charge of the top of the list while ensuring the
     expanded "Find more" view still grows even when the model only returns a
     shorter ranked subset.
+
+    LLM index entries reference ``candidates`` (typically the shortlisted
+    subset). ``backfill_from``, when provided, is the broader blended pool —
+    used to extend results past the shortlist size for large-list mode where
+    the operator wants up to MAX_RANKED_ITEMS rows. Results are deduplicated
+    by enterprise_number across both pools.
     """
     items_sorted = sorted(items, key=lambda x: x["rank"])
     out: list[dict] = []
-    used_indices: set[int] = set()
+    used_cbes: set[str] = set()
     for entry in items_sorted:
         idx = entry["index"] - 1  # LLM indices are 1-based
-        if idx < 0 or idx >= len(candidates) or idx in used_indices:
+        if idx < 0 or idx >= len(candidates):
             continue
-        used_indices.add(idx)
+        cand = candidates[idx]
+        cbe = cand.get("enterprise_number")
+        if not cbe or cbe in used_cbes:
+            continue
+        used_cbes.add(cbe)
         out.append(
             _candidate_to_result(
-                candidates[idx],
+                cand,
                 entry.get("reason"),
                 _entry_reason_sections(entry),
             )
@@ -1222,14 +1268,22 @@ def _apply_llm_ranking(candidates: list[dict], items: list[dict], limit: int) ->
         if len(out) >= limit:
             break
 
+    pools: list[list[dict]] = []
     if len(out) < limit:
-        for idx, candidate in enumerate(candidates):
-            if idx in used_indices:
-                continue
-            used_indices.add(idx)
-            out.append(_candidate_to_result(candidate, None))
+        pools.append(candidates)
+    if backfill_from is not None and len(out) < limit:
+        pools.append(backfill_from)
+
+    for pool in pools:
+        for candidate in pool:
             if len(out) >= limit:
                 break
+            cbe = candidate.get("enterprise_number")
+            if not cbe or cbe in used_cbes:
+                continue
+            used_cbes.add(cbe)
+            out.append(_candidate_to_result(candidate, None))
+
     return out
 
 
