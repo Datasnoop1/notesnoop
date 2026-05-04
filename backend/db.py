@@ -180,15 +180,57 @@ def _reset_application_name(conn) -> None:
 
 
 def get_connection():
-    """Get a pooled PostgreSQL connection."""
-    conn = _get_pool().getconn()
-    conn.autocommit = False
-    try:
-        _tag_connection_for_cancel(conn)
-    except Exception:
+    """Get a pooled PostgreSQL connection.
+
+    Pings the connection with `SELECT 1` before returning it to weed out
+    stale entries left over from a Postgres restart. Without this, after a
+    PG outage the pool keeps handing out dead sockets and every API
+    request 500s with "connection refused" or "connection has been closed"
+    until the entire pool naturally rotates — the behaviour observed in
+    the 2026-05-04 outage where Ascot saw 5xx for ~20 min after PG was
+    actually back up. One retry on stale-detection; if the second
+    connection is also stale we raise rather than loop, leaving the
+    caller to fail fast.
+    """
+    pool = _get_pool()
+    conn = pool.getconn()
+    for attempt in range(2):
+        conn.autocommit = False
+        if _connection_is_alive(conn):
+            try:
+                _tag_connection_for_cancel(conn)
+            except Exception:
+                _discard_connection(conn)
+                raise
+            return conn
+        # Stale connection — close it and pull another from the pool.
         _discard_connection(conn)
-        raise
-    return conn
+        if attempt == 0:
+            conn = pool.getconn()
+    # Fell through with both attempts stale — surface the failure.
+    raise psycopg2.OperationalError(
+        "Postgres connection pool returned a stale connection on two consecutive attempts"
+    )
+
+
+def _connection_is_alive(conn) -> bool:
+    """Cheap ping before reusing a pooled connection. Returns False on any
+    OperationalError / InterfaceError so callers can recycle the slot."""
+    try:
+        if getattr(conn, "closed", 1) != 0:
+            return False
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        # Reset transaction so the caller's first BEGIN is clean.
+        conn.rollback()
+        return True
+    except (psycopg2.OperationalError, psycopg2.InterfaceError):
+        return False
+    except Exception:
+        # Anything else is unexpected — treat as alive and let the caller's
+        # actual query surface the real error.
+        return True
 
 
 def put_connection(conn):
