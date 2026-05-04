@@ -24,6 +24,7 @@ def test_stage_b_uses_staatsblad_effective_date_source():
     assert "FROM staatsblad_event ev" in sql
     assert "COALESCE(ev.event_date, ev.pub_date) AS effective_date" in sql
     assert "_bt_vf_stage_b_pub_reference" in sql
+    assert "ON ev.enterprise_number = af.via_enterprise_number" in sql
 
 
 def test_stage_b_valid_from_updates_are_null_only():

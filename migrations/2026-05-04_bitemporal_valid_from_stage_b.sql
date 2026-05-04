@@ -118,6 +118,7 @@ JOIN _bt_vf_stage_b_events ev
 WHERE a.valid_from IS NULL
   AND a.deposit_key LIKE 'sb\_%' ESCAPE '\'
   AND ev.event_type = 'admin_event'
+  AND (ev.sub_type IN ('appointment', 'reappointment', 'renewal') OR ev.sub_type = '')
   AND search_normalize(COALESCE(a.name, '')) <> ''
   AND (ev.person_name_key <> '' OR ev.entity_name_key <> '')
   AND search_normalize(COALESCE(a.name, '')) IN (ev.person_name_key, ev.entity_name_key)
@@ -192,11 +193,12 @@ SELECT DISTINCT ON (af.ctid)
        ev.effective_date
 FROM affiliation af
 JOIN _bt_vf_stage_b_events ev
-  ON ev.enterprise_number = af.enterprise_number
+  ON ev.enterprise_number = af.via_enterprise_number
  AND ev.pub_reference = pg_temp._bt_vf_stage_b_pub_reference(af.via_deposit_key)
 WHERE af.valid_from IS NULL
   AND af.via_deposit_key LIKE 'sb\_%' ESCAPE '\'
   AND ev.event_type = 'admin_event'
+  AND af.affiliation_type = 'represents_admin'
   AND search_normalize(COALESCE(af.person_name, '')) <> ''
   AND ev.person_name_key <> ''
   AND search_normalize(COALESCE(af.person_name, '')) = ev.person_name_key
