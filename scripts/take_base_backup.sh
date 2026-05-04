@@ -73,6 +73,13 @@ preflight() {
   [ -x "$PG_BASEBACKUP" ] || fail "pg_basebackup not executable at $PG_BASEBACKUP"
   BACKUP_DIR=$(env_value "$ENV_FILE" DS_BACKUP_DIR) || fail "DS_BACKUP_DIR missing"
   [ -n "$BACKUP_DIR" ] || fail "DS_BACKUP_DIR empty"
+  # Refuse to operate on common system paths so a typo'd DS_BACKUP_DIR can
+  # never cause prune_old_backups to rm -rf base-* dirs outside our volume.
+  case "$BACKUP_DIR" in
+    /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/proc|/root|/run|/sbin|/srv|/sys|/tmp|/usr|/var|/var/lib|/var/lib/postgresql|/var/lib/postgresql/*)
+      fail "DS_BACKUP_DIR=$BACKUP_DIR refuses prune (looks like a system path)"
+      ;;
+  esac
   export BACKUP_DIR
   install -d -o postgres -g postgres -m 700 "$BACKUP_DIR"
 
