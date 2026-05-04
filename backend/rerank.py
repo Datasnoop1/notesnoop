@@ -718,10 +718,15 @@ async def _call_llm_with_walltime(
     max_tokens: int,
     temperature: float | None,
     timeout_s: float,
-    wall_timeout_s: float,
+    wall_backstop_s: float,
     pass_name: str | None = None,
     target_cbe: str | None = None,
 ) -> dict:
+    """Call ai_complete_with_meta wrapped in asyncio.wait_for as a backstop
+    against a wedged inner client. The httpx timeout (timeout_s) is the
+    real budget; wall_backstop_s only fires if the inner client somehow
+    survives past its own timeout (rare — CPU-stuck tokenizer, broken
+    socket cleanup, etc.)."""
     started = asyncio.get_running_loop().time()
     try:
         return await asyncio.wait_for(
@@ -733,16 +738,18 @@ async def _call_llm_with_walltime(
                 temperature=temperature,
                 timeout_s=timeout_s,
             ),
-            timeout=wall_timeout_s,
+            timeout=wall_backstop_s,
         )
     except asyncio.TimeoutError:
         elapsed_ms = int((asyncio.get_running_loop().time() - started) * 1000)
         logger.warning(
-            "LLM hard wall-clock cancel after %.1fs on %s pass for %s via %s",
-            wall_timeout_s,
+            "LLM wall-clock backstop fired after %.1fs on %s pass for %s via %s "
+            "(inner httpx timeout did not honour timeout_s=%.1fs)",
+            wall_backstop_s,
             pass_name or "rerank",
             target_cbe or "unknown",
             model,
+            timeout_s,
         )
         return _timeout_meta(model, elapsed_ms)
 
@@ -853,7 +860,12 @@ async def call_userpath_rerank_llm(
     max_tokens = cfg.get("max_tokens", 1200)
     temperature = cfg.get("temperature", 0.2)
     timeout_s = float(SIMILAR_COMPANIES_ROUTING.get("REQUEST_TIMEOUT_S", 8))
-    wall_timeout_s = float(SIMILAR_COMPANIES_ROUTING.get("WALL_TIMEOUT_S", timeout_s + 0.5))
+    wall_backstop_s = float(
+        SIMILAR_COMPANIES_ROUTING.get(
+            "WALL_BACKSTOP_S",
+            SIMILAR_COMPANIES_ROUTING.get("WALL_TIMEOUT_S", timeout_s + 0.5),
+        )
+    )
     max_retries = int(SIMILAR_COMPANIES_ROUTING.get("MAX_RETRIES_PER_MODEL", 1))
     backoff_s = float(SIMILAR_COMPANIES_ROUTING.get("RETRY_BACKOFF_S", 1.0))
     userpath_fallback = str(
@@ -880,7 +892,7 @@ async def call_userpath_rerank_llm(
                 max_tokens=max_tokens,
                 temperature=temperature,
                 timeout_s=timeout_s,
-                wall_timeout_s=wall_timeout_s,
+                wall_backstop_s=wall_backstop_s,
                 pass_name=pass_name,
                 target_cbe=target_cbe,
             )

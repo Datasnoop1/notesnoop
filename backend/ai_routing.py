@@ -80,7 +80,13 @@ SIMILAR_COMPANIES_ROUTING = {
     # OLLAMA_API_KEY (for example `ollama:kimi-k2.6`).
     "SHORTLIST_SIZE": 15,
     "REQUEST_TIMEOUT_S": 8,
-    "WALL_TIMEOUT_S": 8.5,
+    # Asyncio.wait_for backstop around each provider call. NOT a budget
+    # cap — the inner httpx timeout (REQUEST_TIMEOUT_S) is what bounds
+    # request latency in practice. This kicks in only when the inner
+    # client wedges past its own timeout (eg. CPU-stuck tokenizer,
+    # connection in CLOSE_WAIT). Set ~0.5-1s above REQUEST_TIMEOUT_S so
+    # the backstop never preempts a healthy request.
+    "WALL_BACKSTOP_S": 8.5,
     "MAX_RETRIES_PER_MODEL": 1,
     "RETRY_BACKOFF_S": 1.0,
     "USERPATH_FALLBACK_MODEL": "anthropic/claude-haiku-4-5",

@@ -318,6 +318,18 @@ refresh_snapshot() {
   log "scrubbing_next"
   "$PSQL" "$next_database_url" -v ON_ERROR_STOP=1 -f "$SCRUB_SQL" >/dev/null
 
+  # The HNSW index is filtered out of pg_restore (line 247) because rebuilding
+  # it from the dump file is much slower than building it from scratch on the
+  # restored data. Build it now (non-concurrent — leadpeek_staging_next has not
+  # yet been swapped in, so there is no concurrent traffic to compete with) so
+  # the staging environment matches prod's vector-search query plan. Without
+  # this step, find-similar latency tests on staging are not representative of
+  # production.
+  log "rebuilding_hnsw_index"
+  "$PSQL" "$next_database_url" -v ON_ERROR_STOP=1 \
+    -c "CREATE INDEX IF NOT EXISTS idx_ce_embedding_hnsw ON public.company_embedding USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);" \
+    >/dev/null
+
   log "swapping_databases"
   terminate_db leadpeek_staging || true
   terminate_db leadpeek_staging_old || true
