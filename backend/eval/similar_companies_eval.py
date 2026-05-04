@@ -55,7 +55,7 @@ from retrieval import (  # noqa: E402
     retrieve_by_nace,
     retrieve_by_size_band,
 )
-from rerank import call_rerank_llm, render_prompt  # noqa: E402
+from rerank import call_userpath_rerank_llm, render_prompt  # noqa: E402
 from similar_cache import ensure_similar_cache_schema  # noqa: E402
 from utils import clean_cbe  # noqa: E402
 
@@ -166,7 +166,15 @@ async def run_for_target(target_cbe: str, tier: str, focus: str = "activity", li
     }
     if len(blended) >= 5:
         prompt = render_prompt(target, blended, limit)
-        llm = await call_rerank_llm(prompt, tier, n_candidates=len(blended))
+        # Eval uses the user-path envelope (bounded 8s timeouts, OpenRouter
+        # Haiku fallback) so eval timings reflect what prod actually does.
+        llm = await call_userpath_rerank_llm(
+            prompt,
+            tier,
+            n_candidates=len(blended),
+            schema="reason_text",
+            pass_name="eval",
+        )
     elapsed_ms = int((dt.datetime.now(dt.timezone.utc) - started).total_seconds() * 1000)
 
     items = llm.get("items")
