@@ -574,7 +574,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
                     {selected.has(sc.enterprise_number) ? <CheckSquare className="w-4 h-4 md:w-3.5 md:h-3.5 text-brand" /> : <Square className="w-4 h-4 md:w-3.5 md:h-3.5" />}
                   </button>
                 </td>
-                <td className="px-3 py-2.5 align-top text-[11px] md:text-[10px] font-mono text-slate-300 hidden sm:table-cell">{idx + 1}</td>
+                <td className="px-3 py-2.5 align-top text-[11px] md:text-[10px] font-mono text-slate-300 hidden sm:table-cell">{(rankIndex.get(sc.enterprise_number) ?? idx) + 1}</td>
                 <td className="px-3 py-2.5 align-top">
                   <Link href={`/company/${sc.enterprise_number}`} className="text-xs font-semibold text-brand hover:text-[color:var(--brand-ink)] hover:underline">
                     {sc.name}
