@@ -354,13 +354,30 @@ def _discard_connection(conn):
             pass
 
 
-def fetch_all(sql: str, params: tuple | list = None) -> list[dict]:
+def fetch_all(
+    sql: str,
+    params: tuple | list = None,
+    statement_timeout_ms: int | None = None,
+) -> list[dict]:
     """Execute a query and return all rows as a list of dicts.
-    One retry on a fresh connection if the pool handed us a stale one."""
+    One retry on a fresh connection if the pool handed us a stale one.
+
+    ``statement_timeout_ms`` (optional) issues ``SET LOCAL
+    statement_timeout`` before the query so a single pathological call
+    can't pin a connection past its expected envelope. Defense-in-depth
+    on top of the global 120s pool default; use for queries whose outer
+    budget is shorter (e.g. find-similar's NACE leg, expected sub-second
+    on small NACEs but uncapped sort cost on huge 2-digit groups).
+    """
     for attempt in (1, 2):
         conn = get_connection()
         try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if statement_timeout_ms is not None:
+                cur.execute(
+                    "SET LOCAL statement_timeout = %s",
+                    (str(int(statement_timeout_ms)),),
+                )
             t0 = time.perf_counter()
             cur.execute(sql, params)
             rows = cur.fetchall()

@@ -253,6 +253,7 @@ def retrieve_by_nace(
                     rev_arg,
                     LEG_B_LIMIT,
                 ),
+                statement_timeout_ms=8000,
             )
         else:
             rows = fetch_all(
@@ -281,6 +282,7 @@ def retrieve_by_nace(
                     rev_arg,
                     LEG_B_LIMIT,
                 ),
+                statement_timeout_ms=8000,
             )
     except Exception:
         logger.exception("retrieve_by_nace failed for %s", target_cbe)
