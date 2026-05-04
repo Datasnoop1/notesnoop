@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Loader2, Scale, RefreshCw, Heart, CheckSquare, Square, FolderPlus, ChevronDown } from "lucide-react";
+import { Sparkles, Loader2, Scale, RefreshCw, Heart, CheckSquare, Square, FolderPlus, ChevronDown, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
 import { fmtEur, fmtNumber } from "@/lib/format";
 import { useRouter } from "next/navigation";
 import { getAiSimilarCompanies } from "@/lib/api";
@@ -14,6 +14,8 @@ interface AiSimilarCompany {
   enterprise_number: string;
   name: string;
   city: string;
+  zipcode?: string | null;
+  nace_code?: string | null;
   revenue: number | null;
   ebitda: number | null;
   fte_total: number | null;
@@ -37,7 +39,50 @@ interface SimilarTabProps {
 }
 
 const DEFAULT_LIMIT = 10;
-const EXPANDED_LIMIT = 30;
+// Bumped 30 -> 100 (2026-05-04) so users can browse the full exhaustive
+// peer list. Backend supports up to 100 since PR #57.
+const EXPANDED_LIMIT = 100;
+
+/* ---------- Sort state ---------- */
+
+type SortKey = "rank" | "name" | "zipcode" | "revenue" | "ebitda" | "fte_total";
+type SortDir = "asc" | "desc";
+
+interface SortState {
+  key: SortKey;
+  dir: SortDir;
+}
+
+function compareForSort(
+  a: AiSimilarCompany,
+  b: AiSimilarCompany,
+  state: SortState,
+  rankIndex: Map<string, number>,
+): number {
+  const dirMul = state.dir === "asc" ? 1 : -1;
+  if (state.key === "rank") {
+    return ((rankIndex.get(a.enterprise_number) ?? 0) - (rankIndex.get(b.enterprise_number) ?? 0)) * dirMul;
+  }
+  // For non-rank columns: nulls always sort last regardless of direction.
+  // Otherwise compare by value.
+  const av = a[state.key as keyof AiSimilarCompany] as string | number | null | undefined;
+  const bv = b[state.key as keyof AiSimilarCompany] as string | number | null | undefined;
+  const aMissing = av === null || av === undefined || av === "";
+  const bMissing = bv === null || bv === undefined || bv === "";
+  if (aMissing && bMissing) {
+    return ((rankIndex.get(a.enterprise_number) ?? 0) - (rankIndex.get(b.enterprise_number) ?? 0));
+  }
+  if (aMissing) return 1;
+  if (bMissing) return -1;
+  if (typeof av === "number" && typeof bv === "number") {
+    return (av - bv) * dirMul;
+  }
+  const as = String(av).toLowerCase();
+  const bs = String(bv).toLowerCase();
+  if (as < bs) return -1 * dirMul;
+  if (as > bs) return 1 * dirMul;
+  return 0;
+}
 
 /* ---------- Helpers ---------- */
 
@@ -147,6 +192,42 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
   const [addingToProject, setAddingToProject] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [noMoreAvailable, setNoMoreAvailable] = useState(false);
+  const [sortState, setSortState] = useState<SortState>({ key: "rank", dir: "asc" });
+
+  // Capture each company's incoming AI rank so we can fall back to it
+  // for tiebreakers and as the "rank" sort option. Reset whenever the
+  // companies list itself changes.
+  const rankIndex = useMemo(() => {
+    const m = new Map<string, number>();
+    companies.forEach((c, i) => m.set(c.enterprise_number, i));
+    return m;
+  }, [companies]);
+
+  const sortedCompanies = useMemo(() => {
+    if (sortState.key === "rank" && sortState.dir === "asc") {
+      return companies;
+    }
+    return [...companies].sort((a, b) => compareForSort(a, b, sortState, rankIndex));
+  }, [companies, sortState, rankIndex]);
+
+  const onSortClick = (key: SortKey) => {
+    setSortState((prev) => {
+      if (prev.key !== key) {
+        // First click on a column: ascending (numbers small→large, names a→z).
+        // Exception: "rank" defaults to ascending (top of list = best peer).
+        return { key, dir: "asc" };
+      }
+      // Second click on same column: flip direction.
+      return { key, dir: prev.dir === "asc" ? "desc" : "asc" };
+    });
+  };
+
+  const SortIcon = ({ active, dir }: { active: boolean; dir: SortDir }) => {
+    if (!active) return <ArrowUpDown className="w-3 h-3 inline-block ml-1 opacity-40" />;
+    return dir === "asc"
+      ? <ArrowUp className="w-3 h-3 inline-block ml-1" />
+      : <ArrowDown className="w-3 h-3 inline-block ml-1" />;
+  };
 
   const toggleSelect = (ent: string) => setSelected((prev) => {
     const next = new Set(prev);
@@ -424,16 +505,65 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
                   {selected.size === companies.length ? <CheckSquare className="w-4 h-4 md:w-3.5 md:h-3.5" /> : <Square className="w-4 h-4 md:w-3.5 md:h-3.5" />}
                 </button>
               </th>
-              <th className="px-3 py-2 text-left text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-6 hidden sm:table-cell">#</th>
-              <th className="px-3 py-2 text-left text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400">Company</th>
+              <th className="px-3 py-2 text-left text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400 w-6 hidden sm:table-cell">
+                <button
+                  onClick={() => onSortClick("rank")}
+                  className="flex items-center hover:text-brand transition-colors"
+                  title="Sort by AI rank"
+                >
+                  #<SortIcon active={sortState.key === "rank"} dir={sortState.dir} />
+                </button>
+              </th>
+              <th className="px-3 py-2 text-left text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <button
+                  onClick={() => onSortClick("name")}
+                  className="flex items-center hover:text-brand transition-colors"
+                  title="Sort by company name"
+                >
+                  Company<SortIcon active={sortState.key === "name"} dir={sortState.dir} />
+                </button>
+              </th>
               <th className="px-3 py-2 text-left text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400 min-w-[180px]">Why similar</th>
-              <th className="px-3 py-2 text-right text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400">Revenue</th>
-              <th className="px-3 py-2 text-right text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400">EBITDA</th>
-              <th className="px-3 py-2 text-right text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400 hidden sm:table-cell">FTE</th>
+              <th className="px-3 py-2 text-left text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400 hidden md:table-cell">
+                <button
+                  onClick={() => onSortClick("zipcode")}
+                  className="flex items-center hover:text-brand transition-colors"
+                  title="Sort by postcode"
+                >
+                  Postcode<SortIcon active={sortState.key === "zipcode"} dir={sortState.dir} />
+                </button>
+              </th>
+              <th className="px-3 py-2 text-right text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <button
+                  onClick={() => onSortClick("revenue")}
+                  className="flex items-center justify-end ml-auto hover:text-brand transition-colors"
+                  title="Sort by revenue"
+                >
+                  Revenue<SortIcon active={sortState.key === "revenue"} dir={sortState.dir} />
+                </button>
+              </th>
+              <th className="px-3 py-2 text-right text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                <button
+                  onClick={() => onSortClick("ebitda")}
+                  className="flex items-center justify-end ml-auto hover:text-brand transition-colors"
+                  title="Sort by EBITDA"
+                >
+                  EBITDA<SortIcon active={sortState.key === "ebitda"} dir={sortState.dir} />
+                </button>
+              </th>
+              <th className="px-3 py-2 text-right text-[11px] md:text-[10px] font-semibold uppercase tracking-wider text-slate-400 hidden sm:table-cell">
+                <button
+                  onClick={() => onSortClick("fte_total")}
+                  className="flex items-center justify-end ml-auto hover:text-brand transition-colors"
+                  title="Sort by FTE"
+                >
+                  FTE<SortIcon active={sortState.key === "fte_total"} dir={sortState.dir} />
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
-            {companies.map((sc, idx) => (
+            {sortedCompanies.map((sc, idx) => (
               <tr key={sc.enterprise_number} className={`border-t border-slate-50 align-top hover:bg-brand-soft/30 transition-colors ${selected.has(sc.enterprise_number) ? "bg-brand-soft/40" : ""}`}>
                 <td className="px-2 py-2.5 align-top">
                   <button
@@ -472,6 +602,7 @@ export function SimilarTab({ cbe }: SimilarTabProps) {
                     ) : "\u2014";
                   })()}
                 </td>
+                <td className="px-3 py-2.5 align-top text-[11px] md:text-[10px] font-mono text-slate-500 hidden md:table-cell">{sc.zipcode || "—"}</td>
                 <td className="px-3 py-2.5 align-top text-right text-[11px] md:text-xs font-mono text-slate-700">{fmtEur(sc.revenue)}</td>
                 <td className="px-3 py-2.5 align-top text-right text-[11px] md:text-xs font-mono text-slate-600">{fmtEur(sc.ebitda)}</td>
                 <td className="px-3 py-2.5 align-top text-right text-[11px] md:text-xs font-mono text-slate-600 hidden sm:table-cell">{sc.fte_total != null ? fmtNumber(sc.fte_total) : "\u2014"}</td>
