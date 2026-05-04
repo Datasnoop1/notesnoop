@@ -7,7 +7,9 @@ services:
       # Staging is open for browsing so the operator can verify UI without
       # signing in. Admin routes remain locked at the router level via
       # `_require_admin` dependencies, independent of STAGING_MODE.
-      STAGING_MODE: "true"
+      # (Was "true" historically, which contradicted the comment and locked
+      # the entire site behind admin auth — flipped 2026-05-04.)
+      STAGING_MODE: "false"
       # See docker-compose.yml backend service for explanation.
       PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper-staging:8000"
       # Phase 5.2 elaboration narrative — see prod compose for details.
