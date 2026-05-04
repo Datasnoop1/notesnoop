@@ -352,6 +352,8 @@ CREATE TABLE IF NOT EXISTS administrator (
     representative_name TEXT,               -- permanent rep for legal persons
     valid_from          DATE,               -- NULL = unknown start; treated as in-force by current/as-of views
     valid_to            DATE,               -- exclusive end; NBB inclusive mandate_end is stored as +1 day
+    valid_from_provenance TEXT,
+    valid_to_provenance   TEXT,
     source_deposit_date DATE,
     recorded_from       TIMESTAMPTZ DEFAULT NOW(),
     recorded_to         TIMESTAMPTZ,
@@ -375,6 +377,8 @@ CREATE TABLE IF NOT EXISTS participating_interest (
     net_result          REAL,
     valid_from          DATE,               -- NULL = unknown start; treated as in-force by current/as-of views
     valid_to            DATE,               -- exclusive end
+    valid_from_provenance TEXT,
+    valid_to_provenance   TEXT,
     source_deposit_date DATE,
     recorded_from       TIMESTAMPTZ DEFAULT NOW(),
     recorded_to         TIMESTAMPTZ,
@@ -401,6 +405,8 @@ CREATE TABLE IF NOT EXISTS shareholder (
     ownership_pct           REAL,
     valid_from              DATE,           -- NULL = unknown start; treated as in-force by current/as-of views
     valid_to                DATE,           -- exclusive end
+    valid_from_provenance   TEXT,
+    valid_to_provenance     TEXT,
     source_deposit_date     DATE,
     recorded_from           TIMESTAMPTZ DEFAULT NOW(),
     recorded_to             TIMESTAMPTZ,
@@ -1553,6 +1559,8 @@ CREATE TABLE IF NOT EXISTS affiliation (
     last_seen_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     valid_from              DATE,           -- NULL = unknown start; treated as in-force by current/as-of views
     valid_to                DATE,           -- exclusive end
+    valid_from_provenance   TEXT,
+    valid_to_provenance     TEXT,
     source_deposit_date     DATE,
     recorded_from           TIMESTAMPTZ DEFAULT NOW(),
     recorded_to             TIMESTAMPTZ,

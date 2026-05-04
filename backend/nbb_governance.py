@@ -408,6 +408,25 @@ def _table_has_bitemporal_columns(cur, table: str) -> bool:
     return present
 
 
+def _table_has_provenance_columns(cur, table: str) -> bool:
+    cached = _PROVENANCE_TABLE_COLUMNS_PRESENT.get(table)
+    if cached is not None:
+        return cached
+    cur.execute(
+        """
+        SELECT COUNT(*) = 2
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = %s
+          AND column_name = ANY(%s)
+        """,
+        (table, ["valid_from_provenance", "valid_to_provenance"]),
+    )
+    present = bool(cur.fetchone()[0])
+    _PROVENANCE_TABLE_COLUMNS_PRESENT[table] = present
+    return present
+
+
 def _insert_bitemporal_unique(
     cur,
     table: str,
@@ -449,6 +468,25 @@ def _with_bitemporal_values(
     valid_to: date | None = None,
 ) -> tuple:
     return row + (source_deposit_date, valid_from, valid_to)
+
+
+def _provenance_for_value(value: date | None, provenance: str) -> str | None:
+    return provenance if value is not None else None
+
+
+def _with_bitemporal_provenance_values(
+    row: tuple,
+    source_deposit_date: date | None,
+    valid_from: date | None,
+    valid_to: date | None = None,
+    *,
+    valid_from_provenance: str,
+    valid_to_provenance: str,
+) -> tuple:
+    return _with_bitemporal_values(row, source_deposit_date, valid_from, valid_to) + (
+        _provenance_for_value(valid_from, valid_from_provenance),
+        _provenance_for_value(valid_to, valid_to_provenance),
+    )
 
 
 def _source_pk(*parts: Any) -> str:
@@ -676,17 +714,38 @@ def store_governance_snapshot(
         has_shareholder_bitemporal = _table_has_bitemporal_columns(cur, "shareholder")
         has_pi_bitemporal = _table_has_bitemporal_columns(cur, "participating_interest")
         has_affiliation_bitemporal = _table_has_bitemporal_columns(cur, "affiliation")
+        has_admin_provenance = has_admin_bitemporal and _table_has_provenance_columns(cur, "administrator")
+        has_shareholder_provenance = (
+            has_shareholder_bitemporal and _table_has_provenance_columns(cur, "shareholder")
+        )
+        has_pi_provenance = has_pi_bitemporal and _table_has_provenance_columns(
+            cur, "participating_interest"
+        )
+        has_affiliation_provenance = (
+            has_affiliation_bitemporal and _table_has_provenance_columns(cur, "affiliation")
+        )
         for row in rows["administrators"]:
             if has_admin_bitemporal:
                 columns = _ADMIN_COLUMNS + _BITEMPORAL_INSERT_COLUMNS
                 valid_from = _parse_date(row[_ADMIN_COLUMNS.index("mandate_start")]) or source_deposit_date
                 valid_to = _exclusive_end_date(row[_ADMIN_COLUMNS.index("mandate_end")])
+                values = _with_bitemporal_values(row, source_deposit_date, valid_from, valid_to)
+                if has_admin_provenance:
+                    columns += _PROVENANCE_INSERT_COLUMNS
+                    values = _with_bitemporal_provenance_values(
+                        row,
+                        source_deposit_date,
+                        valid_from,
+                        valid_to,
+                        valid_from_provenance="nbb_loader_direct",
+                        valid_to_provenance="nbb_loader_direct",
+                    )
                 counts["administrators"] += _insert_bitemporal_unique(
                     cur,
                     "administrator",
                     columns,
                     ("enterprise_number", "deposit_key", "name", "role"),
-                    _with_bitemporal_values(row, source_deposit_date, valid_from, valid_to),
+                    values,
                     "enterprise_number IS NOT DISTINCT FROM %s "
                     "AND search_normalize(name) IS NOT DISTINCT FROM search_normalize(%s) "
                     "AND role IS NOT DISTINCT FROM %s",
@@ -703,12 +762,22 @@ def store_governance_snapshot(
         for row in rows["shareholders"]:
             if has_shareholder_bitemporal:
                 columns = _SHAREHOLDER_COLUMNS + _BITEMPORAL_INSERT_COLUMNS
+                values = _with_bitemporal_values(row, source_deposit_date, source_deposit_date)
+                if has_shareholder_provenance:
+                    columns += _PROVENANCE_INSERT_COLUMNS
+                    values = _with_bitemporal_provenance_values(
+                        row,
+                        source_deposit_date,
+                        source_deposit_date,
+                        valid_from_provenance="nbb_loader_direct",
+                        valid_to_provenance="nbb_loader_direct",
+                    )
                 counts["shareholders"] += _insert_bitemporal_unique(
                     cur,
                     "shareholder",
                     columns,
                     ("enterprise_number", "deposit_key", "name"),
-                    _with_bitemporal_values(row, source_deposit_date, source_deposit_date),
+                    values,
                     "enterprise_number IS NOT DISTINCT FROM %s "
                     "AND search_normalize(name) IS NOT DISTINCT FROM search_normalize(%s) "
                     "AND COALESCE(identifier, '') IS NOT DISTINCT FROM COALESCE(%s, '') "
@@ -731,12 +800,22 @@ def store_governance_snapshot(
         for row in rows["participating_interests"]:
             if has_pi_bitemporal:
                 columns = _PI_COLUMNS + _BITEMPORAL_INSERT_COLUMNS
+                values = _with_bitemporal_values(row, source_deposit_date, source_deposit_date)
+                if has_pi_provenance:
+                    columns += _PROVENANCE_INSERT_COLUMNS
+                    values = _with_bitemporal_provenance_values(
+                        row,
+                        source_deposit_date,
+                        source_deposit_date,
+                        valid_from_provenance="nbb_loader_direct",
+                        valid_to_provenance="nbb_loader_direct",
+                    )
                 counts["participating_interests"] += _insert_bitemporal_unique(
                     cur,
                     "participating_interest",
                     columns,
                     ("enterprise_number", "deposit_key", "name"),
-                    _with_bitemporal_values(row, source_deposit_date, source_deposit_date),
+                    values,
                     "enterprise_number IS NOT DISTINCT FROM %s "
                     "AND COALESCE(identifier, '') IS NOT DISTINCT FROM COALESCE(%s, '') "
                     "AND search_normalize(name) IS NOT DISTINCT FROM search_normalize(%s) "
@@ -764,6 +843,16 @@ def store_governance_snapshot(
             for row in rows["affiliations"]:
                 if has_affiliation_bitemporal:
                     columns = _AFFILIATION_COLUMNS + _BITEMPORAL_INSERT_COLUMNS
+                    values = _with_bitemporal_values(row, source_deposit_date, source_deposit_date)
+                    if has_affiliation_provenance:
+                        columns += _PROVENANCE_INSERT_COLUMNS
+                        values = _with_bitemporal_provenance_values(
+                            row,
+                            source_deposit_date,
+                            source_deposit_date,
+                            valid_from_provenance="nbb_loader_direct",
+                            valid_to_provenance="nbb_loader_direct",
+                        )
                     counts["affiliations"] += _insert_bitemporal_unique(
                         cur,
                         "affiliation",
@@ -774,7 +863,7 @@ def store_governance_snapshot(
                             "via_enterprise_number",
                             "affiliation_type",
                         ),
-                        _with_bitemporal_values(row, source_deposit_date, source_deposit_date),
+                        values,
                         "enterprise_number IS NOT DISTINCT FROM %s "
                         "AND search_normalize(person_name) IS NOT DISTINCT FROM search_normalize(%s) "
                         "AND via_enterprise_number IS NOT DISTINCT FROM %s "
@@ -845,9 +934,11 @@ _AFFILIATION_TABLE_PRESENT: bool | None = None
 _OWNERSHIP_EDGE_TABLE_PRESENT: bool | None = None
 _GOVERNANCE_LOAD_LOG_TABLE_PRESENT: bool | None = None
 _BITEMPORAL_TABLE_COLUMNS_PRESENT: dict[str, bool] = {}
+_PROVENANCE_TABLE_COLUMNS_PRESENT: dict[str, bool] = {}
 
 
 _BITEMPORAL_INSERT_COLUMNS = ("source_deposit_date", "valid_from", "valid_to")
+_PROVENANCE_INSERT_COLUMNS = ("valid_from_provenance", "valid_to_provenance")
 
 
 def _safe_governance_error(error: Exception | str, limit: int = 1000) -> str:
