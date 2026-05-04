@@ -16,6 +16,7 @@ PSQL="$PG_BIN_DIR/psql"
 PG_BASEBACKUP="$PG_BIN_DIR/pg_basebackup"
 LOCK_FILE="${LOCK_FILE:-/var/lock/datasnoop-base-backup.lock}"
 MIN_FREE_MARGIN_GB="${MIN_FREE_MARGIN_GB:-5}"
+KEEP_BASE_BACKUPS="${KEEP_BASE_BACKUPS:-2}"
 TARGET_DIR=""
 
 log() {
@@ -72,6 +73,13 @@ preflight() {
   [ -x "$PG_BASEBACKUP" ] || fail "pg_basebackup not executable at $PG_BASEBACKUP"
   BACKUP_DIR=$(env_value "$ENV_FILE" DS_BACKUP_DIR) || fail "DS_BACKUP_DIR missing"
   [ -n "$BACKUP_DIR" ] || fail "DS_BACKUP_DIR empty"
+  # Refuse to operate on common system paths so a typo'd DS_BACKUP_DIR can
+  # never cause prune_old_backups to rm -rf base-* dirs outside our volume.
+  case "$BACKUP_DIR" in
+    /|/bin|/boot|/dev|/etc|/home|/lib|/lib64|/proc|/root|/run|/sbin|/srv|/sys|/tmp|/usr|/var|/var/lib|/var/lib/postgresql|/var/lib/postgresql/*)
+      fail "DS_BACKUP_DIR=$BACKUP_DIR refuses prune (looks like a system path)"
+      ;;
+  esac
   export BACKUP_DIR
   install -d -o postgres -g postgres -m 700 "$BACKUP_DIR"
 
@@ -112,9 +120,47 @@ take_backup() {
   fi
 }
 
+prune_old_backups() {
+  # Keep the KEEP_BASE_BACKUPS most recent base-* dirs (sorted by name —
+  # names are timestamps so newest sorts last). Never delete what
+  # base-latest points to, even if it would otherwise fall outside the
+  # keep window.
+  local keep="$KEEP_BASE_BACKUPS"
+  if ! [[ "$keep" =~ ^[0-9]+$ ]] || [ "$keep" -lt 1 ]; then
+    log "prune skipped: KEEP_BASE_BACKUPS=$keep is not a positive integer"
+    return 0
+  fi
+  local current_target=""
+  if [ -L "$BACKUP_DIR/base-latest" ]; then
+    current_target=$(readlink "$BACKUP_DIR/base-latest")
+  fi
+  local all_backups
+  mapfile -t all_backups < <(find "$BACKUP_DIR" -maxdepth 1 -type d -name 'base-*' -printf '%f\n' | sort)
+  local total=${#all_backups[@]}
+  if [ "$total" -le "$keep" ]; then
+    log "prune skipped: total=$total keep=$keep"
+    return 0
+  fi
+  local cutoff=$((total - keep))
+  local i=0
+  for name in "${all_backups[@]}"; do
+    i=$((i + 1))
+    if [ "$i" -gt "$cutoff" ]; then
+      break
+    fi
+    if [ "$name" = "$current_target" ]; then
+      log "prune SKIP base-latest target: $name"
+      continue
+    fi
+    log "pruning old backup: $name"
+    rm -rf -- "$BACKUP_DIR/$name"
+  done
+}
+
 main() {
   preflight
   take_backup
+  prune_old_backups
 }
 
 (
