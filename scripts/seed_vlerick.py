@@ -3,9 +3,13 @@
 Run standalone: python scripts/seed_vlerick.py
 Idempotent: UPSERTs, safe to re-run.
 
-Data source: 2025 M&A Monitor (Vlerick Business School, published May 2025),
-covering 2024 Belgian transaction data. Report URL:
-https://www.moore.be/sites/default/files/2025-05/2025%20MA%20Monitor.pdf
+Data source: 2026 M&A Monitor (Vlerick Business School, published May 2026),
+covering 2025 Belgian transaction data. Report URL:
+https://dam.vlerick.com/asset/2a9270cb-d450-4f7c-ac7d-a52b489030b3/M-A-Monitor-2026.pdf
+
+Prior years' rows are not deleted — the valuation API picks MAX(year) per
+source, so the historical 2024 row set stays in place for audit but the live
+multiples flip to 2025 once these rows land.
 """
 
 import os
@@ -18,32 +22,33 @@ import psycopg2
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Vlerick 2025 Monitor — transactions in calendar year 2024
-VLERICK_YEAR = 2024
+# Vlerick 2026 Monitor — transactions in calendar year 2025
+VLERICK_YEAR = 2025
 
 SIZE_MULTIPLES = [
-    ("lt_5m",    5.0,  "<€5M deal size"),
-    ("5_20m",    6.4,  "€5M-€20M deal size"),
-    ("20_50m",   7.7,  "€20M-€50M deal size"),
-    ("50_100m",  8.1,  "€50M-€100M deal size"),
-    ("gt_100m", 10.5,  ">€100M deal size"),
-    ("overall",  6.5,  "Belgian M&A market overall"),
+    ("lt_5m",    5.1, "<€5M deal size"),
+    ("5_20m",    6.1, "€5M-€20M deal size"),
+    ("20_50m",   7.9, "€20M-€50M deal size"),
+    ("50_100m",  8.3, "€50M-€100M deal size"),
+    ("gt_100m",  8.0, ">€100M deal size"),
+    ("overall",  6.4, "Belgian M&A market overall"),
 ]
 
 SECTOR_MULTIPLES = [
-    ("technology",           9.1),
-    ("pharmaceutical",       8.5),
-    ("healthcare",           8.0),
-    ("energy_utilities",     7.2),
+    ("technology",           9.7),
+    ("chemistry",            7.9),
+    ("telecommunications",   7.6),
+    ("healthcare",           7.5),
+    ("energy_utilities",     7.4),
+    ("pharmaceutical",       7.2),
     ("business_services",    6.7),
-    ("entertainment_media",  6.3),
-    ("chemistry",            6.2),
-    ("consumer_goods",       6.1),
-    ("industrial_products",  5.7),
-    ("real_estate",          5.7),
-    ("retail",               5.6),
-    ("transport_logistics",  5.5),
-    ("construction",         4.8),
+    ("real_estate",          6.6),
+    ("entertainment_media",  6.5),
+    ("industrial_products",  6.3),
+    ("consumer_goods",       6.3),
+    ("transport_logistics",  5.1),
+    ("retail",               4.9),
+    ("construction",         4.5),
 ]
 
 # NACE Rev 2 two-digit prefix → Vlerick sector.
@@ -76,10 +81,10 @@ NACE_MAPPING = {
     # I — Accommodation & food service
     "55": "consumer_goods", "56": "consumer_goods",
     # J — Information & communication
-    "58": "technology",           # publishing (incl. software publishing)
-    "59": "entertainment_media",  # motion picture/video
-    "60": "entertainment_media",  # broadcasting
-    "61": "technology",           # telecoms
+    "58": "technology",            # publishing (incl. software publishing)
+    "59": "entertainment_media",   # motion picture/video
+    "60": "entertainment_media",   # broadcasting
+    "61": "telecommunications",    # split out from technology in the 2026 Monitor
     "62": "technology", "63": "technology",
     # K — Financial & insurance → business_services (Vlerick has no financial sector bucket)
     "64": "business_services", "65": "business_services", "66": "business_services",
