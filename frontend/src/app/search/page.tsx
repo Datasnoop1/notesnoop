@@ -30,6 +30,9 @@ import {
   SectionSkeleton,
 } from "./_components/sections";
 
+const SEARCH_PERF_TELEMETRY_ENABLED =
+  process.env.NEXT_PUBLIC_SEARCH_PERF_TELEMETRY === "1";
+
 export default function UnifiedSearchPage() {
   return (
     <Suspense
@@ -69,8 +72,9 @@ function UnifiedSearchPageInner() {
   const abortRef = useRef<AbortController | null>(null);
 
   // Perf telemetry — one UUID per page-mount, monotonically incremented
-  // search counter, navigator.sendBeacon emit. Pure observation, never
-  // mutates search behaviour. Read with `docker logs … | grep PERF_LOG`.
+  // search counter, navigator.sendBeacon emit. Disabled by default:
+  // the beacon volume itself was diagnosed as the /search slowdown.
+  // Temporarily re-enable with NEXT_PUBLIC_SEARCH_PERF_TELEMETRY=1.
   const sessionIdRef = useRef<string>("");
   if (!sessionIdRef.current) {
     sessionIdRef.current =
@@ -82,6 +86,7 @@ function UnifiedSearchPageInner() {
   const lastSearchSeqRef = useRef<number>(0);
   const logPerf = useCallback(
     (event: string, q?: string, extra?: Record<string, unknown>) => {
+      if (!SEARCH_PERF_TELEMETRY_ENABLED) return;
       if (typeof navigator === "undefined" || !navigator.sendBeacon) return;
       try {
         const body = JSON.stringify({
