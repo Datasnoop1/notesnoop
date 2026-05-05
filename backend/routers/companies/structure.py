@@ -35,6 +35,26 @@ _ADMIN_EXTRACT_CACHE_MAX = 10_000
 # disappear within a single backend process lifetime, so a single probe
 # is enough — saves an extra round-trip on every /structure call.
 _AFFILIATION_TABLE_PRESENT: bool | None = None
+_ADMIN_PROVENANCE_COLUMNS_PRESENT: bool | None = None
+
+
+def _administrator_provenance_columns_present(cur) -> bool:
+    """Return True once Stage C provenance columns exist on administrator."""
+    global _ADMIN_PROVENANCE_COLUMNS_PRESENT
+    if _ADMIN_PROVENANCE_COLUMNS_PRESENT is not None:
+        return _ADMIN_PROVENANCE_COLUMNS_PRESENT
+    cur.execute(
+        """
+        SELECT COUNT(*) = 2
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'administrator'
+          AND column_name = ANY(%s)
+        """,
+        (["valid_from_provenance", "valid_to_provenance"],),
+    )
+    _ADMIN_PROVENANCE_COLUMNS_PRESENT = bool(cur.fetchone()[0])
+    return _ADMIN_PROVENANCE_COLUMNS_PRESENT
 
 
 def _admin_extract_cache_skip(cbe: str) -> bool:
@@ -707,6 +727,7 @@ async def extract_admins_from_staatsblad(cbe: str):
         conn = get_connection()
         try:
             cur = conn.cursor()
+            has_admin_provenance = _administrator_provenance_columns_present(cur)
             for ev in events:
                 name = (ev.get("person_name") or ev.get("entity_name") or "").strip()
                 if not name:
@@ -718,27 +739,59 @@ async def extract_admins_from_staatsblad(cbe: str):
                 deposit_key = f"sb_{ev.get('pub_reference') or pub_date}"
                 if sub in ("appointment", "reappointment", "renewal"):
                     try:
-                        cur.execute("""
-                            INSERT INTO administrator
-                                (enterprise_number, deposit_key, name, role,
-                                 mandate_start, person_type, valid_from)
-                            VALUES (%s, %s, %s, %s, %s, %s, NULLIF(%s, '')::date)
-                            ON CONFLICT DO NOTHING
-                        """, (cbe, deposit_key, name, role, pub_date, person_type, pub_date))
+                        if has_admin_provenance:
+                            cur.execute("""
+                                INSERT INTO administrator
+                                    (enterprise_number, deposit_key, name, role,
+                                     mandate_start, person_type, valid_from,
+                                     valid_from_provenance)
+                                VALUES (
+                                    %s, %s, %s, %s, %s, %s, NULLIF(%s, '')::date,
+                                    CASE
+                                        WHEN NULLIF(%s, '') IS NULL THEN NULL
+                                        ELSE 'staatsblad_consumer_direct'
+                                    END
+                                )
+                                ON CONFLICT DO NOTHING
+                            """, (cbe, deposit_key, name, role, pub_date, person_type, pub_date, pub_date))
+                        else:
+                            cur.execute("""
+                                INSERT INTO administrator
+                                    (enterprise_number, deposit_key, name, role,
+                                     mandate_start, person_type, valid_from)
+                                VALUES (%s, %s, %s, %s, %s, %s, NULLIF(%s, '')::date)
+                                ON CONFLICT DO NOTHING
+                            """, (cbe, deposit_key, name, role, pub_date, person_type, pub_date))
                         if cur.rowcount > 0:
                             inserted += 1
                     except Exception:
                         pass
                 elif sub in ("resignation", "end", "termination"):
                     try:
-                        cur.execute("""
-                            UPDATE administrator
-                            SET mandate_end = %s,
-                                valid_to = (NULLIF(%s, '')::date + INTERVAL '1 day')::date
-                            WHERE enterprise_number = %s
-                              AND LOWER(name) = LOWER(%s)
-                              AND mandate_end IS NULL
-                        """, (pub_date, pub_date, cbe, name))
+                        if has_admin_provenance:
+                            cur.execute("""
+                                UPDATE administrator
+                                SET mandate_end = %s,
+                                    valid_to = (NULLIF(%s, '')::date + INTERVAL '1 day')::date,
+                                    valid_to_provenance = CASE
+                                        WHEN valid_to_provenance IS NULL
+                                         AND NULLIF(%s, '') IS NOT NULL
+                                            THEN 'staatsblad_consumer_direct'
+                                        ELSE valid_to_provenance
+                                    END
+                                WHERE enterprise_number = %s
+                                  AND LOWER(name) = LOWER(%s)
+                                  AND mandate_end IS NULL
+                            """, (pub_date, pub_date, pub_date, cbe, name))
+                        else:
+                            cur.execute("""
+                                UPDATE administrator
+                                SET mandate_end = %s,
+                                    valid_to = (NULLIF(%s, '')::date + INTERVAL '1 day')::date
+                                WHERE enterprise_number = %s
+                                  AND LOWER(name) = LOWER(%s)
+                                  AND mandate_end IS NULL
+                            """, (pub_date, pub_date, cbe, name))
                     except Exception:
                         pass
             conn.commit()
