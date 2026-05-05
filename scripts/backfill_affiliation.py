@@ -38,6 +38,7 @@ import os
 import sys
 import time
 import uuid
+from datetime import date
 from pathlib import Path
 
 import psycopg2
@@ -75,10 +76,29 @@ NBB_BASE_URL = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
 NBB_KEY = os.getenv("NBB_AUTHENTIC_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 USER_AGENT = "Datasnoop/1.0 (Company Intelligence)"
+MIN_DEPOSIT_DATE = date(1830, 1, 1)
 
 
 class KeyRevoked(Exception):
     """NBB returned 401 — surface to main, exit cleanly so watchdog rotates."""
+
+
+def normalise_deposit_date(raw: object) -> str | None:
+    """Return an ISO date string only when it is parseable and sane."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        parsed = date.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.isoformat() != text:
+        return None
+    if parsed < MIN_DEPOSIT_DATE or parsed > date.today():
+        return None
+    return parsed.isoformat()
 
 
 def _headers() -> dict[str, str]:
@@ -90,8 +110,8 @@ def _headers() -> dict[str, str]:
     }
 
 
-def fetch_candidates(conn, limit: int) -> list[tuple[str, str, str | None]]:
-    """Return (cbe, deposit_key, fiscal_year) tuples eligible for backfill.
+def fetch_candidates(conn, limit: int) -> list[tuple[str, str, str | None, str | None]]:
+    """Return (cbe, deposit_key, fiscal_year, deposit_date) tuples.
 
     Eligible = at least one legal-person admin row with a usable
     identifier AND we have not yet attempted this filing in
@@ -108,31 +128,58 @@ def fetch_candidates(conn, limit: int) -> list[tuple[str, str, str | None]]:
     try:
         cur.execute(
             """
-            SELECT DISTINCT a.enterprise_number, a.deposit_key, a.fiscal_year
-            FROM administrator_fact a
-            WHERE a.person_type = 'legal'
-              AND a.identifier IS NOT NULL
-              AND a.identifier <> ''
-              -- Some admin rows from the legacy SQLite era carry empty
-              -- deposit_keys (schema is NOT NULL but stored as ''). They
-              -- produce malformed NBB URLs and 400s; filter them out.
-              AND a.deposit_key IS NOT NULL
-              AND a.deposit_key <> ''
-              -- Sentinel from the legacy nbb_loader for "no XBRL filings"
-              -- companies. Not a real filing.
-              AND a.deposit_key <> 'NO_FILINGS'
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM affiliation_backfill_log abl
-                  WHERE abl.via_deposit_key = a.deposit_key
-                    AND abl.via_enterprise_number = a.enterprise_number
-              )
-            ORDER BY a.deposit_key DESC
+            WITH candidate_dates AS (
+                SELECT
+                    a.enterprise_number,
+                    a.deposit_key,
+                    a.fiscal_year,
+                    raw.deposit_date,
+                    CASE
+                        WHEN pg_input_is_valid(raw.deposit_date, 'date')
+                            THEN raw.deposit_date::date
+                        ELSE NULL
+                    END AS parsed_deposit_date
+                FROM administrator_fact a
+                LEFT JOIN financial_summary fs
+                  ON fs.enterprise_number = a.enterprise_number
+                 AND fs.deposit_key = a.deposit_key
+                CROSS JOIN LATERAL (
+                    SELECT COALESCE(
+                        NULLIF(btrim(fs.deposit_date), ''),
+                        a.source_deposit_date::text
+                    ) AS deposit_date
+                ) raw
+                WHERE a.person_type = 'legal'
+                  AND a.identifier IS NOT NULL
+                  AND a.identifier <> ''
+                  -- Some admin rows from the legacy SQLite era carry empty
+                  -- deposit_keys (schema is NOT NULL but stored as ''). They
+                  -- produce malformed NBB URLs and 400s; filter them out.
+                  AND a.deposit_key IS NOT NULL
+                  AND a.deposit_key <> ''
+                  -- Sentinel from the legacy nbb_loader for "no XBRL filings"
+                  -- companies. Not a real filing.
+                  AND a.deposit_key <> 'NO_FILINGS'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM affiliation_backfill_log abl
+                      WHERE abl.via_deposit_key = a.deposit_key
+                        AND abl.via_enterprise_number = a.enterprise_number
+                  )
+            )
+            SELECT DISTINCT
+                   enterprise_number,
+                   deposit_key,
+                   fiscal_year,
+                   deposit_date
+            FROM candidate_dates
+            WHERE parsed_deposit_date BETWEEN DATE '1830-01-01' AND CURRENT_DATE
+            ORDER BY deposit_key DESC
             LIMIT %s
             """,
             (limit,),
         )
-        return [(row[0], row[1], row[2]) for row in cur.fetchall()]
+        return [(row[0], row[1], row[2], row[3]) for row in cur.fetchall()]
     finally:
         cur.close()
 
@@ -215,6 +262,7 @@ def main() -> None:
     session = requests.Session()
     processed = 0
     skipped_no_json = 0
+    skipped_no_deposit_date = 0
     inserted_affiliations = 0
     try:
         candidates = fetch_candidates(conn, args.max_filings)
@@ -227,7 +275,17 @@ def main() -> None:
             log.info("Nothing to do.")
             return
 
-        for cbe, deposit_key, fiscal_year in candidates:
+        for cbe, deposit_key, fiscal_year, deposit_date in candidates:
+            deposit_date = normalise_deposit_date(deposit_date)
+            if not deposit_date:
+                skipped_no_deposit_date += 1
+                log.warning(
+                    "%s %s: skipping affiliation backfill because no parseable deposit_date is available",
+                    cbe,
+                    deposit_key,
+                )
+                continue
+
             try:
                 filing_json = fetch_filing(session, deposit_key)
             except KeyRevoked:
@@ -258,7 +316,12 @@ def main() -> None:
 
             try:
                 counts = store_governance_snapshot(
-                    conn, cbe, deposit_key, fiscal_year, filing_json
+                    conn,
+                    cbe,
+                    deposit_key,
+                    fiscal_year,
+                    filing_json,
+                    deposit_date=deposit_date,
                 )
             except Exception as exc:
                 log.warning(
@@ -295,21 +358,23 @@ def main() -> None:
 
             if processed % 100 == 0:
                 log.info(
-                    "Progress: %d/%d processed, %d affiliation rows inserted, %d skipped",
+                    "Progress: %d/%d processed, %d affiliation rows inserted, %d skipped, %d missing deposit_date",
                     processed,
                     len(candidates),
                     inserted_affiliations,
                     skipped_no_json,
+                    skipped_no_deposit_date,
                 )
     finally:
         conn.close()
         session.close()
 
     log.info(
-        "Done. processed=%d, affiliations inserted=%d, skipped (no JSON)=%d",
+        "Done. processed=%d, affiliations inserted=%d, skipped (no JSON)=%d, skipped (no deposit_date)=%d",
         processed,
         inserted_affiliations,
         skipped_no_json,
+        skipped_no_deposit_date,
     )
 
 
