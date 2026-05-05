@@ -83,6 +83,56 @@ Without the daily docker prune, root drifts toward full (cron log showed
 3. If root: `du -sh /var/lib/docker /var/lib/postgresql/wal-archive /var/log` — usually Docker.
 4. Quick wins: `DROP DATABASE leadpeek_staging_next` if it exists (orphaned from a failed staging refresh); `docker system prune -af`.
 
+## Unwind: how to reverse the WAL archive migration
+
+If the migration script fails verification or you need to roll back for any
+reason, the procedure depends on which phase the script completed:
+
+**Before Phase 6 (script aborted, `OLD.bak` still exists):**
+
+```bash
+# Restore the original directory
+rm /mnt/volume-hel1-1/wal-archive       # remove the symlink
+mv /mnt/volume-hel1-1/wal-archive.bak /mnt/volume-hel1-1/wal-archive
+# Optional: remove the destination if you're abandoning the migration
+rm -rf /var/lib/postgresql/wal-archive
+```
+
+PG continues writing to the original path (now restored to a real directory)
+on its next archive cycle. No restart needed.
+
+**After Phase 6 (script completed, `OLD.bak` deleted):**
+
+The migration is complete. To roll back:
+
+```bash
+# Move WAL archive back to the volume
+mkdir /mnt/volume-hel1-1/wal-archive.tmp
+chown postgres:postgres /mnt/volume-hel1-1/wal-archive.tmp
+chmod 700 /mnt/volume-hel1-1/wal-archive.tmp
+rsync -aW /var/lib/postgresql/wal-archive/ /mnt/volume-hel1-1/wal-archive.tmp/
+rm /mnt/volume-hel1-1/wal-archive  # remove the symlink
+mv /mnt/volume-hel1-1/wal-archive.tmp /mnt/volume-hel1-1/wal-archive
+rm -rf /var/lib/postgresql/wal-archive
+```
+
+This requires ~25 GB free on the volume — which only exists post-migration
+if nothing else has filled it. Practically: if you need to unwind after
+Phase 6, you may need to free space first (drop staging snapshot's orphan,
+reduce backup retention, etc.).
+
+**If WAL archives appear corrupted post-migration (very unlikely; Phase 5
+guards against this):** the safety net is the daily base backup at
+`/mnt/volume-hel1-1/backups/base-latest`. PITR can restore from base
+backup + remaining WAL files in `pg_wal` (not yet archived).
+
+## Symlink security note
+
+The new layout has `/mnt/volume-hel1-1/wal-archive` as a symlink to
+`/var/lib/postgresql/wal-archive`. The parent `/mnt/volume-hel1-1/` is
+root-owned mode 755, so non-root users cannot replace the symlink with
+one pointing elsewhere. No symlink-swap-attack surface on this box.
+
 ## History
 
 - **2026-05-04**: First disk-full outage (4.5h). Root cause: prod data on root disk, no WAL retention. Fix: moved prod data to volume, expanded volume 98 → 150 GB, added 2-day WAL retention cron + daily base backup cron with auto-prune.

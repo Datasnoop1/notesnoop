@@ -11,10 +11,17 @@
 #
 # Strategy: rsync source -> destination twice (initial + catch-up), then
 # swap the source directory for a symlink. PG's archive_command may
-# write a file during the swap window; phase 5 verifies no files were
-# lost before deleting the .bak directory.
+# write a file during the swap window (PG handles this gracefully — it
+# logs a WARNING and retries the same WAL segment on next checkpoint;
+# no data loss). Phase 5 verifies content equality (not just filename
+# presence) before deleting the .bak directory.
 #
 # Idempotent: if the source is already a symlink, the script exits early.
+# If the script crashes between Phase 3 and Phase 6, $OLD.bak is leaked;
+# inspect manually and `rm -rf` once you've verified $NEW has all files.
+#
+# Operator-side timing: do NOT run during the 03:00 UTC WAL retention
+# window. Any other hour is fine.
 
 set -euo pipefail
 
@@ -25,9 +32,9 @@ DRY_RUN="${DRY_RUN:-0}"
 log() { printf '[%s] %s\n' "$(date -u +%H:%M:%S)" "$*"; }
 run() {
   if [ "$DRY_RUN" = "1" ]; then
-    printf '[dry-run] %s\n' "$*"
+    printf '[dry-run]'; printf ' %q' "$@"; printf '\n'
   else
-    eval "$@"
+    "$@"
   fi
 }
 
@@ -44,9 +51,9 @@ fi
 # 2. Preflight: ensure NEW exists with right ownership
 if [ ! -d "$NEW" ]; then
   log "Creating destination $NEW..."
-  run "mkdir -p '$NEW'"
-  run "chown postgres:postgres '$NEW'"
-  run "chmod 700 '$NEW'"
+  run mkdir -p "$NEW"
+  run chown postgres:postgres "$NEW"
+  run chmod 700 "$NEW"
 fi
 
 # 3. Preflight: ensure root has enough free space
@@ -61,57 +68,87 @@ if [ "$ROOT_FREE_GB" -lt "$NEEDED_GB" ]; then
   exit 1
 fi
 
-# 4. Phase 1 — initial rsync (large copy, source remains intact)
+# 4. Phase 1 — initial rsync. -W (whole-file) skips the rolling-checksum
+# delta-transfer; pointless across filesystems for append-only binaries.
 log "Phase 1: rsync $OLD -> $NEW (initial copy)..."
-run "rsync -a --info=progress2 '$OLD/' '$NEW/'"
+run rsync -aW --info=progress2 "$OLD/" "$NEW/"
 
-# 5. Phase 2 — catch-up rsync for any files PG wrote during phase 1
-log "Phase 2: catch-up rsync..."
-run "rsync -a --delete '$OLD/' '$NEW/'"
+# 5. Phase 2 — catch-up rsync. -c (checksum) ensures we re-transfer any
+# file whose content changed even if size+mtime look identical (covers the
+# rare case where archive_command finished writing AFTER Phase 1 stat'd
+# the file but didn't update mtime visibly). --delete keeps NEW in sync
+# with OLD if retention pruned a file (safe — pruned files are >2 days
+# old and not needed).
+log "Phase 2: catch-up rsync (checksum verification)..."
+run rsync -aWc --delete "$OLD/" "$NEW/"
 
-# 6. Phase 3 — atomic swap
-# PG may be mid-write of an archive_command at the swap moment. Worst case:
-# one file is created in OLD.bak and not in NEW; phase 5 catches that.
+# 6. Phase 3 — atomic swap. PG's archive_command may fire during the
+# ~100ms window between mv and ln -s. Expected behaviour: the cp fails,
+# PG logs ONE WARNING ("archiver process was terminated by signal" or
+# similar), and PG retries the same WAL segment on the next checkpoint —
+# no data loss because WAL stays in pg_wal until archived. Do not panic
+# if you see a single archive_command stderr in the PG log within the
+# minute around this script running.
 log "Phase 3: swapping $OLD for symlink to $NEW..."
-run "mv '$OLD' '${OLD}.bak'"
-run "ln -s '$NEW' '$OLD'"
+log "  (a single PG archive_command WARNING in the next minute is expected and benign)"
+run mv "$OLD" "${OLD}.bak"
+run ln -s "$NEW" "$OLD"
 
-# 7. Phase 4 — verify a new archive lands in the new location
-log "Phase 4: waiting up to 90s for next WAL archive operation..."
+# 7. Phase 4 — force PG to rotate WAL so a new archive lands deterministically.
+# Without this the script could exit Phase 4 having seen no archive activity
+# (idle DB), making "verified" indistinguishable from "no traffic". With
+# pg_switch_wal we know exactly what to expect.
+log "Phase 4: forcing WAL rotation via pg_switch_wal() and verifying archive..."
 if [ "$DRY_RUN" != "1" ]; then
   PRE_COUNT=$(ls -1 "$NEW" 2>/dev/null | wc -l)
-  for i in 1 2 3 4 5 6 7 8 9; do
-    sleep 10
+  sudo -u postgres psql -At -d postgres -c "SELECT pg_switch_wal()" >/dev/null 2>&1 || \
+    log "  WARN: pg_switch_wal failed (PG may be unreachable); falling back to passive wait"
+  for i in 1 2 3 4 5 6; do
+    sleep 5
     POST_COUNT=$(ls -1 "$NEW" 2>/dev/null | wc -l)
     if [ "$POST_COUNT" -gt "$PRE_COUNT" ]; then
-      log "OK: archive count grew from $PRE_COUNT to $POST_COUNT."
+      log "OK: archive count grew from $PRE_COUNT to $POST_COUNT — symlink is wired up correctly."
       break
     fi
-    log "  waiting... (${i}0s elapsed; archive count still $POST_COUNT)"
+    log "  waiting... (${i}*5s elapsed; archive count still $POST_COUNT)"
   done
+  if [ "$POST_COUNT" -eq "$PRE_COUNT" ]; then
+    log "  WARN: no new archive landed within 30s. Phase 5 (content compare) is the real verification gate; proceeding."
+  fi
 fi
 
-# 8. Phase 5 — confirm no files were lost during swap window
-log "Phase 5: comparing $OLD.bak and $NEW..."
+# 8. Phase 5 — verify $OLD.bak is fully covered by $NEW (presence + content).
+# rsync -an --checksum --delete in dry-run mode reports every file that
+# WOULD need to be transferred or deleted to make NEW match OLD.bak. If
+# the dry-run output names any files, the migration is incomplete: either
+# a file is in .bak but not in NEW (data loss risk if we proceed), or a
+# file's content differs (corruption risk). We abort and the operator
+# investigates manually.
+log "Phase 5: content-checksum compare $OLD.bak <-> $NEW..."
 if [ "$DRY_RUN" != "1" ]; then
-  EXTRA=$(comm -23 <(ls "${OLD}.bak" | sort) <(ls "$NEW" | sort) || true)
-  if [ -n "$EXTRA" ]; then
-    log "FAIL: files exist in ${OLD}.bak but not in $NEW:"
-    printf '  %s\n' $EXTRA
-    log "Investigate manually before removing ${OLD}.bak."
+  DIFF=$(rsync -an --checksum --delete --itemize-changes "${OLD}.bak/" "$NEW/" | grep -v '^$' | grep -v '^cd' || true)
+  if [ -n "$DIFF" ]; then
+    log "FAIL: $OLD.bak and $NEW differ. Will NOT delete .bak. Inspect:"
+    printf '  %s\n' "$DIFF"
+    log ""
+    log "To unwind: rm $OLD && mv $OLD.bak $OLD"
     exit 1
   fi
-  log "OK: ${OLD}.bak fully covered by $NEW; safe to delete."
+  log "OK: $OLD.bak and $NEW are byte-identical — safe to delete .bak."
 fi
 
 # 9. Phase 6 — delete the .bak directory
 log "Phase 6: removing ${OLD}.bak..."
-run "rm -rf '${OLD}.bak'"
+run rm -rf "${OLD}.bak"
 
 log "DONE."
 log ""
 log "Post-migration manual steps (operator does these via crontab -e):"
-log "  1. Update WAL retention cron to point at the new path:"
+log "  1. Update WAL retention cron path for clarity (find follows symlinks,"
+log "     so the old path also works, but the explicit new path is cleaner):"
 log "       0 3 * * * find /var/lib/postgresql/wal-archive/ -type f -mtime +2 -delete >> /var/log/wal-cleanup.log 2>&1"
 log "  2. Add daily docker prune (prevents root from drifting toward full):"
 log "       30 4 * * * docker system prune -af --volumes=false >> /var/log/docker_prune_daily.log 2>&1"
+log ""
+log "If anything looks wrong post-migration, unwind procedure is in"
+log "docs/storage-architecture.md (search 'unwind')."
