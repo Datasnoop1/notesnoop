@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import uuid
+from datetime import date
 
 import psycopg2
 import requests
@@ -40,6 +41,7 @@ NBB_BASE_URL = os.getenv("NBB_BASE_URL", "https://ws.cbso.nbb.be")
 NBB_KEY = os.getenv("NBB_AUTHENTIC_KEY", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 USER_AGENT = "Datasnoop/1.0 (Company Intelligence)"
+MIN_DEPOSIT_DATE = date(1830, 1, 1)
 
 
 def _clean_cbe(raw: str) -> str:
@@ -55,19 +57,53 @@ def _headers() -> dict[str, str]:
     }
 
 
-def fetch_company_filings(conn, cbe: str) -> list[tuple[str, int | None]]:
+def normalise_deposit_date(raw: object) -> str | None:
+    """Return an ISO date string only when it is parseable and sane."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        parsed = date.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.isoformat() != text:
+        return None
+    if parsed < MIN_DEPOSIT_DATE or parsed > date.today():
+        return None
+    return parsed.isoformat()
+
+
+def normalise_fiscal_year(raw: object) -> int | None:
+    """Return a sane 4-digit fiscal year for governance/ownership writers."""
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text.isdigit() or len(text) != 4:
+        return None
+    year = int(text)
+    return year if 1830 <= year <= date.today().year else None
+
+
+def _safe_error(exc: Exception) -> str:
+    message = str(exc) or exc.__class__.__name__
+    return " ".join(message.split())[:500]
+
+
+def fetch_company_filings(conn, cbe: str) -> list[tuple[str, int | None, str | None]]:
     cur = conn.cursor()
     try:
         cur.execute(
             """
-            SELECT DISTINCT deposit_key, fiscal_year
+            SELECT DISTINCT deposit_key, fiscal_year, NULLIF(btrim(deposit_date), '') AS deposit_date
             FROM financial_summary
             WHERE enterprise_number = %s
             ORDER BY fiscal_year DESC NULLS LAST, deposit_key DESC
             """,
             (cbe,),
         )
-        return [(row[0], row[1]) for row in cur.fetchall()]
+        return [(row[0], row[1], row[2]) for row in cur.fetchall()]
     finally:
         cur.close()
 
@@ -134,6 +170,9 @@ def main() -> None:
     session = requests.Session()
     total_companies = 0
     total_inserted = {"administrators": 0, "shareholders": 0, "participating_interests": 0}
+    skipped_no_deposit_date = 0
+    skipped_no_fiscal_year = 0
+    failed_writes = 0
     try:
         for raw_cbe in args.cbes:
             cbe = _clean_cbe(raw_cbe)
@@ -146,7 +185,26 @@ def main() -> None:
 
             total_companies += 1
             log.info("%s: %d filings to inspect", cbe, len(filings))
-            for deposit_key, fiscal_year in filings:
+            for deposit_key, fiscal_year, deposit_date in filings:
+                deposit_date = normalise_deposit_date(deposit_date)
+                if not deposit_date:
+                    skipped_no_deposit_date += 1
+                    log.warning(
+                        "%s %s: skipping governance backfill because no parseable deposit_date is available",
+                        cbe,
+                        deposit_key,
+                    )
+                    continue
+                fiscal_year = normalise_fiscal_year(fiscal_year)
+                if fiscal_year is None:
+                    skipped_no_fiscal_year += 1
+                    log.warning(
+                        "%s %s: skipping governance backfill because no parseable fiscal_year is available",
+                        cbe,
+                        deposit_key,
+                    )
+                    continue
+
                 existing = fetch_existing_counts(conn, cbe, deposit_key)
                 if all(existing.values()):
                     log.info("%s %s: governance already present, skipping", cbe, deposit_key)
@@ -164,9 +222,22 @@ def main() -> None:
                     continue
 
                 try:
-                    counts = store_governance_snapshot(conn, cbe, deposit_key, fiscal_year, filing_json)
+                    counts = store_governance_snapshot(
+                        conn,
+                        cbe,
+                        deposit_key,
+                        fiscal_year,
+                        filing_json,
+                        deposit_date=deposit_date,
+                    )
                 except Exception as exc:
-                    log.warning("%s %s: governance backfill failed: %s", cbe, deposit_key, exc)
+                    failed_writes += 1
+                    log.warning(
+                        "%s %s: governance backfill failed: %s",
+                        cbe,
+                        deposit_key,
+                        _safe_error(exc),
+                    )
                     continue
 
                 for key, value in counts.items():
@@ -177,12 +248,17 @@ def main() -> None:
         session.close()
 
     log.info(
-        "Done. Companies=%d, inserted admins=%d, shareholders=%d, subsidiaries=%d",
+        "Done. Companies=%d, inserted admins=%d, shareholders=%d, subsidiaries=%d, skipped missing deposit_date=%d, skipped missing fiscal_year=%d, failed writes=%d",
         total_companies,
         total_inserted["administrators"],
         total_inserted["shareholders"],
         total_inserted["participating_interests"],
+        skipped_no_deposit_date,
+        skipped_no_fiscal_year,
+        failed_writes,
     )
+    if failed_writes:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
