@@ -49,3 +49,21 @@ INSERT INTO nace_vlerick_mapping (nace_prefix, vlerick_sector)
 VALUES ('61', 'telecommunications')
 ON CONFLICT (nace_prefix) DO UPDATE
     SET vlerick_sector = EXCLUDED.vlerick_sector;
+
+-- Invalidate stale AI sector cache for telecom carriers (NACE 61) that were
+-- previously classified as 'technology' under the old combined sector. Forces
+-- those rows to fall through to the NACE mapping on next view, which now
+-- correctly routes to 'telecommunications' (7.6× vs the prior 9.7× — the
+-- spread is large enough to materially mis-value telecom targets if left
+-- alone). Genuine NACE 62/63 software/IT cache rows are untouched.
+UPDATE company_enrichment
+   SET vlerick_sector              = NULL,
+       vlerick_sector_confidence   = NULL,
+       vlerick_sector_reasoning    = NULL,
+       vlerick_sector_generated_at = NULL
+ WHERE vlerick_sector = 'technology'
+   AND enterprise_number IN (
+       SELECT enterprise_number
+         FROM company_info
+        WHERE LEFT(nace_code, 2) = '61'
+   );
