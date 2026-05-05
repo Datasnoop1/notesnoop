@@ -734,10 +734,17 @@ async def extract_admins_from_staatsblad(cbe: str):
                     continue
                 role = (ev.get("person_role") or "").strip()
                 sub = (ev.get("sub_type") or "").lower()
-                pub_date = str(ev.get("event_date") or ev.get("pub_date") or "")
+                pub_date = str(ev.get("event_date") or ev.get("pub_date") or "").strip()
                 person_type = "natural" if ev.get("person_name") else "legal"
                 deposit_key = f"sb_{ev.get('pub_reference') or pub_date}"
                 if sub in ("appointment", "reappointment", "renewal"):
+                    if not pub_date:
+                        logger.warning(
+                            "Skipping Staatsblad admin insert for %s/%s because event_date and pub_date are empty",
+                            cbe,
+                            name,
+                        )
+                        continue
                     try:
                         if has_admin_provenance:
                             cur.execute("""
@@ -767,6 +774,13 @@ async def extract_admins_from_staatsblad(cbe: str):
                     except Exception:
                         pass
                 elif sub in ("resignation", "end", "termination"):
+                    if not pub_date:
+                        logger.warning(
+                            "Skipping Staatsblad admin end update for %s/%s because event_date and pub_date are empty",
+                            cbe,
+                            name,
+                        )
+                        continue
                     try:
                         if has_admin_provenance:
                             cur.execute("""
