@@ -90,13 +90,62 @@ def _ensure_llm_call_log_table() -> None:
     _llm_call_log_migrated = True
 
 
+# Conservative per-1M-token USD estimates for providers that don't echo
+# real cost on the response. Ollama Cloud is flat-rate subscription so the
+# marginal cost is effectively zero, but a non-zero stub keeps the daily
+# budget guard ticking against runaway loops. NVIDIA NIM is per-token over
+# the included quota — these rates are for the cheaper inference tier and
+# are intentionally on the higher side so the budget guard trips early.
+# Override per-deploy via PROVIDER_COST_USD_PER_1M env if needed.
+_PROVIDER_COST_USD_PER_1M = {
+    "ollama":  {"in": 0.05, "out": 0.10},
+    "nvidia":  {"in": 0.30, "out": 0.60},
+}
+
+
+def _estimate_cost_usd(
+    model: str, prompt_tokens: int, completion_tokens: int
+) -> float | None:
+    """Return a synthetic USD cost for non-billing providers (Ollama/NVIDIA).
+
+    Returns None for providers that report real cost (OpenRouter) — caller
+    passes the real number in that case. Returns 0.0 if model is unknown so
+    we never silently estimate-from-thin-air for new providers.
+    """
+    if not isinstance(model, str):
+        return None
+    key = None
+    if model.startswith("ollama:"):
+        key = "ollama"
+    elif model.startswith("nvidia:"):
+        key = "nvidia"
+    if key is None:
+        return None
+    rates = _PROVIDER_COST_USD_PER_1M.get(key)
+    if not rates:
+        return 0.0
+    pt = max(0, int(prompt_tokens or 0))
+    ct = max(0, int(completion_tokens or 0))
+    return round(
+        (pt * rates["in"] + ct * rates["out"]) / 1_000_000.0,
+        6,
+    )
+
+
 def _log_llm_call(
     model: str,
     prompt_tokens: int,
     completion_tokens: int,
     cost_usd: float | None,
 ) -> None:
-    """Insert one row into llm_call_log. Best-effort — never raises."""
+    """Insert one row into llm_call_log. Best-effort — never raises.
+
+    If `cost_usd` is None and the model is a non-billing provider
+    (Ollama/NVIDIA), substitute a synthetic estimate so the daily budget
+    guard remains functional. OpenRouter callers always pass real cost.
+    """
+    if cost_usd is None:
+        cost_usd = _estimate_cost_usd(model, prompt_tokens, completion_tokens)
     try:
         _ensure_llm_call_log_table()
         from db import execute
@@ -2222,18 +2271,18 @@ def _band_fte(fte) -> str | None:
 # cached bulk_summary. Don't remove the old pipeline yet.
 # ══════════════════════════════════════════════════════════════════════
 
-# Q2 = GPT-4o-mini with structured KBO context (Spike 2). Escalation path
-# swapped 2026-04-29 to a flat-rate Ollama Turbo chain
-# (deepseek-v4-flash → glm-5.1 → minimax-m2.7), with Anthropic Haiku 4.5 kept
-# as the ultimate escape hatch when all three Ollama models fail. Names below
-# keep "HAIKU" for migration ease and refer to the escalation path, not
-# literally Anthropic Haiku.
-_BULK_Q2_DEFAULT_MODEL = "openai/gpt-4o-mini"
-_BULK_HAIKU_DEFAULT_MODEL = "ollama:deepseek-v4-flash:latest"
+# Q2 + escalation chain (2026-05-05): pure Ollama/NVIDIA. OpenRouter dropped
+# from both defaults so a misconfigured override can never silently route
+# bulk traffic through per-token Anthropic/OpenAI. Operator-set env vars
+# (BULK_Q2_MODEL, BULK_HAIKU_MODEL, BULK_HAIKU_FALLBACK_MODELS) still
+# override these. Names below keep "HAIKU" for migration ease and refer to
+# the escalation path, not literally Anthropic Haiku.
+_BULK_Q2_DEFAULT_MODEL = "ollama:deepseek-v4-pro:latest"
+_BULK_HAIKU_DEFAULT_MODEL = "ollama:deepseek-v4-pro:latest"
 _BULK_HAIKU_DEFAULT_FALLBACK_CHAIN = [
+    "ollama:deepseek-v4-flash:latest",
     "ollama:glm-5.1:latest",
     "ollama:minimax-m2.7:latest",
-    "anthropic/claude-haiku-4.5",
 ]
 BULK_Q2_MODEL = (os.getenv("BULK_Q2_MODEL", "").strip() or _BULK_Q2_DEFAULT_MODEL)
 BULK_HAIKU_MODEL = (

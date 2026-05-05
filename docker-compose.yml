@@ -101,24 +101,24 @@ services:
       DDG_RATELIMIT_MULTIPLIER: "2.0"
       DDG_RECOVERY_STEP_S: "1.0"
       DDG_SUCCESS_STREAK_TO_RECOVER: "8"
-      # Q2 chain: Ollama Cloud → NVIDIA NIM → OpenRouter (auto).
-      # NVIDIA NIM (added 2026-04-26) absorbs traffic when Ollama hits
-      # its weekly cap; OpenRouter remains the last-resort default in
-      # _resolve_bulk_fallback_chain when both upstream providers fail.
+      # Q2 chain (2026-05-05): Ollama Cloud → NVIDIA NIM → Ollama Cloud.
+      # OpenRouter dropped from the last-resort default; if both upstream
+      # providers fail, _resolve_bulk_fallback_chain now appends
+      # ollama:deepseek-v4-pro instead of openai/gpt-4o-mini.
       BULK_Q2_MODEL: "ollama:qwen3-coder-next"
       BULK_Q2_FALLBACK_MODEL: "nvidia:qwen/qwen3-coder-480b-a35b-instruct"
-      # Escalation chain (2026-04-29 swap): Ollama Turbo three-deep with Haiku
-      # 4.5 as the ultimate escape hatch when all three Ollama models fail.
-      #   primary    = deepseek-v4-flash   (best factual + hallucination scores)
-      #   fallback 1 = glm-5.1             (multilingual, reliable)
-      #   fallback 2 = minimax-m2.7        (fastest reliable Ollama candidate)
-      #   final hatch= claude-haiku-4.5    (only fires if all 3 Ollama fail)
-      # Replaces the prior kimi → nvidia-qwen → claude-haiku chain. Eval N=7
-      # showed 7/7 quality wins for the new primary vs the prior gpt-4o-mini
-      # baseline; cost shifts from per-token Haiku to flat-rate Turbo, with
-      # Haiku spend now bounded to days when Ollama Turbo is degraded.
-      BULK_HAIKU_MODEL: "ollama:deepseek-v4-flash:latest"
-      BULK_HAIKU_FALLBACK_MODELS: "ollama:glm-5.1:latest,ollama:minimax-m2.7:latest,anthropic/claude-haiku-4.5"
+      # Escalation chain (2026-05-05 swap): pure-Ollama, OpenRouter dropped.
+      # Latency A/B (warm, N=3) showed deepseek-v4-pro at ~2.1s/call vs
+      # deepseek-v4-flash at ~7.4s/call with equivalent JSON output, so pro
+      # is promoted to primary and flash demoted to first fallback. Anthropic
+      # Haiku 4.5 is removed — operator decision to keep escalation entirely
+      # within the Ollama Turbo subscription (no per-token spend).
+      #   primary    = deepseek-v4-pro     (~2s/call, equivalent quality)
+      #   fallback 1 = deepseek-v4-flash   (prior primary, dedicated capacity)
+      #   fallback 2 = glm-5.1             (multilingual, reliable)
+      #   fallback 3 = minimax-m2.7        (fastest reliable Ollama candidate)
+      BULK_HAIKU_MODEL: "ollama:deepseek-v4-pro:latest"
+      BULK_HAIKU_FALLBACK_MODELS: "ollama:deepseek-v4-flash:latest,ollama:glm-5.1:latest,ollama:minimax-m2.7:latest"
       # Pointer to the in-network playwright-scraper service (Webshare proxy
       # rotation behind a headless Chromium). Set empty to disable the proxy
       # fallback entirely and force template-path on every blocked site.

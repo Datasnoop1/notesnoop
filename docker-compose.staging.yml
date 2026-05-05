@@ -101,10 +101,10 @@ services:
       DDG_SUCCESS_STREAK_TO_RECOVER: "6"
       BULK_Q2_MODEL: "ollama:qwen3-coder-next"
       BULK_Q2_FALLBACK_MODEL: ""
-      # Escalation chain (2026-04-29 swap): Ollama Turbo three-deep with
-      # Haiku 4.5 as the ultimate escape hatch. See prod compose for notes.
-      BULK_HAIKU_MODEL: "ollama:deepseek-v4-flash:latest"
-      BULK_HAIKU_FALLBACK_MODELS: "ollama:glm-5.1:latest,ollama:minimax-m2.7:latest,anthropic/claude-haiku-4.5"
+      # Escalation chain (2026-05-05 swap): pure-Ollama, OpenRouter dropped.
+      # See prod compose for notes — staging mirrors prod for code-validation.
+      BULK_HAIKU_MODEL: "ollama:deepseek-v4-pro:latest"
+      BULK_HAIKU_FALLBACK_MODELS: "ollama:deepseek-v4-flash:latest,ollama:glm-5.1:latest,ollama:minimax-m2.7:latest"
       # Staging variant points at the staging playwright-scraper service.
       PLAYWRIGHT_SCRAPER_URL: "http://playwright-scraper-staging:8000"
       # Wave 2 acceleration — see prod compose for design notes.
