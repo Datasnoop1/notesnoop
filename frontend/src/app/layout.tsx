@@ -20,24 +20,26 @@ const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 
 export const metadata: Metadata = {
   title: {
-    default: "DataSnoop — Company Intelligence",
-    template: "%s | DataSnoop",
+    default: "Datasnoop — Free Belgian company search, KBO lookup and NBB annual accounts",
+    template: "%s | Datasnoop",
   },
   description:
-    "Screen 170K+ Belgian companies by sector, revenue, EBITDA, margins, and more. Combines KBO registry data with NBB annual accounts for PE deal sourcing and screening.",
+    "Free Belgian company search across 170,000+ companies. Look up KBO/BCE enterprise numbers, read NBB annual accounts, and follow Belgian Official Gazette publications — all in one fast workspace. For accountants, lawyers, journalists, M&A advisors, sales teams, and anyone who needs to know who they're dealing with.",
   metadataBase: new URL("https://datasnoop.be"),
   openGraph: {
-    title: "DataSnoop — Company Intelligence",
-    description: "Screen 170K+ Belgian companies by financials, sector, and structure. Built for PE deal sourcing.",
+    title: "Datasnoop — Free Belgian company search, KBO lookup and NBB annual accounts",
+    description:
+      "Free Belgian company search. KBO registry, NBB annual accounts, and the Official Gazette in one workspace — for the people who actually use it.",
     url: "https://datasnoop.be",
-    siteName: "DataSnoop",
+    siteName: "Datasnoop",
     locale: "en_BE",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "DataSnoop — Company Intelligence",
-    description: "Screen 170K+ Belgian companies by financials, sector, and structure.",
+    title: "Datasnoop — Belgian company search, free",
+    description:
+      "KBO lookup, NBB annual accounts, and the Official Gazette in one workspace.",
   },
   robots: {
     index: true,

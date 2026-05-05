@@ -129,19 +129,15 @@ export default function Home() {
                 Company Intelligence
               </div>
 
-              {/* Headline — serif-flavoured weight, refined on desktop.
-                  The explicit `<br />` was producing an awkward line
-                  break on narrow phones (split mid-thought); replaced
-                  with a soft break that only kicks in on sm+. */}
-              <h1 className="text-[26px] sm:text-[38px] lg:text-[44px] font-bold text-[#08132B] leading-[1.15] tracking-tight mb-3 sm:mb-4">
-                Find, screen and{" "}
-                <span className="block sm:inline">understand companies faster.</span>
+              {/* Headline — kept deliberately subtle. Wink first, shout never. */}
+              <h1 className="text-[24px] sm:text-[30px] lg:text-[34px] font-semibold text-[#08132B] leading-[1.15] tracking-tight mb-2 sm:mb-3">
+                Just snoop it.
               </h1>
 
-              {/* Subtitle */}
+              {/* Subtitle — carries the actual value-prop so the headline can stay light. */}
               <p className="text-[14px] sm:text-[15.5px] text-[#5F6B85] leading-relaxed mb-5 sm:mb-6 max-w-[480px]">
-                A cleaner workspace for company discovery, financial benchmarking,
-                publications and AI-assisted signals.
+                Every Belgian company, every filing, every director and owner —
+                in one fast workspace. Built by the people who actually use it.
               </p>
 
               {/* Search bar */}
@@ -191,7 +187,7 @@ export default function Home() {
                 ))}
               </div>
 
-              {/* Secondary actions: guide + use cases (feedback icons live in the header) */}
+              {/* Secondary actions: guide + knowledge base + use cases (feedback icons live in the header) */}
               <div className="mt-6 flex flex-wrap items-center gap-y-1 text-[13px] text-[#5F6B85]">
                 <Link
                   href="/guide"
@@ -199,6 +195,14 @@ export default function Home() {
                 >
                   <BookOpen className="w-3.5 h-3.5" />
                   User guide
+                </Link>
+                <span className="text-[#C3CEDF] mx-1" aria-hidden>·</span>
+                <Link
+                  href="/learn"
+                  className="px-3 py-2 min-h-[40px] inline-flex items-center gap-1.5 rounded-md hover:bg-[#F3F6FB] hover:text-[#1687E8] transition-colors"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  Knowledge base
                 </Link>
                 <span className="text-[#C3CEDF] mx-1" aria-hidden>·</span>
                 <a
@@ -220,7 +224,7 @@ export default function Home() {
       </section>
 
       {/* ── Feature cards ────────────────────────────────────────────── */}
-      <section className="w-full max-w-[1200px] mx-auto px-3 sm:px-4 pt-4 sm:pt-6 pb-12 sm:pb-16">
+      <section className="w-full max-w-[1200px] mx-auto px-3 sm:px-4 pt-4 sm:pt-6">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
           {FEATURE_CARDS.map(({ icon: Icon, title, desc, href, cta }) => (
             <Link
@@ -240,6 +244,135 @@ export default function Home() {
               </div>
             </Link>
           ))}
+        </div>
+      </section>
+
+      {/* ── How Datasnoop works (prose) ──────────────────────────────── */}
+      <section className="w-full max-w-[1200px] mx-auto px-3 sm:px-4 pt-12 sm:pt-16 pb-12 sm:pb-16">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-8 lg:gap-12">
+          <div>
+            <div className="text-[11px] sm:text-[11.5px] font-bold text-[#1687E8] uppercase tracking-[0.14em] mb-3">
+              How Datasnoop works
+            </div>
+            <h2 className="text-[22px] sm:text-[28px] font-bold text-[#08132B] leading-[1.2] tracking-tight mb-3">
+              Three public registries, one searchable workspace.
+            </h2>
+            <p className="text-[14px] text-[#5F6B85] leading-relaxed">
+              Every fact on Datasnoop is traceable to the Belgian enterprise registry, the National
+              Bank annual accounts, or the Belgian Official Gazette. We aggregate, normalise, and
+              enrich &mdash; we do not invent.
+            </p>
+            <Link
+              href="/about"
+              className="inline-flex items-center gap-1.5 mt-4 text-[13px] font-semibold text-[#1687E8] hover:text-[#0F72C8]"
+            >
+              How we source and verify Belgian company data
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="space-y-6 text-[14px] text-[#3D4763] leading-relaxed">
+            <div>
+              <h3 className="text-[15px] font-semibold text-[#08132B] mb-1.5">
+                The Belgian enterprise registry (KBO/BCE)
+              </h3>
+              <p>
+                Every Belgian legal entity has a 10-digit enterprise number from the Crossroads
+                Bank. We pull the official KBO data every night and patch in the daily updates,
+                so what you see is almost never more than a day old &mdash; the company name, the
+                registered address, the NACE activity codes, the juridical form, the
+                incorporation date, the status, the branches.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="text-[15px] font-semibold text-[#08132B] mb-1.5">
+                Annual accounts at the National Bank (NBB/BNB)
+              </h3>
+              <p>
+                Belgian companies file their accounts in three different formats &mdash; micro,
+                abbreviated, full &mdash; depending on their size. We translate all of them into
+                the same plain numbers: revenue, EBITDA, profit, debt, equity, headcount. So a
+                corner shop and a national chain compare cleanly on one screen, without you
+                doing the math.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="text-[15px] font-semibold text-[#08132B] mb-1.5">
+                Legal acts in the Belgian Official Gazette
+              </h3>
+              <p>
+                The Belgisch Staatsblad / Moniteur belge captures the drama of corporate life
+                &mdash; the boardroom shifts, the sudden mergers, the capital injections, the
+                dissolutions. Every notice gets linked to the right company and the right people,
+                so a profile shows the full timeline instead of today&apos;s snapshot. One
+                profile, one timeline, no PDFs.
+              </p>
+            </div>
+
+            <div>
+              <h3 className="text-[15px] font-semibold text-[#08132B] mb-1.5">
+                An AI layer that summarises, not invents
+              </h3>
+              <p>
+                On top of the registries we write plain-language narratives, run semantic search,
+                and surface companies that <em>do</em> the same thing rather than just share a
+                keyword. The AI only writes what it can prove. If a fact isn&apos;t in the
+                filings, the company website, or a public news source, it doesn&apos;t make it
+                into the summary &mdash; no hallucinations, no guesswork.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Who uses it ──────────────────────────────────────────────── */}
+      <section className="w-full max-w-[1200px] mx-auto px-3 sm:px-4 pb-12 sm:pb-16">
+        <div className="rounded-2xl border border-[#E2E8F2] bg-[#F7F9FC] p-6 sm:p-10">
+          <div className="text-[11px] sm:text-[11.5px] font-bold text-[#1687E8] uppercase tracking-[0.14em] mb-3">
+            Who uses Datasnoop
+          </div>
+          <h2 className="text-[20px] sm:text-[24px] font-bold text-[#08132B] leading-[1.25] tracking-tight mb-4">
+            Built for the people who need to understand a Belgian company in fifteen minutes, not
+            in three days.
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-3 text-[14px] text-[#3D4763] leading-relaxed">
+            <p>
+              <strong>Corporate development and M&amp;A advisors</strong> use Datasnoop to build
+              shortlists for buy-side searches, qualify inbound deal flow, and benchmark a target
+              against its sector before going into a first call.
+            </p>
+            <p>
+              <strong>Investors and lenders</strong> use it to triage opportunities at scale,
+              cross-check management teams across portfolios, and spot distress signals or growth
+              outliers without leaving the screener.
+            </p>
+            <p>
+              <strong>Journalists and researchers</strong> use it to follow the paper trail behind
+              a story &mdash; ownership changes, director appointments, address moves, capital
+              increases &mdash; without juggling four government portals at once.
+            </p>
+            <p>
+              <strong>Recruiters, sales teams, and credit analysts</strong> use it to verify that a
+              counterparty is who they say they are, that the financials line up with the pitch,
+              and that the executives in the meeting actually hold the mandates they claim.
+            </p>
+          </div>
+          <div className="mt-6 pt-5 border-t border-[#E2E8F2]">
+            <a
+              href="/use-cases.html"
+              className="inline-flex items-center gap-1.5 text-[13.5px] font-semibold text-[#1687E8] hover:text-[#0F72C8]"
+            >
+              See a typical day in your profession
+              <ArrowRight className="w-3.5 h-3.5" />
+            </a>
+            <p className="text-[12.5px] text-[#5F6B85] mt-1.5">
+              Eleven personas &mdash; accountants, lawyers, M&amp;A advisors, journalists, sales
+              teams, real estate, credit analysts and more &mdash; with the exact workflow each
+              uses on Datasnoop.
+            </p>
+          </div>
         </div>
       </section>
 

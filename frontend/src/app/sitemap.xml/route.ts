@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { LEARN_ARTICLES } from "@/lib/learn-articles";
 
 // Next.js 16 metadata routes (sitemap.ts) aggressively pre-render at build
 // time and their ISR cache hides my force-dynamic export. At build time
@@ -51,9 +52,18 @@ export async function GET() {
     { loc: `${BASE}/people`, lastmod: now, changefreq: "weekly", priority: 0.7 },
     { loc: `${BASE}/compare`, lastmod: now, changefreq: "monthly", priority: 0.5 },
     { loc: `${BASE}/guide`, lastmod: now, changefreq: "monthly", priority: 0.6 },
+    { loc: `${BASE}/about`, lastmod: now, changefreq: "monthly", priority: 0.7 },
+    { loc: `${BASE}/learn`, lastmod: now, changefreq: "weekly", priority: 0.7 },
     { loc: `${BASE}/privacy`, lastmod: now, changefreq: "yearly", priority: 0.2 },
     { loc: `${BASE}/terms`, lastmod: now, changefreq: "yearly", priority: 0.2 },
   ];
+
+  const learnArticlePages: UrlEntry[] = LEARN_ARTICLES.map((a) => ({
+    loc: `${BASE}/learn/${a.slug}`,
+    lastmod: now,
+    changefreq: "monthly",
+    priority: 0.6,
+  }));
 
   let companyPages: UrlEntry[] = [];
   let personPages: UrlEntry[] = [];
@@ -111,7 +121,12 @@ export async function GET() {
     }
   }
 
-  const xml = toXml([...staticPages, ...companyPages, ...personPages]);
+  const xml = toXml([
+    ...staticPages,
+    ...learnArticlePages,
+    ...companyPages,
+    ...personPages,
+  ]);
   return new NextResponse(xml, {
     status: 200,
     headers: {

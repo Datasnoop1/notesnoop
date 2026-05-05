@@ -58,3 +58,4 @@ logs/
 # Claude
 .claude/
 _scratch_rp/
+tmp/

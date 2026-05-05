@@ -11,6 +11,18 @@ export default function FooterTranslated() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-xs text-slate-400 space-y-1.5">
         <div>{t("footer.dataSources")}</div>
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+          <Link href="/about" className="min-h-[36px] inline-flex items-center hover:text-slate-600 hover:underline active:text-slate-700">
+            About
+          </Link>
+          <span aria-hidden className="text-slate-300">|</span>
+          <Link href="/learn" className="min-h-[36px] inline-flex items-center hover:text-slate-600 hover:underline active:text-slate-700">
+            Knowledge base
+          </Link>
+          <span aria-hidden className="text-slate-300">|</span>
+          <Link href="/guide" className="min-h-[36px] inline-flex items-center hover:text-slate-600 hover:underline active:text-slate-700">
+            User guide
+          </Link>
+          <span aria-hidden className="text-slate-300">|</span>
           <a href="/use-cases.html" className="min-h-[36px] inline-flex items-center hover:text-slate-600 hover:underline active:text-slate-700">
             Use cases
           </a>
