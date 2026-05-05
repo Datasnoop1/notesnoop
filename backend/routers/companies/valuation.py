@@ -1,6 +1,6 @@
 """Companies valuation router — EV/EBITDA-based valuation using Vlerick M&A Monitor multiples.
 
-Reference: Vlerick Business School, M&A Monitor 2025 (covering 2024 Belgian M&A deals).
+Reference: Vlerick Business School, M&A Monitor 2026 (covering 2025 Belgian M&A deals).
 """
 
 import json
@@ -22,6 +22,7 @@ _INITIALIZED = False  # lazy init guard (per process)
 
 SECTOR_LABELS = {
     "technology":          "Technology",
+    "telecommunications":  "Telecommunications",
     "pharmaceutical":      "Pharmaceutical",
     "healthcare":          "Healthcare",
     "energy_utilities":    "Energy & utilities",
@@ -59,24 +60,25 @@ VLERICK_SOURCE_URL = (
     "https://www.vlerick.com/en/for-companies/research-for-your-company/centre-for-mergers-acquisitions-and-buyouts/"
 )
 
-# Reference data year — all three sources publish for calendar year 2024 data.
-_DATA_YEAR = 2024
+# Reference data year — Vlerick publishes for calendar year 2025 data.
+_DATA_YEAR = 2025
 
-# ── Vlerick 2025 M&A Monitor — Belgian transactions in 2024 ──────────────────
+# ── Vlerick 2026 M&A Monitor — Belgian transactions in 2025 ──────────────────
 _VLERICK_SIZE = [
-    ("lt_5m",    5.0,  "<5M EUR deal size"),
-    ("5_20m",    6.4,  "5M-20M EUR deal size"),
-    ("20_50m",   7.7,  "20M-50M EUR deal size"),
-    ("50_100m",  8.1,  "50M-100M EUR deal size"),
-    ("gt_100m", 10.5,  ">100M EUR deal size"),
-    ("overall",  6.5,  "Belgian M&A market overall"),
+    ("lt_5m",   5.1, "<5M EUR deal size"),
+    ("5_20m",   6.1, "5M-20M EUR deal size"),
+    ("20_50m",  7.9, "20M-50M EUR deal size"),
+    ("50_100m", 8.3, "50M-100M EUR deal size"),
+    ("gt_100m", 8.0, ">100M EUR deal size"),
+    ("overall", 6.4, "Belgian M&A market overall"),
 ]
 _VLERICK_SECTOR = [
-    ("technology", 9.1), ("pharmaceutical", 8.5), ("healthcare", 8.0),
-    ("energy_utilities", 7.2), ("business_services", 6.7),
-    ("entertainment_media", 6.3), ("chemistry", 6.2), ("consumer_goods", 6.1),
-    ("industrial_products", 5.7), ("real_estate", 5.7), ("retail", 5.6),
-    ("transport_logistics", 5.5), ("construction", 4.8),
+    ("technology", 9.7), ("chemistry", 7.9), ("telecommunications", 7.6),
+    ("healthcare", 7.5), ("energy_utilities", 7.4), ("pharmaceutical", 7.2),
+    ("business_services", 6.7), ("real_estate", 6.6),
+    ("entertainment_media", 6.5), ("industrial_products", 6.3),
+    ("consumer_goods", 6.3), ("transport_logistics", 5.1),
+    ("retail", 4.9), ("construction", 4.5),
 ]
 
 _ALL_SEEDS = [
@@ -116,7 +118,7 @@ _NACE_MAPPING = {
     "52": "transport_logistics", "53": "transport_logistics",
     "55": "consumer_goods", "56": "consumer_goods",
     "58": "technology", "59": "entertainment_media", "60": "entertainment_media",
-    "61": "technology", "62": "technology", "63": "technology",
+    "61": "telecommunications", "62": "technology", "63": "technology",
     "64": "business_services", "65": "business_services", "66": "business_services",
     "68": "real_estate",
     "69": "business_services", "70": "business_services", "71": "business_services",
@@ -193,14 +195,14 @@ Company facts:
 {facts}
 
 Closed list (pick exactly one key):
-technology | pharmaceutical | healthcare | energy_utilities |
+technology | telecommunications | pharmaceutical | healthcare | energy_utilities |
 business_services | entertainment_media | chemistry | consumer_goods |
 industrial_products | real_estate | retail | transport_logistics | construction
 
 Disambiguation rules:
 - retail = B2C sales to end-consumers. Wholesale/B2B distribution = consumer_goods or industrial_products depending on what is sold.
 - Holding companies with no own operations: classify by the dominant operating activity of the group. If diversified, use business_services.
-- Software/SaaS/IT services = technology. R&D services (non-software) = business_services.
+- Software/SaaS/IT services = technology. Telecom carriers / network operators / fixed and mobile telecoms = telecommunications. R&D services (non-software) = business_services.
 - Restaurants, hotels, food producers = consumer_goods. Food retail stores = retail.
 - Pharma manufacturing = pharmaceutical. Hospitals/clinics/elderly care = healthcare.
 
