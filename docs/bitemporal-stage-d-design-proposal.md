@@ -12,13 +12,21 @@ Proceed with option D-a, but make it gated and auditable:
 
 - Fill residual NULL `valid_from` values from a parsed `enterprise.start_date` fallback.
 - Stamp `valid_from_provenance = 'fallback_enterprise_start'`.
+- For affiliation rows only, if the target `enterprise.start_date` is unavailable,
+  use the approved supplemental fallbacks in order: source filing
+  `financial_data.deposit_date` with `fallback_filing_deposit`, then
+  `recorded_from::date` with `fallback_unknown_start`.
 - Keep all governance rows; do not drop known facts.
 - Abort the Stage D migration if any row in the four target tables still has `valid_from IS NULL` after the fallback fill.
-- Treat `fallback_enterprise_start` as a migration-only provenance value. Live writers must not reuse this label; if a future writer intentionally falls back at ingest, it must use a distinct value such as `live_writer_enterprise_start` or skip/log the row. This keeps Stage D backout predicates unambiguous.
+- Treat `fallback_enterprise_start`, `fallback_filing_deposit`, and
+  `fallback_unknown_start` as migration-only provenance values. Live writers
+  must not reuse these labels; if a future writer intentionally falls back at
+  ingest, it must use a distinct value such as `live_writer_enterprise_start` or
+  skip/log the row. This keeps Stage D backout predicates unambiguous.
 
-The Stage D implementation PR must also update the `COMMENT ON COLUMN ... valid_from_provenance` text created in `migrations/2026-05-04_bitemporal_provenance_columns.sql` for all four tables to include the new `fallback_enterprise_start` value. Existing Stage C provenance values must not be dropped or renamed.
+The Stage D implementation PR must also update the `COMMENT ON COLUMN ... valid_from_provenance` text created in `migrations/2026-05-04_bitemporal_provenance_columns.sql` for all four tables to include the new `fallback_enterprise_start`, `fallback_filing_deposit`, and `fallback_unknown_start` values. Existing Stage C provenance values must not be dropped or renamed.
 
-If `enterprise.start_date` is NULL, unparseable, before `1830-01-01`, or after `CURRENT_DATE`, Stage D blocks by default and publishes the row list for operator decision. Do not stamp `fallback_enterprise_start` against a date that did not come from a valid enterprise-start fallback.
+If `enterprise.start_date` is NULL, unparseable, before `1830-01-01`, or after `CURRENT_DATE`, Stage D blocks by default and publishes the row list for operator decision, except for the two affiliation-only supplemental fallbacks above. Do not stamp `fallback_enterprise_start` against a date that did not come from a valid enterprise-start fallback.
 
 ## D1 - Residual NULL Strategy
 
@@ -50,7 +58,32 @@ END
 
 This handles temporal invalidity where KBO corrections or re-incorporation data make `enterprise.start_date > source_deposit_date`. In those cases we cap the fallback to the source deposit date so a governance fact does not start after the filing that evidenced it. The Stage D backup snapshot must record both `enterprise_start_date` and `source_deposit_date`, plus whether the source-date cap was used. Verification should report the count of capped rows per table.
 
-Rows without a valid `enterprise_start_date` still block Stage D unless the operator approves a separate fallback policy and provenance value.
+For administrator, shareholder, and participating interest, rows without a valid `enterprise_start_date` still block Stage D. For affiliation, the supplemental fallback arms below are now the approved blocked-row policy.
+
+### Affiliation Supplemental Fallbacks
+
+The 2026-05-05 Step 3 dry-run found 47 affiliation rows whose target
+`enterprise_number` has no matching `enterprise` row. The follow-up diagnostic
+on tracker #68 comment `4381525029` showed that the target CBEs are valid and
+public-KBO-findable, but absent from local canonical company tables. The
+operator approved policy (2): unblock Stage D with explicit weaker provenance
+rather than repairing the broader KBO-load gap in this rollout.
+
+For `affiliation` only, apply fallback arms in this exact order:
+
+1. `fallback_enterprise_start`: the mainline enterprise-start rule above.
+2. `fallback_filing_deposit`: for rows still NULL, use
+   `financial_data.deposit_date` joined by
+   `(via_enterprise_number, via_deposit_key)`, bounded to
+   `1830-01-01 <= deposit_date <= CURRENT_DATE`.
+3. `fallback_unknown_start`: for rows still NULL, use
+   `affiliation.recorded_from::date`, bounded to
+   `1830-01-01 <= recorded_from::date <= CURRENT_DATE`.
+
+Current expected split on the prod-shaped staging snapshot is 686 affiliation
+rows from `fallback_enterprise_start`, 46 from `fallback_filing_deposit`, and 1
+from `fallback_unknown_start`. Any rows still NULL after these three arms must
+hit the existing `RAISE EXCEPTION` safety gate.
 
 ### Parser
 
@@ -148,7 +181,7 @@ Expected result: zero in all four tables.
 
 ### Consumer UX
 
-The new `fallback_enterprise_start` value must be surfaced as low-confidence in the same rollout or explicitly handled by every consumer that displays provenance. Current `frontend/src` has no direct `valid_from` / `valid_to` references, but backend responses using `SELECT *` can expose the value. UI copy should not present it as an exact mandate or ownership start; it should read as a fallback/incorporation-date bound.
+The new `fallback_enterprise_start`, `fallback_filing_deposit`, and `fallback_unknown_start` values must be surfaced as low-confidence in the same rollout or explicitly handled by every consumer that displays provenance. Current `frontend/src` has no direct `valid_from` / `valid_to` references, but backend responses using `SELECT *` can expose the value. UI copy should not present them as exact mandate or ownership starts; `fallback_enterprise_start` should read as an incorporation-date bound, `fallback_filing_deposit` as a filing-date bound, and `fallback_unknown_start` as an observed-in-system upper bound.
 
 ## D2 - NOT NULL Transition Mechanics
 
@@ -192,7 +225,7 @@ The maintenance window order is mandatory:
 10. Validate CHECK constraints.
 11. Run `ALTER COLUMN valid_from SET NOT NULL`.
 12. Recreate governance current/as-of views/functions without `valid_from IS NULL`.
-13. Update provenance column comments to include `fallback_enterprise_start`.
+13. Update provenance column comments to include `fallback_enterprise_start`, `fallback_filing_deposit`, and `fallback_unknown_start`.
 14. Run verification SQL.
 15. Restart backend/connection-pool users so plans pick up rewritten views/functions.
 16. Resume writers only after verification passes.
@@ -236,7 +269,7 @@ Search method: PowerShell recursive `Select-String`, because `rg.exe` is blocked
 
 Frontend:
 
-- `frontend/src`: no `valid_from` or `valid_to` references found. No cleanup needed, apart from consumer handling of `fallback_enterprise_start` provenance noted above.
+- `frontend/src`: no `valid_from` or `valid_to` references found. No cleanup needed, apart from consumer handling of the Stage D fallback provenance values noted above.
 
 Backend Python:
 
@@ -344,7 +377,13 @@ Each backup row must include:
 - raw `enterprise.start_date`
 - parsed enterprise start date
 - fallback date actually used
+- fallback provenance actually used
 - whether source-date capping was used
+
+For `_bt_vf_stage_d_backup_affiliation`, also store
+`via_enterprise_number`, `via_deposit_key`, the resolved
+`financial_data.deposit_date` used by `fallback_filing_deposit`, and
+`recorded_from::date` used by `fallback_unknown_start`.
 
 Snapshot creation must occur in the same transaction as the fallback UPDATE while writers are paused. To eliminate the snapshot -> update race, either lock each target table before snapshotting and updating, or perform the snapshot and corresponding update in a single transaction with a documented lock primitive. The implementation should use a consistent table order to avoid deadlocks.
 
@@ -370,7 +409,7 @@ SET valid_from = b.valid_from,
     valid_to_provenance = b.valid_to_provenance
 FROM _bt_vf_stage_d_backup_administrator b
 WHERE a.enterprise_number = b.enterprise_number
-  AND a.deposit_key = b.deposit_key
+  AND a.deposit_key IS NOT DISTINCT FROM b.deposit_key
   AND a.name IS NOT DISTINCT FROM b.name
   AND a.role IS NOT DISTINCT FROM b.role
   AND a.valid_from = b.fallback_valid_from
@@ -387,7 +426,7 @@ SET valid_from = b.valid_from,
     valid_to_provenance = b.valid_to_provenance
 FROM _bt_vf_stage_d_backup_shareholder b
 WHERE sh.enterprise_number = b.enterprise_number
-  AND sh.deposit_key = b.deposit_key
+  AND sh.deposit_key IS NOT DISTINCT FROM b.deposit_key
   AND sh.name IS NOT DISTINCT FROM b.name
   AND sh.valid_from = b.fallback_valid_from
   AND sh.valid_from_provenance = 'fallback_enterprise_start';
@@ -403,7 +442,7 @@ SET valid_from = b.valid_from,
     valid_to_provenance = b.valid_to_provenance
 FROM _bt_vf_stage_d_backup_participating_interest b
 WHERE pi.enterprise_number = b.enterprise_number
-  AND pi.deposit_key = b.deposit_key
+  AND pi.deposit_key IS NOT DISTINCT FROM b.deposit_key
   AND pi.name IS NOT DISTINCT FROM b.name
   AND pi.valid_from = b.fallback_valid_from
   AND pi.valid_from_provenance = 'fallback_enterprise_start';
@@ -423,7 +462,12 @@ WHERE af.person_name = b.person_name
   AND af.via_enterprise_number = b.via_enterprise_number
   AND af.affiliation_type = b.affiliation_type
   AND af.valid_from = b.fallback_valid_from
-  AND af.valid_from_provenance = 'fallback_enterprise_start';
+  AND af.valid_from_provenance = b.fallback_provenance
+  AND b.fallback_provenance IN (
+      'fallback_enterprise_start',
+      'fallback_filing_deposit',
+      'fallback_unknown_start'
+  );
 ```
 
 After any of these updates restore NULL `valid_from`, immediately restore the NULL-aware current/as-of views/functions in the same rollback change.
@@ -436,19 +480,27 @@ Before counts:
 SELECT 'administrator' AS table_name,
        COUNT(*) AS total_rows,
        COUNT(*) FILTER (WHERE valid_from IS NULL) AS null_valid_from,
-       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start') AS fallback_rows
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start') AS enterprise_start_rows,
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_filing_deposit') AS filing_deposit_rows,
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_unknown_start') AS unknown_start_rows
 FROM administrator
 UNION ALL
 SELECT 'shareholder', COUNT(*), COUNT(*) FILTER (WHERE valid_from IS NULL),
-       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start')
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_filing_deposit'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_unknown_start')
 FROM shareholder
 UNION ALL
 SELECT 'participating_interest', COUNT(*), COUNT(*) FILTER (WHERE valid_from IS NULL),
-       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start')
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_filing_deposit'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_unknown_start')
 FROM participating_interest
 UNION ALL
 SELECT 'affiliation', COUNT(*), COUNT(*) FILTER (WHERE valid_from IS NULL),
-       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start')
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_filing_deposit'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_unknown_start')
 FROM affiliation;
 ```
 
@@ -499,28 +551,76 @@ GROUP BY table_name
 ORDER BY table_name;
 ```
 
+Affiliation supplemental fallback preview:
+
+```sql
+WITH affiliation_residuals AS (
+    SELECT af.person_name,
+           af.enterprise_number,
+           af.via_enterprise_number,
+           af.via_deposit_key,
+           pg_temp._bt_vf_stage_d_try_date(e.start_date) AS enterprise_start_date,
+           fd.deposit_date AS filing_deposit_date,
+           af.recorded_from::date AS recorded_from_date
+    FROM affiliation af
+    LEFT JOIN enterprise e ON e.enterprise_number = af.enterprise_number
+    LEFT JOIN LATERAL (
+        SELECT MIN(pg_temp._bt_vf_stage_d_try_date(fd.deposit_date::text)) AS deposit_date
+        FROM financial_data fd
+        WHERE fd.enterprise_number = af.via_enterprise_number
+          AND fd.deposit_key = af.via_deposit_key
+          AND pg_temp._bt_vf_stage_d_try_date(fd.deposit_date::text) IS NOT NULL
+    ) fd ON true
+    WHERE af.valid_from IS NULL
+)
+SELECT COUNT(*) FILTER (WHERE enterprise_start_date IS NOT NULL) AS enterprise_start_rows,
+       COUNT(*) FILTER (
+           WHERE enterprise_start_date IS NULL
+             AND filing_deposit_date IS NOT NULL
+       ) AS filing_deposit_rows,
+       COUNT(*) FILTER (
+           WHERE enterprise_start_date IS NULL
+             AND filing_deposit_date IS NULL
+             AND recorded_from_date BETWEEN DATE '1830-01-01' AND CURRENT_DATE
+       ) AS unknown_start_rows,
+       COUNT(*) FILTER (
+           WHERE enterprise_start_date IS NULL
+             AND filing_deposit_date IS NULL
+             AND NOT (recorded_from_date BETWEEN DATE '1830-01-01' AND CURRENT_DATE)
+       ) AS blocked_rows
+FROM affiliation_residuals;
+```
+
 After counts:
 
 ```sql
 SELECT 'administrator' AS table_name,
        COUNT(*) FILTER (WHERE valid_from IS NULL) AS null_valid_from,
-       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start') AS fallback_rows
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start') AS enterprise_start_rows,
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_filing_deposit') AS filing_deposit_rows,
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_unknown_start') AS unknown_start_rows
 FROM administrator
 UNION ALL
 SELECT 'shareholder', COUNT(*) FILTER (WHERE valid_from IS NULL),
-       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start')
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_filing_deposit'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_unknown_start')
 FROM shareholder
 UNION ALL
 SELECT 'participating_interest', COUNT(*) FILTER (WHERE valid_from IS NULL),
-       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start')
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_filing_deposit'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_unknown_start')
 FROM participating_interest
 UNION ALL
 SELECT 'affiliation', COUNT(*) FILTER (WHERE valid_from IS NULL),
-       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start')
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_enterprise_start'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_filing_deposit'),
+       COUNT(*) FILTER (WHERE valid_from_provenance = 'fallback_unknown_start')
 FROM affiliation;
 ```
 
-The post-apply fallback count per table should equal the backup-table row count for rows with non-NULL `fallback_valid_from`, minus any rows explicitly excluded by an operator-approved blocked-row policy.
+The post-apply fallback count per table should equal the backup-table row count for rows with non-NULL `fallback_valid_from`, minus any rows explicitly excluded by an operator-approved blocked-row policy. For the current affiliation blocker shape, expected affiliation counts are `enterprise_start_rows = 686`, `filing_deposit_rows = 46`, and `unknown_start_rows = 1`.
 
 Constraint and column verification:
 
@@ -543,7 +643,7 @@ WHERE conname IN (
 ORDER BY table_name::text;
 ```
 
-Row-level spot checks: sample 5-10 rows per table from the Stage D backup tables and confirm `valid_from = fallback_valid_from` plus `valid_from_provenance = 'fallback_enterprise_start'`.
+Row-level spot checks: sample 5-10 rows per table from the Stage D backup tables and confirm `valid_from = fallback_valid_from` plus the expected fallback provenance. For administrator, shareholder, and participating interest, this is always `fallback_enterprise_start`; for affiliation, it may be any of the three approved Stage D fallback values.
 
 Administrator example:
 
@@ -565,12 +665,12 @@ SELECT a.enterprise_number,
 FROM picked p
 JOIN administrator a
   ON a.enterprise_number = p.enterprise_number
- AND a.deposit_key = p.deposit_key
+ AND a.deposit_key IS NOT DISTINCT FROM p.deposit_key
  AND a.name IS NOT DISTINCT FROM p.name
  AND a.role IS NOT DISTINCT FROM p.role;
 ```
 
-Expected result: every row has `a.valid_from = expected_valid_from` and `a.valid_from_provenance = 'fallback_enterprise_start'`.
+Expected result for the administrator sample: every row has `a.valid_from = expected_valid_from` and `a.valid_from_provenance = 'fallback_enterprise_start'`. For affiliation samples, verify against the backup row's `fallback_valid_from` and `fallback_provenance`, which may be any of the three approved Stage D fallback values.
 
 The verification SQL contains no secrets and is safe to paste into PR comments.
 
@@ -584,12 +684,12 @@ When the operator eventually says "go on Stage D", the implementation PR must in
 4. Rollback migration or runbook covering constraints, data restore, and view/function rollback.
 5. Static tests for no remaining governance-table `valid_from IS NULL OR` predicates.
 6. A maintenance runbook with exact writer pause commands, process checks, expected durations, and lock-timeout retry steps.
-7. Consumer/UI handling for `fallback_enterprise_start` as low-confidence provenance.
+7. Consumer/UI handling for `fallback_enterprise_start`, `fallback_filing_deposit`, and `fallback_unknown_start` as low-confidence provenance.
 
 ## Open Decisions Before Implementation
 
-1. Confirm D-a as the approved residual strategy.
+1. Confirm D-a plus the affiliation supplemental fallback arms as the approved residual strategy.
 2. Decide whether source-date-capped fallback rows remain under `fallback_enterprise_start` or get a second explicit provenance value.
-3. Decide the policy for rows whose `enterprise.start_date` is missing, unparseable, before `1830-01-01`, or in the future.
+3. Decide the policy for any future rows whose `enterprise.start_date` is missing and whose table-specific supplemental fallbacks do not apply.
 4. Choose the backend write-pause primitive: maintenance flag, nginx route block, or full backend stop.
 5. Confirm backup retention: 7 days from apply, then scheduled cleanup.
