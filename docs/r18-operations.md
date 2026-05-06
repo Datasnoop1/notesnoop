@@ -146,18 +146,59 @@ The most recent dumps remain in place and remain valid. Revert the
 configure_wal_archiving + WAL archive setup is NOT required: archive_mode
 is now off and that decision predates this rollback.
 
-## What is NOT covered by Phase 2a (and is coming next)
+## Phase 2b — watchdogs and circuit breakers
 
-- pg_wal size watchdog with auto-cancel on the oldest xmin holder
-- Long-transaction watchdog (cancel idle-in-transaction > 1h)
-- Tier-1 disk breaker (volume > 175 GB → stop enrichment-worker)
-- Tier-2 disk breaker (volume > 185 GB → full RO via breaker.conf)
-- Docker prune at root > 65 GB (with image-protect label)
-- Weekly schema drill, monthly partial drill, quarterly full drill
-- Weekly pgstattuple bloat check
-- Meta-watchdog (verifies each watchdog ran in last 2× its interval)
+| Script | Cadence | Action |
+| --- | --- | --- |
+| `leadpeek_watchdog_disk.sh` | every 5 min | Alert if volume > 150 GB or root > 55 GB |
+| `leadpeek_watchdog_pgwal.sh` | every 1 min | Alert > 6 GB; cancel oldest non-`backup_user` xmin holder if > 8 GB sustained 5 min |
+| `leadpeek_watchdog_longtx.sh` | every 5 min | Cancel `idle in transaction` > 1 h (exempt `backup_user`); warn on any active tx > 2 h |
+| `leadpeek_action_root_disk.sh` | every 10 min | At root > 65 GB: tag `postgres:16` + `pgvector:pg16` with `protect`, `docker system prune -af --filter label!=protect`, `logrotate --force` |
+| `leadpeek_breaker_tier1.sh` | every 1 min | Volume > 175 GB sustained 2 min: `docker compose stop enrichment-worker`. Reversible. |
+| `leadpeek_breaker_tier2.sh` | every 1 min | Volume > 185 GB sustained 2 min: stop ALL writer services, swap `pg_hba.conf` for `breaker_pg_hba.conf` (only postgres + backup_user can connect), `pg_terminate_backend` non-superuser sessions, AUTOVACUUM remains on. **Manual recovery only.** |
 
-These ship in Phase 2b/2c follow-up commits.
+### Resetting a tripped breaker
+
+Tier-1:
+```bash
+sudo docker compose -f /opt/leadpeek/docker-compose.yml start enrichment-worker
+sudo rm /opt/leadpeek/scripts/_watchdog_state/breaker_tier1.tripped
+```
+
+Tier-2:
+```bash
+# 1. Free volume disk first (otherwise it'll trip again immediately)
+# 2. Restore pg_hba.conf
+sudo cp /etc/postgresql/16/main/pg_hba.conf.normal /etc/postgresql/16/main/pg_hba.conf
+sudo systemctl reload postgresql@16-main
+# 3. Restart writer services
+sudo docker compose -f /opt/leadpeek/docker-compose.yml start \
+    backend enrichment-worker staatsblad-bulk-worker nbb-backload-worker
+# 4. Clear tripped flag
+sudo rm /opt/leadpeek/scripts/_watchdog_state/breaker_tier2.tripped
+```
+
+## Phase 2c — drills, bloat, meta
+
+| Script | Cadence | What it does |
+| --- | --- | --- |
+| `leadpeek_drill_schema.sh` | weekly (Sun 03:00 UTC) | Schema-only restore into ephemeral pgvector/pg16 docker; pre-installs `unaccent` + `f_unaccent` stub; passes if ≥ 95% of live tables restore |
+| `leadpeek_drill_partial.sh` | monthly (1st Sun 04:00 UTC) | Schema + data restore for the 5 largest tables; exact row-count match required |
+| `leadpeek_drill_full.sh` | quarterly (1st Sun Jan/Apr/Jul/Oct, 02:00 UTC) | Full restore best-effort; gated on free volume > 1.2× pg_database_size + 10 GB |
+| `leadpeek_check_bloat.sh` | weekly (Sun 05:00 UTC) | `pgstattuple` on top 20 user tables > 100 MB; alerts if any > 30% dead-tuple |
+| `leadpeek_watchdog_meta.sh` | every 30 min | Confirms each watchdog log was written within 2× its expected cadence |
+
+Drills require the `pgvector/pgvector:pg16` docker image to be present on
+the host (the root-disk action protects it from `docker system prune`).
+Bloat check requires the `pgstattuple` extension to be installed in the
+`leadpeek` database — it isn't auto-created (backup_user lacks superuser),
+so the operator must run once:
+
+```sql
+-- as postgres superuser
+\c leadpeek
+CREATE EXTENSION pgstattuple;
+```
 
 ## Why no continuous archiving / no replication
 

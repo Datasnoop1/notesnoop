@@ -42,27 +42,30 @@ done
 
 [ -d /mnt/volume-hel1-1 ] || fail "/mnt/volume-hel1-1 not mounted"
 
-for f in leadpeek_backup.sh leadpeek_watchdog_backupfresh.sh r18_alert.sh r18_scrub_journal.sh; do
+PHASE2A_SCRIPTS=(leadpeek_backup.sh leadpeek_watchdog_backupfresh.sh r18_alert.sh r18_scrub_journal.sh)
+PHASE2B_SCRIPTS=(leadpeek_watchdog_disk.sh leadpeek_watchdog_pgwal.sh leadpeek_watchdog_longtx.sh leadpeek_action_root_disk.sh leadpeek_breaker_tier1.sh leadpeek_breaker_tier2.sh)
+PHASE2C_SCRIPTS=(leadpeek_drill_schema.sh leadpeek_drill_partial.sh leadpeek_drill_full.sh leadpeek_check_bloat.sh leadpeek_watchdog_meta.sh)
+ALL_SCRIPTS=("${PHASE2A_SCRIPTS[@]}" "${PHASE2B_SCRIPTS[@]}" "${PHASE2C_SCRIPTS[@]}")
+
+for f in "${ALL_SCRIPTS[@]}"; do
     [ -f "$SCRIPTS_DIR/$f" ] || fail "$SCRIPTS_DIR/$f missing — git pull on /opt/leadpeek?"
 done
 
-for f in leadpeek-backup.service leadpeek-backup.timer leadpeek-backup-failure.service; do
+for f in leadpeek-backup.service leadpeek-backup.timer leadpeek-backup-failure.service breaker_pg_hba.conf; do
     [ -f "$DEPLOY_DIR/$f" ] || fail "$DEPLOY_DIR/$f missing — git pull on /opt/leadpeek?"
 done
 
 # --- 2. install scripts ---------------------------------------------------
 
 log "marking scripts executable"
-chmod 755 "$SCRIPTS_DIR/leadpeek_backup.sh"
-chmod 755 "$SCRIPTS_DIR/leadpeek_watchdog_backupfresh.sh"
-chmod 755 "$SCRIPTS_DIR/r18_alert.sh"
-chmod 755 "$SCRIPTS_DIR/r18_scrub_journal.sh"
+for f in "${ALL_SCRIPTS[@]}"; do
+    chmod 755 "$SCRIPTS_DIR/$f"
+done
 
-# Smoke-test the helpers for parse errors (won't actually send if backend is down)
-bash -n "$SCRIPTS_DIR/r18_alert.sh" || fail "r18_alert.sh has bash syntax errors"
-bash -n "$SCRIPTS_DIR/r18_scrub_journal.sh" || fail "r18_scrub_journal.sh has bash syntax errors"
-bash -n "$SCRIPTS_DIR/leadpeek_backup.sh" || fail "leadpeek_backup.sh has bash syntax errors"
-bash -n "$SCRIPTS_DIR/leadpeek_watchdog_backupfresh.sh" || fail "leadpeek_watchdog_backupfresh.sh has bash syntax errors"
+# Smoke-test all helpers for parse errors (won't actually run them)
+for f in "${ALL_SCRIPTS[@]}"; do
+    bash -n "$SCRIPTS_DIR/$f" || fail "$f has bash syntax errors"
+done
 
 # Quick scrub self-test: known credential strings must be redacted
 SCRUB_TEST=$(printf 'PGPASSWORD=hunter2 oops\npostgres://u:p@host/db\nuser=alice password=foo\nAuthorization: Bearer xyz789\nAPI_KEY: sk-secret-123\n' \
@@ -85,43 +88,59 @@ systemctl daemon-reload
 
 # --- 4. report -------------------------------------------------------------
 
-log "=== R18 Phase 2a staging COMPLETE ==="
+log "=== R18 staging COMPLETE (Phase 2a + 2b) ==="
 cat <<'EOM'
 
 --- Files staged ---
+Phase 2a (backup automation):
   /opt/leadpeek/scripts/leadpeek_backup.sh                (production backup)
   /opt/leadpeek/scripts/leadpeek_watchdog_backupfresh.sh  (freshness alert)
   /opt/leadpeek/scripts/r18_alert.sh                      (alert helper)
-  /etc/systemd/system/leadpeek-backup.service             (oneshot)
-  /etc/systemd/system/leadpeek-backup.timer               (every 2 days, 02:00 UTC)
+  /opt/leadpeek/scripts/r18_scrub_journal.sh              (credential scrub)
+  /etc/systemd/system/leadpeek-backup.{service,timer}     (every 2 days)
   /etc/systemd/system/leadpeek-backup-failure.service     (OnFailure email)
 
-Nothing has been enabled or started. The next step is Gate B, which
-requires explicit operator approval.
+Phase 2b (watchdogs + circuit breakers):
+  /opt/leadpeek/scripts/leadpeek_watchdog_disk.sh         (5min, alert at vol>150G/root>55G)
+  /opt/leadpeek/scripts/leadpeek_watchdog_pgwal.sh        (1min, alert>6G, action>8G sustained 5min)
+  /opt/leadpeek/scripts/leadpeek_watchdog_longtx.sh       (5min, cancel idle-tx>1h, warn>2h)
+  /opt/leadpeek/scripts/leadpeek_action_root_disk.sh      (10min, prune+rotate at root>65G)
+  /opt/leadpeek/scripts/leadpeek_breaker_tier1.sh         (1min, stop enrichment at vol>175G)
+  /opt/leadpeek/scripts/leadpeek_breaker_tier2.sh         (1min, full RO at vol>185G)
+  /opt/leadpeek/deploy/breaker_pg_hba.conf                (Tier-2 RO override)
+
+Phase 2c (drills + bloat + meta):
+  /opt/leadpeek/scripts/leadpeek_drill_schema.sh          (weekly, full schema-only restore)
+  /opt/leadpeek/scripts/leadpeek_drill_partial.sh         (monthly, top-5 tables data restore)
+  /opt/leadpeek/scripts/leadpeek_drill_full.sh            (quarterly, full restore best-effort)
+  /opt/leadpeek/scripts/leadpeek_check_bloat.sh           (weekly pgstattuple check)
+  /opt/leadpeek/scripts/leadpeek_watchdog_meta.sh         (30min, all watchdogs ran recently)
+
+Nothing has been enabled or started. Cron entries are not yet installed.
+Gate B activation (below) requires explicit operator approval.
 
 --- Gate B activation (requires operator approval) ---
 
-  # 1. Enable the timer (this is the moment Phase 2a goes live)
+  # 1. Enable the backup timer (Phase 2a goes live)
   systemctl enable --now leadpeek-backup.timer
 
-  # 2. Verify the timer is scheduled
-  systemctl list-timers leadpeek-backup.timer --no-pager
+  # 2. Install all R18 cron entries (Phase 2a freshness + Phase 2b watchdogs/breakers)
+  bash /opt/leadpeek/scripts/r18_install_cron.sh
 
-  # 3. (Optional) Trigger one immediate run to confirm it works end-to-end
+  # 3. Verify
+  systemctl list-timers leadpeek-backup.timer --no-pager
+  crontab -l | grep -A30 R18-MANAGED
+
+  # 4. (Optional) Trigger one immediate backup run
   systemctl start leadpeek-backup.service
   journalctl -u leadpeek-backup.service -f
 
-  # 4. Add the freshness watchdog cron (separate script — keeps changes
-  #    to managed cron block isolated from this systemd staging step)
-  bash /opt/leadpeek/scripts/r18_install_cron.sh
-
 --- Rollback ---
 
-  # If the timer goes wrong, disable it without touching anything else:
+  # Disable Phase 2a timer:
   systemctl disable --now leadpeek-backup.timer
-  # The most recent verified dump is at:
-  #   /mnt/volume-hel1-1/backups/CURRENT.dump.zst         (volume primary)
-  #   /var/lib/postgresql/backups/PREVIOUS.dump.zst       (root copy)
-  # Either is restorable with /usr/lib/postgresql/16/bin/pg_restore.
+  # Remove all R18 crons (snapshot is automatically saved to /root/crontab-backups/):
+  bash -c "crontab -l | sed '/^# R18-MANAGED-BEGIN/,/^# R18-MANAGED-END/d' | crontab -"
+  # Reset a tripped breaker manually — see docs/r18-operations.md.
 
 EOM

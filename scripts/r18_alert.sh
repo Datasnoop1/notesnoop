@@ -38,6 +38,8 @@ case "$KIND" in
     longtx-warn)            SUBJECT="[DataSnoop R18] long transaction running > 2h" ;;
     drill-pass)             SUBJECT="[DataSnoop R18] restore drill OK" ;;
     drill-fail)             SUBJECT="[DataSnoop R18] RESTORE DRILL FAILED" ;;
+    drill-skipped)          SUBJECT="[DataSnoop R18] restore drill skipped (insufficient space)" ;;
+    bloat-warn)             SUBJECT="[DataSnoop R18] table bloat over threshold" ;;
     meta-watchdog-stale)    SUBJECT="[DataSnoop R18] watchdog has not run recently" ;;
     *)                      SUBJECT="[DataSnoop R18] event: $KIND" ;;
 esac

@@ -45,10 +45,30 @@ fi
 
 R18_BLOCK=$(cat <<'EOF'
 # R18-MANAGED-BEGIN
-# Backup-freshness watchdog — alerts if newest dump is older than the
-# 72h volume / 120h root budgets. Runs hourly; alert helper de-dupes via
-# 12h cooldown so a sustained stale window emails twice a day at most.
+# Phase 2a — Backup-freshness watchdog (hourly, 12h alert cooldown)
 17 * * * * bash /opt/leadpeek/scripts/leadpeek_watchdog_backupfresh.sh >> /opt/leadpeek/scripts/_watchdog_state/backupfresh_cron.log 2>&1
+# Phase 2b — Disk-space watchdog (5min, alert at vol>150G or root>55G; 60min repeat cooldown)
+*/5 * * * * bash /opt/leadpeek/scripts/leadpeek_watchdog_disk.sh >> /opt/leadpeek/scripts/_watchdog_state/disk_cron.log 2>&1
+# Phase 2b — pg_wal size watchdog (1min, alert>6G, sustain-5min cancel>8G; backup_user exempt)
+* * * * * bash /opt/leadpeek/scripts/leadpeek_watchdog_pgwal.sh >> /opt/leadpeek/scripts/_watchdog_state/pgwal_cron.log 2>&1
+# Phase 2b — Long-transaction watchdog (5min, cancel idle-in-tx>1h, warn>2h; backup_user exempt)
+*/5 * * * * bash /opt/leadpeek/scripts/leadpeek_watchdog_longtx.sh >> /opt/leadpeek/scripts/_watchdog_state/longtx_cron.log 2>&1
+# Phase 2b — Root disk hygiene (10min, docker prune + logrotate at root>65G with image-protect)
+*/10 * * * * bash /opt/leadpeek/scripts/leadpeek_action_root_disk.sh >> /opt/leadpeek/scripts/_watchdog_state/root_disk_action_cron.log 2>&1
+# Phase 2b — Tier-1 disk breaker (1min, stop enrichment-worker at vol>175G sustained 2min)
+* * * * * bash /opt/leadpeek/scripts/leadpeek_breaker_tier1.sh >> /opt/leadpeek/scripts/_watchdog_state/breaker_tier1_cron.log 2>&1
+# Phase 2b — Tier-2 emergency breaker (1min, full RO at vol>185G sustained 2min — manual recovery)
+* * * * * bash /opt/leadpeek/scripts/leadpeek_breaker_tier2.sh >> /opt/leadpeek/scripts/_watchdog_state/breaker_tier2_cron.log 2>&1
+# Phase 2c — Weekly schema-only restore drill (Sun 03:00 UTC)
+0 3 * * SUN bash /opt/leadpeek/scripts/leadpeek_drill_schema.sh >> /opt/leadpeek/scripts/_watchdog_state/drill_schema_cron.log 2>&1
+# Phase 2c — Monthly partial restore drill (every Sun; script gates on 1st-of-month)
+0 4 * * SUN bash /opt/leadpeek/scripts/leadpeek_drill_partial.sh >> /opt/leadpeek/scripts/_watchdog_state/drill_partial_cron.log 2>&1
+# Phase 2c — Quarterly full restore drill (1st Sun of Jan/Apr/Jul/Oct via in-script gate)
+0 2 * 1,4,7,10 SUN bash /opt/leadpeek/scripts/leadpeek_drill_full.sh >> /opt/leadpeek/scripts/_watchdog_state/drill_full_cron.log 2>&1
+# Phase 2c — Weekly table-bloat check (Sun 05:00 UTC)
+0 5 * * SUN bash /opt/leadpeek/scripts/leadpeek_check_bloat.sh >> /opt/leadpeek/scripts/_watchdog_state/bloat_cron.log 2>&1
+# Phase 2c — Meta-watchdog (30min, verify all watchdogs ran recently)
+*/30 * * * * bash /opt/leadpeek/scripts/leadpeek_watchdog_meta.sh >> /opt/leadpeek/scripts/_watchdog_state/meta_cron.log 2>&1
 # R18-MANAGED-END
 EOF
 )
