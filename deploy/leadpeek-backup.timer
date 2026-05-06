@@ -1,0 +1,15 @@
+[Unit]
+Description=DataSnoop production backup timer (every 2 days, 02:00 UTC)
+Documentation=file:///opt/leadpeek/docs/r18-operations.md
+
+[Timer]
+# Fires every 2 days at 02:00 UTC. Persistent=true means a missed run (e.g.
+# server was down) executes on next boot rather than waiting another 2 days.
+OnCalendar=*-*-1/2 02:00:00 UTC
+AccuracySec=10min
+Persistent=true
+RandomizedDelaySec=15min
+Unit=leadpeek-backup.service
+
+[Install]
+WantedBy=timers.target

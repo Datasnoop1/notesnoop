@@ -1,0 +1,17 @@
+[Unit]
+Description=Send R18 backup-fail alert when leadpeek-backup.service fails
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+# r18_alert.sh handles SMTP via the backend container and falls back to a
+# tmpfs spool if the backend is down. Pass a snapshot of the most recent
+# journal lines so the operator has context without grepping.
+ExecStart=/bin/bash -c '\
+  BODY=$(journalctl -u leadpeek-backup.service -n 100 --no-pager 2>/dev/null \
+         | bash /opt/leadpeek/scripts/r18_scrub_journal.sh \
+         | tail -100); \
+  bash /opt/leadpeek/scripts/r18_alert.sh backup-fail "$BODY"'
+NoNewPrivileges=true
+ProtectSystem=full
