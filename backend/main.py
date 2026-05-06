@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.background import BackgroundTask, BackgroundTasks
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api, admin_phase22, perf
+from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api, admin_phase22
 from auth import ensure_jwks_bootstrapped
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup, ensure_phase22_schema
@@ -205,7 +205,7 @@ class SessionMiddleware(BaseHTTPMiddleware):
 # ---------------------------------------------------------------------------
 
 class ActivityLogMiddleware(BaseHTTPMiddleware):
-    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/status/", "/api/_perf")
+    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/status/")
     # `/api/v1/*` (public API) has its own per-key audit log in
     # `api_call_log`; double-logging here would just bloat activity_log
     # without adding signal.
@@ -791,15 +791,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/api/"):
             return await call_next(request)
 
-        # `/api/_perf` is a fire-and-forget telemetry sink. Frontend uses
-        # navigator.sendBeacon, which can fan out to ~6 calls per search.
-        # The default 200/min/IP bucket would 429-drop perf data exactly
-        # when a typing-storm makes the data most interesting. Skip the
-        # bucket entirely — the endpoint does no DB work and is bounded
-        # by nginx's body-size cap upstream.
-        if path == "/api/_perf":
-            return await call_next(request)
-
         # `/api/v1/*` (public API) is keyed by API key, not by JWT/IP.
         # The auth dependency enforces 60/min per key + a daily cap.
         # However, both `require_api_key` (DB lookup on every call) and
@@ -874,7 +865,6 @@ app.include_router(search.router)
 app.include_router(admin_enrichment.router)
 app.include_router(admin_phase22.router)
 app.include_router(public_api.router)
-app.include_router(perf.router)
 
 # ---------------------------------------------------------------------------
 # Health check
