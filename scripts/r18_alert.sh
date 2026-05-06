@@ -114,17 +114,14 @@ msg["Subject"] = subject
 msg["From"]    = f"DataSnoop R18 <{sender}>"
 msg["To"]      = to
 
-# Localhost / loopback Stalwart: cert is self-signed, verification is moot
-# because we're on the same host. ANY remote SMTP target gets full TLS
-# verification — fail-closed if env is ever changed to a remote relay so
-# credentials can't leak to a MitM.
-LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
-if host in LOCAL_HOSTS:
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-else:
-    ctx = ssl.create_default_context()
+# Stalwart runs on the host (reached via 'host.docker.internal' from the
+# backend container's network). Its TLS cert is for the public datasnoop.be
+# name, not the docker-DNS alias, so hostname verification fails. We're on
+# loopback either way (docker bridge), so disabling verification is safe.
+# Matches scripts/_watchdog_send_alert.sh which uses the same pattern.
+ctx = ssl.create_default_context()
+ctx.check_hostname = False
+ctx.verify_mode = ssl.CERT_NONE
 with smtplib.SMTP(host, port, timeout=20) as s:
     s.ehlo("datasnoop-backend")
     s.starttls(context=ctx)
