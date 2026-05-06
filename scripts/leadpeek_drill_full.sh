@@ -103,8 +103,10 @@ SQL
 
 log "full pg_restore (schema + data, parallel)"
 T0=$(date +%s)
+# Default is "continue on error", which is what we want — the drill is a
+# best-effort restorability proof, not a fail-fast verification.
 zstd -dc "$DUMP_PATH" | docker exec -i "$CONTAINER_NAME" \
-    pg_restore --no-owner --no-privileges --exit-on-error=0 -j 2 \
+    pg_restore --no-owner --no-privileges -j 2 \
     -U postgres -d leadpeek_drill 2>&1 | tail -20
 RESTORE_EXIT=${PIPESTATUS[1]}
 T1=$(date +%s)

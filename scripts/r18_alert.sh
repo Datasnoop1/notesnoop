@@ -72,7 +72,7 @@ printf '%s' "$BODY" | docker exec -i \
     -e WATCHDOG_KIND="$KIND" \
     -e WATCHDOG_HOST="$HOSTNAME_STR" \
     -e WATCHDOG_TS="$TS" \
-    leadpeek-backend-1 python - <<'PYEOF'
+    leadpeek-backend-1 python3 - <<'PYEOF'
 import os, smtplib, ssl, sys
 from email.mime.text import MIMEText
 

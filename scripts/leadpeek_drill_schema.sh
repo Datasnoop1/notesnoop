@@ -101,9 +101,12 @@ SQL
 # but require the overall pg_restore to exit 0 and most TABLE entries to
 # be created.
 log "running schema-only pg_restore"
+# pg_restore's --exit-on-error is a no_argument flag; passing --exit-on-error=0
+# is rejected as "doesn't take a value". The default behavior IS to continue
+# on error, which is what we want for the drill — we count restored tables
+# rather than treating any single failure as fatal.
 RESTORE_OUT=$(zstd -dc "$DUMP_PATH" | docker exec -i "$CONTAINER_NAME" \
     pg_restore --schema-only --no-owner --no-privileges \
-    --exit-on-error=0 \
     -U postgres -d leadpeek_drill 2>&1)
 RESTORE_EXIT=${PIPESTATUS[1]}
 

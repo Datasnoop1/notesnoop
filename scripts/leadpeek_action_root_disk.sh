@@ -31,6 +31,10 @@ ROOT_USED=$(df -B1 / | awk 'NR==2 {print $3}')
 GB=$((1024*1024*1024))
 
 if [ "$ROOT_USED" -le "$ROOT_ACTION_BYTES" ]; then
+    # Always log a tick line so the meta-watchdog sees a fresh mtime on
+    # this file even when no action fires. Without this line, the meta
+    # check would alert "stale" forever after the first triggered run.
+    log "below threshold: root_used=$((ROOT_USED/GB))G (threshold=$((ROOT_ACTION_BYTES/GB))G)"
     exit 0
 fi
 

@@ -116,14 +116,30 @@ RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
 AS $$ SELECT public.unaccent('public.unaccent', $1) $$;
 SQL
 
-# Schema then data
+# Schema then data — pg_restore's default IS to continue on error; the
+# previous --exit-on-error=0 was invalid syntax that broke the drill.
 log "schema restore"
 zstd -dc "$DUMP_PATH" | docker exec -i "$CONTAINER_NAME" \
-    pg_restore --schema-only --no-owner --no-privileges --exit-on-error=0 \
+    pg_restore --schema-only --no-owner --no-privileges \
     -U postgres -d leadpeek_drill >/dev/null 2>&1 || true
 
+# Validate top-table relnames against a strict identifier pattern before
+# interpolating into pg_restore -t flags or psql identifier quoting. Names
+# from pg_stat_user_tables are catalog-trusted but a future quoted-identifier
+# rename could include surprising characters.
+SAFE_RE='^[a-zA-Z_][a-zA-Z0-9_]*$'
+SAFE_TABLES=""
+for t in $TOP_TABLES; do
+    if [[ "$t" =~ $SAFE_RE ]]; then
+        SAFE_TABLES+="$t"$'\n'
+    else
+        log "skipping table with non-safe identifier: $t"
+    fi
+done
+TOP_TABLES="$SAFE_TABLES"
+
 log "data restore for top $N_TABLES tables"
-T_FLAGS=$(echo "$TOP_TABLES" | sed 's/^/-t /' | tr '\n' ' ')
+T_FLAGS=$(printf '%s' "$TOP_TABLES" | sed 's/^/-t /' | tr '\n' ' ')
 zstd -dc "$DUMP_PATH" | docker exec -i "$CONTAINER_NAME" \
     pg_restore --data-only --no-owner --no-privileges \
     -U postgres -d leadpeek_drill $T_FLAGS 2>&1 | tail -10
