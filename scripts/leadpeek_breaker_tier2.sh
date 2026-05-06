@@ -53,6 +53,10 @@ if [ -f "$TRIPPED_FLAG" ]; then
     exit 0
 fi
 
+# Tick log so the meta-watchdog sees the file mtime advance even on quiet
+# days. Without this, the breaker_tier2 log would look stale to meta.
+log "tick: vol_used=$((VOL_USED/GB))G threshold=$((TIER2_BYTES/GB))G"
+
 if [ "$VOL_USED" -le "$TIER2_BYTES" ]; then
     rm -f "$SUSTAIN_FILE"
     exit 0
@@ -77,10 +81,41 @@ log "===== TIER-2 BREAKER TRIPPING ====="
 [ -f "$PG_HBA_LIVE" ]  || { log "ABORT: $PG_HBA_LIVE missing"; exit 0; }
 
 # Send the alert FIRST, before stopping the backend container that the
-# alert helper SMTPs through. r18_alert.sh has a tmpfs spool fallback,
-# but pre-stop alerting is more reliable.
-ALERT_BODY=$(printf 'TIER-2 BREAKER TRIPPING.\nvol_used=%sG > 185G threshold (sustained %s min)\n\nActions:\n  - stopping writer compose services\n  - moving pg_hba.conf to read-only breaker config\n  - terminating non-superuser sessions (after pg_dump grace)\n  - autovacuum remains ON\n\nRecovery is OPERATOR-driven. See /opt/leadpeek/docs/r18-operations.md.' \
-    "$((VOL_USED/GB))" "$streak")
+# alert helper SMTPs through. r18_alert.sh has a persistent /var/spool
+# fallback, but pre-stop alerting is more reliable AND we MUST include
+# recovery instructions here — the post-trip alert (line 175 below) goes
+# through the same backend container which we're about to stop, so it
+# will end up in the spool directory and only reach the operator if they
+# specifically check there.
+ALERT_BODY=$(cat <<EOF
+TIER-2 BREAKER TRIPPING.
+vol_used=$((VOL_USED/GB))G > 185G threshold (sustained $streak min)
+
+Actions about to fire:
+  1. stop writer compose services (backend, enrichment, staatsblad-bulk, nbb-backload)
+  2. swap /etc/postgresql/16/main/pg_hba.conf for breaker config (only postgres + backup_user can connect)
+  3. systemctl reload postgresql@16-main (no service restart, autovacuum unaffected)
+  4. wait up to 60s for in-flight pg_dump to finish gracefully
+  5. pg_terminate_backend on non-postgres/non-backup_user sessions
+  6. SIGTERM any remaining pg_dump (post-grace)
+
+RECOVERY (OPERATOR-DRIVEN, fully manual):
+  1. Free disk on /mnt/volume-hel1-1 (drop staging cluster, prune dumps, etc.)
+  2. Restore the live pg_hba.conf:
+       sudo cp /etc/postgresql/16/main/pg_hba.conf.normal \\
+              /etc/postgresql/16/main/pg_hba.conf
+  3. Reload postgres (no restart needed):
+       sudo systemctl reload postgresql@16-main
+  4. Restart writer services:
+       sudo docker compose -f /opt/leadpeek/docker-compose.yml start \\
+            backend enrichment-worker staatsblad-bulk-worker nbb-backload-worker
+  5. Clear the tripped flag:
+       sudo rm /opt/leadpeek/scripts/_watchdog_state/breaker_tier2.tripped
+
+Full runbook: /opt/leadpeek/docs/r18-operations.md
+Spooled post-trip alerts (if backend was down for emails): /var/spool/leadpeek-alerts/
+EOF
+)
 bash "$ALERT" disk-tier2 "$ALERT_BODY" || true
 
 # 1. Stop writer services

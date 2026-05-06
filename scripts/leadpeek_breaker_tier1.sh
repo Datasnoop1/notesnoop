@@ -39,6 +39,11 @@ if [ -f "$TRIPPED_FLAG" ]; then
     exit 0
 fi
 
+# Tick log on every invocation — the meta-watchdog uses this file's mtime
+# to confirm the breaker is alive. Without it, a quiet day would look
+# like the script stopped running.
+log "tick: vol_used=$((VOL_USED/GB))G threshold=$((TIER1_BYTES/GB))G"
+
 if [ "$VOL_USED" -le "$TIER1_BYTES" ]; then
     rm -f "$SUSTAIN_FILE"
     exit 0

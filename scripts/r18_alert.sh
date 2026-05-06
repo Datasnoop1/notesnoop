@@ -4,18 +4,13 @@
 # we don't fork the email-sending logic.
 #
 # Usage: r18_alert.sh <kind> <body>
-#   kind in {
-#     backup-ok, backup-fail, backup-degraded-no-root,
-#     backup-stale, backup-sha-mismatch,
-#     pgwal-warn, pgwal-action,
-#     disk-warn, disk-tier1, disk-tier2, root-disk-action,
-#     longtx-cancel, longtx-warn,
-#     drill-pass, drill-fail,
-#     meta-watchdog-stale,
-#   }
 #
 # SMTP creds come from the backend container's env (loaded from .env.production).
 # Body is piped via stdin; subject + meta via env vars to survive quoting.
+#
+# Reliability: any failure (container down, docker exec error, Python error,
+# SMTP error, missing creds) spools the alert to /var/spool/leadpeek-alerts/
+# (persistent across reboot — distinct from /run tmpfs which evaporates).
 
 set -uo pipefail
 
@@ -47,32 +42,43 @@ esac
 HOSTNAME_STR="$(uname -n)"
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-if ! docker ps --format '{{.Names}}' | grep -qx leadpeek-backend-1; then
-    # Fallback: append to a tmpfs spool so the alert isn't silently lost
-    # when the backend is itself the thing that failed (e.g. tier-2 breaker).
-    SPOOL_DIR="/run/leadpeek-r18-alerts"
-    mkdir -p "$SPOOL_DIR"
-    chmod 700 "$SPOOL_DIR"
-    SPOOL_FILE="$SPOOL_DIR/$(date -u +%Y%m%dT%H%M%S)-$KIND.txt"
+# Persistent spool — /var survives reboot, /run/tmpfs does not.
+SPOOL_DIR="/var/spool/leadpeek-alerts"
+install -d -m 700 "$SPOOL_DIR" 2>/dev/null || mkdir -p "$SPOOL_DIR"
+chmod 700 "$SPOOL_DIR" 2>/dev/null || true
+
+spool_alert() {
+    local reason="$1"
+    local file="$SPOOL_DIR/$(date -u +%Y%m%dT%H%M%S)-$KIND.txt"
     {
         echo "Subject: $SUBJECT"
         echo "Kind:    $KIND"
         echo "Host:    $HOSTNAME_STR"
         echo "Time:    $TS"
-        echo "(spooled — backend container unavailable for direct SMTP)"
+        echo "Reason:  $reason"
         echo "---"
         echo "$BODY"
-    } > "$SPOOL_FILE"
-    echo "spooled alert to $SPOOL_FILE (backend container down)" >&2
+    } > "$file" 2>/dev/null || return 1
+    echo "spooled alert to $file ($reason)" >&2
+}
+
+if ! docker ps --format '{{.Names}}' | grep -qx leadpeek-backend-1; then
+    spool_alert "backend container not running"
     exit 0
 fi
+
+# Send via the backend container's SMTP. On ANY failure (docker exec error,
+# Python error, missing creds, network error, Stalwart down), spool to disk
+# rather than silently dropping the alert.
+TMP_OUT=$(mktemp /tmp/r18_alert_out.XXXXXX)
+trap 'rm -f "$TMP_OUT"' EXIT
 
 printf '%s' "$BODY" | docker exec -i \
     -e WATCHDOG_SUBJECT="$SUBJECT" \
     -e WATCHDOG_KIND="$KIND" \
     -e WATCHDOG_HOST="$HOSTNAME_STR" \
     -e WATCHDOG_TS="$TS" \
-    leadpeek-backend-1 python3 - <<'PYEOF'
+    leadpeek-backend-1 python3 - >"$TMP_OUT" 2>&1 <<'PYEOF'
 import os, smtplib, ssl, sys
 from email.mime.text import MIMEText
 
@@ -127,3 +133,12 @@ with smtplib.SMTP(host, port, timeout=20) as s:
     s.sendmail(sender, [to], msg.as_string())
 print(f"r18 alert sent to {to} ({kind})")
 PYEOF
+EXEC_RC=$?
+
+if [ "$EXEC_RC" = "0" ]; then
+    cat "$TMP_OUT" >&2
+    exit 0
+fi
+
+spool_alert "smtp/python error rc=$EXEC_RC: $(tail -3 "$TMP_OUT" 2>/dev/null | tr '\n' ' ')"
+exit 0

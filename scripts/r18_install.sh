@@ -86,6 +86,32 @@ done
 log "systemctl daemon-reload"
 systemctl daemon-reload
 
+# Ensure backup_user has the pg_signal_backend role grant. Without it,
+# pg_cancel_backend() and pg_terminate_backend() called by the watchdogs
+# silently no-op, neutering the entire pg_wal cancel + Tier-2 terminate
+# defense chain. backup_user is created without superuser, so this grant
+# must be explicit.
+log "ensuring GRANT pg_signal_backend TO backup_user"
+sudo -u postgres psql -X -At -d postgres -c \
+    "DO \$\$ BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='backup_user') THEN
+            GRANT pg_signal_backend TO backup_user;
+        END IF;
+    END \$\$;" >/dev/null 2>&1 \
+    || log "WARN: could not run GRANT pg_signal_backend (cluster reachable?). Run manually: sudo -u postgres psql -c 'GRANT pg_signal_backend TO backup_user;'"
+
+# Verify backup_user effectively has the grant
+GRANT_OK=$(sudo -u postgres psql -X -At -tAc \
+    "SELECT pg_has_role('backup_user','pg_signal_backend','MEMBER')" 2>/dev/null || echo "")
+if [ "$GRANT_OK" = "t" ]; then
+    log "backup_user has pg_signal_backend (cancel/terminate will work)"
+else
+    log "WARN: backup_user does NOT have pg_signal_backend; pgwal/longtx/tier2 cancellations will silently no-op"
+fi
+
+# Ensure the persistent alert spool dir exists with tight perms
+install -d -m 700 /var/spool/leadpeek-alerts
+
 # --- 4. report -------------------------------------------------------------
 
 log "=== R18 staging COMPLETE (Phase 2a + 2b) ==="

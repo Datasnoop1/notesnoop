@@ -31,6 +31,11 @@ log() { printf '%s %s\n' "$(ts)" "$*" | tee -a "$LOG"; }
 exec 9>"$LOCK"
 flock -n 9 || exit 0
 
+# Log a tick on every invocation so the meta-watchdog sees fresh mtime even
+# when there's nothing to cancel. Without this line, the meta would alert
+# "stale" forever when the cluster has no long transactions.
+log "tick: scanning for long transactions"
+
 [ -f /etc/leadpeek/backup.env ] || { log "/etc/leadpeek/backup.env missing"; exit 0; }
 # shellcheck disable=SC1091
 set -a; . /etc/leadpeek/backup.env; set +a
