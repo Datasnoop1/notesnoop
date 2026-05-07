@@ -47,6 +47,12 @@ _CLERK_ALLOWED_ALGS = {"RS256"}
 # Used in get_clerk_user_from_payload() — best-effort PATCH timeout.
 _CLERK_PATCH_TIMEOUT_S = 5.0
 
+# Used by _fetch_email_from_clerk() — short timeout because every miss
+# from the clerk_user_map.email cache pays this latency on the request
+# path. After the first hit per user the email is cached in Postgres
+# and this never runs again until that row is wiped.
+_CLERK_USER_LOOKUP_TIMEOUT_S = 5.0
+
 
 def is_clerk_enabled() -> bool:
     """Phase 3 router uses this to decide whether to attempt Clerk verification."""
@@ -164,6 +170,61 @@ def verify_clerk_jwt(token: str) -> dict:
 # ---------------------------------------------------------------------------
 # Self-heal: clerk_user_map lookup + atomic write on miss
 # ---------------------------------------------------------------------------
+
+
+def _fetch_email_from_clerk(clerk_sub: str) -> Optional[str]:
+    """Look up the primary email address for a Clerk user via the API.
+
+    Clerk's default session JWT does NOT include an email claim, so we
+    can't get it from the token alone. This is the fallback that runs
+    on the first request from each user after their clerk_user_map.email
+    is NULL. Subsequent requests read the cached value from the column.
+
+    Returns the lowercased email string on success, None on any failure
+    (network error, missing/empty Clerk response, missing secret key).
+    """
+    if not CLERK_SECRET_KEY or not clerk_sub:
+        return None
+    try:
+        resp = httpx.get(
+            f"https://api.clerk.com/v1/users/{clerk_sub}",
+            headers={"Authorization": f"Bearer {CLERK_SECRET_KEY}"},
+            timeout=_CLERK_USER_LOOKUP_TIMEOUT_S,
+        )
+    except Exception as e:
+        logger.warning("Clerk user lookup raised: %s", e)
+        return None
+
+    if resp.status_code != 200:
+        logger.warning(
+            "Clerk user lookup failed: status=%s body=%s",
+            resp.status_code,
+            (resp.text or "")[:200],
+        )
+        return None
+
+    try:
+        body = resp.json()
+    except Exception:
+        return None
+
+    primary_id = body.get("primary_email_address_id")
+    for addr in body.get("email_addresses") or []:
+        if not isinstance(addr, dict):
+            continue
+        if primary_id and addr.get("id") == primary_id:
+            ea = addr.get("email_address")
+            if isinstance(ea, str) and ea:
+                return ea.strip().lower()
+
+    # Fallback: take the first email address if there is no primary set.
+    for addr in body.get("email_addresses") or []:
+        if isinstance(addr, dict):
+            ea = addr.get("email_address")
+            if isinstance(ea, str) and ea:
+                return ea.strip().lower()
+
+    return None
 
 
 def _patch_clerk_external_id(clerk_sub: str, datasnoop_user_id: str) -> bool:
@@ -306,7 +367,10 @@ def get_clerk_user_from_payload(
     if not sub:
         raise JWTError("Clerk payload missing sub")
 
-    # Email may live under a few claim names depending on JWT template.
+    # Email may live under a few claim names if a custom JWT template was
+    # configured. Clerk's default session token has no email, so for a
+    # standard install this is None — we resolve it from clerk_user_map
+    # (cached) or Clerk's API (lazy fill) below.
     email = (
         payload.get("email")
         or payload.get("primary_email_address")
@@ -314,31 +378,69 @@ def get_clerk_user_from_payload(
     )
 
     datasnoop_id: Optional[str] = None
+    cached_email: Optional[str] = None
 
     # Lookup. Use the supplied conn if given (lets tests inject a mock).
     try:
         if conn is not None:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT datasnoop_user_id FROM clerk_user_map WHERE clerk_sub = %s",
+                    "SELECT datasnoop_user_id, email FROM clerk_user_map WHERE clerk_sub = %s",
                     (sub,),
                 )
                 row = cur.fetchone()
                 if row:
                     datasnoop_id = str(row[0])
+                    cached_email = row[1] if len(row) > 1 else None
         else:
             from db import fetch_one
             row = fetch_one(
-                "SELECT datasnoop_user_id FROM clerk_user_map WHERE clerk_sub = %s",
+                "SELECT datasnoop_user_id, email FROM clerk_user_map WHERE clerk_sub = %s",
                 (sub,),
             )
             if row:
                 datasnoop_id = str(row.get("datasnoop_user_id"))
+                cached_email = row.get("email")
     except Exception:
         logger.exception("clerk_user_map lookup failed")
 
+    # If the JWT didn't include email, fall back to clerk_user_map's
+    # cached column. If still missing, fetch once from Clerk and write
+    # back. This is the path that always runs on production, since
+    # Clerk's default JWT template carries no email claim.
+    if not email:
+        email = cached_email
+    if not email:
+        email = _fetch_email_from_clerk(sub)
+        if email and datasnoop_id:
+            try:
+                from db import get_conn
+                with get_conn() as cache_conn:
+                    with cache_conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE clerk_user_map SET email = %s WHERE clerk_sub = %s AND email IS DISTINCT FROM %s",
+                            (email, sub, email),
+                        )
+                    cache_conn.commit()
+            except Exception:
+                logger.exception("clerk_user_map.email cache write failed")
+
     if not datasnoop_id:
         datasnoop_id = _self_heal_assign_uuid(sub, email)
+        # Self-heal just inserted the row — write the email we have so
+        # subsequent requests skip the Clerk API call.
+        if email and datasnoop_id:
+            try:
+                from db import get_conn
+                with get_conn() as cache_conn:
+                    with cache_conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE clerk_user_map SET email = %s WHERE clerk_sub = %s AND email IS NULL",
+                            (email, sub),
+                        )
+                    cache_conn.commit()
+            except Exception:
+                logger.exception("clerk_user_map.email post-heal write failed")
 
     return {
         "id": datasnoop_id,
