@@ -2,6 +2,39 @@ import { createClient } from "./supabase";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
+const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
+
+/**
+ * Returns a Bearer token for backend API calls, picking the right provider
+ * based on NEXT_PUBLIC_USE_CLERK. Browser-only — returns null on the server.
+ *
+ * Phase 5 of the Clerk migration: backend's auth router already accepts
+ * tokens from either provider (routes by JWT iss claim), so this just
+ * controls which token the frontend sends.
+ */
+export async function getAuthToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  if (USE_CLERK) {
+    // Clerk's frontend SDK exposes `window.Clerk`. session.getToken() returns
+    // the standard Clerk session token (RS256, JWKS-verifiable) the backend
+    // verifies via auth_clerk.verify_clerk_jwt.
+    const w = window as unknown as { Clerk?: { session?: { getToken: () => Promise<string | null> } } };
+    if (!w.Clerk?.session) return null;
+    try {
+      return await w.Clerk.session.getToken();
+    } catch {
+      return null;
+    }
+  }
+  try {
+    const supabase = createClient();
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Custom event fired when the backend returns a 429 tier limit response. */
 export interface LimitExceededDetail {
   tier: "guest" | "registered";
@@ -41,16 +74,13 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     ...(init?.headers as Record<string, string>),
   };
 
-  // Attach auth token if available (only in browser)
+  // Attach auth token if available (only in browser).
+  // When NEXT_PUBLIC_USE_CLERK=true, pull from Clerk's window.Clerk session;
+  // otherwise from Supabase. Both branches fail-soft to no-token if unavailable.
   if (typeof window !== "undefined") {
-    try {
-      const supabase = createClient();
-      const { data } = await supabase.auth.getSession();
-      if (data.session?.access_token) {
-        headers["Authorization"] = `Bearer ${data.session.access_token}`;
-      }
-    } catch {
-      // No auth available — continue without token
+    const token = await getAuthToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
     }
   }
 

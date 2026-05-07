@@ -20,6 +20,9 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
+import { getAuthToken } from "@/lib/api";
+
+const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 
 /** Routes that should always render without the staging admin-only blocker.
  *  Public demos / share pages that external viewers must reach regardless
@@ -64,9 +67,10 @@ export default function StagingGate({ children }: { children: React.ReactNode })
 
     async function check() {
       try {
-        const supabase = createClient();
-        const { data } = await supabase.auth.getSession();
-        const token = data.session?.access_token;
+        // Use the unified auth-token helper so we send the Clerk token when
+        // USE_CLERK=true and the Supabase token otherwise. Backend's auth
+        // router accepts both (routes by JWT iss).
+        const token = await getAuthToken();
 
         const res = await fetch("/api/me/is-admin", {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -95,7 +99,20 @@ export default function StagingGate({ children }: { children: React.ReactNode })
 
     check();
 
-    // Re-check when auth state flips (sign in / sign out).
+    // Re-check when auth state flips (sign in / sign out). On the Clerk
+    // path, Clerk emits its own session events; for now we just re-check
+    // periodically via the React effect re-run when the user signs in/out
+    // (Clerk's nav <UserButton /> flow already navigates, which retriggers
+    // the effect). On the Supabase path, listen for onAuthStateChange.
+    if (USE_CLERK) {
+      // Clerk handles auth state via its own provider; staging-gate
+      // re-checks naturally on route changes (via pathname dep) and on
+      // initial mount. No additional subscription needed for the
+      // Phase 5 staging smoke test.
+      return () => {
+        cancelled = true;
+      };
+    }
     const supabase = createClient();
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
       check();

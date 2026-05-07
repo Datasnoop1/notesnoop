@@ -11,10 +11,36 @@ import { Separator } from "@/components/ui/separator";
 import { useTranslation } from "@/components/language-provider";
 import { Lock } from "lucide-react";
 import Link from "next/link";
+import { SignIn } from "@clerk/nextjs";
+
+const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 
 type Mode = "login" | "signup" | "forgot";
 
+function ClerkLoginPage() {
+  // Clerk's hosted <SignIn /> handles email + password, Google OAuth,
+  // LinkedIn OIDC, magic-link, and password reset all in one component.
+  // Embedded view; redirects back to "/" after successful sign-in.
+  return (
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4">
+      <SignIn
+        routing="hash"
+        signUpUrl="/login#sign-up"
+        forceRedirectUrl="/"
+        signUpForceRedirectUrl="/"
+      />
+    </div>
+  );
+}
+
 export default function LoginPage() {
+  if (USE_CLERK) {
+    return <ClerkLoginPage />;
+  }
+  return <SupabaseLoginPage />;
+}
+
+function SupabaseLoginPage() {
   const router = useRouter();
   const supabase = createClient();
   const { t } = useTranslation();

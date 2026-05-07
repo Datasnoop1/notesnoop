@@ -22,6 +22,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase";
+import { getAuthToken } from "@/lib/api";
+
+const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 import { EnrichmentDashboard } from "@/components/admin/enrichment-dashboard";
 import { ReadinessPanel } from "@/components/admin/readiness-panel";
 import { TractionDeep } from "@/components/admin/traction-deep";
@@ -367,9 +370,7 @@ async function adminFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
-  const supabase = createClient();
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  const token = await getAuthToken();
   if (!token) throw new Error("Not authenticated");
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -775,9 +776,23 @@ export default function AdminPanel() {
 
   const loadData = useCallback(async () => {
     try {
-      const supabase = createClient();
-      const { data: sessionData } = await supabase.auth.getSession();
-      setMyEmail(sessionData.session?.user?.email || "");
+      // Pull email from whichever auth provider is active. On Clerk,
+      // window.Clerk.user.primaryEmailAddress is the source; on Supabase,
+      // session.user.email. Falls back to empty string if neither exists.
+      const w = typeof window !== "undefined"
+        ? (window as unknown as { Clerk?: { user?: { primaryEmailAddress?: { emailAddress?: string }; emailAddresses?: Array<{ emailAddress?: string }> } } })
+        : null;
+      let email = "";
+      if (USE_CLERK && w?.Clerk?.user) {
+        email = w.Clerk.user.primaryEmailAddress?.emailAddress
+          ?? w.Clerk.user.emailAddresses?.[0]?.emailAddress
+          ?? "";
+      } else {
+        const supabase = createClient();
+        const { data: sessionData } = await supabase.auth.getSession();
+        email = sessionData.session?.user?.email || "";
+      }
+      setMyEmail(email);
 
       // Fire heavy data (activity, insights, usage, traction, etc.) in
       // PARALLEL with core data instead of waiting for core to finish.

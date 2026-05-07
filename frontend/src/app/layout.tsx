@@ -15,11 +15,9 @@ import FooterTranslated from "@/components/footer-translated";
 import StagingGate from "@/components/staging-gate";
 import "./globals.css";
 
-// Phase 2 Clerk migration — gated by NEXT_PUBLIC_USE_CLERK.
-// When `true`, ClerkProvider wraps the existing tree so Clerk hooks work.
-// When `false` (the production default), the tree renders exactly as before
-// and the Supabase auth path is unchanged.
-const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
+// Phase 5: ClerkProvider always renders so Clerk hooks called by descendants
+// (login page, nav) don't violate Rules of Hooks regardless of the
+// USE_CLERK gate. The actual auth-path switch lives in those descendants.
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans" });
@@ -148,11 +146,16 @@ export default function RootLayout({
     </html>
   );
 
-  // Phase 2: when USE_CLERK is true, wrap the existing tree in ClerkProvider so
-  // Clerk hooks/components work. When false (production default), render the
-  // tree exactly as before — Supabase path is byte-identical to pre-PR.
-  if (USE_CLERK) {
-    return <ClerkProvider>{tree}</ClerkProvider>;
-  }
-  return tree;
+  // Phase 5: ClerkProvider must always be in the React tree so any descendant
+  // that conditionally calls Clerk hooks (e.g. components/nav.tsx with
+  // useClerkUser) doesn't violate Rules of Hooks. When USE_CLERK=false the
+  // provider sits dormant — it doesn't render anything that affects the
+  // Supabase-path UI, but its context is available so Clerk hooks resolve to
+  // "not signed in" instead of throwing.
+  //
+  // The publishable key needs to be present at build time even when
+  // USE_CLERK=false (build-time NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY); a
+  // placeholder pk_test_xxx value is sufficient — Clerk only initializes
+  // network calls when an actual sign-in/up flow runs.
+  return <ClerkProvider>{tree}</ClerkProvider>;
 }

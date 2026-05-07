@@ -19,6 +19,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { createClient } from "@/lib/supabase";
+import { useUser as useClerkUser, useClerk } from "@clerk/nextjs";
+
+const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 import FeedbackButtons from "@/components/feedback-buttons";
 import LanguageSwitcher from "@/components/language-switcher";
 import { useTranslation } from "@/components/language-provider";
@@ -46,7 +49,28 @@ export default function Nav() {
     { label: t("nav.screener"), href: "/screener" },
   ];
 
+  // Clerk path: useUser hook always called (it's safe — only resolves when
+  // ClerkProvider is in the tree, which it is when USE_CLERK=true). When
+  // USE_CLERK=false, ClerkProvider isn't in the tree and useClerkUser still
+  // returns the unauthenticated default; we ignore it and rely on Supabase.
+  const clerkUserHook = useClerkUser();
+  const clerkSignOut = useClerk().signOut;
+
   useEffect(() => {
+    if (USE_CLERK) {
+      // Mirror Clerk user → SupabaseUser-shaped object so the rest of the
+      // component (which expects { email }) keeps working unchanged.
+      const cu = clerkUserHook.user;
+      if (clerkUserHook.isLoaded && cu) {
+        const email = cu.primaryEmailAddress?.emailAddress
+          ?? cu.emailAddresses?.[0]?.emailAddress
+          ?? "";
+        setUser({ id: cu.id, email } as unknown as SupabaseUser);
+      } else if (clerkUserHook.isLoaded) {
+        setUser(null);
+      }
+      return; // skip Supabase wiring entirely
+    }
     const supabase = createClient();
     supabase.auth.getUser()
       .then(({ data }) => setUser(data.user))
@@ -63,7 +87,7 @@ export default function Nav() {
       }
     );
     return () => subscription.unsubscribe();
-  }, []);
+  }, [clerkUserHook.isLoaded, clerkUserHook.user]);
 
   useEffect(() => {
     if (!user) { setNotifCount(0); setNotifs([]); return; }
@@ -98,6 +122,11 @@ export default function Nav() {
   }, [showNotifs]);
 
   async function handleSignOut() {
+    if (USE_CLERK) {
+      await clerkSignOut({ redirectUrl: "/login" });
+      setUser(null);
+      return;
+    }
     const supabase = createClient();
     await supabase.auth.signOut();
     setUser(null);
