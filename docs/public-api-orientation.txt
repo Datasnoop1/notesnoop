@@ -1,0 +1,177 @@
+DataSnoop Public API — Internal Orientation
+============================================
+
+Purpose: a fresh Claude session should be able to read this file and
+skip the discovery phase. For the customer-facing spec see docs/api.md.
+
+Last refreshed: 2026-05-07
+Live key state: snapshot below — refresh with the command at the bottom.
+
+
+WHAT IT IS
+----------
+Read-only HTTP API at /api/v1/*. B2B credit lookups for Belgian
+companies by VAT/CBE. Status: invite-only test, free, since
+2026-04-25.
+
+  Customer doc        docs/api.md
+  Implementation      backend/routers/public_api.py
+  Issuance script     scripts/issue_api_key.py
+  Schema migration    migrations/0011_runtime_ddl_baseline_routers_public_api.sql
+
+
+ENDPOINTS
+---------
+GET /api/v1/health
+    Unauthenticated. Returns
+    {"status":"ok","service":"datasnoop-public-api","version":"v1"}.
+
+GET /api/v1/company/{vat}/financials?years=N
+    Auth: Bearer token. years: 1..20 (default 2).
+    VAT input accepts BE0752984076 / 0752984076 / 0752.984.076
+    / "0752 984 076".
+    Returns: company {vat,name,legalForm} + financials (columns + data
+    rows) + meta (currency, source, lastUpdated, filingModel, units).
+    Ratios mirror frontend/src/app/company/[cbe]/_tabs/credit-tab.tsx.
+
+
+AUTH MODEL
+----------
+Token format: dsk_live_<32 base64url chars>  (~192 bits entropy)
+  - "dsk_" prefix is a deliberate grep marker for leak detection.
+  - "live" is the env tag; "test" is reserved.
+
+Storage in api_keys: only the SHA-256 HASH is persisted.
+  Columns: id, key_hash (UNIQUE), key_prefix (first 12 chars, for
+  operator identification), label, created_at, disabled_at,
+  daily_cap (default 10000), notes.
+
+The raw token is shown ONCE by issue_api_key.py and never recoverable.
+If lost: set disabled_at and re-issue.
+
+Validation flow (require_api_key in public_api.py):
+  1. Authorization: Bearer <token>          -> 401 missing_credentials
+  2. SHA-256 lookup against key_hash         -> 401 invalid_credentials
+  3. disabled_at IS NOT NULL                 -> 403 key_disabled  (logged)
+  4. limiter.check(apikey:{id}, 60, 60s)     -> 429 rate_limited   (logged)
+  5. COUNT(api_call_log) over 24h vs cap     -> 429 daily_cap_exceeded (logged)
+
+
+MIDDLEWARE BYPASS
+-----------------
+This router is a third auth surface (not Supabase JWT, not anonymous).
+backend/main.py has explicit bypass entries so /api/v1/* paths skip
+the rate-limit / activity-log / bot-filter / staging-gate middlewares.
+If you change those middlewares, double-check the bypass list still
+matches.
+
+
+AUDIT LOG
+---------
+Table: api_call_log
+  Columns: api_key_id (FK), vat_queried, endpoint, status_code,
+           latency_ms, created_at
+
+Written by _log_call() on every authenticated request — success or
+failure — wrapped in try/except so a logging failure never breaks
+the request. Anonymous failures (unknown/missing tokens) are NOT
+logged because there's no FK target.
+
+The daily-cap check reads back from this table. If api_call_log
+writes silently fail, the cap stops enforcing for that key.
+
+
+ERROR ENVELOPE
+--------------
+All errors:
+  { "detail": { "error": "<machine_code>", "message": "<human>" } }
+
+  400 invalid_vat
+  401 missing_credentials | invalid_credentials
+  403 key_disabled
+  404 company_not_found
+  429 rate_limited | daily_cap_exceeded
+  500 server_error
+
+A company with no NBB filings returns 200 with financials.data = []
+and meta.yearsReturned = 0 — NOT a 404.
+
+
+ISSUING A NEW KEY
+-----------------
+Anywhere with DATABASE_URL (server, or via docker exec):
+
+  python scripts/issue_api_key.py \
+      --label "Customer X webshop" \
+      --daily-cap 10000 \
+      --notes "contact: ops@example.com"
+
+Prints the raw dsk_live_… token ONCE. Hand to the customer and copy
+nowhere persistent.
+
+
+REVOKING / ROTATING
+-------------------
+There is no script. Run on prod:
+
+  UPDATE api_keys SET disabled_at = NOW() WHERE id = <id>;
+
+Then re-issue with the script if continued access is needed.
+
+
+LIVE KEY STATE  (snapshot 2026-05-07)
+-------------------------------------
+ACTIVE
+  id=3  dsk_live_nKd…  feneko key   cap=10000  created 2026-04-25
+  id=4  dsk_live_vWB…  ascot key    cap=25000  created 2026-05-02
+                                    (note says emailed 2026-04-29 —
+                                     likely rotated; confirm if it
+                                     matters)
+
+RETIRED (disabled same day issued, 2026-04-25)
+  id=1  dsk_live_Cbx…  STAGING SMOKE TEST  cap=50
+  id=2  dsk_live_tvc…  datasnoop pilot     cap=10000
+
+
+REFRESHING LIVE STATE
+---------------------
+Postgres runs on the Hetzner host (NOT in Docker). Easiest path is
+the backend container's existing db helper — avoids any DATABASE_URL
+on stdout (memory rule: never echo DB URL into the OneDrive-synced
+transcript):
+
+  HETZNER_IP=$(grep -E '^HETZNER_IP=' /path/to/.env | cut -d= -f2)
+  ssh -i ~/.ssh/hetzner_leadpeek root@$HETZNER_IP \
+    "docker exec leadpeek-backend-1 python -c \
+     \"from db import fetch_all; \
+       [print(r) for r in fetch_all( \
+         'SELECT id, key_prefix, label, daily_cap, \
+                 created_at::date, disabled_at, notes \
+          FROM api_keys ORDER BY id')]\""
+
+Per-key call volume in the last 24h:
+
+  SELECT api_key_id, COUNT(*)
+  FROM api_call_log
+  WHERE created_at > NOW() - INTERVAL '1 day'
+  GROUP BY api_key_id ORDER BY 1;
+
+
+GOTCHAS
+-------
+- VAT body regex (_VAT_BODY_RE in public_api.py) tightens normalisation
+  by rejecting strings with embedded letters (e.g. "abc1234567890def")
+  that clean_cbe() would otherwise silently coerce to a 10-digit CBE.
+  The documented 400 invalid_vat depends on it. Don't loosen.
+- Per-minute limiter is in-memory. Multiple backend instances would
+  each carry their own counter, so a 60/min cap effectively becomes
+  60*N/min. Swap for Redis if/when scaled horizontally.
+- _ensure_schema() is now a no-op (process-flag stub). The schema is
+  managed by migrations. Don't reintroduce DDL there.
+- DISTINCT ON (fiscal_year) ... ORDER BY fiscal_year DESC,
+  deposit_date DESC NULLS LAST collapses amendments to the freshest
+  filing per year. Required when a company has multiple deposits for
+  the same year.
+- Percentages (equityRatio, roe, ebitdaMargin) are returned in the
+  51.5 style — not 0.515. Customers shouldn't divide by 100 again.
+  Units declared in meta.units.

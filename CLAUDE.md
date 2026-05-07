@@ -39,6 +39,13 @@ It covers both pipelines (daily batch + historical backload), the
 candidate-selection logic, the KBO juridical-form code mapping (with known
 gotchas), coverage state, and the full change history.
 
+If your task touches the public API (`/api/v1/*`, `api_keys`, the
+`dsk_live_…` token format, `scripts/issue_api_key.py`), read
+[`docs/public-api-orientation.txt`](docs/public-api-orientation.txt)
+first. Internal orientation: auth/storage/limits, error envelope,
+issuance + revocation, live key snapshot, and the refresh command.
+The customer-facing spec is [`docs/api.md`](docs/api.md).
+
 ## Tech Stack
 
 - **Database**: PostgreSQL (`DATABASE_URL` env var). SQLite era is over.
