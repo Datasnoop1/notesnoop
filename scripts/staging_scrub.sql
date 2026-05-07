@@ -27,6 +27,8 @@
 -- public_reference: _bt_vf_stage_d_backup_participating_interest, _bt_vf_stage_d_backup_shareholder
 -- public_reference: governance_load_log, person, person_merge_log
 -- derived_rebuildable: ownership_edge, person_link
+-- user_state: clerk_user_map
+-- derived_rebuildable: webhook_log, clerk_pending_sync
 -- SCRUB_INVENTORY_END
 --
 -- Classes:
@@ -67,7 +69,8 @@ DECLARE
         'staatsblad_bulk_queue',
         'staatsblad_llm_queue',
         'user_digest_log',
-        'user_roles'
+        'user_roles',
+        'clerk_user_map'
     ];
     present_tables text[];
 BEGIN

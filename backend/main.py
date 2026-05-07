@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.background import BackgroundTask, BackgroundTasks
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api, admin_phase22
+from routers import dashboard, screener, companies, stats, people, favourites, feedback, admin, polls, stripe_pay, staatsblad, tier_config, graveyard, me, bulk_import, changes, open_data, staatsblad_events, search, admin_enrichment, public_api, admin_phase22, clerk_webhook
 from auth import ensure_jwks_bootstrapped
 from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, RedisRateLimiter
 from db import ensure_trgm_setup, ensure_phase22_schema
@@ -205,7 +205,9 @@ class SessionMiddleware(BaseHTTPMiddleware):
 # ---------------------------------------------------------------------------
 
 class ActivityLogMiddleware(BaseHTTPMiddleware):
-    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/status/")
+    # `/api/_auth/clerk-webhook` is a Svix-authed webhook (no Bearer token,
+    # no user identity); logging it into activity_log would just be noise.
+    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/status/", "/api/_auth/clerk-webhook")
     # `/api/v1/*` (public API) has its own per-key audit log in
     # `api_call_log`; double-logging here would just bloat activity_log
     # without adding signal.
@@ -436,7 +438,7 @@ def _resolve_user_tier(email: str) -> str:
 class TierLimitMiddleware(BaseHTTPMiddleware):
     """Enforce daily usage limits per user tier (guest / registered / premium)."""
 
-    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/site-config", "/api/status/")
+    SKIP_PATHS = ("/api/health", "/api/polls/active", "/api/dashboard", "/api/site-config", "/api/status/", "/api/_auth/clerk-webhook")
     # `/api/v1/*` is the customer-facing public API. It enforces its own
     # auth (API key) and its own caps (60/min + daily) so the user-tier
     # limiter doesn't apply.
@@ -641,6 +643,9 @@ class StagingGateMiddleware(BaseHTTPMiddleware):
     ALLOWLIST_EXACT = {
         "/api/health",
         "/api/me/is-admin",
+        # Clerk webhook is auth-exempt (Svix signature is the auth). Must be
+        # reachable on staging during Phase 1c webhook smoke-test.
+        "/api/_auth/clerk-webhook",
     }
     # `/api/v1/*` is the customer-facing public API. Auth is by API key
     # (independent of the Supabase login this gate checks for). On staging
@@ -743,7 +748,9 @@ class BotFilterMiddleware(BaseHTTPMiddleware):
     # `/api/v1/*` is server-to-server — Go HTTP clients, libcurl, etc.
     # are legitimate consumers. Auth is by API key, so we don't need
     # UA-based gating here.
-    SKIP_PATHS = ("/api/health", "/api/sitemap/", "/api/status/", "/api/v1/")
+    # `/api/_auth/clerk-webhook` is server-to-server (Clerk → us); the
+    # Svix signature is the auth, no UA-based bot heuristics apply.
+    SKIP_PATHS = ("/api/health", "/api/sitemap/", "/api/status/", "/api/v1/", "/api/_auth/clerk-webhook")
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -789,6 +796,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         method = request.method
 
         if not path.startswith("/api/"):
+            return await call_next(request)
+
+        # Clerk webhook is server-to-server with Svix retries — IP-rate-limiting
+        # it would just turn transient 429s into Svix retry storms. Auth is the
+        # Svix signature inside the handler.
+        if path == "/api/_auth/clerk-webhook":
             return await call_next(request)
 
         # `/api/v1/*` (public API) is keyed by API key, not by JWT/IP.
@@ -865,6 +878,7 @@ app.include_router(search.router)
 app.include_router(admin_enrichment.router)
 app.include_router(admin_phase22.router)
 app.include_router(public_api.router)
+app.include_router(clerk_webhook.router)
 
 # ---------------------------------------------------------------------------
 # Health check

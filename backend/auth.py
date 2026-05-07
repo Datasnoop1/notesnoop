@@ -157,8 +157,45 @@ def _decode_with_audiences(token: str, key, algorithms: list[str]) -> dict:
     raise JWTError("JWT audience verification failed")
 
 
+def _is_clerk_issuer(token: str) -> bool:
+    """Return True if the JWT's `iss` claim matches the Clerk issuer.
+
+    Reads `iss` from the unverified payload — we have not yet checked
+    the signature — but the routing decision is safe because we re-verify
+    `iss` after fetching the right JWKS in either branch. An attacker
+    forging a Clerk-shaped `iss` cannot forge a Clerk signature.
+    """
+    try:
+        from auth_clerk import CLERK_ISSUER, is_clerk_enabled
+        if not is_clerk_enabled():
+            return False
+        unverified = jwt.get_unverified_claims(token)
+        return unverified.get("iss") == CLERK_ISSUER
+    except Exception:
+        return False
+
+
 def _decode_token(token: str) -> dict:
-    """Verify and decode a Supabase JWT."""
+    """Verify and decode a Supabase or Clerk JWT.
+
+    Routing: if the JWT `iss` claim matches CLERK_ISSUER (and Clerk is
+    enabled), verify via auth_clerk.verify_clerk_jwt(). Otherwise fall
+    through to the existing Supabase JWKS / HS256 logic — Supabase
+    callers see no behaviour change.
+    """
+    # Phase 3: route to Clerk verifier when issuer matches.
+    if _is_clerk_issuer(token):
+        try:
+            from auth_clerk import verify_clerk_jwt
+            return verify_clerk_jwt(token)
+        except JWTError as e:
+            logger.warning("Clerk JWT verification failed: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     # Try 1: JWKS (ES256/RS256)
     jwks = _get_jwks()
     if jwks.get("keys"):
@@ -217,17 +254,42 @@ def _decode_token(token: str) -> dict:
     )
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-) -> dict:
-    """Requires a valid Bearer token. Returns user info."""
-    payload = _decode_token(credentials.credentials)
+def _user_from_payload(payload: dict) -> dict:
+    """Map a verified JWT payload to the user dict returned by
+    get_current_user / optional_user.
+
+    Public function signatures don't change between Supabase and Clerk
+    callers. For Clerk we route through auth_clerk.get_clerk_user_from_payload
+    so the `id` field is the canonical DataSnoop UUID (not Clerk's `sub`),
+    matching everything downstream that already runs against Supabase
+    UUIDs.
+    """
+    iss = payload.get("iss") or ""
+    try:
+        from auth_clerk import CLERK_ISSUER, is_clerk_enabled, get_clerk_user_from_payload
+        if is_clerk_enabled() and iss == CLERK_ISSUER:
+            return get_clerk_user_from_payload(payload)
+    except Exception:
+        # If the Clerk path explodes after a successful signature check,
+        # we still have a verified payload — fall through to the generic
+        # mapping so the request isn't blackholed. The webhook + worker
+        # will reconcile state on the next event.
+        logger.exception("Clerk user resolution failed; falling back to payload sub")
+
     return {
         "id": payload.get("sub"),
         "email": payload.get("email"),
         "role": payload.get("role"),
         "payload": payload,
     }
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    """Requires a valid Bearer token. Returns user info."""
+    payload = _decode_token(credentials.credentials)
+    return _user_from_payload(payload)
 
 
 async def optional_user(
@@ -238,11 +300,6 @@ async def optional_user(
         return None
     try:
         payload = _decode_token(credentials.credentials)
-        return {
-            "id": payload.get("sub"),
-            "email": payload.get("email"),
-            "role": payload.get("role"),
-            "payload": payload,
-        }
+        return _user_from_payload(payload)
     except HTTPException:
         return None
