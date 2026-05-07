@@ -254,6 +254,16 @@ def store_structure_data(conn, filing_json, enterprise_number, deposit_key, fisc
     if not filing_json or dry_run:
         return
 
+    # Skip orphan filings: writing governance rows for a CBE that isn't in
+    # the enterprise table creates orphans that block the bitemporal Stage D
+    # NOT-NULL+backfill migration. The next KBO daily update will land the
+    # missing enterprise; this loader can then be re-run for the same filing.
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM enterprise WHERE enterprise_number = %s", (enterprise_number,))
+    if cur.fetchone() is None:
+        log(f"  skipping_orphan_governance_filing cbe={enterprise_number} deposit_key={deposit_key} (enterprise not in KBO yet)")
+        return
+
     # --- Participating Interests (subsidiaries) ---
     for pi in (filing_json.get("ParticipatingInterests") or []):
         ent = pi.get("Entity") or {}

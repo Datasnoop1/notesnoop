@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 import json
+import logging
 import re
 from typing import Any
 
@@ -13,6 +14,8 @@ from ownership_id import (
     clean_cbe as clean_ownership_cbe,
     company_parent,
 )
+
+logger = logging.getLogger(__name__)
 
 
 _ADMIN_COLUMNS = (
@@ -710,6 +713,30 @@ def store_governance_snapshot(
 
     cur = conn.cursor()
     try:
+        # Skip filings whose parent enterprise hasn't been ingested by KBO yet
+        # (or has been dropped). Writing governance rows in that state creates
+        # orphan rows that:
+        #   - block the bitemporal Stage D NOT-NULL+backfill migration (no
+        #     parseable enterprise.start_date to fall back to)
+        #   - aren't reachable from the screener (which joins enterprise)
+        #   - inflate residual NULL valid_from counts forever
+        # The structural fix is to make NBB ingestion gated on KBO presence.
+        # When the next KBO daily update lands the missing enterprise, the
+        # nightly backload will re-process and populate governance correctly.
+        cur.execute("SELECT 1 FROM enterprise WHERE enterprise_number = %s", (cbe,))
+        if cur.fetchone() is None:
+            logger.warning(
+                "skipping_orphan_governance_filing cbe=%s deposit_key=%s "
+                "would_have_written admin=%d sh=%d pi=%d affiliations=%d",
+                cbe,
+                deposit_key,
+                len(rows.get("administrators") or []),
+                len(rows.get("shareholders") or []),
+                len(rows.get("participating_interests") or []),
+                len(rows.get("affiliations") or []),
+            )
+            return counts
+
         has_admin_bitemporal = _table_has_bitemporal_columns(cur, "administrator")
         has_shareholder_bitemporal = _table_has_bitemporal_columns(cur, "shareholder")
         has_pi_bitemporal = _table_has_bitemporal_columns(cur, "participating_interest")

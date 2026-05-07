@@ -703,6 +703,25 @@ async def extract_admins_from_staatsblad(cbe: str):
         if existing and existing["cnt"] > 0:
             return {"extracted": 0, "message": "Company already has administrator data"}
 
+        # Skip orphan extraction: NBB filings sometimes reference CBEs that
+        # haven't been ingested by KBO yet. Writing administrator rows in
+        # that state creates orphans that block bitemporal Stage D and are
+        # unreachable from the screener. The next KBO daily update will
+        # land the missing enterprise; admin extraction can run then.
+        enterprise_row = fetch_one(
+            "SELECT 1 AS one FROM enterprise WHERE enterprise_number = %s",
+            (cbe,),
+        )
+        if not enterprise_row:
+            logger.warning(
+                "skipping_orphan_admin_extract cbe=%s — enterprise not in KBO yet",
+                cbe,
+            )
+            return {
+                "extracted": 0,
+                "message": "Enterprise not yet ingested from KBO; admin extraction skipped",
+            }
+
         if _admin_extract_cache_skip(cbe):
             return {"extracted": 0, "message": "Recently attempted with no result", "cached": True}
 
