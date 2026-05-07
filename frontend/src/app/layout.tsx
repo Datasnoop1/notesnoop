@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, DM_Sans } from "next/font/google";
 import { Geist } from "next/font/google";
+import { ClerkProvider } from "@clerk/nextjs";
 import Nav from "@/components/nav";
 import AdBanner from "@/components/ad-banner";
 import BrandSurvey from "@/components/brand-survey";
@@ -13,6 +14,12 @@ import LimitPopup from "@/components/limit-popup";
 import FooterTranslated from "@/components/footer-translated";
 import StagingGate from "@/components/staging-gate";
 import "./globals.css";
+
+// Phase 2 Clerk migration — gated by NEXT_PUBLIC_USE_CLERK.
+// When `true`, ClerkProvider wraps the existing tree so Clerk hooks work.
+// When `false` (the production default), the tree renders exactly as before
+// and the Supabase auth path is unchanged.
+const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const dmSans = DM_Sans({ subsets: ["latin"], variable: "--font-dm-sans" });
@@ -80,7 +87,7 @@ export const viewport: Viewport = {
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  return (
+  const tree = (
     <html lang="en" className={`${inter.variable} ${dmSans.variable} ${geist.variable} h-full antialiased`}>
       <head>
         {/* AdSense script loaded via AdBanner component — no duplicate here */}
@@ -140,4 +147,12 @@ export default function RootLayout({
       </body>
     </html>
   );
+
+  // Phase 2: when USE_CLERK is true, wrap the existing tree in ClerkProvider so
+  // Clerk hooks/components work. When false (production default), render the
+  // tree exactly as before — Supabase path is byte-identical to pre-PR.
+  if (USE_CLERK) {
+    return <ClerkProvider>{tree}</ClerkProvider>;
+  }
+  return tree;
 }
