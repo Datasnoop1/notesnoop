@@ -27,12 +27,56 @@ GET /api/v1/health
     {"status":"ok","service":"datasnoop-public-api","version":"v1"}.
 
 GET /api/v1/company/{vat}/financials?years=N
+    Scope: lookup (every existing key has it).
     Auth: Bearer token. years: 1..20 (default 2).
     VAT input accepts BE0752984076 / 0752984076 / 0752.984.076
     / "0752 984 076".
     Returns: company {vat,name,legalForm} + financials (columns + data
-    rows) + meta (currency, source, lastUpdated, filingModel, units).
+    rows) + meta (currency, source, lastUpdated, filingModel, units,
+    coldLoad).
     Ratios mirror frontend/src/app/company/[cbe]/_tabs/credit-tab.tsx.
+
+    Cold-lookup auto-fetch: if financial_summary is empty for a KBO
+    company that doesn't carry the PDF_ONLY sentinel, the handler calls
+    the same _do_load() the platform's profile auto-load uses
+    (routers/companies/financials.py) under the shared _LOAD_SEMAPHORE
+    (cap 3 concurrent), then re-queries financial_summary. NBB upstream
+    errors are swallowed — customer gets data:[] not a 5xx. meta.coldLoad
+    flags whether this code path ran. Adds 5-15 s to first lookup.
+
+GET /api/v1/companies?sort=…&limit=…&cursor=…&year=…&min_*=…&juridical_form=…&nace_prefix=…
+    Scope: search (granted per-customer; only Ascot has it today).
+    Auth: Bearer token.
+    Returns ranked + filtered list of companies (max 250/page) plus
+    keyset-pagination cursor.
+    Sort: total_assets / revenue / ebitda × asc / desc (v1; more metrics
+    when their composite indexes ship). NULL metric values are excluded
+    from results uniformly — companies with no filed value never appear
+    in the ranking.
+    Filters: year (switches source from financial_latest to
+    financial_by_year), juridical_form (exact, case-insensitive via
+    LOWER() functional index), nace_prefix (text_pattern_ops B-tree
+    LIKE), and min_* metric thresholds (revenue/total_assets reject 0
+    as a no-op; ebitda/equity/net_profit allow negatives).
+    Cursor: base64(JSON({sort, metric_value, enterprise_number})).
+    Unsigned for v1 — risk explicitly accepted, see plan §4. Sort
+    mismatch returns 400 invalid_cursor.
+    Cap weighting: this endpoint costs ceil(limit / 50) units against
+    the daily cap (1 unit at limit≤50, 5 units at limit=250). /financials
+    costs 1 unit. The cap check sums api_call_log.cost.
+
+
+SCOPES
+------
+Per-key permission set lives in api_keys.scopes (TEXT[]). Two CHECK
+constraints guard it:
+  - api_keys_scopes_not_empty      cardinality(scopes) >= 1
+  - api_keys_scopes_known          scopes <@ ARRAY['lookup','search']
+
+require_scope(name) is the FastAPI dependency factory — validates the
+arg against _VALID_SCOPES at module load time (so a typo fails imports,
+not the customer). Adding a new scope means updating BOTH _VALID_SCOPES
+in code AND the api_keys_scopes_known CHECK in a migration.
 
 
 AUTH MODEL

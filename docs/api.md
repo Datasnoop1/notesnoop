@@ -221,6 +221,149 @@ All errors return JSON with the shape:
 A successful call to a company with no NBB filings returns `200` with
 `financials.data: []` and `meta.yearsReturned: 0` — not a 404.
 
+### Cold-lookup behaviour
+
+If a company exists in the KBO registry but we don't yet have any NBB
+filings cached for it, we trigger an on-demand fetch from the National
+Bank's filing service before responding. This mirrors what happens
+when a logged-in user opens a fresh company profile on the site.
+
+Practical implications:
+
+- **Latency.** A first lookup for a company that nobody has ever
+  fetched can take **5–15 s** while we pull and parse up to five of
+  the most recent JSON-XBRL filings. Subsequent lookups (yours or
+  anyone else's) hit warm data in the tens of ms.
+- **`meta.coldLoad`** is `true` when the response includes data we
+  just fetched on this call, `false` when the response is purely
+  from cache.
+- **Companies that file only PDF returns** (no structured XBRL — common
+  for some pre-2022 micro filers) are remembered after the first
+  attempt; we won't re-hit the NBB for them. You'll get
+  `financials.data: []` quickly.
+- **NBB upstream errors don't fail your call.** If the National Bank
+  rejects our fetch, you still get a `200` with empty `financials.data`
+  rather than a `5xx` — try again later if you need that company.
+- **Daily cap.** A cold lookup still counts as **one** unit against
+  your daily cap, regardless of how many filings we end up loading
+  in the background.
+
+---
+
+## Scopes
+
+Not all keys see all endpoints. Each key is issued with a set of
+**scopes**, and an endpoint will reject a key that lacks the scope it
+needs with `403 scope_denied`.
+
+| Scope    | Endpoints                              |
+|----------|----------------------------------------|
+| `lookup` | `GET /api/v1/company/{vat}/financials` |
+| `search` | `GET /api/v1/companies`                |
+
+Every key issued today has at least `lookup`. `search` is granted on
+request — talk to us if you want it.
+
+---
+
+### `GET /api/v1/companies`
+
+**Scope required:** `search`.
+
+Return a ranked, filtered list of companies. Designed for "give me the
+top N companies that match X" workflows — e.g. *top 100 BVs by total
+assets that did >€1M revenue*.
+
+#### Query parameters
+
+| Name | Type | Default | Notes |
+|------|------|---------|-------|
+| `sort` | string | `total_assets:desc` | `<metric>:<asc\|desc>`. Allowed metrics in v1: `total_assets`, `revenue`, `ebitda`. |
+| `limit` | int | `50` | 1..250 rows per page. |
+| `cursor` | string | — | Opaque pagination token from a previous response's `meta.nextCursor`. |
+| `year` | int | (latest filed) | Restrict to one specific fiscal year (2000..current). |
+| `min_revenue` | int | — | EUR ≥ N. Must be `≥ 1` (a `0` filter is rejected — omit instead). |
+| `min_total_assets` | int | — | EUR ≥ N. Must be `≥ 1`. |
+| `min_ebitda` | int | — | EUR ≥ N. Negative values allowed (filter for losses). |
+| `min_equity` | int | — | EUR ≥ N. Negative values allowed (filter for insolvency). |
+| `min_net_profit` | int | — | EUR ≥ N. Negative values allowed. |
+| `juridical_form` | string | — | Exact, case-insensitive (`BV`, `NV`, `CVBA`, …). |
+| `nace_prefix` | string | — | NACE Rev. 2 left-anchored prefix (`46`, `46.7`, `62.02A`). |
+
+#### Example
+
+```bash
+curl "https://datasnoop.be/api/v1/companies?sort=total_assets:desc&limit=100&juridical_form=BV&min_revenue=1000000" \
+  -H "Authorization: Bearer dsk_live_…"
+```
+
+#### Response (200)
+
+```json
+{
+  "data": [
+    {
+      "vat": "0752984076",
+      "name": "COOVER",
+      "legalForm": "BV",
+      "fiscalYear": 2024,
+      "totalAssets": 800000,
+      "revenue": 1234000,
+      "ebitda": 99000,
+      "equity": 412000,
+      "netProfit": -58000,
+      "fteTotal": 5,
+      "naceCode": "46.731",
+      "city": "Brussels"
+    }
+  ],
+  "meta": {
+    "limit": 100,
+    "sort": "total_assets:desc",
+    "nextCursor": "eyJlIjoiMDc1Mjk4NDA3NiIsIm0iOjgwMDAwMC4wLCJzIjoidG90YWxfYXNzZXRzOmRlc2MifQ",
+    "hasMore": true,
+    "appliedFilters": {
+      "juridicalForm": "BV",
+      "minRevenue": 1000000
+    },
+    "schemaVersion": "1.0",
+    "currency": "EUR"
+  }
+}
+```
+
+#### Pagination
+
+Pass `meta.nextCursor` from one response as `?cursor=…` on the next
+to get the following page. Cursors are bound to the `sort` they were
+issued under — changing `sort` mid-pagination returns
+`400 invalid_cursor`. When no more pages exist `hasMore` is `false`
+and `nextCursor` is absent.
+
+#### Daily cap weighting
+
+Each `/companies` call costs **`ceil(limit / 50)`** units against your
+daily cap, so a max-size search (`limit=250`) costs 5 units. A
+`/financials` call costs 1 unit.
+
+#### NULL metric values
+
+Companies with no value filed for the sort metric do not appear in
+the result, regardless of which page you're on. Sort by a different
+metric or filter to a `?year=` they did file if you need to surface
+them.
+
+#### Errors specific to this endpoint
+
+| HTTP | `error`            | When                                                                |
+|------|--------------------|---------------------------------------------------------------------|
+| 400  | `invalid_sort`     | `sort` not in the allowlist                                         |
+| 400  | `invalid_filter`   | A filter value is out of range / unparseable. `field` names which.  |
+| 400  | `invalid_cursor`   | Cursor malformed, tampered, or issued under a different `sort`     |
+| 403  | `scope_denied`     | Key lacks the `search` scope                                        |
+
+`200` with `data: []` and `hasMore: false` when filters match nothing.
+
 ---
 
 ## Compliance / fair use
