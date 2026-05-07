@@ -18,17 +18,14 @@ const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 type Mode = "login" | "signup" | "forgot";
 
 function ClerkLoginPage() {
-  // Clerk's hosted <SignIn /> handles email + password, Google OAuth,
-  // LinkedIn OIDC, magic-link, and password reset all in one component.
-  // Embedded view; redirects back to "/" after successful sign-in.
+  // Clerk's <SignIn /> in @clerk/nextjs ^7.x renders nothing when given
+  // a routing="hash" + signUpUrl prop combination (it appears to refuse
+  // to mount and silently outputs an empty container). Stripping all
+  // props lets it use Clerk's default virtual routing, which is the
+  // pattern shown in Clerk's quickstart for embedded sign-in.
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4">
-      <SignIn
-        routing="hash"
-        signUpUrl="/login#sign-up"
-        forceRedirectUrl="/"
-        signUpForceRedirectUrl="/"
-      />
+      <SignIn />
     </div>
   );
 }
