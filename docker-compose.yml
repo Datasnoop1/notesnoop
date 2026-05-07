@@ -85,10 +85,13 @@ services:
       # 3,180/hr but Ollama Cloud started returning 429 ("too many
       # concurrent requests") on ~1% of Q2 calls — those CBEs lost their
       # Q2 enrichment and fell back to template. Pulled to 7 to stay
-      # under the per-key concurrency limit so quality stays high. CPU
-      # was 25.8% at 8, expected ~20% at 7. Throughput should land
-      # ~2,000-2,500/hr with near-zero Q2 429s.
-      WORKER_CONCURRENCY: "7"
+      # under the per-key concurrency limit.
+      # 2026-05-05: dropped 7 → 6 alongside scaling to 2 worker replicas
+      # (post-Webshare-outage 548k re-queue). At 2×7 = 14 concurrent we
+      # were eating sustained 429s on deepseek-v4-pro, walking the
+      # fallback chain and losing ~30% throughput per CBE. 2×6 = 12
+      # concurrent is below the per-key cap so net throughput should rise.
+      WORKER_CONCURRENCY: "6"
       WORKER_POLL_INTERVAL_S: "1"
       WORKER_IDLE_SLEEP_S: "15"
       ENRICHMENT_DAILY_BUDGET_USD: "10"

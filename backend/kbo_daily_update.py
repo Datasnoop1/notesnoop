@@ -3,8 +3,8 @@
 Downloads the latest update ZIPs from kbopub.economie.fgov.be,
 applies deletes + inserts to the live database, and refreshes company_info.
 
-Run daily via cron:
-  0 6 * * * cd /opt/datasnoop/backend && python kbo_daily_update.py >> /var/log/kbo_update.log 2>&1
+Run daily via cron (host-side wrapper executes inside backend container):
+  0 6 * * * bash /opt/leadpeek/scripts/kbo_update.sh
 """
 
 import csv
@@ -16,6 +16,7 @@ import time
 import tempfile
 import logging
 from datetime import datetime
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -31,8 +32,45 @@ logging.basicConfig(
 )
 log = logging.getLogger("kbo_updater")
 
-KBO_BASE = "https://kbopub.economie.fgov.be/kbo-open-data/login"
-KBO_DATA = "https://kbopub.economie.fgov.be/kbo-open-data/affiliation/xml/files"
+# KBO Open Data portal endpoints (2026-05-07: auth + URL fix).
+# The portal redirects unauthenticated GETs to /login. Our previous code
+# accidentally relied on this — it landed on the login page, found zero
+# `Update*.zip` links, and silently reported "no updates available". The
+# auth flow below logs in via Spring Security's j_spring_security_check
+# before scraping the file listing at /affiliation/xml?form=.
+KBO_LOGIN_GET    = "https://kbopub.economie.fgov.be/kbo-open-data/login"
+KBO_LOGIN_POST   = "https://kbopub.economie.fgov.be/kbo-open-data/static/j_spring_security_check"
+KBO_FILES_PAGE   = "https://kbopub.economie.fgov.be/kbo-open-data/affiliation/xml?form="
+# Hrefs on the file page are relative (e.g. `files/KboOpenData_..._Update.zip`).
+# This is the base they resolve against.
+KBO_FILES_BASE   = "https://kbopub.economie.fgov.be/kbo-open-data/affiliation/xml/"
+KBO_USER_AGENT   = "Mozilla/5.0 (Datasnoop KBO Updater)"
+
+# Credentials are read from env (KBO_USER, KBO_PASS). Missing creds
+# cause a hard failure rather than the silent "no updates" trap.
+KBO_USER = os.environ.get("KBO_USER", "").strip()
+KBO_PASS = os.environ.get("KBO_PASS", "").strip()
+
+# Safety guards: a single delta should never delete more than these
+# limits (typical KBO daily delta is <1000 rows per table). When any
+# guard trips, abort the extract instead of letting CASCADE wipe child
+# rows or letting an enormous batch wipe historical data. Configure via
+# env per deploy.
+KBO_MAX_ENTERPRISE_DELETE    = int(os.environ.get("KBO_MAX_ENTERPRISE_DELETE",    "1000"))
+KBO_MAX_ESTABLISHMENT_DELETE = int(os.environ.get("KBO_MAX_ESTABLISHMENT_DELETE", "5000"))
+KBO_MAX_BRANCH_DELETE        = int(os.environ.get("KBO_MAX_BRANCH_DELETE",        "1000"))
+
+# Download size cap (zip-bomb / disk-fill defense). KBO daily Update.zip
+# files are typically 0.4–1.5 MB. 256 MB leaves a wide safety margin
+# against any plausible legitimate growth while killing a hostile
+# multi-GB download well before /tmp fills.
+KBO_MAX_DOWNLOAD_BYTES = int(os.environ.get("KBO_MAX_DOWNLOAD_BYTES", str(256 * 1024 * 1024)))
+
+# Hostname the portal must redirect to after login. Defends against a
+# hijacked DNS / MITM that would otherwise present a page with
+# "/affiliation/index" in its URL but on a different host.
+KBO_EXPECTED_HOST = "kbopub.economie.fgov.be"
+
 BATCH_SIZE = 5_000
 
 TABLE_MAP = {
@@ -71,50 +109,147 @@ def get_last_extract():
     return row["n"] or 0
 
 
-def discover_update_zips():
-    """Scrape the KBO open data page for available update ZIP URLs."""
+class KBOAuthError(RuntimeError):
+    """Raised when KBO login fails or credentials are missing.
+
+    Distinct from a generic discovery exception so cron-level handlers
+    (and the operator's nightly health email) can surface auth issues
+    explicitly instead of recording them as 'no updates available'.
+    """
+
+
+def authed_session():
+    """Return a requests.Session that has logged in to the KBO portal.
+
+    Spring Security flow:
+      1. GET /kbo-open-data/login           — get JSESSIONID cookie
+      2. POST /static/j_spring_security_check — submit credentials
+      3. Successful login redirects to /affiliation/index
+
+    Affirmative success check: after the POST + redirect chain, the
+    final URL must be on the expected host AND its path must contain
+    "/affiliation/". Anything else — landing back at /login, an
+    unexpected host, a 5xx, a redirect to nowhere — raises KBOAuthError
+    so the cron emits a non-zero exit code instead of "happy zero with
+    no work done".
+    """
+    if not (KBO_USER and KBO_PASS):
+        raise KBOAuthError(
+            "KBO_USER / KBO_PASS env vars are not set. The daily updater "
+            "cannot authenticate with the KBO portal — silently reporting "
+            "'no updates' would let real changes accumulate undetected. "
+            "Set both vars in /opt/leadpeek/.env.production and restart."
+        )
+    session = requests.Session()
+    session.headers["User-Agent"] = KBO_USER_AGENT
+    # Step 1: prime cookie jar. raise_for_status protects against a 5xx
+    # masquerading as "we're authenticated" later.
+    pre = session.get(KBO_LOGIN_GET, timeout=30)
+    pre.raise_for_status()
+    # Step 2: submit credentials. Spring Security responds 200 on success
+    # (after redirect chain) with the post-login landing page.
+    resp = session.post(
+        KBO_LOGIN_POST,
+        data={"j_username": KBO_USER, "j_password": KBO_PASS},
+        timeout=30,
+        allow_redirects=True,
+    )
+    resp.raise_for_status()
+    # Affirmative success check (host pinned + path required). Anything
+    # else — including landing back on /login, on a 200 with no redirect,
+    # or on a redirected hostname we don't expect — is a hard fail.
+    parsed = urlparse(resp.url)
+    if parsed.hostname != KBO_EXPECTED_HOST or "/affiliation/" not in parsed.path:
+        raise KBOAuthError(
+            f"KBO login failed for user '{KBO_USER}' — expected to land on "
+            f"{KBO_EXPECTED_HOST}/kbo-open-data/affiliation/* but got "
+            f"{parsed.hostname}{parsed.path}. Verify credentials and that "
+            f"the portal hasn't been redesigned again."
+        )
+    log.info("KBO login OK as %s", KBO_USER)
+    return session
+
+
+def discover_update_zips(session=None):
+    """Scrape the authenticated file-listing page for Update ZIP URLs.
+
+    Returns a sorted list of (extract_number, full_url) tuples.
+
+    On any failure — auth, network, parser — raises rather than returning
+    an empty list so the cron job exits with a non-zero status. The old
+    behaviour of swallowing the exception and returning [] caused 22 days
+    of silent data freeze before anyone noticed.
+    """
     log.info("Discovering available update ZIPs from KBO portal...")
-    try:
-        session = requests.Session()
-        # The KBO open data portal requires a session
-        resp = session.get(KBO_DATA, timeout=30, headers={
-            "User-Agent": "Mozilla/5.0 (Datasnoop KBO Updater)"
-        })
-        resp.raise_for_status()
+    if session is None:
+        session = authed_session()
+    resp = session.get(KBO_FILES_PAGE, timeout=30)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+    zips = []
+    for link in soup.find_all("a", href=True):
+        href = link["href"]
+        if not href.endswith("_Update.zip"):
+            continue
+        match = re.search(r"_(\d+)_", href)
+        if not match:
+            continue
+        num = int(match.group(1))
+        if href.startswith("http"):
+            full_url = href
+        elif href.startswith("/"):
+            full_url = "https://kbopub.economie.fgov.be" + href
+        else:
+            # Relative to KBO_FILES_BASE, e.g. "files/KboOpenData_...zip"
+            full_url = KBO_FILES_BASE + href.lstrip("/")
+        zips.append((num, full_url))
+    zips.sort(key=lambda x: x[0])
+    log.info("Found %d update ZIPs on portal", len(zips))
+    if not zips:
+        # Defensive: if we found zero ZIPs but auth succeeded, something
+        # changed at KBO's end (page redesign, account de-subscribed,
+        # etc.). Loud failure beats silent freeze.
+        log.warning(
+            "Authenticated but found zero Update.zip links on the file "
+            "page — investigate: KBO may have redesigned the portal again "
+            "or this account may have been unsubscribed."
+        )
+    return zips
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-        zips = []
-        for link in soup.find_all("a", href=True):
-            href = link["href"]
-            if "Update" in href and href.endswith(".zip"):
-                # Extract extract number from filename
-                match = re.search(r"_(\d+)_", href)
-                if match:
-                    num = int(match.group(1))
-                    full_url = href if href.startswith("http") else f"https://kbopub.economie.fgov.be{href}"
-                    zips.append((num, full_url))
 
-        zips.sort(key=lambda x: x[0])
-        log.info(f"Found {len(zips)} update ZIPs on portal")
-        return zips
-    except Exception as e:
-        log.error(f"Failed to discover update ZIPs: {e}")
-        return []
+def download_zip(url, dest_dir, session=None):
+    """Download a ZIP to a temp dir using an authenticated session.
 
-
-def download_zip(url, dest_dir):
-    """Download a ZIP file to a temporary directory."""
+    Aborts and removes the partial file if the download exceeds
+    KBO_MAX_DOWNLOAD_BYTES — defends against zip-bomb / disk-fill on a
+    malformed or hostile portal response.
+    """
     filename = os.path.basename(url.rstrip("/"))
     dest = os.path.join(dest_dir, filename)
     log.info(f"Downloading {filename}...")
-    resp = requests.get(url, timeout=120, stream=True, headers={
-        "User-Agent": "Mozilla/5.0 (Datasnoop KBO Updater)"
-    })
-    resp.raise_for_status()
-    with open(dest, "wb") as f:
-        for chunk in resp.iter_content(chunk_size=8192):
-            f.write(chunk)
-    size_mb = os.path.getsize(dest) / 1024 / 1024
+    if session is None:
+        session = authed_session()
+    written = 0
+    with session.get(url, timeout=180, stream=True) as resp:
+        resp.raise_for_status()
+        with open(dest, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=64 * 1024):
+                if not chunk:
+                    continue
+                written += len(chunk)
+                if written > KBO_MAX_DOWNLOAD_BYTES:
+                    f.close()
+                    try:
+                        os.remove(dest)
+                    except OSError:
+                        pass
+                    raise RuntimeError(
+                        f"Download {filename} exceeded "
+                        f"KBO_MAX_DOWNLOAD_BYTES={KBO_MAX_DOWNLOAD_BYTES} "
+                        f"after {written} bytes — aborted."
+                    )
+                f.write(chunk)
+    size_mb = written / 1024 / 1024
     log.info(f"Downloaded {filename} ({size_mb:.1f} MB)")
     return dest
 
@@ -396,8 +531,83 @@ def refresh_nace_lookup():
     log.info(f"nace_lookup refreshed in {time.time() - t0:.1f}s")
 
 
+# FK-aware processing order. The KBO schema has:
+#   establishment.enterprise_number -> enterprise.enterprise_number  (CASCADE)
+#   branch.enterprise_number        -> enterprise.enterprise_number  (CASCADE)
+# Other entity-keyed tables (denomination, address, activity, contact)
+# have no formal FK because entity_number is polymorphic.
+#
+# DELETE child rows before parents so a single delta with both an
+# establishment and its parent enterprise in delete files doesn't trip
+# even on temporarily-inconsistent intermediate states. INSERT parents
+# first so child INSERTs don't 23503 if the new parent isn't there yet.
+DELETE_ORDER = (
+    "contact", "address", "denomination", "activity",  # entity_number — no FK
+    "branch", "establishment",                          # FK -> enterprise
+    "enterprise",                                       # FK target
+    "code",                                             # standalone metadata
+)
+INSERT_ORDER = (
+    "code",
+    "enterprise",
+    "establishment", "branch",
+    "denomination", "address", "activity", "contact",
+)
+
+
+def _count_csv_rows(zf, name):
+    """Count data rows in a CSV inside the zip (header excluded)."""
+    n = 0
+    with zf.open(name) as f:
+        reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8"))
+        for _ in reader:
+            n += 1
+    return n
+
+
+# Tables whose pre-flight delete count is checked against an env-tunable
+# cap. (table_name, max_env_var, default_cap). Tables not listed here
+# are unguarded — they're either unbounded by design (code) or have no
+# CASCADE consequences (denomination/address/activity/contact, which
+# are entity_number-keyed and not referenced by other tables).
+_GUARDED_DELETE_TABLES = (
+    ("enterprise",    KBO_MAX_ENTERPRISE_DELETE),
+    ("establishment", KBO_MAX_ESTABLISHMENT_DELETE),
+    ("branch",        KBO_MAX_BRANCH_DELETE),
+)
+
+
+def _check_delete_caps(zf, delete_files, extract_number):
+    """Pre-flight guard. Counts deletes for each guarded table; returns
+    True if all are within their caps, False if any exceed (and logs
+    the offender so the operator can investigate or raise the cap).
+    """
+    for table, cap in _GUARDED_DELETE_TABLES:
+        name = delete_files.get(table)
+        if not name:
+            continue
+        n = _count_csv_rows(zf, name)
+        if n > cap:
+            log.error(
+                "Extract %d wants to delete %d rows from '%s' (cap=%d). "
+                "Aborting before commit. If this is intentional, raise "
+                "the corresponding KBO_MAX_*_DELETE env var in "
+                "/opt/leadpeek/.env.production and re-run.",
+                extract_number, n, table, cap,
+            )
+            return False
+    return True
+
+
 def process_zip(zip_path):
-    """Apply a single update ZIP to the PostgreSQL database atomically."""
+    """Apply a single update ZIP to the PostgreSQL database atomically.
+
+    Phases:
+      1. Sanity guard — count enterprise deletes; abort if > threshold.
+      2. DELETE child rows first (FK-safe even if CASCADE is dropped).
+      3. INSERT parent rows first.
+      4. Stamp kbo_extract_log inside the same transaction.
+    """
     import zipfile
 
     with zipfile.ZipFile(zip_path) as zf:
@@ -438,25 +648,27 @@ def process_zip(zip_path):
             elif base == "code.csv":
                 insert_files["code"] = name
 
+        # Phase 1: row-count guards. Refuse to apply a delta whose
+        # delete counts exceed any of the per-table caps. Protects
+        # against a buggy KBO release or a malformed download
+        # cascade-wiping huge swaths of historical data.
+        if not _check_delete_caps(zf, delete_files, extract_number):
+            return False
+
         # Process all tables in a single transaction for atomicity
         with transaction() as (conn, cur):
-            all_tables = sorted(set(list(delete_files) + list(insert_files)))
-            for table in all_tables:
-                if table not in TABLE_MAP:
-                    log.warning(f"Unknown table '{table}' — skipping")
-                    continue
-
-                t1 = time.time()
-                del_count = 0
-                ins_count = 0
-
-                if table in delete_files:
-                    del_count = apply_deletes(cur, zf, delete_files[table], table)
-
-                if table in insert_files:
-                    ins_count = apply_inserts(cur, zf, insert_files[table], table)
-
-                log.info(f"  {table}: -{del_count:,} +{ins_count:,} ({time.time() - t1:.1f}s)")
+            # Phase 2: DELETEs in child-first order
+            for table in DELETE_ORDER:
+                if table in delete_files and table in TABLE_MAP:
+                    t1 = time.time()
+                    n = apply_deletes(cur, zf, delete_files[table], table)
+                    log.info(f"  DEL {table}: -{n:,} ({time.time() - t1:.1f}s)")
+            # Phase 3: INSERTs in parent-first order
+            for table in INSERT_ORDER:
+                if table in insert_files and table in TABLE_MAP:
+                    t1 = time.time()
+                    n = apply_inserts(cur, zf, insert_files[table], table)
+                    log.info(f"  INS {table}: +{n:,} ({time.time() - t1:.1f}s)")
 
             # Log extract as applied (within same transaction)
             cur.execute(
@@ -474,8 +686,21 @@ def main():
     last_extract = get_last_extract()
     log.info(f"Last applied extract: {last_extract}")
 
+    # Authenticate ONCE, reuse the session for discovery + downloads.
+    # Hard-fail if credentials missing or login rejected — do not let
+    # this regress to the silent "0 updates" trap that lost 22 days.
+    try:
+        session = authed_session()
+    except KBOAuthError as e:
+        log.error("KBO authentication failed: %s", e)
+        sys.exit(2)
+
     # Discover available updates
-    available = discover_update_zips()
+    try:
+        available = discover_update_zips(session=session)
+    except Exception as e:
+        log.error("KBO discovery failed: %s", e)
+        sys.exit(3)
     new_updates = [(num, url) for num, url in available if num > last_extract]
 
     if not new_updates:
@@ -488,7 +713,7 @@ def main():
         applied = 0
         for num, url in new_updates:
             try:
-                zip_path = download_zip(url, tmpdir)
+                zip_path = download_zip(url, tmpdir, session=session)
                 if process_zip(zip_path):
                     applied += 1
                 # Clean up downloaded file
