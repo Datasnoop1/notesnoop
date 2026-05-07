@@ -45,7 +45,7 @@ def parse_inventory(path: Path) -> dict[str, str]:
             invalid.append(klass)
             continue
         for table in [part.strip() for part in rest.split(",") if part.strip()]:
-            if not re.match(r"^[a-z][a-z0-9_]*$", table):
+            if not re.match(r"^[a-z_][a-z0-9_]*$", table):
                 invalid.append(f"{klass}:{table}")
                 continue
             if table in inventory and inventory[table] != klass:

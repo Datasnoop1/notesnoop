@@ -23,6 +23,10 @@
 -- secret: activity_log, api_call_log, api_keys, llm_call_log, query_embedding_cache
 -- business_state: invoice_misclassification_log, invoice_vendor_pattern
 -- business_state: platform_invoice
+-- public_reference: _bt_vf_stage_d_backup_administrator, _bt_vf_stage_d_backup_affiliation
+-- public_reference: _bt_vf_stage_d_backup_participating_interest, _bt_vf_stage_d_backup_shareholder
+-- public_reference: governance_load_log, person, person_merge_log
+-- derived_rebuildable: ownership_edge, person_link
 -- SCRUB_INVENTORY_END
 --
 -- Classes:

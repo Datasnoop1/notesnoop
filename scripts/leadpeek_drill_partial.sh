@@ -110,7 +110,7 @@ for _ in $(seq 1 30); do docker exec "$CONTAINER_NAME" pg_isready -U postgres >/
 
 PGPASSWORD=drill psql -h 127.0.0.1 -p "$PORT" -U postgres -d postgres -tAc "CREATE DATABASE leadpeek_drill" >/dev/null
 PGPASSWORD=drill psql -h 127.0.0.1 -p "$PORT" -U postgres -d leadpeek_drill -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
-CREATE EXTENSION IF NOT EXISTS unaccent;
+CREATE EXTENSION IF NOT EXISTS unaccent;  -- ALLOW-RUNTIME-DDL: drill harness bootstraps an isolated leadpeek_drill DB; not runtime DDL on prod
 CREATE OR REPLACE FUNCTION public.f_unaccent(text)
 RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
 AS $$ SELECT public.unaccent('public.unaccent', $1) $$;
