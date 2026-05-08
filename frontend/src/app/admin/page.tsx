@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase";
 import { getAuthToken } from "@/lib/api";
-import { useUser as useClerkUser } from "@clerk/nextjs";
+import { useAuth as useClerkAuth } from "@clerk/nextjs";
 
 const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 import { EnrichmentDashboard } from "@/components/admin/enrichment-dashboard";
@@ -865,16 +865,16 @@ export default function AdminPanel() {
     }
   }, [commerceLoaded, commerceLoading]);
 
-  // On the Clerk path, getAuthToken() depends on window.Clerk.session
-  // having hydrated. If we run loadData() before that, the very first
-  // call returns no token, taggedFetch throws "Not authenticated", and
-  // the catch handler bounces us to /login — even for legitimate
-  // admins. Gate the initial load on Clerk's `isLoaded` so we always
-  // call getAuthToken() with the session attached. The Supabase path
-  // doesn't need this (createClient() reads localStorage synchronously
-  // before the first render).
-  const { isLoaded: clerkLoaded } = useClerkUser();
-  const ready = USE_CLERK ? clerkLoaded : true;
+  // On the Clerk path, getAuthToken() depends on Clerk's session being
+  // hydrated. useUser().isLoaded flips on user-state hydration, but the
+  // session-token state can lag a tick — long enough for loadData() to
+  // race in, miss the token, throw "Not authenticated", and bounce to
+  // /login. useAuth() exposes both `isLoaded` AND `isSignedIn`, and the
+  // pair only flips after Clerk has resolved the session — at which
+  // point getToken() is safe to call. The Supabase path doesn't need
+  // this (createClient() reads localStorage synchronously).
+  const { isLoaded: clerkLoaded, isSignedIn: clerkSignedIn } = useClerkAuth();
+  const ready = USE_CLERK ? clerkLoaded && clerkSignedIn : true;
 
   useEffect(() => {
     if (!ready) return;

@@ -21,7 +21,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { getAuthToken } from "@/lib/api";
-import { useUser as useClerkUser } from "@clerk/nextjs";
+import { useAuth as useClerkAuth } from "@clerk/nextjs";
 
 const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 
@@ -56,18 +56,18 @@ export default function StagingGate({ children }: { children: React.ReactNode })
   );
   const [state, setState] = useState<GateState>({ kind: "unknown" });
 
-  // On the Clerk path, getAuthToken() returns null until window.Clerk
-  // hydrates. If we run the gate's check before that, the very first
-  // /api/me/is-admin call goes anon → backend returns is_admin=false →
-  // staging blocker kicks in even for legitimate admins. We track
-  // Clerk's `isLoaded` and re-run the effect once it flips, so the
-  // SECOND check carries the real Bearer token.
-  const { isLoaded: clerkLoaded, user: clerkUser } = useClerkUser();
-  // Identity key — also re-runs the effect when the user signs in or
-  // out via the Clerk-rendered nav, which doesn't necessarily change
-  // the pathname.
+  // On the Clerk path, getAuthToken() returns null until Clerk's
+  // session is hydrated. useAuth() flips `isLoaded: true` only after
+  // the SDK has resolved the session — and is the public hook backing
+  // getToken(), so by the time we observe it ready, getAuthToken()
+  // can return a real Bearer. useUser() flips a tick earlier and
+  // racing it past getToken() left the very first /api/me/is-admin
+  // going anon, sticking us in is_admin=false. The userId portion of
+  // the identity key also re-runs the effect on sign-in / sign-out
+  // even when the pathname doesn't change.
+  const { isLoaded: clerkLoaded, userId: clerkUserId } = useClerkAuth();
   const clerkIdentity = USE_CLERK
-    ? `${clerkLoaded ? "loaded" : "boot"}:${clerkUser?.id ?? "none"}`
+    ? `${clerkLoaded ? "loaded" : "boot"}:${clerkUserId ?? "none"}`
     : "n/a";
 
   useEffect(() => {
