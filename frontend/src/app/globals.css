@@ -615,3 +615,52 @@ body {
     border-width: 0.5pt !important;
   }
 }
+
+/*
+ * Clerk <UserProfile /> brand overrides
+ *
+ * Clerk's React `appearance` prop should be enough on paper, but its
+ * stylesheet sometimes wins specificity for these properties.
+ * Belt-and-suspenders: target the cl-* classnames Clerk emits and
+ * pull them onto DataSnoop tokens.  Scope to /account by gating
+ * inside [data-ds-clerk-host] which AccountPage sets on its outer
+ * div, so we don't restyle <SignIn /> on /login.
+ */
+[data-ds-clerk-host] .cl-rootBox,
+[data-ds-clerk-host] .cl-card,
+[data-ds-clerk-host] .cl-cardBox {
+  width: 100% !important;
+  max-width: 100% !important;
+  background-color: #FFFFFF !important;
+  box-shadow: none !important;
+  border: 1px solid #E2E8F2 !important;
+  border-radius: 20px !important;
+  font-family: inherit !important;
+  color: #08132B !important;
+}
+[data-ds-clerk-host] .cl-formButtonPrimary {
+  background-color: #1687E8 !important;
+  color: #FFFFFF !important;
+  text-transform: none !important;
+  font-weight: 500 !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+[data-ds-clerk-host] .cl-formButtonPrimary:hover,
+[data-ds-clerk-host] .cl-formButtonPrimary:focus {
+  background-color: #0F72C8 !important;
+}
+[data-ds-clerk-host] .cl-headerTitle,
+[data-ds-clerk-host] .cl-profileSectionTitleText {
+  color: #08132B !important;
+}
+[data-ds-clerk-host] .cl-headerSubtitle,
+[data-ds-clerk-host] .cl-profileSectionSubtitle,
+[data-ds-clerk-host] .cl-profileSectionContent {
+  color: #5F6B85 !important;
+}
+[data-ds-clerk-host] .cl-profileSectionPrimaryButton,
+[data-ds-clerk-host] .cl-navbarMobileMenuButton {
+  color: #1687E8 !important;
+}
+

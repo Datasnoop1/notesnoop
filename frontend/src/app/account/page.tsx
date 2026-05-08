@@ -130,8 +130,11 @@ function ClerkAccountPage() {
             font. The default Clerk look is intentionally distinct
             from app-shell chrome — these tokens pull it back into
             the rest of /account's visual language without disabling
-            Clerk's own Profile / Security navigation. */}
-        <div>
+            Clerk's own Profile / Security navigation. The
+            `data-ds-clerk-host` attribute scopes the cl-* CSS
+            overrides in globals.css so they don't bleed onto
+            <SignIn /> on /login. */}
+        <div data-ds-clerk-host>
           <UserProfile
             routing="hash"
             appearance={{
