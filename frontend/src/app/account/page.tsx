@@ -123,21 +123,45 @@ function ClerkAccountPage() {
           </Card>
         </div>
 
-        {/* Right column — Clerk's <UserProfile /> already ships with
-            its own "Profile / Security" sidebar, header chrome, and
-            bordered card. Wrapping it in another <Card> + brand
-            "Security" header would visibly nest two account UIs.
-            Drop the wrapper and let UserProfile fill the column;
-            an `appearance.elements.rootBox` width override lets it
-            stretch to the column's full width instead of Clerk's
-            default ~880px centered card. */}
+        {/* Right column — Clerk's <UserProfile /> with brand-matched
+            appearance overrides so the embedded Clerk UI inherits
+            DataSnoop's color palette (#1687E8 primary, slate text,
+            #E2E8F2 borders), 20px card radius, and the page's Geist
+            font. The default Clerk look is intentionally distinct
+            from app-shell chrome — these tokens pull it back into
+            the rest of /account's visual language without disabling
+            Clerk's own Profile / Security navigation. */}
         <div>
           <UserProfile
             routing="hash"
             appearance={{
+              variables: {
+                colorPrimary: "#1687E8",
+                colorText: "#08132B",
+                colorTextSecondary: "#5F6B85",
+                colorInputText: "#08132B",
+                colorInputBackground: "#FFFFFF",
+                colorBackground: "#FFFFFF",
+                fontFamily: "inherit",
+                borderRadius: "0.75rem",
+              },
               elements: {
                 rootBox: { width: "100%" },
-                cardBox: { width: "100%", boxShadow: "none" },
+                cardBox: {
+                  width: "100%",
+                  boxShadow: "none",
+                  border: "1px solid #E2E8F2",
+                  borderRadius: "20px",
+                  backgroundColor: "#FFFFFF",
+                },
+                formButtonPrimary: {
+                  backgroundColor: "#1687E8",
+                  textTransform: "none",
+                  fontWeight: 500,
+                  "&:hover, &:focus": { backgroundColor: "#0F72C8" },
+                },
+                profileSectionPrimaryButton: { color: "#1687E8" },
+                navbarMobileMenuButton: { color: "#1687E8" },
               },
             }}
           />
