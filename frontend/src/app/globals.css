@@ -617,21 +617,26 @@ body {
 }
 
 /*
- * DIAGNOSTIC — verify CSS reaches the /account Clerk panel at all.
- * If the operator sees a hot-pink halo around the Clerk card, CSS is
- * loading; the issue is then Clerk's stylesheet beating us on
- * specificity for inner elements (button colors, borders, etc) and
- * we'd switch to runtime style injection. If they don't see the
- * halo, CSS is being cached or stripped — different fix.
+ * Clerk <UserProfile /> brand overrides.
+ *
+ * Clerk's stylesheet uses ~0,0,2,0 selectors (e.g. `.cl-internal-X.cl-card`).
+ * Even with `!important`, our earlier rules tied Clerk's specificity and
+ * lost on source-order — Clerk's CSS loads from clerk.accounts.dev AFTER
+ * ours. The pink-halo diagnostic confirmed our CSS reaches the page.
+ *
+ * Stack the `.cl-*` class selectors three times to bump each rule to
+ * 0,0,4,0 specificity. Clerk's selectors top out around 0,0,2,0 so
+ * this comfortably wins regardless of source order. The triple class
+ * is a no-op semantically (any element matching `.cl-card` also
+ * matches `.cl-card.cl-card.cl-card`) — it's purely a specificity
+ * trick.
+ *
+ * Scoped under [data-ds-clerk-host] so /login's <SignIn /> stays
+ * Clerk-default-styled.
  */
-[data-ds-clerk-host] {
-  background-color: #ff00ff !important;
-  padding: 8px !important;
-  border-radius: 24px !important;
-}
-[data-ds-clerk-host] .cl-rootBox,
-[data-ds-clerk-host] .cl-card,
-[data-ds-clerk-host] .cl-cardBox {
+[data-ds-clerk-host] .cl-rootBox.cl-rootBox.cl-rootBox,
+[data-ds-clerk-host] .cl-card.cl-card.cl-card,
+[data-ds-clerk-host] .cl-cardBox.cl-cardBox.cl-cardBox {
   width: 100% !important;
   max-width: 100% !important;
   background-color: #FFFFFF !important;
@@ -641,7 +646,7 @@ body {
   font-family: inherit !important;
   color: #08132B !important;
 }
-[data-ds-clerk-host] .cl-formButtonPrimary {
+[data-ds-clerk-host] .cl-formButtonPrimary.cl-formButtonPrimary.cl-formButtonPrimary {
   background-color: #1687E8 !important;
   color: #FFFFFF !important;
   text-transform: none !important;
@@ -649,21 +654,27 @@ body {
   border-radius: 12px !important;
   box-shadow: none !important;
 }
-[data-ds-clerk-host] .cl-formButtonPrimary:hover,
-[data-ds-clerk-host] .cl-formButtonPrimary:focus {
+[data-ds-clerk-host] .cl-formButtonPrimary.cl-formButtonPrimary.cl-formButtonPrimary:hover,
+[data-ds-clerk-host] .cl-formButtonPrimary.cl-formButtonPrimary.cl-formButtonPrimary:focus {
   background-color: #0F72C8 !important;
 }
-[data-ds-clerk-host] .cl-headerTitle,
-[data-ds-clerk-host] .cl-profileSectionTitleText {
+[data-ds-clerk-host] .cl-headerTitle.cl-headerTitle.cl-headerTitle,
+[data-ds-clerk-host] .cl-profileSectionTitleText.cl-profileSectionTitleText.cl-profileSectionTitleText {
   color: #08132B !important;
 }
-[data-ds-clerk-host] .cl-headerSubtitle,
-[data-ds-clerk-host] .cl-profileSectionSubtitle,
-[data-ds-clerk-host] .cl-profileSectionContent {
+[data-ds-clerk-host] .cl-headerSubtitle.cl-headerSubtitle.cl-headerSubtitle,
+[data-ds-clerk-host] .cl-profileSectionSubtitle.cl-profileSectionSubtitle.cl-profileSectionSubtitle,
+[data-ds-clerk-host] .cl-profileSectionContent.cl-profileSectionContent.cl-profileSectionContent {
   color: #5F6B85 !important;
 }
-[data-ds-clerk-host] .cl-profileSectionPrimaryButton,
-[data-ds-clerk-host] .cl-navbarMobileMenuButton {
+[data-ds-clerk-host] .cl-profileSectionPrimaryButton.cl-profileSectionPrimaryButton.cl-profileSectionPrimaryButton,
+[data-ds-clerk-host] .cl-navbarMobileMenuButton.cl-navbarMobileMenuButton.cl-navbarMobileMenuButton {
   color: #1687E8 !important;
+}
+[data-ds-clerk-host] .cl-navbar.cl-navbar.cl-navbar,
+[data-ds-clerk-host] .cl-page.cl-page.cl-page,
+[data-ds-clerk-host] .cl-pageScrollBox.cl-pageScrollBox.cl-pageScrollBox {
+  background-color: #FFFFFF !important;
+  font-family: inherit !important;
 }
 
