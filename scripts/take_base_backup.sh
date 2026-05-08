@@ -16,7 +16,7 @@ PSQL="$PG_BIN_DIR/psql"
 PG_BASEBACKUP="$PG_BIN_DIR/pg_basebackup"
 LOCK_FILE="${LOCK_FILE:-/var/lock/datasnoop-base-backup.lock}"
 MIN_FREE_MARGIN_GB="${MIN_FREE_MARGIN_GB:-5}"
-KEEP_BASE_BACKUPS="${KEEP_BASE_BACKUPS:-2}"
+KEEP_BASE_BACKUPS="${KEEP_BASE_BACKUPS:-1}"
 TARGET_DIR=""
 
 log() {
