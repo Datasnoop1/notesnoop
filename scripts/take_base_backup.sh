@@ -89,8 +89,81 @@ preflight() {
   free_gb=$(df -BG "$BACKUP_DIR" | awk 'NR==2 {gsub(/G/, "", $4); print $4}')
   required_gb=$((data_gb + MIN_FREE_MARGIN_GB))
   log "preflight data_gb=$data_gb free_gb=$free_gb required_gb=$required_gb"
-  if [ "${free_gb:-0}" -lt "$required_gb" ]; then
-    fail "backup volume has ${free_gb}GB free; need at least ${required_gb}GB"
+
+  if [ "${free_gb:-0}" -ge "$required_gb" ]; then
+    PRUNE_BEFORE_TAKE=0
+    return 0
+  fi
+
+  # Tight disk — check whether pruning the oldest backups (down to KEEP-1)
+  # would free enough to fit the new one. If so, switch to prune-before-take
+  # mode. Trade-off: during the ~90 min run there may be 0 physical backups
+  # on disk; the pg_dump remains as fallback.
+  local prunable_gb effective_free_gb
+  prunable_gb=$(prunable_size_gb_before_take)
+  effective_free_gb=$((free_gb + prunable_gb))
+  log "preflight tight: prunable_before_take=${prunable_gb}GB effective_free=${effective_free_gb}GB"
+  if [ "$effective_free_gb" -ge "$required_gb" ]; then
+    log "preflight: switching to prune-before-take mode"
+    PRUNE_BEFORE_TAKE=1
+    return 0
+  fi
+
+  fail "backup volume has ${free_gb}GB free + ${prunable_gb}GB prunable = ${effective_free_gb}GB; need at least ${required_gb}GB"
+}
+
+prunable_size_gb_before_take() {
+  # Compute size in GB of backups that would be pruned BEFORE take to make
+  # room. We keep (KEEP_BASE_BACKUPS - 1) old backups; the new one will fill
+  # the KEEP-th slot. With KEEP=1, that means deleting all existing backups
+  # before take (acceptable: pg_dump is the fallback during the ~90 min window).
+  local keep="$KEEP_BASE_BACKUPS"
+  if ! [[ "$keep" =~ ^[0-9]+$ ]] || [ "$keep" -lt 1 ]; then
+    echo 0; return
+  fi
+  local pre_take_keep=$((keep - 1))
+  local all_backups
+  mapfile -t all_backups < <(find "$BACKUP_DIR" -maxdepth 1 -type d -name 'base-*' -printf '%f\n' | sort)
+  local total=${#all_backups[@]}
+  if [ "$total" -le "$pre_take_keep" ]; then
+    echo 0; return
+  fi
+  local prune_count=$((total - pre_take_keep))
+  local total_size_kb=0 i=0 size_kb
+  for name in "${all_backups[@]}"; do
+    i=$((i + 1))
+    if [ "$i" -gt "$prune_count" ]; then break; fi
+    size_kb=$(du -sBK "$BACKUP_DIR/$name" 2>/dev/null | awk '{gsub(/K/, "", $1); print $1}')
+    total_size_kb=$((total_size_kb + ${size_kb:-0}))
+  done
+  # Round UP to the nearest GB so we don't underestimate.
+  echo $(( (total_size_kb + 1048575) / 1048576 ))
+}
+
+prune_before_take() {
+  local pre_take_keep=$((KEEP_BASE_BACKUPS - 1))
+  [ "$pre_take_keep" -lt 0 ] && pre_take_keep=0
+  local all_backups
+  mapfile -t all_backups < <(find "$BACKUP_DIR" -maxdepth 1 -type d -name 'base-*' -printf '%f\n' | sort)
+  local total=${#all_backups[@]}
+  if [ "$total" -le "$pre_take_keep" ]; then
+    log "prune-before-take: skipped (total=$total <= pre_take_keep=$pre_take_keep)"
+    return 0
+  fi
+  local prune_count=$((total - pre_take_keep))
+  log "prune-before-take: deleting $prune_count oldest backup(s) to make room"
+  local i=0
+  for name in "${all_backups[@]}"; do
+    i=$((i + 1))
+    if [ "$i" -gt "$prune_count" ]; then break; fi
+    log "pruning OLD backup before take: $name"
+    rm -rf -- "$BACKUP_DIR/$name"
+  done
+  # base-latest may now be a broken symlink. Remove it so take_backup can
+  # cleanly recreate it.
+  if [ -L "$BACKUP_DIR/base-latest" ] && [ ! -e "$BACKUP_DIR/base-latest" ]; then
+    log "base-latest symlink broken (target pruned); removing"
+    rm -f "$BACKUP_DIR/base-latest"
   fi
 }
 
@@ -159,6 +232,9 @@ prune_old_backups() {
 
 main() {
   preflight
+  if [ "${PRUNE_BEFORE_TAKE:-0}" = "1" ]; then
+    prune_before_take
+  fi
   take_backup
   prune_old_backups
 }
