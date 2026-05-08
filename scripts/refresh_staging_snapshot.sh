@@ -14,7 +14,7 @@ MIN_ROOT_FREE_GB="${MIN_ROOT_FREE_GB:-15}"
 STAGING_TABLESPACE="${STAGING_TABLESPACE:-staging_data}"
 STAGING_DATA_DIR="${DS_STAGING_DATA_DIR:-/mnt/volume-hel1-1/pgsql-staging}"
 DUMP_PREFIX="${DUMP_PREFIX:-$STAGING_DATA_DIR/leadpeek_prod_snapshot}"
-RESTORE_MAINTENANCE_WORK_MEM="${RESTORE_MAINTENANCE_WORK_MEM:-3GB}"
+RESTORE_MAINTENANCE_WORK_MEM="${RESTORE_MAINTENANCE_WORK_MEM:-1GB}"
 SNAPSHOT_DUMP_FILE=""
 SNAPSHOT_RESTORE_LIST=""
 
@@ -263,6 +263,22 @@ preflight() {
   fi
 
   install -d -o postgres -g postgres -m 700 "$STAGING_DATA_DIR"
+
+  local staging_free_mb dump_estimate_mb staging_required_mb
+  staging_free_mb=$(df -BM "$STAGING_DATA_DIR" | awk 'NR==2 {gsub(/M/, "", $4); print $4}')
+  if [ -f "$REPO_DIR/backups/CURRENT.dump.zst" ]; then
+    dump_estimate_mb=$(stat -c %s "$REPO_DIR/backups/CURRENT.dump.zst" \
+      | awk '{print int($1/1024/1024 * 4)}')
+  fi
+  if [ -z "${dump_estimate_mb:-}" ] || [ "${dump_estimate_mb:-0}" -lt 1024 ]; then
+    dump_estimate_mb="${STAGING_REFRESH_DUMP_ESTIMATE_MB:-12288}"
+  fi
+  staging_required_mb=$(( dump_estimate_mb * 3 / 2 ))
+  if [ "${staging_free_mb:-0}" -lt "$staging_required_mb" ]; then
+    "$REPO_DIR/scripts/r18_alert.sh" "staging-refresh-skipped" \
+      "Staging refresh aborted at preflight: $STAGING_DATA_DIR has ${staging_free_mb}MB free but needs ${staging_required_mb}MB (1.5x dump estimate of ${dump_estimate_mb}MB). No state was modified. Operator action: free disk space before next 02:30 UTC run." || true
+    fail "staging volume free=${staging_free_mb}MB < required=${staging_required_mb}MB"
+  fi
 }
 
 ensure_tablespace() {
