@@ -2,7 +2,7 @@
 # Disk-space watchdog (R18 Phase 2b). Alerting only — does NOT take action.
 # Tier breakers (175 / 185 GB) live in separate scripts that run on a tighter
 # cadence; this one runs every 5 min and exists to give the operator
-# advance warning at the soft thresholds (volume > 150 GB / root > 55 GB).
+# advance warning at the soft thresholds (volume > 165 GB / root > 55 GB).
 #
 # Cron cadence: every 5 minutes. Cooldown via 60-min email-repeat window.
 
@@ -12,7 +12,7 @@ LEADPEEK_DIR="${LEADPEEK_DIR:-/opt/leadpeek}"
 SCRIPTS_DIR="$LEADPEEK_DIR/scripts"
 ALERT="$SCRIPTS_DIR/r18_alert.sh"
 
-VOLUME_WARN_BYTES=$((150 * 1024 * 1024 * 1024))
+VOLUME_WARN_BYTES=$((165 * 1024 * 1024 * 1024))
 ROOT_WARN_BYTES=$((55 * 1024 * 1024 * 1024))
 
 STATE_DIR="$SCRIPTS_DIR/_watchdog_state"
@@ -36,7 +36,7 @@ GB=$((1024*1024*1024))
 log "vol_used=$((VOL_USED/GB))G root_used=$((ROOT_USED/GB))G"
 
 PROBLEMS=""
-[ "$VOL_USED" -gt "$VOLUME_WARN_BYTES" ] && PROBLEMS+="VOLUME used $((VOL_USED/GB))G > 150G warn threshold\n"
+[ "$VOL_USED" -gt "$VOLUME_WARN_BYTES" ] && PROBLEMS+="VOLUME used $((VOL_USED/GB))G > 165G warn threshold\n"
 [ "$ROOT_USED" -gt "$ROOT_WARN_BYTES" ]   && PROBLEMS+="ROOT used $((ROOT_USED/GB))G > 55G warn threshold\n"
 
 if [ -z "$PROBLEMS" ]; then
@@ -57,7 +57,7 @@ fi
 
 log "RED — $PROBLEMS"
 if [ "$should_alert" = "1" ]; then
-    bash "$ALERT" disk-warn "$(printf '%bvol_used_bytes=%s\nroot_used_bytes=%s\nthresholds: volume>150G or root>55G' "$PROBLEMS" "$VOL_USED" "$ROOT_USED")" || true
+    bash "$ALERT" disk-warn "$(printf '%bvol_used_bytes=%s\nroot_used_bytes=%s\nthresholds: volume>165G or root>55G' "$PROBLEMS" "$VOL_USED" "$ROOT_USED")" || true
     ts > "$LAST_ALERT"
 else
     log "alert suppressed (within ${ALERT_REPEAT_MIN}m repeat window)"
