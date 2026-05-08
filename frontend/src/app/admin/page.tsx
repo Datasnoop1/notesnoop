@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { createClient } from "@/lib/supabase";
 import { getAuthToken } from "@/lib/api";
+import { useUser as useClerkUser } from "@clerk/nextjs";
 
 const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 import { EnrichmentDashboard } from "@/components/admin/enrichment-dashboard";
@@ -864,9 +865,21 @@ export default function AdminPanel() {
     }
   }, [commerceLoaded, commerceLoading]);
 
+  // On the Clerk path, getAuthToken() depends on window.Clerk.session
+  // having hydrated. If we run loadData() before that, the very first
+  // call returns no token, taggedFetch throws "Not authenticated", and
+  // the catch handler bounces us to /login — even for legitimate
+  // admins. Gate the initial load on Clerk's `isLoaded` so we always
+  // call getAuthToken() with the session attached. The Supabase path
+  // doesn't need this (createClient() reads localStorage synchronously
+  // before the first render).
+  const { isLoaded: clerkLoaded } = useClerkUser();
+  const ready = USE_CLERK ? clerkLoaded : true;
+
   useEffect(() => {
+    if (!ready) return;
     loadData();
-  }, [loadData]);
+  }, [loadData, ready]);
 
   // Lazy-fire commerce data on first Revenue-tab visit.
   useEffect(() => {

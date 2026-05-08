@@ -11,8 +11,138 @@ import { Button } from "@/components/ui/button";
 import { Mail, Calendar, CreditCard, Lock, Palette } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { useTranslation } from "@/components/language-provider";
+import { useUser as useClerkUser, UserProfile } from "@clerk/nextjs";
+
+const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 
 export default function AccountPage() {
+  if (USE_CLERK) {
+    return <ClerkAccountPage />;
+  }
+  return <SupabaseAccountPage />;
+}
+
+function ClerkAccountPage() {
+  const router = useRouter();
+  const { t } = useTranslation();
+  const { isLoaded, user } = useClerkUser();
+
+  // Wait for Clerk to hydrate before deciding whether to redirect.
+  // If we redirect on the first render before isLoaded fires, signed-in
+  // users get bounced to /login on every page navigation.
+  useEffect(() => {
+    if (isLoaded && !user) {
+      router.push("/login");
+    }
+  }, [isLoaded, user, router]);
+
+  if (!isLoaded || !user) {
+    return (
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="animate-pulse text-slate-400">Loading...</div>
+      </div>
+    );
+  }
+
+  const email = user.primaryEmailAddress?.emailAddress
+    ?? user.emailAddresses?.[0]?.emailAddress
+    ?? "";
+  const initials = email.slice(0, 2).toUpperCase() || "?";
+
+  // Detect connected SSO providers; fall back to "email" for password users.
+  const providers = (user.externalAccounts ?? [])
+    .map((a) => (a as { provider?: string }).provider)
+    .filter((p): p is string => typeof p === "string" && p.length > 0);
+  const provider = providers[0] ?? "email";
+  const created = user.createdAt
+    ? new Date(user.createdAt).toLocaleDateString("en-GB", { month: "short", year: "numeric" })
+    : "";
+
+  return (
+    <div className="mx-auto w-full max-w-[1200px] space-y-6">
+      {/* Profile header — keeps the brand layout */}
+      <div className="flex items-center gap-4">
+        <div className="w-14 h-14 rounded-full bg-brand text-white flex items-center justify-center text-xl font-bold shrink-0">
+          {initials}
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">{email}</h1>
+          <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
+            {created && (
+              <span className="flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                {t("account.joined")} {created}
+              </span>
+            )}
+            <span className="capitalize flex items-center gap-1">
+              <Mail className="w-3 h-3" />
+              {provider}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Left column — subscription + appearance, identical to Supabase path */}
+        <div className="space-y-4">
+          <Card className="bg-white">
+            <CardContent className="pt-5 pb-5">
+              <div className="flex items-center gap-2 mb-3">
+                <CreditCard className="w-4 h-4 text-slate-400" />
+                <h2 className="text-sm font-semibold text-slate-900">{t("account.subscription")}</h2>
+              </div>
+              <div className="flex items-center gap-2 mb-3">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                  {t("account.free")}
+                </span>
+                <span className="text-xs text-slate-400">{t("account.limitedSearches")}</span>
+              </div>
+              <div className="bg-brand-soft/70 border border-brand/20 rounded-lg p-3">
+                <h3 className="font-semibold text-[color:var(--brand-ink)] text-xs">{t("account.powerUser")}</h3>
+                <p className="text-[11px] text-brand/80 mt-0.5">
+                  {t("account.powerUserDesc")}
+                </p>
+                <button
+                  disabled
+                  className="mt-2 px-3 py-1.5 bg-brand text-white text-xs font-medium rounded-md opacity-50 cursor-not-allowed"
+                >
+                  {t("account.comingSoon")}
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-white">
+            <CardContent className="pt-5 pb-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Palette className="w-4 h-4 text-slate-400" />
+                <h2 className="text-sm font-semibold text-slate-900">{t("account.appearance")}</h2>
+              </div>
+              <FontSwitcher />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Right column — security: Clerk's <UserProfile /> handles
+            password change, email/SSO management, MFA, and sessions
+            inline. Replaces the Supabase-only handleChangePassword form. */}
+        <div>
+          <Card className="bg-white">
+            <CardContent className="pt-5 pb-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Lock className="w-4 h-4 text-slate-400" />
+                <h2 className="text-sm font-semibold text-slate-900">{t("account.security")}</h2>
+              </div>
+              <UserProfile routing="hash" />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SupabaseAccountPage() {
   const router = useRouter();
   const supabase = createClient();
   const { t } = useTranslation();

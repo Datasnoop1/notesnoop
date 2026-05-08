@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createClient } from "@/lib/supabase";
 import { getAuthToken } from "@/lib/api";
+import { useUser as useClerkUser } from "@clerk/nextjs";
 
 const USE_CLERK = process.env.NEXT_PUBLIC_USE_CLERK === "true";
 
@@ -54,6 +55,20 @@ export default function StagingGate({ children }: { children: React.ReactNode })
     (p) => pathname === p || pathname.startsWith(p),
   );
   const [state, setState] = useState<GateState>({ kind: "unknown" });
+
+  // On the Clerk path, getAuthToken() returns null until window.Clerk
+  // hydrates. If we run the gate's check before that, the very first
+  // /api/me/is-admin call goes anon → backend returns is_admin=false →
+  // staging blocker kicks in even for legitimate admins. We track
+  // Clerk's `isLoaded` and re-run the effect once it flips, so the
+  // SECOND check carries the real Bearer token.
+  const { isLoaded: clerkLoaded, user: clerkUser } = useClerkUser();
+  // Identity key — also re-runs the effect when the user signs in or
+  // out via the Clerk-rendered nav, which doesn't necessarily change
+  // the pathname.
+  const clerkIdentity = USE_CLERK
+    ? `${clerkLoaded ? "loaded" : "boot"}:${clerkUser?.id ?? "none"}`
+    : "n/a";
 
   useEffect(() => {
     let cancelled = false;
@@ -122,7 +137,7 @@ export default function StagingGate({ children }: { children: React.ReactNode })
       cancelled = true;
       sub.subscription.unsubscribe();
     };
-  }, [isPublicDemo]);
+  }, [isPublicDemo, clerkIdentity]);
 
   // Always let login / oauth-callback and public demo pages render,
   // even if the visitor would otherwise be blocked. Otherwise
