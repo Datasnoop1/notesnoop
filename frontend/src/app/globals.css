@@ -617,15 +617,18 @@ body {
 }
 
 /*
- * Clerk <UserProfile /> brand overrides
- *
- * Clerk's React `appearance` prop should be enough on paper, but its
- * stylesheet sometimes wins specificity for these properties.
- * Belt-and-suspenders: target the cl-* classnames Clerk emits and
- * pull them onto DataSnoop tokens.  Scope to /account by gating
- * inside [data-ds-clerk-host] which AccountPage sets on its outer
- * div, so we don't restyle <SignIn /> on /login.
+ * DIAGNOSTIC — verify CSS reaches the /account Clerk panel at all.
+ * If the operator sees a hot-pink halo around the Clerk card, CSS is
+ * loading; the issue is then Clerk's stylesheet beating us on
+ * specificity for inner elements (button colors, borders, etc) and
+ * we'd switch to runtime style injection. If they don't see the
+ * halo, CSS is being cached or stripped — different fix.
  */
+[data-ds-clerk-host] {
+  background-color: #ff00ff !important;
+  padding: 8px !important;
+  border-radius: 24px !important;
+}
 [data-ds-clerk-host] .cl-rootBox,
 [data-ds-clerk-host] .cl-card,
 [data-ds-clerk-host] .cl-cardBox {
