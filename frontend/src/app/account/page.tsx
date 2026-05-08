@@ -123,19 +123,24 @@ function ClerkAccountPage() {
           </Card>
         </div>
 
-        {/* Right column — security: Clerk's <UserProfile /> handles
-            password change, email/SSO management, MFA, and sessions
-            inline. Replaces the Supabase-only handleChangePassword form. */}
+        {/* Right column — Clerk's <UserProfile /> already ships with
+            its own "Profile / Security" sidebar, header chrome, and
+            bordered card. Wrapping it in another <Card> + brand
+            "Security" header would visibly nest two account UIs.
+            Drop the wrapper and let UserProfile fill the column;
+            an `appearance.elements.rootBox` width override lets it
+            stretch to the column's full width instead of Clerk's
+            default ~880px centered card. */}
         <div>
-          <Card className="bg-white">
-            <CardContent className="pt-5 pb-5">
-              <div className="flex items-center gap-2 mb-4">
-                <Lock className="w-4 h-4 text-slate-400" />
-                <h2 className="text-sm font-semibold text-slate-900">{t("account.security")}</h2>
-              </div>
-              <UserProfile routing="hash" />
-            </CardContent>
-          </Card>
+          <UserProfile
+            routing="hash"
+            appearance={{
+              elements: {
+                rootBox: { width: "100%" },
+                cardBox: { width: "100%", boxShadow: "none" },
+              },
+            }}
+          />
         </div>
       </div>
     </div>
