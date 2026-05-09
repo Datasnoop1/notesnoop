@@ -44,6 +44,10 @@ python -m app.worker
 python -m app.worker enqueue-morning-briefings
 ```
 
+Worker code uses `NOTESNOOP_WORKER_DATABASE_URL` when it is set, then falls
+back to `NOTESNOOP_DATABASE_URL`. In staging and production the worker service
+uses the `notesnoop_worker` BYPASSRLS role; API services use `notesnoop_app`.
+
 The enqueue command is cron-safe and idempotent per workspace/member/local day.
 It only queues opted-in members with at least one open Review Queue item at
 their configured local morning hour.
