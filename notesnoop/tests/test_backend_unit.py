@@ -224,6 +224,32 @@ def test_email_and_webhook_helpers(monkeypatch):
     with pytest.raises(HTTPException):
         webhooks._verify_postmark_auth(raw, None, "bad")
 
+    monkeypatch.delenv("NOTESNOOP_POSTMARK_WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("NOTESNOOP_WEBHOOK_ALLOW_UNSIGNED", "true")
+    webhooks._verify_mailgun_auth({}, None, None, None, None)
+    monkeypatch.setenv("NOTESNOOP_WEBHOOK_ALLOW_UNSIGNED", "false")
+
+    monkeypatch.setenv("NOTESNOOP_MAILGUN_BASIC_AUTH", "mg:user")
+    with pytest.raises(HTTPException) as bad_mailgun_basic:
+        webhooks._verify_mailgun_auth({}, "Basic wrong", None, None, None)
+    assert bad_mailgun_basic.value.status_code == 403
+    webhooks._verify_mailgun_auth({}, "Basic bWc6dXNlcg==", None, None, None)
+
+    monkeypatch.delenv("NOTESNOOP_MAILGUN_BASIC_AUTH", raising=False)
+    monkeypatch.setenv("NOTESNOOP_MAILGUN_SIGNING_KEY", "mailgun-secret")
+    mg_timestamp = "1778335300"
+    mg_token = "mailgun-token"
+    mg_signature = hmac.new(b"mailgun-secret", f"{mg_timestamp}{mg_token}".encode("utf-8"), hashlib.sha256).hexdigest()
+    webhooks._verify_mailgun_auth(
+        {"signature": {"timestamp": mg_timestamp, "token": mg_token, "signature": mg_signature}},
+        None,
+        None,
+        None,
+        None,
+    )
+    with pytest.raises(HTTPException):
+        webhooks._verify_mailgun_auth({}, None, mg_timestamp, mg_token, "bad")
+
 
 def test_unsubscribe_tokens_and_realtime_helpers(monkeypatch):
     token = make_unsubscribe_token("workspace-1", "user-1")

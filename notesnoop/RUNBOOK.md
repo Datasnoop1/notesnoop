@@ -149,8 +149,10 @@ Inbound webhook path:
 For staging previews, unsigned webhooks may be enabled with
 `NOTESNOOP_WEBHOOK_ALLOW_UNSIGNED=true`. For real staging/production, configure
 Postmark Basic Auth or webhook signature validation. Mailgun is supported as a
-fallback adapter by sending `X-NoteSnoop-Provider: mailgun` and mapping into the
-same internal envelope.
+fallback adapter by sending `X-NoteSnoop-Provider: mailgun`; real Mailgun
+traffic must use either `NOTESNOOP_MAILGUN_BASIC_AUTH` or
+`NOTESNOOP_MAILGUN_SIGNING_KEY`. Unknown provider values are rejected before
+parsing.
 
 Checks:
 

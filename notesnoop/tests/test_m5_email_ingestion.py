@@ -64,6 +64,16 @@ def _postmark_payload(inbound_address: str, message_id: str, sender: str = "send
     }
 
 
+def _mailgun_payload(inbound_address: str, message_id: str, sender: str = "sender@example.test") -> dict:
+    return {
+        "Message-Id": message_id,
+        "recipient": inbound_address,
+        "sender": sender,
+        "subject": "Mailgun diligence note",
+        "body-plain": "Mailgun email body for Apollo and Morgan.",
+    }
+
+
 def test_postmark_manual_email_path_test_email_and_block_sender(client):
     user_id = f"m5_user_{uuid.uuid4().hex[:10]}"
     headers = _headers(user_id)
@@ -115,3 +125,33 @@ def test_postmark_manual_email_path_test_email_and_block_sender(client):
     test_email = client.post(f"/api/workspaces/{workspace_id}/send-test-email", headers=headers)
     assert test_email.status_code == 200
     assert test_email.json()["data"]["outcome"] == "saved"
+
+
+def test_mailgun_adapter_and_unknown_provider_are_gated(client):
+    user_id = f"m5_mailgun_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "M5 Mailgun workspace"}, headers=headers)
+    assert boot.status_code == 200
+    inbound_address = boot.json()["data"]["inbound_address"]
+
+    unknown = client.post(
+        "/webhooks/email/inbound",
+        json=_mailgun_payload(inbound_address, f"mailgun-{uuid.uuid4()}"),
+        headers={"X-NoteSnoop-Provider": "unknown"},
+    )
+    assert unknown.status_code == 400
+
+    message_id = f"mailgun-{uuid.uuid4()}"
+    inbound = client.post(
+        "/webhooks/email/inbound",
+        json=_mailgun_payload(inbound_address, message_id),
+        headers={"X-NoteSnoop-Provider": "mailgun"},
+    )
+    assert inbound.status_code == 200
+    assert inbound.json()["data"]["outcome"] == "saved"
+    note_id = inbound.json()["data"]["note_id"]
+
+    note = client.get(f"/api/notes/{note_id}", headers=headers)
+    assert note.status_code == 200
+    assert note.json()["data"]["raw_email_metadata"]["provider"] == "mailgun"
