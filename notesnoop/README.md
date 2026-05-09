@@ -21,6 +21,11 @@ WAL archive, base-backup target, app role, worker role, and services.
   deterministic `lexical_hash` provider is only a local/staging fallback for
   indexing and semantic-search tests when Cloud embeddings are unavailable;
   it can be disabled with `NOTESNOOP_EMBEDDING_ALLOW_LEXICAL_FALLBACK=false`.
+- Extraction model: `qwen3-coder-next` via Ollama Cloud. If Ollama returns a
+  transient upstream error, NoteSnoop can conservatively fall back to exact
+  matching of already-known people/projects so beta notes do not get stuck in
+  failed AI state. Disable with
+  `NOTESNOOP_EXTRACTION_ALLOW_DETERMINISTIC_FALLBACK=false`.
 
 ## Migrations
 

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
@@ -174,6 +175,41 @@ def test_ollama_extraction_payload_and_validation(monkeypatch):
     assert result["people"][0]["name"] == "Morgan"
     assert posted["headers"]["Authorization"] == "Bearer test-key"
     assert posted["json"]["format"] == "json"
+
+    fallback = ollama_client.deterministic_extract_entities(
+        "Morgan Lee discussed Apollo. Morgan was also there.",
+        ["Morgan Lee", "Morgan", "Absent Person"],
+        ["Apollo", "Missing Project"],
+    )
+    assert fallback["people"][0]["name"] == "Morgan Lee"
+    assert fallback["people"][0]["span"] == [0, 10]
+    assert fallback["projects"][0]["name"] == "Apollo"
+
+    class RateLimitedResponse:
+        status_code = 429
+
+        def raise_for_status(self):
+            request = httpx.Request("POST", "https://ollama.test/api/chat")
+            response = httpx.Response(429, request=request)
+            raise httpx.HTTPStatusError("429 Too Many Requests", request=request, response=response)
+
+    class RateLimitedClient:
+        def __init__(self, *_, **__):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return RateLimitedResponse()
+
+    monkeypatch.setattr(ollama_client.httpx, "AsyncClient", RateLimitedClient)
+    monkeypatch.setattr(ollama_client, "ALLOW_DETERMINISTIC_FALLBACK", True)
+    rate_limited = asyncio.run(ollama_client.extract_entities("Morgan met Apollo", ["Morgan"], ["Apollo"]))
+    assert rate_limited["people"][0]["name"] == "Morgan"
 
 
 def test_email_and_webhook_helpers(monkeypatch):

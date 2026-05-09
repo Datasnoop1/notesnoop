@@ -143,6 +143,11 @@ backoff. Tune `NOTESNOOP_WORKER_MAX_ATTEMPTS` and
 `NOTESNOOP_WORKER_RETRY_BACKOFF_SECONDS` if the queue starts failing faster
 than the provider recovers.
 
+Extraction also has a conservative exact-match fallback for transient Ollama
+errors. It only links names already present in the workspace/project context
+and can be disabled with
+`NOTESNOOP_EXTRACTION_ALLOW_DETERMINISTIC_FALLBACK=false`.
+
 ## Postmark Provider Issues
 
 Inbound webhook path:
