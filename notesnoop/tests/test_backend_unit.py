@@ -347,6 +347,15 @@ def test_worker_matching_claim_finish_and_process_extract(monkeypatch):
     assert "INSERT INTO review_queue" in executed_sql
     assert "INSERT INTO calibration_events" in executed_sql
     assert "INSERT INTO note_projects" in executed_sql
+    review_params = [
+        params
+        for conn in used_conns
+        for sql, params in conn.cursor_obj.executed
+        if "INSERT INTO review_queue" in sql
+    ]
+    assert review_params
+    assert isinstance(review_params[0][-1], str)
+    assert json.loads(review_params[0][-1])["name"] == "New Person"
 
 
 def test_worker_personal_skip_and_failure_paths(monkeypatch):

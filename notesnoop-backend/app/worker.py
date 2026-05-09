@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import json
 import logging
 import os
 import signal
@@ -112,7 +113,7 @@ def _insert_review(cur, note: dict, target_user_id: str, entity_kind: str, paylo
         INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
         VALUES (%s, %s, %s, %s, %s, %s::jsonb)
         """,
-        (note["workspace_id"], target_user_id, entity_kind, note["id"], reason, payload),
+        (note["workspace_id"], target_user_id, entity_kind, note["id"], reason, json.dumps(payload)),
     )
 
 
