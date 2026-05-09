@@ -1,6 +1,8 @@
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open("notesnoop-static-v1").then((cache) => cache.addAll(["/quick-capture", "/icon.svg"])),
+    caches.open("notesnoop-static-v1").then((cache) =>
+      cache.addAll(["/quick-capture", "/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png"]),
+    ),
   );
   self.skipWaiting();
 });
