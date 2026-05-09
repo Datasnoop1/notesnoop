@@ -59,6 +59,11 @@ class FlagRequest(BaseModel):
     person_id: str | None = None
 
 
+class EmailBlockRequest(BaseModel):
+    sender_pattern: str | None = Field(default=None, max_length=320)
+    note_id: str | None = None
+
+
 class ReviewDecision(BaseModel):
     confidence: float | None = None
 

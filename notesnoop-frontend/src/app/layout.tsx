@@ -6,6 +6,15 @@ export const metadata: Metadata = {
   title: "NoteSnoop",
   description: "Project and person memory for messy professional notes.",
   manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "NoteSnoop",
+  },
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 export const viewport: Viewport = {

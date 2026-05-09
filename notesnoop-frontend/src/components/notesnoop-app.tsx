@@ -160,6 +160,12 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   }, [isSignedIn, refresh]);
 
   useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    }
+  }, []);
+
+  useEffect(() => {
     refreshWorkspaceData().catch((err) => setToast(err.message));
   }, [refreshWorkspaceData]);
 
@@ -282,6 +288,24 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     await refreshWorkspaceData();
   }
 
+  async function toggleEmailAI() {
+    if (!workspaceId || !state?.workspace) return;
+    const nextMode = state.workspace.email_ai_mode === "auto" ? "manual" : "auto";
+    const res = await api(`/api/workspaces/${workspaceId}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify({ email_ai_mode: nextMode }),
+    });
+    setState(res.data);
+    setToast(`Email AI is ${nextMode === "auto" ? "Auto" : "Manual"}.`);
+  }
+
+  async function sendTestEmail() {
+    if (!workspaceId) return;
+    const res = await api(`/api/workspaces/${workspaceId}/send-test-email`, { method: "POST" });
+    setToast(res.data.outcome === "saved" ? "Test email saved to Inbox." : "Test email was not saved.");
+    await refreshWorkspaceData();
+  }
+
   function toggleComposerProject(project: any) {
     setSelectedProjectIds((current) => {
       if (current.includes(project.id)) return current.filter((id) => id !== project.id);
@@ -330,6 +354,17 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Could not queue AI processing");
     }
+  }
+
+  async function blockSender(note: any) {
+    await api("/api/email-blocks", {
+      method: "POST",
+      body: JSON.stringify({ note_id: note.id }),
+    });
+    setSheetOpen(false);
+    setSelectedNote(null);
+    setToast("Sender blocked and email removed.");
+    await refreshWorkspaceData();
   }
 
   async function copyBrief(kind: "note" | "project" | "person", item: any) {
@@ -390,6 +425,9 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
           <button onClick={() => state?.inbound_address && navigator.clipboard.writeText(state.inbound_address)}>
             <Copy size={15} /> {state?.inbound_address || "Loading"}
           </button>
+          <button onClick={sendTestEmail}>
+            <Send size={15} /> Send test email
+          </button>
         </div>
       </aside>
 
@@ -402,8 +440,9 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
             <Search size={18} />
             <input value={query} onChange={(e) => runSearch(e.target.value)} placeholder="Search notes, people, projects..." />
           </div>
-          <button className="icon-btn" title="Email AI is Manual by default">
+          <button className="mode-btn" onClick={toggleEmailAI} title="Email AI default is Manual for v1">
             <Settings size={18} />
+            {state?.workspace?.email_ai_mode === "auto" ? "Auto" : "Manual"}
           </button>
           <UserButton />
         </header>
@@ -511,7 +550,10 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
               {notes.map((note) => (
                 <article key={note.id} className="note-row" onClick={() => openNote(note.id)}>
                   <div>
-                    <h3 className={note.title_is_derived ? "derived" : ""}>{note.title}</h3>
+                    <h3 className={note.title_is_derived ? "derived" : ""}>
+                      {note.title}
+                      {note.raw_email_metadata && <span className="raw-badge">Email</span>}
+                    </h3>
                     <p>{note.body}</p>
                   </div>
                   <button className="icon-btn" onClick={(e) => { e.stopPropagation(); flag({ note_id: note.id }); }} aria-label="Flag note">
@@ -584,6 +626,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         onCopy={() => selectedNote && copyBrief("note", selectedNote)}
         onFlag={() => selectedNote && flag({ note_id: selectedNote.id })}
         onProcess={() => selectedNote && processWithAI(selectedNote.id)}
+        onBlockSender={() => selectedNote && blockSender(selectedNote)}
         onUpdate={updateNote}
         onSetProjects={setNoteProjects}
         createProject={async (name) => {
@@ -675,6 +718,7 @@ function LinkedSheet({
   onCopy,
   onFlag,
   onProcess,
+  onBlockSender,
   onUpdate,
   onSetProjects,
   createProject,
@@ -689,6 +733,7 @@ function LinkedSheet({
   onCopy: () => void;
   onFlag: () => void;
   onProcess: () => void;
+  onBlockSender: () => void;
   onUpdate: (noteId: string, title: string, body: string) => Promise<void>;
   onSetProjects: (note: any, projectIds: string[], confirmPersonalMove?: boolean) => Promise<void>;
   createProject: (name: string) => Promise<any>;
@@ -754,6 +799,12 @@ function LinkedSheet({
           </div>
         ) : (
           <p>{note.body}</p>
+        )}
+        {note.raw_email_metadata && (
+          <div className="email-meta">
+            <span>From {note.raw_email_metadata.sender || "unknown sender"}</span>
+            <span>{note.raw_email_metadata.subject || "No subject"}</span>
+          </div>
         )}
         <div className="chip-row">
           {(note.projects || []).map((project: any) => (
@@ -837,6 +888,7 @@ function LinkedSheet({
           <button onClick={onFlag}><Flag size={17} /> Flag</button>
           <button onClick={() => setEditMode(true)}><Settings size={17} /> Edit</button>
           <button onClick={onProcess}><Sparkles size={17} /> Process with AI</button>
+          {note.raw_email_metadata && <button onClick={onBlockSender}><X size={17} /> Block sender</button>}
         </div>
       </aside>
     </div>

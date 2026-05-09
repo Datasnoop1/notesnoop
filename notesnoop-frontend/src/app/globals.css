@@ -92,6 +92,18 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   place-items: center;
   color: var(--ink);
 }
+.mode-btn {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  border-radius: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
 
 .inbound {
   margin-top: auto;
@@ -244,6 +256,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 }
 .note-row h3 { margin: 0 0 4px; font-size: 16px; }
 .note-row h3.derived { font-style: italic; font-weight: 520; }
+.raw-badge {
+  margin-left: 8px;
+  border: 1px solid #d9c68e;
+  background: #fff8dc;
+  color: #624a0e;
+  border-radius: 999px;
+  padding: 3px 7px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 650;
+}
 .note-row p { margin: 0; color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
 .entity-row { grid-template-columns: 24px minmax(0, 1fr) 40px; align-items: center; }
@@ -306,6 +329,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   overflow: auto;
 }
 .linked-sheet p { white-space: pre-wrap; line-height: 1.55; color: #293d38; }
+.email-meta {
+  border: 1px solid var(--line);
+  background: #f7fbf8;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
 .chip { border: 1px solid var(--line); background: #edf7f3; color: #17453e; border-radius: 999px; padding: 7px 10px; font-size: 13px; }
 .project-chip { display: inline-flex; align-items: center; gap: 7px; background: #fff8dc; color: #624a0e; }
