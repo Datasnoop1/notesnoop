@@ -52,6 +52,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [personName, setPersonName] = useState("");
   const [projectName, setProjectName] = useState("");
   const [activeProject, setActiveProject] = useState<string | null>(null);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [mobileNav, setMobileNav] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -83,6 +84,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const workspaceId = state?.workspace?.id;
   const inbox = useMemo(() => state?.projects.find((p) => p.kind === "inbox"), [state]);
   const personal = useMemo(() => state?.projects.find((p) => p.kind === "personal"), [state]);
+  const saveProjectIds = selectedProjectIds.length ? selectedProjectIds : activeProject ? [activeProject] : [];
 
   const refresh = useCallback(async () => {
     const me = await api("/api/me");
@@ -127,17 +129,19 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     if (!workspaceId || !body.trim()) return;
     setBusy(true);
     try {
+      const projectIds = saveProjectIds.length ? saveProjectIds : undefined;
       const res = await api(`/api/workspaces/${workspaceId}/notes`, {
         method: "POST",
         body: JSON.stringify({
           title: title || null,
           body,
-          project_ids: activeProject ? [activeProject] : undefined,
+          project_ids: projectIds,
         }),
       });
       setSelectedNote(res.data);
       setBody("");
       setTitle("");
+      setSelectedProjectIds([]);
       setSheetOpen(true);
       setToast("Saved. AI structuring is queued when allowed.");
       await refreshWorkspaceData();
@@ -146,6 +150,31 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function openNote(noteId: string) {
+    const res = await api(`/api/notes/${noteId}`);
+    setSelectedNote(res.data);
+    setSheetOpen(true);
+  }
+
+  async function updateNote(noteId: string, nextTitle: string, nextBody: string) {
+    const res = await api(`/api/notes/${noteId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title: nextTitle || null, body: nextBody }),
+    });
+    setSelectedNote(res.data);
+    await refreshWorkspaceData();
+    setToast("Note saved.");
+  }
+
+  async function setNoteProjects(note: any, projectIds: string[], confirmPersonalMove = false) {
+    const res = await api(`/api/notes/${note.id}/projects`, {
+      method: "PUT",
+      body: JSON.stringify({ project_ids: projectIds, confirm_personal_move: confirmPersonalMove }),
+    });
+    setSelectedNote(res.data);
+    await refreshWorkspaceData();
   }
 
   async function createPerson() {
@@ -167,6 +196,14 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setProjectName("");
     setActiveProject(res.data.id);
     await refreshWorkspaceData();
+  }
+
+  function toggleComposerProject(project: any) {
+    setSelectedProjectIds((current) => {
+      if (current.includes(project.id)) return current.filter((id) => id !== project.id);
+      if (project.kind === "personal") return [project.id];
+      return [...current.filter((id) => id !== personal?.id), project.id];
+    });
   }
 
   async function runSearch(nextQuery: string) {
@@ -216,16 +253,16 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
             <X size={18} />
           </button>
         </div>
-        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={() => setActiveProject(null)}>
+        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={() => { setActiveProject(null); setSelectedProjectIds([]); }}>
           <Archive size={17} /> Home
         </button>
         {inbox && (
-          <button className={`nav-item ${activeProject === inbox.id ? "active" : ""}`} onClick={() => setActiveProject(inbox.id)}>
+          <button className={`nav-item ${activeProject === inbox.id ? "active" : ""}`} onClick={() => { setActiveProject(inbox.id); setSelectedProjectIds([]); }}>
             <Inbox size={17} /> Inbox
           </button>
         )}
         {personal && (
-          <button className={`nav-item ${activeProject === personal.id ? "active" : ""}`} onClick={() => setActiveProject(personal.id)}>
+          <button className={`nav-item ${activeProject === personal.id ? "active" : ""}`} onClick={() => { setActiveProject(personal.id); setSelectedProjectIds([]); }}>
             <UserRound size={17} /> Personal
           </button>
         )}
@@ -233,7 +270,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         {state?.projects
           .filter((p) => p.kind === "user")
           .map((project) => (
-            <button key={project.id} className={`nav-item ${activeProject === project.id ? "active" : ""}`} onClick={() => setActiveProject(project.id)}>
+            <button key={project.id} className={`nav-item ${activeProject === project.id ? "active" : ""}`} onClick={() => { setActiveProject(project.id); setSelectedProjectIds([]); }}>
               <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} /> {project.name}
             </button>
           ))}
@@ -295,8 +332,25 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
             placeholder="Dump a note. Names, projects, rough thoughts, half-sentences all belong here."
             rows={quickCapture ? 9 : 6}
           />
+          <div className="project-picker" aria-label="Save note to projects">
+            {(state?.projects || []).map((project) => {
+              const selected = saveProjectIds.includes(project.id);
+              return (
+                <button
+                  type="button"
+                  key={project.id}
+                  className={selected ? "selected" : ""}
+                  onClick={() => toggleComposerProject(project)}
+                  title={project.kind === "personal" ? "Personal notes cannot be mixed with other projects" : project.name}
+                >
+                  <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                  {project.name}
+                </button>
+              );
+            })}
+          </div>
           <div className="composer-actions">
-            <span>{activeProject ? "Saving to selected project" : "Saving to Inbox"}</span>
+            <span>{saveProjectIds.length ? `Saving to ${saveProjectIds.length} project${saveProjectIds.length > 1 ? "s" : ""}` : "Saving to Inbox"}</span>
             <button onClick={saveNote} disabled={busy || !body.trim()}>
               <Send size={17} /> Save
             </button>
@@ -311,7 +365,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                 <Sparkles size={18} />
               </div>
               {notes.map((note) => (
-                <article key={note.id} className="note-row" onClick={() => { setSelectedNote(note); setSheetOpen(true); }}>
+                <article key={note.id} className="note-row" onClick={() => openNote(note.id)}>
                   <div>
                     <h3 className={note.title_is_derived ? "derived" : ""}>{note.title}</h3>
                     <p>{note.body}</p>
@@ -360,11 +414,23 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
       <LinkedSheet
         open={sheetOpen}
         note={selectedNote}
+        projects={state?.projects || []}
         people={state?.people || []}
         onClose={() => setSheetOpen(false)}
         onCopy={() => selectedNote && copyBrief("note", selectedNote)}
         onFlag={() => selectedNote && flag({ note_id: selectedNote.id })}
         onProcess={() => selectedNote && processWithAI(selectedNote.id)}
+        onUpdate={updateNote}
+        onSetProjects={setNoteProjects}
+        createProject={async (name) => {
+          if (!workspaceId) throw new Error("Workspace is not ready");
+          const res = await api(`/api/workspaces/${workspaceId}/projects`, {
+            method: "POST",
+            body: JSON.stringify({ name, color_hex: "#e85d4f" }),
+          });
+          await refreshWorkspaceData();
+          return res.data;
+        }}
         api={api}
         refresh={refreshWorkspaceData}
       />
@@ -389,26 +455,48 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
 function LinkedSheet({
   open,
   note,
+  projects,
   people,
   onClose,
   onCopy,
   onFlag,
   onProcess,
+  onUpdate,
+  onSetProjects,
+  createProject,
   api,
   refresh,
 }: {
   open: boolean;
   note: any | null;
+  projects: any[];
   people: any[];
   onClose: () => void;
   onCopy: () => void;
   onFlag: () => void;
   onProcess: () => void;
+  onUpdate: (noteId: string, title: string, body: string) => Promise<void>;
+  onSetProjects: (note: any, projectIds: string[], confirmPersonalMove?: boolean) => Promise<void>;
+  createProject: (name: string) => Promise<any>;
   api: (path: string, init?: RequestInit) => Promise<any>;
   refresh: () => Promise<void>;
 }) {
   const [personId, setPersonId] = useState("");
+  const [editMode, setEditMode] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftBody, setDraftBody] = useState("");
+  const [newProjectName, setNewProjectName] = useState("");
+  useEffect(() => {
+    if (!note) return;
+    setDraftTitle(note.title || "");
+    setDraftBody(note.body || "");
+    setEditMode(false);
+    setNewProjectName("");
+  }, [note]);
   if (!open || !note) return null;
+
+  const currentProjectIds = (note.projects || []).map((project: any) => project.id);
+
   async function link() {
     if (!personId) return;
     await api(`/api/notes/${note.id}/people`, {
@@ -417,6 +505,20 @@ function LinkedSheet({
     });
     await refresh();
   }
+
+  async function moveToProject(projectId: string) {
+    const confirmMove = note.is_personal ? window.confirm("Move this note out of Personal before linking it to this project?") : false;
+    if (note.is_personal && !confirmMove) return;
+    await onSetProjects(note, [projectId], confirmMove);
+  }
+
+  async function createAndMove() {
+    if (!newProjectName.trim()) return;
+    const project = await createProject(newProjectName.trim());
+    await onSetProjects(note, [project.id], note.is_personal);
+    setNewProjectName("");
+  }
+
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <aside className="linked-sheet" onClick={(e) => e.stopPropagation()}>
@@ -427,8 +529,25 @@ function LinkedSheet({
             <X size={18} />
           </button>
         </div>
-        <p>{note.body}</p>
+        {editMode ? (
+          <div className="sheet-editor">
+            <input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} aria-label="Note title" />
+            <textarea value={draftBody} onChange={(e) => setDraftBody(e.target.value)} rows={7} aria-label="Note body" />
+            <div className="sheet-actions">
+              <button onClick={() => onUpdate(note.id, draftTitle, draftBody)}><Check size={17} /> Save changes</button>
+              <button onClick={() => setEditMode(false)}><X size={17} /> Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <p>{note.body}</p>
+        )}
         <div className="chip-row">
+          {(note.projects || []).map((project: any) => (
+            <span className="chip project-chip" key={project.id}>
+              <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+              {project.name}
+            </span>
+          ))}
           {(note.people || []).map((person: any) => (
             <span className="chip" key={person.id}>{person.name} {person.confidence ? `${Math.round(person.confidence * 100)}%` : ""}</span>
           ))}
@@ -444,9 +563,65 @@ function LinkedSheet({
             <Plus size={18} />
           </button>
         </div>
+        {note.project_nudge?.inbox_only && (
+          <div className="project-nudge">
+            <strong>Move from Inbox</strong>
+            <div className="nudge-actions">
+              {(note.project_nudge.matched_projects || []).map((project: any) => (
+                <button key={project.id} onClick={() => moveToProject(project.id)}>
+                  <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                  {project.name}
+                </button>
+              ))}
+            </div>
+            <div className="inline-create">
+              <input value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} placeholder="New project for this note" />
+              <button className="icon-btn" onClick={createAndMove} aria-label="Create project and move note">
+                <Plus size={18} />
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="project-picker sheet-project-picker" aria-label="Linked projects">
+          {projects.map((project) => {
+            const selected = currentProjectIds.includes(project.id);
+            return (
+              <button
+                key={project.id}
+                className={selected ? "selected" : ""}
+                onClick={() => {
+                  if (project.kind === "personal") {
+                    onSetProjects(note, [project.id], false);
+                    return;
+                  }
+                  const nextIds = selected
+                    ? currentProjectIds.filter((id: string) => id !== project.id)
+                    : [...currentProjectIds.filter((id: string) => id !== projects.find((p) => p.kind === "personal")?.id), project.id];
+                  if (!nextIds.length) return;
+                  const confirmMove = note.is_personal && !selected
+                    ? window.confirm("Move this note out of Personal before linking it to this project?")
+                    : false;
+                  if (note.is_personal && !confirmMove && !selected) return;
+                  onSetProjects(note, nextIds, confirmMove);
+                }}
+              >
+                <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                {project.name}
+              </button>
+            );
+          })}
+        </div>
+        {!!note.versions?.length && (
+          <div className="version-row">
+            {note.versions.map((version: any) => (
+              <span key={version.version}>v{version.version}</span>
+            ))}
+          </div>
+        )}
         <div className="sheet-actions">
           <button onClick={onCopy}><Copy size={17} /> Quick brief</button>
           <button onClick={onFlag}><Flag size={17} /> Flag</button>
+          <button onClick={() => setEditMode(true)}><Settings size={17} /> Edit</button>
           <button onClick={onProcess}><Sparkles size={17} /> Process with AI</button>
         </div>
       </aside>

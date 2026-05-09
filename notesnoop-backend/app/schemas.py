@@ -36,6 +36,16 @@ class NoteCreate(BaseModel):
     project_ids: list[str] | None = None
 
 
+class NoteUpdate(BaseModel):
+    body: str | None = Field(default=None, min_length=1)
+    title: str | None = Field(default=None, max_length=200)
+
+
+class NoteProjectSet(BaseModel):
+    project_ids: list[str] = Field(min_length=1)
+    confirm_personal_move: bool = False
+
+
 class NoteLinkPerson(BaseModel):
     person_id: str
     state: str = Field(default="confirmed", pattern="^(confirmed|auto_linked|pending)$")

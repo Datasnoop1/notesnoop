@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
-from ..schemas import FlagRequest, NoteCreate, NoteLinkPerson
+from ..schemas import FlagRequest, NoteCreate, NoteLinkPerson, NoteProjectSet, NoteUpdate
 from ..services import consume_ai_quota, derive_title, enqueue_ai_if_allowed
 
 
@@ -34,6 +34,7 @@ def _default_inbox(cur, workspace_id: str, user_id: str) -> str:
 def create_note(workspace_id: str, payload: NoteCreate, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
         project_ids = payload.project_ids or [_default_inbox(cur, workspace_id, user.clerk_user_id)]
+        _validate_project_selection(cur, workspace_id, project_ids, confirm_personal_move=True)
         title, derived = derive_title(payload.body, payload.title)
         cur.execute(
             """
@@ -63,6 +64,99 @@ def create_note(workspace_id: str, payload: NoteCreate, user: CurrentUser = Depe
         )
         enqueue_ai_if_allowed(cur, workspace_id, str(note["id"]), user.clerk_user_id, project_ids)
         return {"data": get_note_payload(cur, str(note["id"]))}
+
+
+@router.patch("/notes/{note_id}")
+def update_note(note_id: str, payload: NoteUpdate, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        note = one(cur, "SELECT * FROM notes WHERE id = %s", (note_id,))
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        next_body = payload.body if payload.body is not None else note["body"]
+        title_was_sent = "title" in payload.model_fields_set
+        if title_was_sent:
+            next_title, title_is_derived = derive_title(next_body, payload.title)
+        elif note["title_is_derived"]:
+            next_title, title_is_derived = derive_title(next_body, None)
+        else:
+            next_title = note["title"]
+            title_is_derived = bool(note["title_is_derived"])
+        if next_body == note["body"] and next_title == note["title"]:
+            return {"data": get_note_payload(cur, note_id)}
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (note_id,))
+        cur.execute(
+            """
+            UPDATE notes
+            SET title = %s,
+                title_is_derived = %s,
+                body = %s,
+                updated_at = now()
+            WHERE id = %s
+            RETURNING *
+            """,
+            (next_title, title_is_derived, next_body, note_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO note_versions (note_id, version, title, body, edited_by)
+            SELECT %s,
+                   COALESCE(max(version), 0) + 1,
+                   %s,
+                   %s,
+                   %s
+            FROM note_versions
+            WHERE note_id = %s
+            """,
+            (note_id, next_title, next_body, user.clerk_user_id, note_id),
+        )
+        return {"data": get_note_payload(cur, note_id)}
+
+
+@router.get("/notes/{note_id}/versions")
+def note_versions(note_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        note = one(cur, "SELECT id FROM notes WHERE id = %s", (note_id,))
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        return {
+            "data": many(
+                cur,
+                """
+                SELECT id, note_id, version, title, body, edited_by, created_at
+                FROM note_versions
+                WHERE note_id = %s
+                ORDER BY version DESC
+                """,
+                (note_id,),
+            )
+        }
+
+
+@router.put("/notes/{note_id}/projects")
+def set_note_projects(note_id: str, payload: NoteProjectSet, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        note = one(cur, "SELECT * FROM notes WHERE id = %s", (note_id,))
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        projects = _validate_project_selection(
+            cur,
+            str(note["workspace_id"]),
+            payload.project_ids,
+            confirm_personal_move=payload.confirm_personal_move,
+            current_is_personal=bool(note["is_personal"]),
+        )
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (note_id,))
+        cur.execute("DELETE FROM note_projects WHERE note_id = %s AND project_id <> ALL(%s::uuid[])", (note_id, payload.project_ids))
+        for project in projects:
+            cur.execute(
+                """
+                INSERT INTO note_projects (note_id, project_id, linked_by)
+                VALUES (%s, %s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (note_id, project["id"], user.clerk_user_id),
+            )
+        return {"data": get_note_payload(cur, note_id)}
 
 
 @router.get("/workspaces/{workspace_id}/notes")
@@ -310,4 +404,69 @@ def get_note_payload(cur, note_id: str) -> dict | None:
         """,
         (note_id,),
     )
+    note["versions"] = many(
+        cur,
+        """
+        SELECT version, created_at, edited_by
+        FROM note_versions
+        WHERE note_id = %s
+        ORDER BY version DESC
+        LIMIT 5
+        """,
+        (note_id,),
+    )
+    note["project_nudge"] = _project_nudge(cur, note)
     return note
+
+
+def _validate_project_selection(
+    cur,
+    workspace_id: str,
+    project_ids: list[str],
+    confirm_personal_move: bool,
+    current_is_personal: bool = False,
+) -> list[dict]:
+    unique_ids = list(dict.fromkeys(project_ids))
+    if len(unique_ids) != len(project_ids):
+        project_ids[:] = unique_ids
+    projects = many(
+        cur,
+        """
+        SELECT id, kind, name
+        FROM projects
+        WHERE workspace_id = %s AND id = ANY(%s::uuid[])
+        """,
+        (workspace_id, project_ids),
+    )
+    if len(projects) != len(project_ids):
+        raise HTTPException(status_code=422, detail="One or more projects are unavailable")
+    has_personal = any(project["kind"] == "personal" for project in projects)
+    if has_personal and len(projects) > 1:
+        raise HTTPException(status_code=422, detail="Personal notes cannot be linked to other projects")
+    if current_is_personal and not has_personal and not confirm_personal_move:
+        raise HTTPException(status_code=409, detail="Moving a Personal note requires explicit confirmation")
+    return projects
+
+
+def _project_nudge(cur, note: dict) -> dict:
+    linked_ids = {str(project["id"]) for project in note.get("projects", [])}
+    linked_kinds = {project["kind"] for project in note.get("projects", [])}
+    text = f"{note.get('title') or ''}\n{note.get('body') or ''}".lower()
+    candidates = []
+    for project in many(
+        cur,
+        """
+        SELECT id, name, kind, color_hex
+        FROM projects
+        WHERE workspace_id = %s AND kind = 'user'
+        ORDER BY created_at
+        """,
+        (note["workspace_id"],),
+    ):
+        if str(project["id"]) not in linked_ids and project["name"].lower() in text:
+            candidates.append(project)
+    return {
+        "inbox_only": linked_kinds == {"inbox"},
+        "matched_projects": candidates[:3],
+        "can_create_project": linked_kinds == {"inbox"} and bool(str(note.get("body") or "").strip()),
+    }
