@@ -18,7 +18,7 @@ from starlette.requests import Request
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "notesnoop-backend"))
 
-from app import auth, email_ingest, ollama_client, worker
+from app import auth, email_ingest, main, ollama_client, worker
 from app.briefing import make_unsubscribe_token, parse_unsubscribe_token
 from app.embeddings import EmbeddingResult
 from app.routers import realtime, webhooks
@@ -210,6 +210,38 @@ def test_ollama_extraction_payload_and_validation(monkeypatch):
     monkeypatch.setattr(ollama_client, "ALLOW_DETERMINISTIC_FALLBACK", True)
     rate_limited = asyncio.run(ollama_client.extract_entities("Morgan met Apollo", ["Morgan"], ["Apollo"]))
     assert rate_limited["people"][0]["name"] == "Morgan"
+
+
+def test_health_and_readiness(monkeypatch):
+    assert main.health()["status"] == "ok"
+    settings = SimpleNamespace(
+        dev_auth=False,
+        clerk_issuer="https://issuer.test",
+        postmark_dry_run=False,
+        postmark_server_token="postmark-token",
+        email_ai_default="manual",
+    )
+    conn = FakeConn(FakeCursor(fetchone_values=[(1,)]))
+    monkeypatch.setattr(main, "get_settings", lambda: settings)
+    monkeypatch.setattr(main, "get_conn", lambda: conn)
+    monkeypatch.setattr(main, "put_conn", lambda _conn: None)
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama-key")
+    monkeypatch.setenv("NOTESNOOP_WEBHOOK_ALLOW_UNSIGNED", "false")
+    monkeypatch.setenv("NOTESNOOP_POSTMARK_BASIC_AUTH", "postmark:user")
+
+    ready = main.readiness()
+
+    assert ready["status"] == "ready"
+    assert ready["checks"]["database"]["ok"] is True
+    assert ready["checks"]["auth"]["mode"] == "clerk"
+
+    settings.postmark_server_token = ""
+    settings.postmark_dry_run = False
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    blocked = main.readiness()
+    assert blocked["status"] == "blocked"
+    assert blocked["checks"]["ollama"]["ok"] is False
+    assert blocked["checks"]["postmark_outbound"]["ok"] is False
 
 
 def test_email_and_webhook_helpers(monkeypatch):

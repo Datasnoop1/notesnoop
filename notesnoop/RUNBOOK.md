@@ -13,6 +13,7 @@ COMPOSE="docker compose --env-file .env.staging -f docker-compose.staging.yml -p
 $COMPOSE ps notesnoop-postgres-staging notesnoop-backend-staging notesnoop-worker-staging notesnoop-frontend-staging
 docker logs --tail=120 leadpeek-staging-notesnoop-worker-staging-1
 curl -fsS http://127.0.0.1:8091/api/health
+curl -fsS http://127.0.0.1:8091/api/readiness
 ```
 
 If the preview is being checked through `note.datasnoop.be`, remember the
