@@ -107,7 +107,13 @@ SQL
 schema_count="$(printf '%s\n' "$smoke" | sed -n '1p')"
 notes_table="$(printf '%s\n' "$smoke" | sed -n '2p')"
 invites_table="$(printf '%s\n' "$smoke" | sed -n '3p')"
-[ "$notes_table" = "notes" ] || fail "public.notes missing after restore"
-[ "$invites_table" = "project_invites" ] || fail "public.project_invites missing after restore"
+case "$notes_table" in
+  notes|public.notes) ;;
+  *) fail "public.notes missing after restore" ;;
+esac
+case "$invites_table" in
+  project_invites|public.project_invites) ;;
+  *) fail "public.project_invites missing after restore" ;;
+esac
 
 echo "NoteSnoop restore drill OK: schema_migrations=$schema_count"
