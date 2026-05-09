@@ -42,6 +42,9 @@ def readiness():
     checks: dict[str, dict[str, object]] = {}
     allow_unsigned = os.getenv("NOTESNOOP_WEBHOOK_ALLOW_UNSIGNED", "").lower() in {"1", "true", "yes"}
     postmark_inbound_configured = bool(os.getenv("NOTESNOOP_POSTMARK_BASIC_AUTH") or os.getenv("NOTESNOOP_POSTMARK_WEBHOOK_SECRET"))
+    ollama_host = (os.getenv("OLLAMA_HOST") or os.getenv("OLLAMA_BASE_URL") or "https://ollama.com").rstrip("/")
+    ollama_is_cloud = "ollama.com" in ollama_host
+    ollama_configured = bool(os.getenv("OLLAMA_API_KEY", "")) or not ollama_is_cloud
 
     conn = None
     try:
@@ -61,7 +64,11 @@ def readiness():
         "beta_ok": bool(not settings.dev_auth and settings.clerk_issuer),
         "mode": "dev" if settings.dev_auth else "clerk",
     }
-    checks["ollama"] = {"ok": _configured(os.getenv("OLLAMA_API_KEY", "")), "beta_ok": _configured(os.getenv("OLLAMA_API_KEY", ""))}
+    checks["ollama"] = {
+        "ok": ollama_configured,
+        "beta_ok": ollama_configured,
+        "mode": "cloud" if ollama_is_cloud else "local",
+    }
     checks["inbound_webhook_auth"] = {
         "ok": bool(allow_unsigned or postmark_inbound_configured),
         "beta_ok": bool(not allow_unsigned and postmark_inbound_configured),

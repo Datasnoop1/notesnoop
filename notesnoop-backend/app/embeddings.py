@@ -40,6 +40,17 @@ class EmbeddingUnavailable(RuntimeError):
     pass
 
 
+def _is_cloud_host() -> bool:
+    return "ollama.com" in OLLAMA_HOST
+
+
+def _headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if OLLAMA_API_KEY:
+        headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
+    return headers
+
+
 def note_embedding_text(note: dict) -> str:
     return "\n\n".join(str(part).strip() for part in (note.get("title"), note.get("body")) if str(part or "").strip())
 
@@ -83,13 +94,13 @@ def vector_literal(vector: list[float]) -> str:
 
 
 async def _ollama_embedding(text: str) -> list[float]:
-    if not OLLAMA_API_KEY:
+    if _is_cloud_host() and not OLLAMA_API_KEY:
         raise EmbeddingUnavailable("OLLAMA_API_KEY is not configured")
     payload = {"model": EMBEDDING_MODEL, "input": text[:12000]}
     async with httpx.AsyncClient(timeout=60) as client:
         response = await client.post(
             f"{OLLAMA_HOST}/api/embed",
-            headers={"Authorization": f"Bearer {OLLAMA_API_KEY}", "Content-Type": "application/json"},
+            headers=_headers(),
             json=payload,
         )
     if response.status_code in {401, 403, 404}:

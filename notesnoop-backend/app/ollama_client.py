@@ -27,6 +27,17 @@ Return strict JSON only:
 Do not invent names. Confidence must be 0..1. Use character spans when obvious; otherwise [0,0]."""
 
 
+def _is_cloud_host() -> bool:
+    return "ollama.com" in OLLAMA_HOST
+
+
+def _headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if OLLAMA_API_KEY:
+        headers["Authorization"] = f"Bearer {OLLAMA_API_KEY}"
+    return headers
+
+
 def _is_transient_error(exc: Exception) -> bool:
     response = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
@@ -73,7 +84,7 @@ def deterministic_extract_entities(note_body: str, known_people: list[str], know
 
 
 async def extract_entities(note_body: str, known_people: list[str], known_projects: list[str]) -> dict[str, Any]:
-    if not OLLAMA_API_KEY:
+    if _is_cloud_host() and not OLLAMA_API_KEY:
         raise RuntimeError("OLLAMA_API_KEY is not configured")
     prompt = {
         "note": note_body[:12000],
@@ -99,7 +110,7 @@ async def extract_entities(note_body: str, known_people: list[str], known_projec
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
                 f"{OLLAMA_HOST}/api/chat",
-                headers={"Authorization": f"Bearer {OLLAMA_API_KEY}", "Content-Type": "application/json"},
+                headers=_headers(),
                 json=payload,
             )
             resp.raise_for_status()
