@@ -18,6 +18,44 @@ curl -fsS http://127.0.0.1:8091/api/health
 If the preview is being checked through `note.datasnoop.be`, remember the
 preview front door has basic auth and is not production.
 
+## DNS, TLS, And Postmark Readiness
+
+Real staging and PWA install checks require HTTPS. Before declaring beta-ready,
+confirm DNS resolves to the Hetzner host and nginx has a valid certificate for
+the chosen hostnames.
+
+Expected web records:
+
+- `notesnoop.app` or the staging subdomain used for beta: `A`/`AAAA` to the
+  Hetzner host.
+- `api.notesnoop.app` when the API is split onto its own hostname; same host.
+- Temporary previews may use `note.datasnoop.be`, but that is not the
+  production target.
+
+Expected inbound-mail records:
+
+- `MX` for the inbound domain to Postmark Inbound.
+- `TXT` SPF including Postmark.
+- DKIM records exactly as issued by Postmark.
+- DMARC record with at least reporting enabled before beta.
+
+TLS check:
+
+```bash
+certbot certificates | grep -E 'notesnoop|note.datasnoop'
+curl -I https://notesnoop.app/
+curl -I https://api.notesnoop.app/api/health
+```
+
+Postmark check:
+
+```bash
+python scripts/notesnoop_smoke.py --base-url https://notesnoop.app
+```
+
+The smoke runner covers the Manual default and Process-with-AI path. It cannot
+prove real MX delivery until Postmark credentials and DNS are present.
+
 ## Backups And Restore
 
 Backup targets:

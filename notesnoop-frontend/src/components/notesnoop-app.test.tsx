@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NoteSnoopApp } from "./notesnoop-app";
+import { ServiceWorkerRegistration } from "./service-worker-registration";
 
 vi.mock("@clerk/nextjs", () => ({
   SignInButton: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -287,5 +288,21 @@ describe("NoteSnoopApp", () => {
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/people"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/send-test-email"))).toBe(true);
     });
+  });
+
+  it("registers the quick-capture service worker on localhost", async () => {
+    const register = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: { register },
+    });
+    Object.defineProperty(window, "isSecureContext", {
+      configurable: true,
+      value: false,
+    });
+
+    render(<ServiceWorkerRegistration />);
+
+    await waitFor(() => expect(register).toHaveBeenCalledWith("/sw.js"));
   });
 });

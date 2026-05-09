@@ -168,12 +168,6 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   }, [isSignedIn, refresh]);
 
   useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => undefined);
-    }
-  }, []);
-
-  useEffect(() => {
     refreshWorkspaceData().catch((err) => setToast(err.message));
   }, [refreshWorkspaceData]);
 
