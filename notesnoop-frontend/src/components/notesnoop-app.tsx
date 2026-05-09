@@ -24,6 +24,7 @@ import { SignInButton, UserButton, useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type ApiState = {
+  user?: any;
   workspace?: any;
   projects: any[];
   people: any[];
@@ -60,6 +61,8 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
   const [searchMeta, setSearchMeta] = useState<any | null>(null);
   const [personName, setPersonName] = useState("");
+  const [seedPeopleDrafts, setSeedPeopleDrafts] = useState(["", ""]);
+  const [warmStartDismissed, setWarmStartDismissed] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [activeProject, setActiveProject] = useState<string | null>(null);
@@ -103,6 +106,8 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const personal = useMemo(() => state?.projects.find((p) => p.kind === "personal"), [state]);
   const saveProjectIds = selectedProjectIds.length ? selectedProjectIds : activeProject ? [activeProject] : [];
   const activityByProject = useMemo(() => new Map(activity.map((item) => [item.project_id, item])), [activity]);
+  const seededPeople = useMemo(() => (state?.people || []).filter((person) => !person.clerk_user_id), [state]);
+  const showWarmStart = !quickCapture && !warmStartDismissed && !!state?.workspace && !notes.length && seededPeople.length < 2;
 
   const buildSearchParams = useCallback(
     (nextQuery: string, filters: SearchFilters) => {
@@ -278,6 +283,37 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     });
     setPersonName("");
     await refreshWorkspaceData();
+  }
+
+  function updateSeedPerson(index: number, value: string) {
+    setSeedPeopleDrafts((current) => current.map((name, i) => (i === index ? value : name)));
+  }
+
+  async function seedPeopleFromOnboarding() {
+    if (!workspaceId) return;
+    const existing = new Set((state?.people || []).map((person) => String(person.name || "").trim().toLowerCase()));
+    const names = seedPeopleDrafts
+      .map((name) => name.trim())
+      .filter((name, index, all) => name && all.findIndex((candidate) => candidate.toLowerCase() === name.toLowerCase()) === index)
+      .filter((name) => !existing.has(name.toLowerCase()));
+    if (!names.length) return;
+    setBusy(true);
+    try {
+      for (const name of names) {
+        await api(`/api/workspaces/${workspaceId}/people`, {
+          method: "POST",
+          body: JSON.stringify({ name }),
+        });
+      }
+      setSeedPeopleDrafts(["", ""]);
+      setWarmStartDismissed(true);
+      setToast("People added.");
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not add people");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function createProject() {
@@ -556,6 +592,35 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
             </div>
           ) : "Caught up"}
         </div>
+        )}
+
+        {showWarmStart && (
+          <section className="warm-start" aria-label="Pre-seed people">
+            <div>
+              <span><Users size={16} /> Warm start</span>
+              <strong>Add 1-2 people you work with.</strong>
+            </div>
+            <div className="warm-start-inputs">
+              <input
+                value={seedPeopleDrafts[0]}
+                onChange={(event) => updateSeedPerson(0, event.target.value)}
+                placeholder="Person name"
+                aria-label="First person name"
+              />
+              <input
+                value={seedPeopleDrafts[1]}
+                onChange={(event) => updateSeedPerson(1, event.target.value)}
+                placeholder="Another person"
+                aria-label="Second person name"
+              />
+              <button onClick={seedPeopleFromOnboarding} disabled={busy || !seedPeopleDrafts.some((name) => name.trim())}>
+                <Check size={16} /> Add
+              </button>
+              <button className="icon-btn" onClick={() => setWarmStartDismissed(true)} aria-label="Skip warm start">
+                <X size={17} />
+              </button>
+            </div>
+          </section>
         )}
 
         <section className="composer">

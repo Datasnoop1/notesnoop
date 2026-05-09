@@ -73,23 +73,26 @@ function streamResponse() {
   );
 }
 
-function installFetch() {
+function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<string, unknown> } = {}) {
   const calls: string[] = [];
+  const responsePeople = options.people ?? people;
+  const responseNotes = options.notes ?? [note];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push(`${init?.method || "GET"} ${url}`);
     if (url.includes("/api/events/")) return streamResponse();
     if (url.endsWith("/api/me")) {
-      return json({ data: { bootstrapped: true, workspace, projects, people, inbound_address: "dev@in.notesnoop.app" } });
+      return json({ data: { bootstrapped: true, workspace, projects, people: responsePeople, inbound_address: "dev@in.notesnoop.app" } });
     }
     if (url.includes("/api/workspaces/workspace-1/home")) {
       return json({
         data: {
           pending_review: pending,
           recent_projects: [projects[2]],
-          recent_people: people,
+          recent_people: responsePeople,
           flagged: [{ id: "flag-1", label: "Apollo update", target_kind: "note", note_id: "note-1" }],
-          recent_notes: [note],
+          recent_notes: responseNotes,
+          ...options.home,
         },
       });
     }
@@ -99,8 +102,11 @@ function installFetch() {
     if (url.includes("/api/workspaces/workspace-1/projects") && init?.method === "POST") {
       return json({ data: { id: "project-created", name: JSON.parse(String(init.body)).name, kind: "user", color_hex: "#e85d4f" } });
     }
-    if (url.includes("/api/workspaces/workspace-1/notes")) return json({ data: [note] });
-    if (url.includes("/api/workspaces/workspace-1/people")) return json({ data: people });
+    if (url.includes("/api/workspaces/workspace-1/notes")) return json({ data: responseNotes });
+    if (url.includes("/api/workspaces/workspace-1/people") && init?.method === "POST") {
+      return json({ data: { id: `person-created-${calls.length}`, ...JSON.parse(String(init.body)), confirmed_note_count: 0 } });
+    }
+    if (url.includes("/api/workspaces/workspace-1/people")) return json({ data: responsePeople });
     if (url.includes("/api/workspaces/workspace-1/projects")) return json({ data: projects });
     if (url.includes("/api/projects/project-1/invites")) {
       return json({ data: { id: "invite-created", email: JSON.parse(String(init?.body)).email, status: "pending" } });
@@ -147,6 +153,29 @@ describe("NoteSnoopApp", () => {
 
     expect(await screen.findByText("Morning briefing is on.")).toBeInTheDocument();
     expect(calls.some((call) => call.includes("PATCH /api/workspaces/workspace-1/settings"))).toBe(true);
+  });
+
+  it("pre-seeds first-run people from the warm start panel", async () => {
+    const selfOnly = [{ id: "person-self", name: "Dev User", clerk_user_id: "dev_user", confirmed_note_count: 0 }];
+    const { fetchMock } = installFetch({
+      people: selfOnly,
+      notes: [],
+      home: { recent_people: selfOnly, recent_notes: [] },
+    });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    expect(await screen.findByText("Warm start")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("First person name"), { target: { value: "Avery Chen" } });
+    fireEvent.change(screen.getByLabelText("Second person name"), { target: { value: "Morgan Lee" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add$/i }));
+
+    await waitFor(() => {
+      const createdNames = fetchMock.mock.calls
+        .filter(([input, init]) => String(input).includes("/api/workspaces/workspace-1/people") && init?.method === "POST")
+        .map(([, init]) => JSON.parse(String(init?.body)).name);
+      expect(createdNames).toEqual(["Avery Chen", "Morgan Lee"]);
+    });
+    expect(await screen.findByText("People added.")).toBeInTheDocument();
   });
 
   it("saves a quick capture note and opens the linked-entities sheet", async () => {
