@@ -319,6 +319,16 @@ def test_memory_insert_rls_migration_keeps_project_visibility_but_allows_member_
     assert "USING (can_access_report(id))" in migration.sql
 
 
+def test_memory_returning_visibility_migration_allows_fresh_rows_to_return():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0017_memory_returning_visibility.sql")
+
+    assert migration.filename == "0017_memory_returning_visibility.sql"
+    assert "created_by = current_user_id()" in migration.sql
+    assert "OR can_access_task(id)" in migration.sql
+    assert "OR can_access_report(id)" in migration.sql
+    assert "WITH CHECK (is_workspace_member(workspace_id))" in migration.sql
+
+
 def test_project_summary_helper_is_deterministic():
     summary = memory.build_project_summary(
         {"id": "project-1", "name": "Apollo"},
