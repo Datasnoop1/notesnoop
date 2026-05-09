@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -63,6 +63,50 @@ class NoteLinkPerson(BaseModel):
     state: str = Field(default="confirmed", pattern="^(confirmed|auto_linked|pending)$")
     confidence: float | None = None
     source: str = Field(default="user", pattern="^(user|ai|collaborator_suggestion)$")
+
+
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    description: str | None = None
+    status: str = Field(default="todo", pattern="^(todo|doing|blocked|done|archived)$")
+    priority: int = Field(default=3, ge=1, le=5)
+    due_at: datetime | None = None
+    project_ids: list[str] | None = None
+    person_ids: list[str] | None = None
+    note_ids: list[str] | None = None
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=240)
+    description: str | None = None
+    status: str | None = Field(default=None, pattern="^(todo|doing|blocked|done|archived)$")
+    priority: int | None = Field(default=None, ge=1, le=5)
+    due_at: datetime | None = None
+    project_ids: list[str] | None = None
+    person_ids: list[str] | None = None
+    note_ids: list[str] | None = None
+
+
+class MeetingCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    occurred_at: datetime | None = None
+    location: str | None = Field(default=None, max_length=240)
+    summary: str | None = None
+    project_ids: list[str] | None = None
+    person_ids: list[str] | None = None
+    note_ids: list[str] | None = None
+
+
+class ReportCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    body: str | None = None
+    status: str = Field(default="draft", pattern="^(draft|published|archived)$")
+    period_start: date | None = None
+    period_end: date | None = None
+    project_ids: list[str] | None = None
+    person_ids: list[str] | None = None
+    note_ids: list[str] | None = None
+    task_ids: list[str] | None = None
 
 
 class FlagRequest(BaseModel):

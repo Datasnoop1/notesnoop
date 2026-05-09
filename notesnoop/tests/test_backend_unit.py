@@ -17,11 +17,13 @@ from starlette.requests import Request
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "notesnoop-backend"))
+sys.path.insert(0, str(ROOT / "notesnoop"))
 
+import migrate
 from app import auth, email_ingest, main, ollama_client, worker
 from app.briefing import make_unsubscribe_token, parse_unsubscribe_token
 from app.embeddings import EmbeddingResult
-from app.routers import realtime, webhooks
+from app.routers import memory, realtime, webhooks
 
 
 class FakeCursor:
@@ -255,6 +257,51 @@ def test_health_and_readiness(monkeypatch):
     assert preview_ready["beta_status"] == "blocked"
     assert preview_ready["checks"]["auth"]["beta_ok"] is False
     assert preview_ready["checks"]["postmark_outbound"]["mode"] == "dry_run"
+
+
+def test_reserved_memory_graph_migration_parses_and_stays_notesnoop_scoped():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0012_reserved_memory_graph.sql")
+
+    assert migration.filename == "0012_reserved_memory_graph.sql"
+    assert migration.mode == "tx"
+    assert migration.statement_timeout == "120s"
+    assert "CREATE TABLE IF NOT EXISTS tasks" in migration.sql
+    assert "CREATE TABLE IF NOT EXISTS reports" in migration.sql
+    assert "CREATE POLICY tasks_workspace_access" in migration.sql
+    assert "CREATE POLICY report_notes_resource_access" in migration.sql
+    assert "enforce_memory_link_workspace" in migration.sql
+    assert "datasnoop" not in migration.sql.lower()
+    assert "ALTER TABLE notes" not in migration.sql
+
+
+def test_project_summary_helper_is_deterministic():
+    summary = memory.build_project_summary(
+        {"id": "project-1", "name": "Apollo"},
+        [
+            {"title": "", "body": "First note body with useful context"},
+            {"title": "Named note", "body": "Ignored body"},
+        ],
+        [
+            {"title": "Unblock contract", "status": "blocked", "priority": 1, "due_at": None},
+            {"title": "Draft memo", "status": "doing", "priority": 3, "due_at": None},
+            {"title": "Old shipped work", "status": "done", "priority": 5, "due_at": None},
+        ],
+    )
+
+    assert summary["project_id"] == "project-1"
+    assert summary["task_counts"] == {"todo": 0, "doing": 1, "blocked": 1, "done": 1}
+    assert [task["title"] for task in summary["open_tasks"]] == ["Unblock contract", "Draft memo"]
+    assert summary["recent_notes"] == ["First note body with useful context", "Named note"]
+    assert summary["markdown"].splitlines() == [
+        "# Apollo",
+        "Tasks: 1 blocked, 1 doing, 0 todo, 1 done",
+        "Open tasks:",
+        "- [blocked] Unblock contract",
+        "- [doing] Draft memo",
+        "Recent notes:",
+        "- First note body with useful context",
+        "- Named note",
+    ]
 
 
 def test_email_and_webhook_helpers(monkeypatch):

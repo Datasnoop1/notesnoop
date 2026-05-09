@@ -178,6 +178,54 @@ def run(base_url: str, basic_auth: str | None) -> None:
     assert_true(project_timeline["notes"], "project timeline populates")
     assert_true(search, "persistent search returns matching notes")
 
+    task = data(
+        owner.post(
+            f"/api/workspaces/{workspace_id}/tasks",
+            {
+                "title": f"Send Apollo follow-up {suffix}",
+                "description": "Confirm diligence timeline and next decision owner.",
+                "status": "doing",
+                "priority": 1,
+                "project_ids": [project["id"]],
+                "person_ids": [avery["id"]],
+                "note_ids": [note["id"]],
+            },
+        )
+    )
+    owner.patch(f"/api/tasks/{task['id']}", {"status": "blocked"})
+    meeting = data(
+        owner.post(
+            f"/api/workspaces/{workspace_id}/meetings",
+            {
+                "title": f"Apollo kickoff call {suffix}",
+                "summary": "Avery needs the revised timeline before the brief.",
+                "project_ids": [project["id"]],
+                "person_ids": [avery["id"]],
+                "note_ids": [note["id"]],
+            },
+        )
+    )
+    report = data(
+        owner.post(
+            f"/api/workspaces/{workspace_id}/reports",
+            {
+                "title": f"Apollo weekly brief {suffix}",
+                "body": "Progress, blockers, open loops, and next asks.",
+                "project_ids": [project["id"]],
+                "person_ids": [avery["id"]],
+                "note_ids": [note["id"]],
+                "task_ids": [task["id"]],
+            },
+        )
+    )
+    project_summary = data(owner.get(f"/api/projects/{project['id']}/summary"))
+    home_memory = data(owner.get(f"/api/workspaces/{workspace_id}/home"))
+    assert_true(any(item["id"] == task["id"] for item in home_memory["open_tasks"]), "dashboard open tasks populate from task graph")
+    assert_true(any(item["id"] == meeting["id"] for item in home_memory["meetings_calls"]), "dashboard meetings/calls populate from meeting graph")
+    assert_true(any(item["id"] == report["id"] for item in home_memory["reports_briefs"]), "dashboard reports/briefs populate from report graph")
+    assert_true(project_summary["task_counts"]["blocked"] >= 1, "project summary includes task state")
+    assert_true(home_memory["project_intelligence"], "project intelligence cards populate")
+
     owner.post("/api/flags", {"note_id": note["id"]})
     owner.post("/api/flags", {"project_id": project["id"]})
     owner.post("/api/flags", {"person_id": avery["id"]})

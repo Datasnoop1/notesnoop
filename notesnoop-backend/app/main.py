@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .db import get_conn, put_conn
-from .routers import bootstrap, email, graph, notes, realtime, webhooks
+from .routers import bootstrap, email, graph, memory, notes, realtime, webhooks
 
 
 app = FastAPI(title="NoteSnoop API", version="0.1.0")
@@ -87,6 +87,7 @@ def readiness():
 app.include_router(bootstrap.router)
 app.include_router(email.router)
 app.include_router(graph.router)
+app.include_router(memory.router)
 app.include_router(notes.router)
 app.include_router(realtime.router)
 app.include_router(webhooks.router)

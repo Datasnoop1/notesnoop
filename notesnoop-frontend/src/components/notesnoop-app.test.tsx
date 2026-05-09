@@ -39,12 +39,40 @@ const note = {
   title: "Apollo update",
   title_is_derived: false,
   body: "Morgan mentioned Apollo follow-up.",
+  note_kind: "email",
   projects: [projects[0]],
   people: [],
   versions: [{ version: 1 }],
   raw_email_metadata: { sender: "sender@example.test", subject: "Forwarded diligence note" },
   ai_processing_status: "skipped",
   project_nudge: { inbox_only: true, matched_projects: [projects[2]], can_create_project: true },
+};
+const taskNote = {
+  ...note,
+  id: "note-task-1",
+  title: "Send Apollo follow-up",
+  body: "Ask Morgan for the revised diligence timeline.",
+  note_kind: "task",
+  raw_email_metadata: undefined,
+  project_nudge: undefined,
+};
+const meetingNote = {
+  ...note,
+  id: "note-meeting-1",
+  title: "Morgan kickoff call",
+  body: "Jordan needs the call recap before Friday.",
+  note_kind: "call",
+  raw_email_metadata: undefined,
+  project_nudge: undefined,
+};
+const reportNote = {
+  ...note,
+  id: "note-report-1",
+  title: "Apollo weekly brief",
+  body: "Progress, blockers, and next decisions for Apollo.",
+  note_kind: "report",
+  raw_email_metadata: undefined,
+  project_nudge: undefined,
 };
 const personTimeline = {
   person: people[0],
@@ -77,7 +105,7 @@ function streamResponse() {
 function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<string, unknown> } = {}) {
   const calls: string[] = [];
   const responsePeople = options.people ?? people;
-  const responseNotes = options.notes ?? [note];
+  const responseNotes = options.notes ?? [note, taskNote, meetingNote, reportNote];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push(`${init?.method || "GET"} ${url}`);
@@ -164,6 +192,15 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByText("Workspace memory")).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Capture" })).toBeInTheDocument();
+    expect(within(dashboard).getByRole("heading", { name: "Memory system" })).toBeInTheDocument();
+    expect(within(dashboard).getByRole("tab", { name: /Open tasks1/i })).toHaveAttribute("aria-selected", "true");
+    expect(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up")).toBeInTheDocument();
+    fireEvent.click(within(dashboard).getByRole("tab", { name: /Meetings\/calls1/i }));
+    expect(within(screen.getByRole("tabpanel", { name: "Meetings/calls" })).getByText("Morgan kickoff call")).toBeInTheDocument();
+    fireEvent.click(within(dashboard).getByRole("tab", { name: /Reports\/briefs1/i }));
+    expect(within(screen.getByRole("tabpanel", { name: "Reports/briefs" })).getByText("Apollo weekly brief")).toBeInTheDocument();
+    fireEvent.click(within(dashboard).getByRole("tab", { name: /Project intelligence1/i }));
+    expect(within(screen.getByRole("tabpanel", { name: "Project intelligence" })).getByText("Waiting for enough project memory")).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Active projects" })).toBeInTheDocument();
     const dashboardComposer = dashboard.querySelector(".capture-panel .dashboard-composer");
     expect(dashboardComposer).toContainElement(screen.getByPlaceholderText(/Dump a note/i));

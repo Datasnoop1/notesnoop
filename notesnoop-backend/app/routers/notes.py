@@ -369,41 +369,189 @@ def toggle_flag(payload: FlagRequest, user: CurrentUser = Depends(current_user))
 @router.get("/workspaces/{workspace_id}/home")
 def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
+        pending_review = many(
+            cur,
+            "SELECT * FROM review_queue WHERE workspace_id = %s AND state = 'open' ORDER BY created_at DESC LIMIT 5",
+            (workspace_id,),
+        )
+        recent_projects = many(
+            cur,
+            """
+            SELECT p.*,
+                   max(coalesce(n.occurred_at, n.created_at)) AS last_note_at,
+                   count(DISTINCT n.id) AS mention_count,
+                   count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing','blocked')) AS open_task_count
+            FROM projects p
+            LEFT JOIN note_projects np ON np.project_id = p.id
+            LEFT JOIN notes n ON n.id = np.note_id
+            LEFT JOIN task_projects tp ON tp.project_id = p.id
+            LEFT JOIN tasks t ON t.id = tp.task_id
+            WHERE p.workspace_id = %s
+            GROUP BY p.id
+            ORDER BY coalesce(max(coalesce(n.occurred_at, n.created_at)), p.created_at) DESC
+            LIMIT 5
+            """,
+            (workspace_id,),
+        )
+        recent_people = many(
+            cur,
+            """
+            SELECT p.*, max(coalesce(n.occurred_at, n.created_at)) AS last_note_at, count(npl.note_id) AS mention_count
+            FROM people p
+            LEFT JOIN note_people_links npl ON npl.person_id = p.id AND npl.state IN ('confirmed','auto_linked')
+            LEFT JOIN notes n ON n.id = npl.note_id
+            WHERE p.workspace_id = %s
+            GROUP BY p.id
+            ORDER BY coalesce(max(coalesce(n.occurred_at, n.created_at)), p.created_at) DESC
+            LIMIT 5
+            """,
+            (workspace_id,),
+        )
+        open_tasks = many(
+            cur,
+            """
+            SELECT t.*,
+                   coalesce(jsonb_agg(DISTINCT jsonb_build_object('id', p.id, 'name', p.name, 'color_hex', p.color_hex))
+                     FILTER (WHERE p.id IS NOT NULL), '[]'::jsonb) AS projects,
+                   coalesce(jsonb_agg(DISTINCT jsonb_build_object('id', pe.id, 'name', pe.name, 'company', pe.company, 'role', pe.role))
+                     FILTER (WHERE pe.id IS NOT NULL), '[]'::jsonb) AS people,
+                   min(p.name) AS project_name,
+                   min(pe.name) AS assignee_name
+            FROM tasks t
+            LEFT JOIN task_projects tp ON tp.task_id = t.id
+            LEFT JOIN projects p ON p.id = tp.project_id
+            LEFT JOIN task_people tpe ON tpe.task_id = t.id AND tpe.relation = 'assignee'
+            LEFT JOIN people pe ON pe.id = tpe.person_id
+            WHERE t.workspace_id = %s
+              AND t.status IN ('todo','doing','blocked')
+            GROUP BY t.id
+            ORDER BY
+              CASE t.status
+                WHEN 'blocked' THEN 1
+                WHEN 'doing' THEN 2
+                WHEN 'todo' THEN 3
+                ELSE 4
+              END,
+              t.due_at NULLS LAST,
+              t.priority,
+              t.created_at DESC
+            LIMIT 8
+            """,
+            (workspace_id,),
+        )
+        meetings_calls = many(
+            cur,
+            """
+            SELECT *
+            FROM (
+              SELECT m.id,
+                     NULL::uuid AS note_id,
+                     m.title,
+                     m.summary AS subtitle,
+                     'meeting'::text AS note_kind,
+                     coalesce(m.occurred_at, m.created_at) AS occurred_at,
+                     min(p.name) AS project_name
+              FROM meetings m
+              LEFT JOIN meeting_projects mp ON mp.meeting_id = m.id
+              LEFT JOIN projects p ON p.id = mp.project_id
+              WHERE m.workspace_id = %s
+              GROUP BY m.id
+              UNION ALL
+              SELECT n.id,
+                     n.id AS note_id,
+                     n.title,
+                     left(n.body, 240) AS subtitle,
+                     n.note_kind,
+                     coalesce(n.occurred_at, n.created_at) AS occurred_at,
+                     min(p.name) AS project_name
+              FROM notes n
+              LEFT JOIN note_projects np ON np.note_id = n.id
+              LEFT JOIN projects p ON p.id = np.project_id
+              WHERE n.workspace_id = %s
+                AND n.note_kind IN ('meeting','call')
+              GROUP BY n.id
+            ) memory
+            ORDER BY occurred_at DESC
+            LIMIT 8
+            """,
+            (workspace_id, workspace_id),
+        )
+        reports_briefs = many(
+            cur,
+            """
+            SELECT *
+            FROM (
+              SELECT r.id,
+                     NULL::uuid AS note_id,
+                     r.title,
+                     left(coalesce(r.body, ''), 240) AS subtitle,
+                     r.status,
+                     r.created_at,
+                     min(p.name) AS project_name
+              FROM reports r
+              LEFT JOIN report_projects rp ON rp.report_id = r.id
+              LEFT JOIN projects p ON p.id = rp.project_id
+              WHERE r.workspace_id = %s
+              GROUP BY r.id
+              UNION ALL
+              SELECT n.id,
+                     n.id AS note_id,
+                     n.title,
+                     left(n.body, 240) AS subtitle,
+                     'note'::text AS status,
+                     coalesce(n.occurred_at, n.created_at) AS created_at,
+                     min(p.name) AS project_name
+              FROM notes n
+              LEFT JOIN note_projects np ON np.note_id = n.id
+              LEFT JOIN projects p ON p.id = np.project_id
+              WHERE n.workspace_id = %s
+                AND n.note_kind = 'report'
+              GROUP BY n.id
+            ) reports
+            ORDER BY created_at DESC
+            LIMIT 8
+            """,
+            (workspace_id, workspace_id),
+        )
+        project_intelligence = many(
+            cur,
+            """
+            SELECT p.id,
+                   p.id AS project_id,
+                   p.name AS title,
+                   count(DISTINCT n.id) AS memory_count,
+                   count(DISTINCT n.id) FILTER (WHERE n.note_kind IN ('meeting','call')) AS meeting_count,
+                   count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing','blocked')) AS open_task_count,
+                   max(coalesce(n.occurred_at, n.created_at)) AS last_note_at,
+                   CASE
+                     WHEN count(DISTINCT t.id) FILTER (WHERE t.status = 'blocked') > 0
+                       THEN (count(DISTINCT t.id) FILTER (WHERE t.status = 'blocked'))::text || ' blocked task(s)'
+                     WHEN count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing')) > 0
+                       THEN (count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing')))::text || ' open loop(s)'
+                     WHEN count(DISTINCT n.id) > 0
+                       THEN (count(DISTINCT n.id))::text || ' captured memory item(s)'
+                     ELSE 'Waiting for enough project memory'
+                   END AS subtitle
+            FROM projects p
+            LEFT JOIN note_projects np ON np.project_id = p.id
+            LEFT JOIN notes n ON n.id = np.note_id
+            LEFT JOIN task_projects tp ON tp.project_id = p.id
+            LEFT JOIN tasks t ON t.id = tp.task_id
+            WHERE p.workspace_id = %s
+              AND p.kind <> 'personal'
+            GROUP BY p.id
+            ORDER BY count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing','blocked')) DESC,
+                     max(coalesce(n.occurred_at, n.created_at)) DESC NULLS LAST,
+                     p.created_at DESC
+            LIMIT 6
+            """,
+            (workspace_id,),
+        )
         return {
             "data": {
-                "pending_review": many(
-                    cur,
-                    "SELECT * FROM review_queue WHERE workspace_id = %s AND state = 'open' ORDER BY created_at DESC LIMIT 5",
-                    (workspace_id,),
-                ),
-                "recent_projects": many(
-                    cur,
-                    """
-                    SELECT p.*, max(n.created_at) AS last_note_at
-                    FROM projects p
-                    LEFT JOIN note_projects np ON np.project_id = p.id
-                    LEFT JOIN notes n ON n.id = np.note_id
-                    WHERE p.workspace_id = %s
-                    GROUP BY p.id
-                    ORDER BY coalesce(max(n.created_at), p.created_at) DESC
-                    LIMIT 5
-                    """,
-                    (workspace_id,),
-                ),
-                "recent_people": many(
-                    cur,
-                    """
-                    SELECT p.*, max(n.created_at) AS last_note_at, count(npl.note_id) AS mention_count
-                    FROM people p
-                    LEFT JOIN note_people_links npl ON npl.person_id = p.id AND npl.state IN ('confirmed','auto_linked')
-                    LEFT JOIN notes n ON n.id = npl.note_id
-                    WHERE p.workspace_id = %s
-                    GROUP BY p.id
-                    ORDER BY coalesce(max(n.created_at), p.created_at) DESC
-                    LIMIT 5
-                    """,
-                    (workspace_id,),
-                ),
+                "pending_review": pending_review,
+                "recent_projects": recent_projects,
+                "recent_people": recent_people,
                 "flagged": many(
                     cur,
                     """
@@ -429,6 +577,10 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
                     "SELECT * FROM notes WHERE workspace_id = %s ORDER BY coalesce(occurred_at, created_at) DESC LIMIT 5",
                     (workspace_id,),
                 ),
+                "open_tasks": open_tasks,
+                "meetings_calls": meetings_calls,
+                "reports_briefs": reports_briefs,
+                "project_intelligence": project_intelligence,
             }
         }
 

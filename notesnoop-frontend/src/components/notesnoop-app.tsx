@@ -7,9 +7,12 @@ import {
   Bell,
   CalendarDays,
   Check,
+  ClipboardList,
   Copy,
+  FileText,
   Flag,
   Inbox,
+  Lightbulb,
   Menu,
   Plus,
   Search,
@@ -38,6 +41,15 @@ type HomeState = {
   recent_people: any[];
   flagged: any[];
   recent_notes: any[];
+  open_tasks?: any[];
+  tasks?: any[];
+  meetings_calls?: any[];
+  meetings?: any[];
+  calls?: any[];
+  reports_briefs?: any[];
+  reports?: any[];
+  briefs?: any[];
+  project_intelligence?: any[];
 };
 
 type SearchFilters = {
@@ -108,6 +120,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [mobileNav, setMobileNav] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
+  const [activeMemoryTab, setActiveMemoryTab] = useState("tasks");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const searchDebounceRef = useRef<number | null>(null);
@@ -571,6 +584,59 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     : (state?.projects || []).filter((project) => project.kind === "user");
   const dashboardPeople = home?.recent_people?.length ? home.recent_people : state?.people || [];
   const dashboardTitle = activeProjectRecord ? `${activeProjectRecord.name} dashboard` : "Dashboard";
+  const openTasks = (home?.open_tasks?.length ? home.open_tasks : home?.tasks?.length ? home.tasks : dashboardNotes.filter((note) => note.note_kind === "task"));
+  const meetingsCalls = (
+    home?.meetings_calls?.length
+      ? home.meetings_calls
+      : [...(home?.meetings || []), ...(home?.calls || [])].length
+        ? [...(home?.meetings || []), ...(home?.calls || [])]
+        : dashboardNotes.filter((note) => ["meeting", "call"].includes(note.note_kind))
+  );
+  const reportsBriefs = (
+    home?.reports_briefs?.length
+      ? home.reports_briefs
+      : [...(home?.reports || []), ...(home?.briefs || [])].length
+        ? [...(home?.reports || []), ...(home?.briefs || [])]
+        : dashboardNotes.filter((note) => note.note_kind === "report")
+  );
+  const projectIntelligence = home?.project_intelligence?.length
+    ? home.project_intelligence
+    : dashboardProjects.map((project) => ({
+        ...project,
+        title: project.name,
+        subtitle: project.latest_signal || project.summary || (project.mention_count ? `${project.mention_count} captured memories` : "Waiting for enough project memory"),
+      }));
+  const memorySections = [
+    {
+      id: "tasks",
+      title: "Open tasks",
+      icon: ClipboardList,
+      items: openTasks,
+      empty: "No open tasks found. Capture follow-ups as Task memories.",
+    },
+    {
+      id: "meetings",
+      title: "Meetings/calls",
+      icon: CalendarDays,
+      items: meetingsCalls,
+      empty: "No meetings or calls yet. Capture conversations as Meeting or Call memories.",
+    },
+    {
+      id: "reports",
+      title: "Reports/briefs",
+      icon: FileText,
+      items: reportsBriefs,
+      empty: "No reports or briefs yet. Report memories will collect here.",
+    },
+    {
+      id: "intel",
+      title: "Project intelligence",
+      icon: Lightbulb,
+      items: projectIntelligence,
+      empty: "Project signals will appear once memories start linking to projects.",
+    },
+  ];
+  const activeMemorySection = memorySections.find((section) => section.id === activeMemoryTab) || memorySections[0];
 
   const composerSection = (
     <section className={`composer ${quickCapture ? "" : "dashboard-composer"}`}>
@@ -766,23 +832,68 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                 <small>{dashboardReviewCount ? "needs decisions" : "clear"}</small>
               </button>
               <div className="metric-card">
-                <span><Archive size={16} /> Recent notes</span>
+                <span><Archive size={16} /> Memory items</span>
                 <strong>{dashboardNotes.length}</strong>
                 <small>{activeProjectRecord ? "in context" : "latest"}</small>
               </div>
               <div className="metric-card">
-                <span><Users size={16} /> People</span>
-                <strong>{dashboardPeople.length}</strong>
-                <small>in view</small>
+                <span><ClipboardList size={16} /> Open tasks</span>
+                <strong>{openTasks.length}</strong>
+                <small>{openTasks.length ? "active loops" : "none open"}</small>
               </div>
               <div className="metric-card">
-                <span><Flag size={16} /> Flagged</span>
-                <strong>{dashboardFlagged.length}</strong>
-                <small>pinned</small>
+                <span><Lightbulb size={16} /> Intelligence</span>
+                <strong>{projectIntelligence.length}</strong>
+                <small>{activeProjectRecord ? "project signals" : "project views"}</small>
               </div>
             </div>
 
             <div className="dashboard-grid">
+              <section className="dashboard-panel memory-system-panel">
+                <div className="panel-head">
+                  <h2>Memory system</h2>
+                  <Sparkles size={18} />
+                </div>
+                <div className="memory-tabs" role="tablist" aria-label="Memory categories">
+                  {memorySections.map((section) => {
+                    const Icon = section.icon;
+                    const selected = section.id === activeMemorySection.id;
+                    return (
+                      <button
+                        key={section.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        className={selected ? "active" : ""}
+                        onClick={() => setActiveMemoryTab(section.id)}
+                      >
+                        <Icon size={15} />
+                        <span>{section.title}</span>
+                        <strong>{section.items.length}</strong>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="memory-card-grid" role="tabpanel" aria-label={activeMemorySection.title}>
+                  {activeMemorySection.items.length ? (
+                    activeMemorySection.items.slice(0, 4).map((item) => (
+                      <MemoryCard
+                        key={`${activeMemorySection.id}-${item.id || item.note_id || item.project_id || item.title || item.name}`}
+                        item={item}
+                        sectionId={activeMemorySection.id}
+                        onOpenNote={openNote}
+                        onOpenProject={(projectId) => {
+                          const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
+                          if (project) openProject(project);
+                        }}
+                      />
+                    ))
+                  ) : (
+                    <p className="dashboard-empty memory-empty">{activeMemorySection.empty}</p>
+                  )}
+                </div>
+              </section>
+
               <section className="dashboard-panel attention-panel">
                 <div className="panel-head">
                   <h2>Needs attention</h2>
@@ -1075,6 +1186,47 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   }
 
   return appBody;
+}
+
+function MemoryCard({
+  item,
+  sectionId,
+  onOpenNote,
+  onOpenProject,
+}: {
+  item: any;
+  sectionId: string;
+  onOpenNote: (noteId: string) => Promise<void>;
+  onOpenProject: (projectId: string) => void;
+}) {
+  const title = item.title || item.label || item.name || item.project_name || "Untitled memory";
+  const subtitle = item.subtitle || item.summary || item.body || item.status || item.next_step || "Awaiting more context";
+  const owner = item.owner_name || item.assignee_name || item.person_name || item.company || item.kind || NOTE_KIND_LABELS[item.note_kind || ""] || "Memory";
+  const date = item.due_at || item.due_date || item.occurred_at || item.created_at || item.updated_at;
+  const noteId = item.note_id || (sectionId !== "intel" ? item.id : null);
+  const projectId = item.project_id || (sectionId === "intel" ? item.id : null);
+  const canOpen = Boolean(noteId || projectId);
+  return (
+    <button
+      type="button"
+      className="memory-card"
+      disabled={!canOpen}
+      onClick={() => {
+        if (noteId) {
+          onOpenNote(noteId);
+          return;
+        }
+        if (projectId) onOpenProject(projectId);
+      }}
+    >
+      <span className="memory-card-meta">
+        <strong>{owner}</strong>
+        {date && <small>{new Date(date).toLocaleDateString()}</small>}
+      </span>
+      <span className="memory-card-title">{title}</span>
+      <span className="memory-card-body">{subtitle}</span>
+    </button>
+  );
 }
 
 function ReviewSheet({
