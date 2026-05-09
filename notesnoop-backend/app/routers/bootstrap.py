@@ -5,7 +5,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
 from ..schemas import BootstrapRequest, PersonCreate, ProjectCreate, ProjectInviteCreate, WorkspaceSettingsUpdate
-from ..services import accept_pending_project_invites, bootstrap_workspace, get_bootstrap_state, normalize_email, upsert_user_profile
+from ..services import (
+    accept_pending_project_invites,
+    bootstrap_workspace,
+    get_bootstrap_state,
+    normalize_email,
+    project_invite_url,
+    send_project_invite_email,
+    upsert_user_profile,
+)
 
 
 router = APIRouter(prefix="/api", tags=["bootstrap"])
@@ -17,20 +25,22 @@ def bootstrap(payload: BootstrapRequest, user: CurrentUser = Depends(current_use
 
 
 @router.get("/me")
-def me(user: CurrentUser = Depends(current_user)):
+def me(workspace_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
         upsert_user_profile(cur, user)
         accepted_invites = accept_pending_project_invites(cur, user)
+        selected_workspace_id = workspace_id or (str(accepted_invites[-1]["workspace_id"]) if accepted_invites else None)
         membership = one(
             cur,
             """
             SELECT workspace_id
             FROM workspace_members
             WHERE clerk_user_id = %s
-            ORDER BY joined_at
+              AND (%s::uuid IS NULL OR workspace_id = %s::uuid)
+            ORDER BY joined_at DESC
             LIMIT 1
             """,
-            (user.clerk_user_id,),
+            (user.clerk_user_id, selected_workspace_id, selected_workspace_id),
         )
         if not membership:
             return {"data": {"user": user.__dict__, "bootstrapped": False, "accepted_invites": accepted_invites}}
@@ -77,11 +87,11 @@ def create_person(
     with transaction(user.clerk_user_id) as cur:
         cur.execute(
             """
-            INSERT INTO people (workspace_id, name, company, details, created_by)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO people (workspace_id, name, company, role, email, details, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
-            (workspace_id, payload.name.strip(), payload.company, payload.details, user.clerk_user_id),
+            (workspace_id, payload.name.strip(), payload.company, payload.role, payload.email, payload.details, user.clerk_user_id),
         )
         return {"data": dict(cur.fetchone())}
 
@@ -223,4 +233,9 @@ def invite_project_member(
                 user.clerk_user_id,
             ),
         )
-        return {"data": dict(cur.fetchone())}
+        invite = dict(cur.fetchone())
+    accept_url = project_invite_url(str(invite["workspace_id"]), str(project_id))
+    delivery = send_project_invite_email(email, project["name"], user.display_name, accept_url)
+    invite["accept_url"] = accept_url
+    invite["delivery"] = delivery
+    return {"data": invite}

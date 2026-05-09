@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+import httpx
 from fastapi import HTTPException
 
 from .auth import CurrentUser
@@ -28,6 +29,48 @@ def normalize_email(email: str | None) -> str | None:
     if not email:
         return None
     return email.strip().lower() or None
+
+
+def project_invite_url(workspace_id: str, project_id: str) -> str:
+    return f"{get_settings().frontend_base_url}/?workspace_id={workspace_id}&project_id={project_id}"
+
+
+def send_project_invite_email(email: str, project_name: str, inviter_name: str | None, accept_url: str) -> dict:
+    settings = get_settings()
+    payload = {
+        "From": settings.postmark_from,
+        "To": email,
+        "Subject": f"Join {project_name} in NoteSnoop",
+        "TextBody": (
+            f"{inviter_name or 'A teammate'} invited you to collaborate on {project_name} in NoteSnoop.\n\n"
+            f"Open the project: {accept_url}"
+        ),
+        "HtmlBody": (
+            f"<p>{inviter_name or 'A teammate'} invited you to collaborate on <strong>{project_name}</strong> in NoteSnoop.</p>"
+            f'<p><a href="{accept_url}">Open the project</a></p>'
+        ),
+        "MessageStream": settings.postmark_message_stream,
+    }
+    if settings.postmark_dry_run:
+        return {"sent": True, "dry_run": True, "postmark_payload": payload}
+    if not settings.postmark_server_token:
+        return {"sent": False, "dry_run": False, "reason": "postmark_not_configured", "postmark_payload": payload}
+    try:
+        response = httpx.post(
+            "https://api.postmarkapp.com/email",
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "X-Postmark-Server-Token": settings.postmark_server_token,
+            },
+            json=payload,
+            timeout=20.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        return {"sent": False, "dry_run": False, "reason": str(exc), "postmark_status": status}
+    return {"sent": True, "dry_run": False, "postmark_response": response.json()}
 
 
 def upsert_user_profile(cur, user: CurrentUser, timezone: str = "UTC") -> None:
@@ -322,9 +365,21 @@ def get_bootstrap_state(cur, user_id: str, workspace_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Workspace not found")
     projects = many(cur, "SELECT * FROM projects WHERE workspace_id = %s ORDER BY kind, created_at", (workspace_id,))
     people = many(cur, "SELECT * FROM people WHERE workspace_id = %s ORDER BY created_at", (workspace_id,))
+    workspaces = many(
+        cur,
+        """
+        SELECT w.id, w.name, wm.role, wm.joined_at
+        FROM workspaces w
+        JOIN workspace_members wm ON wm.workspace_id = w.id
+        WHERE wm.clerk_user_id = %s
+        ORDER BY wm.joined_at DESC
+        """,
+        (user_id,),
+    )
     inbound = one(cur, "SELECT address FROM inbound_email_addresses WHERE clerk_user_id = %s ORDER BY created_at LIMIT 1", (user_id,))
     return {
         "workspace": workspace,
+        "workspaces": workspaces,
         "projects": projects,
         "people": people,
         "inbound_address": inbound["address"] if inbound else inbound_address_for(user_id),

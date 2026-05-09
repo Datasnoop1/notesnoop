@@ -32,14 +32,14 @@ def person_timeline(person_id: str, user: CurrentUser = Depends(current_user)):
             LEFT JOIN projects p ON p.id = np.project_id
             WHERE npl.person_id = %s
             GROUP BY n.id, npl.state, npl.confidence, npl.source
-            ORDER BY n.created_at DESC
+            ORDER BY coalesce(n.occurred_at, n.created_at) DESC
             """,
             (person_id,),
         )
         projects = many(
             cur,
             """
-            SELECT p.*, count(DISTINCT n.id) AS mention_count, max(n.created_at) AS last_note_at
+            SELECT p.*, count(DISTINCT n.id) AS mention_count, max(coalesce(n.occurred_at, n.created_at)) AS last_note_at
             FROM projects p
             JOIN note_projects np ON np.project_id = p.id
             JOIN notes n ON n.id = np.note_id
@@ -78,7 +78,7 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
             LEFT JOIN people pe ON pe.id = npl.person_id
             WHERE np.project_id = %s
             GROUP BY n.id
-            ORDER BY n.created_at DESC
+            ORDER BY coalesce(n.occurred_at, n.created_at) DESC
             """,
             (project_id,),
         )
@@ -181,7 +181,7 @@ def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentU
                 WHERE npl.person_id = %s
                   AND npl.state IN ('confirmed','auto_linked')
                   AND n.is_personal = FALSE
-                ORDER BY n.created_at DESC
+                ORDER BY coalesce(n.occurred_at, n.created_at) DESC
                 LIMIT %s
                 """,
                 (entity_id, 5 if full else 3),
@@ -231,7 +231,7 @@ def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentU
             FROM notes n
             JOIN note_projects np ON np.note_id = n.id
             WHERE np.project_id = %s
-            ORDER BY n.created_at DESC
+            ORDER BY coalesce(n.occurred_at, n.created_at) DESC
             LIMIT %s
             """,
             (entity_id, 10 if full else 3),
@@ -255,6 +255,11 @@ def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
         data = review.get("payload") or {}
         confidence = payload.confidence or data.get("confidence") or 0.75
         person_id = data.get("matched_person_id") or data.get("person_id")
+        if review["entity_kind"] == "person" and not person_id:
+            person_id = _create_review_person(cur, review, data, user.clerk_user_id)
+            if person_id:
+                data = {**data, "matched_person_id": str(person_id)}
+                _update_review_payload(cur, review_id, data)
         if review["entity_kind"] == "person" and person_id:
             source = "collaborator_suggestion" if review["reason"] == "collaborator_suggestion" else "ai"
             cur.execute(
@@ -269,11 +274,17 @@ def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
                 """,
                 (review["entity_id"], person_id, confidence, source, data.get("suggested_by") or user.clerk_user_id),
             )
-        if review["entity_kind"] == "project" and data.get("matched_project_id"):
+        project_id = data.get("matched_project_id")
+        if review["entity_kind"] == "project" and not project_id:
+            project_id = _create_review_project(cur, review, data, user.clerk_user_id)
+            if project_id:
+                data = {**data, "matched_project_id": str(project_id)}
+                _update_review_payload(cur, review_id, data)
+        if review["entity_kind"] == "project" and project_id:
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (str(review["entity_id"]),))
             cur.execute(
                 "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
-                (review["entity_id"], data["matched_project_id"], user.clerk_user_id),
+                (review["entity_id"], project_id, user.clerk_user_id),
             )
         cur.execute("UPDATE review_queue SET state = 'accepted' WHERE id = %s", (review_id,))
         cur.execute(
@@ -488,6 +499,53 @@ def _is_flagged(cur, user_id: str, note_id: str | None = None, project_id: str |
             """,
             (user_id, note_id, project_id, person_id),
         )
+    )
+
+
+def _create_review_person(cur, review: dict, data: dict, user_id: str) -> str | None:
+    name = _review_payload_name(data)
+    if not name:
+        return None
+    cur.execute(
+        """
+        INSERT INTO people (workspace_id, name, company, role, email, details, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (review["workspace_id"], name, data.get("company"), data.get("role"), data.get("email"), data.get("details"), user_id),
+    )
+    return str(cur.fetchone()["id"])
+
+
+def _create_review_project(cur, review: dict, data: dict, user_id: str) -> str | None:
+    name = _review_payload_name(data)
+    if not name:
+        return None
+    cur.execute(
+        """
+        INSERT INTO projects (workspace_id, name, color_hex, kind, ai_mode, shared, created_by)
+        VALUES (%s, %s, %s, 'user', %s, FALSE, %s)
+        RETURNING id
+        """,
+        (review["workspace_id"], name, data.get("color_hex"), data.get("ai_mode") or "on", user_id),
+    )
+    project_id = str(cur.fetchone()["id"])
+    cur.execute(
+        "INSERT INTO project_members (project_id, clerk_user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+        (project_id, user_id),
+    )
+    return project_id
+
+
+def _review_payload_name(data: dict) -> str | None:
+    name = str(data.get("name") or "").strip()
+    return name or None
+
+
+def _update_review_payload(cur, review_id: str, data: dict) -> None:
+    cur.execute(
+        "UPDATE review_queue SET payload = %s::jsonb WHERE id = %s",
+        (json.dumps(data), review_id),
     )
 
 

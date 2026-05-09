@@ -21,11 +21,12 @@ import {
   X,
 } from "lucide-react";
 import { SignInButton, UserButton, useAuth } from "@clerk/nextjs";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ApiState = {
   user?: any;
   workspace?: any;
+  workspaces?: any[];
   projects: any[];
   people: any[];
   inbound_address?: string;
@@ -48,19 +49,51 @@ type SearchFilters = {
 
 const API_BASE = process.env.NEXT_PUBLIC_NOTESNOOP_API_URL || "";
 const DEV_AUTH = process.env.NEXT_PUBLIC_NOTESNOOP_DEV_AUTH === "true";
+const NOTE_KIND_LABELS: Record<string, string> = {
+  note: "Note",
+  meeting: "Meeting",
+  call: "Call",
+  email: "Email",
+  task: "Task",
+  report: "Report",
+};
+
+function inputDate(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10);
+}
+
+function eventDate(value?: string | null) {
+  if (!value) return null;
+  return `${value}T12:00:00`;
+}
 
 export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const { getToken, isSignedIn, isLoaded } = useAuth();
   const [state, setState] = useState<ApiState | null>(null);
   const [home, setHome] = useState<HomeState | null>(null);
   const [notes, setNotes] = useState<any[]>([]);
+  const [requestedWorkspaceId, setRequestedWorkspaceId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("workspace_id");
+  });
+  const [landingProjectId, setLandingProjectId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("project_id");
+  });
   const [selectedNote, setSelectedNote] = useState<any | null>(null);
   const [body, setBody] = useState("");
   const [title, setTitle] = useState("");
+  const [noteKind, setNoteKind] = useState("note");
+  const [occurredAt, setOccurredAt] = useState("");
   const [query, setQuery] = useState("");
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
   const [searchMeta, setSearchMeta] = useState<any | null>(null);
   const [personName, setPersonName] = useState("");
+  const [personRole, setPersonRole] = useState("");
+  const [personCompany, setPersonCompany] = useState("");
+  const [personEmail, setPersonEmail] = useState("");
   const [seedPeopleDrafts, setSeedPeopleDrafts] = useState(["", ""]);
   const [warmStartDismissed, setWarmStartDismissed] = useState(false);
   const [projectName, setProjectName] = useState("");
@@ -77,6 +110,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
+  const searchDebounceRef = useRef<number | null>(null);
 
   const api = useCallback(
     async (path: string, init: RequestInit = {}) => {
@@ -123,7 +157,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   );
 
   const refresh = useCallback(async () => {
-    const me = await api("/api/me");
+    const me = await api(`/api/me${requestedWorkspaceId ? `?workspace_id=${encodeURIComponent(requestedWorkspaceId)}` : ""}`);
     if (!me.data.bootstrapped) {
       const boot = await api("/api/bootstrap", {
         method: "POST",
@@ -134,11 +168,17 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     }
     setState({
       workspace: me.data.workspace,
+      workspaces: me.data.workspaces || [],
       projects: me.data.projects || [],
       people: me.data.people || [],
       inbound_address: me.data.inbound_address,
     });
-  }, [api]);
+    if (me.data.accepted_invites?.length) {
+      const invite = me.data.accepted_invites.at(-1);
+      if (invite?.project_id) setLandingProjectId(String(invite.project_id));
+      setToast(`Joined ${me.data.accepted_invites.length} shared project${me.data.accepted_invites.length > 1 ? "s" : ""}.`);
+    }
+  }, [api, requestedWorkspaceId]);
 
   const refreshWorkspaceData = useCallback(async () => {
     if (!workspaceId) return;
@@ -170,6 +210,15 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   useEffect(() => {
     refreshWorkspaceData().catch((err) => setToast(err.message));
   }, [refreshWorkspaceData]);
+
+  useEffect(
+    () => () => {
+      if (searchDebounceRef.current) {
+        window.clearTimeout(searchDebounceRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     refreshSignals().catch((err) => setToast(err.message));
@@ -228,11 +277,15 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
           title: title || null,
           body,
           project_ids: projectIds,
+          note_kind: noteKind,
+          occurred_at: eventDate(occurredAt),
         }),
       });
       setSelectedNote(res.data);
       setBody("");
       setTitle("");
+      setNoteKind("note");
+      setOccurredAt("");
       setSelectedProjectIds([]);
       setSheetOpen(true);
       setToast("Saved. AI structuring is queued when allowed.");
@@ -250,10 +303,10 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setSheetOpen(true);
   }
 
-  async function updateNote(noteId: string, nextTitle: string, nextBody: string) {
+  async function updateNote(noteId: string, nextTitle: string, nextBody: string, nextKind: string, nextOccurredAt: string) {
     const res = await api(`/api/notes/${noteId}`, {
       method: "PATCH",
-      body: JSON.stringify({ title: nextTitle || null, body: nextBody }),
+      body: JSON.stringify({ title: nextTitle || null, body: nextBody, note_kind: nextKind, occurred_at: eventDate(nextOccurredAt) }),
     });
     setSelectedNote(res.data);
     await refreshWorkspaceData();
@@ -273,9 +326,17 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     if (!workspaceId || !personName.trim()) return;
     await api(`/api/workspaces/${workspaceId}/people`, {
       method: "POST",
-      body: JSON.stringify({ name: personName }),
+      body: JSON.stringify({
+        name: personName,
+        role: personRole || null,
+        company: personCompany || null,
+        email: personEmail || null,
+      }),
     });
     setPersonName("");
+    setPersonRole("");
+    setPersonCompany("");
+    setPersonEmail("");
     await refreshWorkspaceData();
   }
 
@@ -366,18 +427,54 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setSearchMeta(res.meta || null);
   }
 
+  function clearSearchDebounce() {
+    if (searchDebounceRef.current) {
+      window.clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+  }
+
+  function scheduleSearch(nextQuery: string) {
+    setQuery(nextQuery);
+    clearSearchDebounce();
+    searchDebounceRef.current = window.setTimeout(() => {
+      runSearch(nextQuery).catch((err) => setToast(err.message));
+      searchDebounceRef.current = null;
+    }, 350);
+  }
+
   async function applySearchFilters(nextFilters: SearchFilters) {
     setSearchFilters(nextFilters);
+    clearSearchDebounce();
     await runSearch(query, nextFilters);
   }
 
-  async function openProject(project: any) {
+  function selectWorkspace(nextWorkspaceId: string) {
+    setRequestedWorkspaceId(nextWorkspaceId);
+    setActiveProject(null);
+    setSelectedProjectIds([]);
+    setPersonTimeline(null);
+    setProjectTimeline(null);
+    setSelectedNote(null);
+    setSheetOpen(false);
+    setHome(null);
+    setNotes([]);
+    setReviewCount(0);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("workspace_id", nextWorkspaceId);
+      url.searchParams.delete("project_id");
+      window.history.replaceState({}, "", `${url.pathname}?${url.searchParams.toString()}`);
+    }
+  }
+
+  const openProject = useCallback(async (project: any) => {
     setActiveProject(project.id);
     setSelectedProjectIds([]);
     setPersonTimeline(null);
     const res = await api(`/api/projects/${project.id}/timeline`);
     setProjectTimeline(res.data);
-  }
+  }, [api]);
 
   async function inviteProjectMember(project: any, email: string) {
     if (!email.trim()) return;
@@ -456,6 +553,71 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     await refreshWorkspaceData();
   }
 
+  useEffect(() => {
+    if (!landingProjectId || !state?.projects?.length) return;
+    const project = state.projects.find((item) => item.id === landingProjectId);
+    if (!project) return;
+    setLandingProjectId(null);
+    openProject(project).catch((err) => setToast(err.message));
+  }, [landingProjectId, openProject, state?.projects]);
+
+  const activeProjectRecord = state?.projects.find((project) => project.id === activeProject) || null;
+  const dashboardReviewItems = home?.pending_review || [];
+  const dashboardReviewCount = reviewCount || dashboardReviewItems.length;
+  const dashboardFlagged = home?.flagged || [];
+  const dashboardNotes = home?.recent_notes?.length ? home.recent_notes : notes;
+  const dashboardProjects = home?.recent_projects?.length
+    ? home.recent_projects
+    : (state?.projects || []).filter((project) => project.kind === "user");
+  const dashboardPeople = home?.recent_people?.length ? home.recent_people : state?.people || [];
+  const dashboardTitle = activeProjectRecord ? `${activeProjectRecord.name} dashboard` : "Dashboard";
+
+  const composerSection = (
+    <section className={`composer ${quickCapture ? "" : "dashboard-composer"}`}>
+      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Optional title" />
+      <div className="context-picker" aria-label="Memory context">
+        <select value={noteKind} onChange={(e) => setNoteKind(e.target.value)} aria-label="Memory type">
+          {Object.entries(NOTE_KIND_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+        <label>
+          <CalendarDays size={15} />
+          <input type="date" value={occurredAt} onChange={(e) => setOccurredAt(e.target.value)} aria-label="Occurred date" />
+        </label>
+      </div>
+      <textarea
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        placeholder="Dump a note. Names, projects, rough thoughts, half-sentences all belong here."
+        rows={quickCapture ? 9 : 5}
+      />
+      <div className="project-picker" aria-label="Save note to projects">
+        {(state?.projects || []).map((project) => {
+          const selected = saveProjectIds.includes(project.id);
+          return (
+            <button
+              type="button"
+              key={project.id}
+              className={selected ? "selected" : ""}
+              onClick={() => toggleComposerProject(project)}
+              title={project.kind === "personal" ? "Personal notes cannot be mixed with other projects" : project.name}
+            >
+              <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+              {project.name}
+            </button>
+          );
+        })}
+      </div>
+      <div className="composer-actions">
+        <span>{saveProjectIds.length ? `Saving to ${saveProjectIds.length} project${saveProjectIds.length > 1 ? "s" : ""}` : "Saving to Inbox"}</span>
+        <button onClick={saveNote} disabled={busy || !body.trim()}>
+          <Send size={17} /> Save
+        </button>
+      </div>
+    </section>
+  );
+
   const appBody = (
     <main className={`app-shell ${quickCapture ? "quick-mode" : ""}`}>
       <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
@@ -512,8 +674,20 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
           </button>
           <div className="search-box">
             <Search size={18} />
-            <input value={query} onChange={(e) => runSearch(e.target.value)} placeholder="Search notes, people, projects..." />
+            <input value={query} onChange={(e) => scheduleSearch(e.target.value)} placeholder="Search notes, people, projects..." />
           </div>
+          {!!state?.workspaces?.length && state.workspaces.length > 1 && (
+            <select
+              className="workspace-switcher"
+              value={workspaceId || ""}
+              onChange={(event) => selectWorkspace(event.target.value)}
+              aria-label="Workspace"
+            >
+              {state.workspaces.map((workspace) => (
+                <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+              ))}
+            </select>
+          )}
           <button className="mode-btn" onClick={toggleEmailAI} title="Email AI default is Manual for v1">
             <Settings size={18} />
             {state?.workspace?.email_ai_mode === "auto" ? "Auto" : "Manual"}
@@ -563,29 +737,157 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
           </div>
         )}
 
-        {!quickCapture && (
-        <div className="review-strip">
-          <Bell size={17} />
-          {!!reviewCount && <strong>{reviewCount}</strong>}
-          <button className="review-expand" onClick={() => setReviewSheetOpen(true)}>
-            Review{reviewCount ? ` (${reviewCount})` : ""}
-          </button>
-          {home?.pending_review?.length ? (
-            <div className="review-items">
-              {home.pending_review.slice(0, 3).map((item) => (
-                <span key={item.id} className="review-item">
-                  {item.payload?.name || item.entity_kind}
-                  <button onClick={() => decideReview(item.id, "accept")} aria-label="Accept suggestion">
-                    <Check size={14} />
+        {quickCapture ? (
+          composerSection
+        ) : (
+          <section className="dashboard" aria-label="Memory dashboard">
+            <div className="dashboard-head">
+              <div>
+                <span className="dashboard-kicker">{activeProjectRecord ? "Project memory" : "Workspace memory"}</span>
+                <h1>{dashboardTitle}</h1>
+                <p>{activeProjectRecord ? "Open loops, people, and notes in this project." : "Open loops, recent movement, and capture."}</p>
+              </div>
+              <div className="dashboard-actions">
+                <button type="button" onClick={() => setReviewSheetOpen(true)}>
+                  <Bell size={16} /> Review{dashboardReviewCount ? ` (${dashboardReviewCount})` : ""}
+                </button>
+                {inbox && (
+                  <button type="button" onClick={() => openProject(inbox)} aria-label="Open Inbox project">
+                    <Inbox size={16} /> Inbox
                   </button>
-                  <button onClick={() => decideReview(item.id, "reject")} aria-label="Reject suggestion">
-                    <X size={14} />
-                  </button>
-                </span>
-              ))}
+                )}
+              </div>
             </div>
-          ) : "Caught up"}
-        </div>
+
+            <div className="dashboard-metrics">
+              <button className="metric-card metric-button" type="button" onClick={() => setReviewSheetOpen(true)} aria-label={`Open review queue with ${dashboardReviewCount} items`}>
+                <span><Bell size={16} /> Review queue</span>
+                <strong>{dashboardReviewCount}</strong>
+                <small>{dashboardReviewCount ? "needs decisions" : "clear"}</small>
+              </button>
+              <div className="metric-card">
+                <span><Archive size={16} /> Recent notes</span>
+                <strong>{dashboardNotes.length}</strong>
+                <small>{activeProjectRecord ? "in context" : "latest"}</small>
+              </div>
+              <div className="metric-card">
+                <span><Users size={16} /> People</span>
+                <strong>{dashboardPeople.length}</strong>
+                <small>in view</small>
+              </div>
+              <div className="metric-card">
+                <span><Flag size={16} /> Flagged</span>
+                <strong>{dashboardFlagged.length}</strong>
+                <small>pinned</small>
+              </div>
+            </div>
+
+            <div className="dashboard-grid">
+              <section className="dashboard-panel attention-panel">
+                <div className="panel-head">
+                  <h2>Needs attention</h2>
+                  <Bell size={18} />
+                </div>
+                {dashboardReviewItems.length || dashboardFlagged.length ? (
+                  <div className="dashboard-list">
+                    {dashboardReviewItems.slice(0, 3).map((item) => (
+                      <button key={item.id} className="dashboard-row" type="button" onClick={() => setReviewSheetOpen(true)}>
+                        <span className="row-icon"><Bell size={15} /></span>
+                        <span>
+                          <strong>{item.payload?.name || item.entity_kind}</strong>
+                          <small>Review suggestion</small>
+                        </span>
+                      </button>
+                    ))}
+                    {dashboardFlagged.slice(0, 3).map((item) => (
+                      <button key={item.id} className="dashboard-row" type="button" onClick={() => item.note_id && openNote(item.note_id)}>
+                        <span className="row-icon warning"><Flag size={15} /></span>
+                        <span>
+                          <strong>{item.label || item.target_kind}</strong>
+                          <small>Flagged {item.target_kind}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="dashboard-empty">Caught up.</p>
+                )}
+              </section>
+
+              <section className="dashboard-panel capture-panel">
+                <div className="panel-head">
+                  <h2>Capture</h2>
+                  <Send size={18} />
+                </div>
+                {composerSection}
+              </section>
+
+              <section className="dashboard-panel">
+                <div className="panel-head">
+                  <h2>Active projects</h2>
+                  <Archive size={18} />
+                </div>
+                {dashboardProjects.length ? (
+                  <div className="dashboard-list">
+                    {dashboardProjects.slice(0, 5).map((project) => (
+                      <button key={project.id} className="dashboard-row" type="button" onClick={() => openProject(project)} aria-label={`Open project ${project.name}`}>
+                        <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                        <span>
+                          <strong>{project.name}</strong>
+                          <small>{project.mention_count ? `${project.mention_count} notes` : project.kind === "inbox" ? "Inbox" : "Project"}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="dashboard-empty">No active projects yet.</p>
+                )}
+              </section>
+
+              <section className="dashboard-panel">
+                <div className="panel-head">
+                  <h2>People</h2>
+                  <Users size={18} />
+                </div>
+                {dashboardPeople.length ? (
+                  <div className="dashboard-list">
+                    {dashboardPeople.slice(0, 5).map((person) => (
+                      <button key={person.id} className="dashboard-row" type="button" onClick={() => openPerson(person)} aria-label={`Open ${person.name} timeline`}>
+                        <span className="row-icon"><UserRound size={15} /></span>
+                        <span>
+                          <strong>{person.name}</strong>
+                          <small>{person.company || `${person.confirmed_note_count || 0} notes`}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="dashboard-empty">No people yet.</p>
+                )}
+              </section>
+
+              <section className="dashboard-panel recent-memory">
+                <div className="panel-head">
+                  <h2>Recent memory</h2>
+                  <Sparkles size={18} />
+                </div>
+                {dashboardNotes.length ? (
+                  <div className="dashboard-list">
+                    {dashboardNotes.slice(0, 4).map((note) => (
+                      <button key={note.id} className="dashboard-row memory-row" type="button" onClick={() => openNote(note.id)}>
+                        <span>
+                          <strong>{note.title}</strong>
+                          <small>{NOTE_KIND_LABELS[note.note_kind || "note"] || "Note"} - {note.body}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="dashboard-empty">No notes yet.</p>
+                )}
+              </section>
+            </div>
+          </section>
         )}
 
         {showWarmStart && (
@@ -617,39 +919,6 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
           </section>
         )}
 
-        <section className="composer">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Optional title" />
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="Dump a note. Names, projects, rough thoughts, half-sentences all belong here."
-            rows={quickCapture ? 9 : 6}
-          />
-          <div className="project-picker" aria-label="Save note to projects">
-            {(state?.projects || []).map((project) => {
-              const selected = saveProjectIds.includes(project.id);
-              return (
-                <button
-                  type="button"
-                  key={project.id}
-                  className={selected ? "selected" : ""}
-                  onClick={() => toggleComposerProject(project)}
-                  title={project.kind === "personal" ? "Personal notes cannot be mixed with other projects" : project.name}
-                >
-                  <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
-                  {project.name}
-                </button>
-              );
-            })}
-          </div>
-          <div className="composer-actions">
-            <span>{saveProjectIds.length ? `Saving to ${saveProjectIds.length} project${saveProjectIds.length > 1 ? "s" : ""}` : "Saving to Inbox"}</span>
-            <button onClick={saveNote} disabled={busy || !body.trim()}>
-              <Send size={17} /> Save
-            </button>
-          </div>
-        </section>
-
         {!quickCapture && (
           <div className="content-grid">
             <section className="list-pane">
@@ -676,7 +945,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                   <div>
                     <h3 className={note.title_is_derived ? "derived" : ""}>
                       {note.title}
-                      {note.raw_email_metadata && <span className="raw-badge">Email</span>}
+                      <span className="kind-badge">{NOTE_KIND_LABELS[note.note_kind || (note.raw_email_metadata ? "email" : "note")] || "Note"}</span>
                     </h3>
                     <p>{note.body}</p>
                   </div>
@@ -719,8 +988,11 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                 />
               ) : (
                 <>
-                  <div className="inline-create">
+                  <div className="person-create-grid">
                     <input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="Quick-add person" />
+                    <input value={personRole} onChange={(e) => setPersonRole(e.target.value)} placeholder="Role" />
+                    <input value={personCompany} onChange={(e) => setPersonCompany(e.target.value)} placeholder="Company" />
+                    <input value={personEmail} onChange={(e) => setPersonEmail(e.target.value)} placeholder="Email" type="email" />
                     <button className="icon-btn" onClick={createPerson} aria-label="Add person">
                       <Plus size={18} />
                     </button>
@@ -730,7 +1002,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                       <UserRound size={17} />
                       <div>
                         <strong>{person.name}</strong>
-                        <span>{person.company || `${person.confirmed_note_count || 0} notes`}</span>
+                        <span>{person.role || person.company || person.email || `${person.confirmed_note_count || 0} notes`}</span>
                       </div>
                       <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copyBrief("person", person); }} aria-label="Copy person brief">
                         <Copy size={16} />
@@ -896,6 +1168,9 @@ function TimelinePanel({
       )}
       {kind === "person" && !!timeline.projects?.length && (
         <div className="mini-section">
+          {(timeline.person.role || timeline.person.company || timeline.person.email) && (
+            <strong>{[timeline.person.role, timeline.person.company, timeline.person.email].filter(Boolean).join(" - ")}</strong>
+          )}
           <strong>Projects</strong>
           {timeline.projects.slice(0, 5).map((project: any) => (
             <span key={project.id}>{project.name} - {project.mention_count} notes</span>
@@ -939,7 +1214,7 @@ function TimelinePanel({
         {notes.map((note: any) => (
           <article key={note.id} onClick={() => onOpenNote(note.id)}>
             <strong>{note.title}</strong>
-            <span>{new Date(note.created_at).toLocaleDateString()}</span>
+            <span>{NOTE_KIND_LABELS[note.note_kind || "note"] || "Note"} - {new Date(note.occurred_at || note.created_at).toLocaleDateString()}</span>
             <p>{note.body}</p>
           </article>
         ))}
@@ -977,7 +1252,7 @@ function LinkedSheet({
   onFlag: () => void;
   onProcess: () => void;
   onBlockSender: () => void;
-  onUpdate: (noteId: string, title: string, body: string) => Promise<void>;
+  onUpdate: (noteId: string, title: string, body: string, noteKind: string, occurredAt: string) => Promise<void>;
   onSetProjects: (note: any, projectIds: string[], confirmPersonalMove?: boolean) => Promise<void>;
   onSuggestionQueued: () => void;
   createProject: (name: string) => Promise<any>;
@@ -988,11 +1263,15 @@ function LinkedSheet({
   const [editMode, setEditMode] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftBody, setDraftBody] = useState("");
+  const [draftKind, setDraftKind] = useState("note");
+  const [draftOccurredAt, setDraftOccurredAt] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
   useEffect(() => {
     if (!note) return;
     setDraftTitle(note.title || "");
     setDraftBody(note.body || "");
+    setDraftKind(note.note_kind || (note.raw_email_metadata ? "email" : "note"));
+    setDraftOccurredAt(inputDate(note.occurred_at));
     setEditMode(false);
     setNewProjectName("");
   }, [note]);
@@ -1036,14 +1315,31 @@ function LinkedSheet({
         {editMode ? (
           <div className="sheet-editor">
             <input value={draftTitle} onChange={(e) => setDraftTitle(e.target.value)} aria-label="Note title" />
+            <div className="context-picker">
+              <select value={draftKind} onChange={(e) => setDraftKind(e.target.value)} aria-label="Memory type">
+                {Object.entries(NOTE_KIND_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <label>
+                <CalendarDays size={15} />
+                <input type="date" value={draftOccurredAt} onChange={(e) => setDraftOccurredAt(e.target.value)} aria-label="Occurred date" />
+              </label>
+            </div>
             <textarea value={draftBody} onChange={(e) => setDraftBody(e.target.value)} rows={7} aria-label="Note body" />
             <div className="sheet-actions">
-              <button onClick={() => onUpdate(note.id, draftTitle, draftBody)}><Check size={17} /> Save changes</button>
+              <button onClick={() => onUpdate(note.id, draftTitle, draftBody, draftKind, draftOccurredAt)}><Check size={17} /> Save changes</button>
               <button onClick={() => setEditMode(false)}><X size={17} /> Cancel</button>
             </div>
           </div>
         ) : (
-          <p>{note.body}</p>
+          <>
+            <div className="note-meta-row">
+              <span>{NOTE_KIND_LABELS[note.note_kind || (note.raw_email_metadata ? "email" : "note")] || "Note"}</span>
+              <span>{new Date(note.occurred_at || note.created_at).toLocaleDateString()}</span>
+            </div>
+            <p>{note.body}</p>
+          </>
         )}
         {note.raw_email_metadata && (
           <div className="email-meta">

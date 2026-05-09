@@ -45,9 +45,16 @@ def _claim_job():
                 SET state = 'running', consumed_at = now(), attempts = attempts + 1
                 WHERE id = (
                   SELECT id
-                FROM ai_jobs
-                  WHERE state = 'queued'
-                    AND (consumed_at IS NULL OR consumed_at <= now())
+                  FROM ai_jobs
+                  WHERE (
+                      state = 'queued'
+                      AND (consumed_at IS NULL OR consumed_at <= now())
+                    )
+                    OR (
+                      state = 'running'
+                      AND consumed_at IS NOT NULL
+                      AND consumed_at < now() - (visibility_timeout_minutes * interval '1 minute')
+                    )
                   ORDER BY priority DESC, created_at ASC
                   FOR UPDATE SKIP LOCKED
                   LIMIT 1

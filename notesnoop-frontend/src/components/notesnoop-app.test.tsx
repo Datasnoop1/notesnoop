@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -82,8 +82,17 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     const url = String(input);
     calls.push(`${init?.method || "GET"} ${url}`);
     if (url.includes("/api/events/")) return streamResponse();
-    if (url.endsWith("/api/me")) {
-      return json({ data: { bootstrapped: true, workspace, projects, people: responsePeople, inbound_address: "dev@in.notesnoop.app" } });
+    if (url.includes("/api/me")) {
+      return json({
+        data: {
+          bootstrapped: true,
+          workspace,
+          workspaces: [{ id: workspace.id, name: workspace.name, role: "admin" }],
+          projects,
+          people: responsePeople,
+          inbound_address: "dev@in.notesnoop.app",
+        },
+      });
     }
     if (url.includes("/api/workspaces/workspace-1/home")) {
       return json({
@@ -144,12 +153,24 @@ describe("NoteSnoopApp", () => {
     vi.useRealTimers();
   });
 
-  it("renders workspace data and toggles Morning briefing", async () => {
+  it("renders dashboard-first workspace data and toggles Morning briefing", async () => {
     const { calls } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
     expect(await screen.findByText("NoteSnoop")).toBeInTheDocument();
     expect(await screen.findByText("dev@in.notesnoop.app")).toBeInTheDocument();
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    expect(within(dashboard).getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(within(dashboard).getByText("Workspace memory")).toBeInTheDocument();
+    expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
+    expect(within(dashboard).getByRole("heading", { name: "Capture" })).toBeInTheDocument();
+    expect(within(dashboard).getByRole("heading", { name: "Active projects" })).toBeInTheDocument();
+    const dashboardComposer = dashboard.querySelector(".capture-panel .dashboard-composer");
+    expect(dashboardComposer).toContainElement(screen.getByPlaceholderText(/Dump a note/i));
+    const contentGrid = document.querySelector(".content-grid");
+    expect(contentGrid).toBeTruthy();
+    expect(Boolean(dashboard.compareDocumentPosition(contentGrid!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+
     fireEvent.click(screen.getByRole("button", { name: /Briefing off/i }));
 
     expect(await screen.findByText("Morning briefing is on.")).toBeInTheDocument();
@@ -184,6 +205,11 @@ describe("NoteSnoopApp", () => {
     render(<NoteSnoopApp quickCapture />);
 
     const textarea = await screen.findByPlaceholderText(/Dump a note/i);
+    const quickComposer = textarea.closest(".composer");
+    expect(screen.queryByRole("region", { name: "Memory dashboard" })).not.toBeInTheDocument();
+    expect(document.querySelector(".capture-panel")).not.toBeInTheDocument();
+    expect(quickComposer).toBeTruthy();
+    expect(quickComposer).not.toHaveClass("dashboard-composer");
     fireEvent.change(textarea, { target: { value: "Fresh note about Morgan and Apollo" } });
     fireEvent.click(screen.getByRole("button", { name: /Save/i }));
 
@@ -191,13 +217,13 @@ describe("NoteSnoopApp", () => {
     expect(await screen.findByText("Quick brief")).toBeInTheDocument();
   });
 
-  it("opens the mobile review sheet and accepts a suggestion", async () => {
+  it("opens the review sheet and accepts a suggestion", async () => {
     const { calls } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
     fireEvent.click(await screen.findByRole("button", { name: /Review \(2\)/i }));
     expect(await screen.findByRole("heading", { name: /Review \(2\)/i })).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("button", { name: /Accept/i })[2]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Accept/i })[0]);
 
     await waitFor(() => expect(calls.some((call) => call.includes("POST /api/review-queue/review-1/accept"))).toBe(true));
   });

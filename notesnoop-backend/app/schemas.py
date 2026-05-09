@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -21,6 +22,8 @@ class WorkspaceSettingsUpdate(BaseModel):
 class PersonCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     company: str | None = Field(default=None, max_length=200)
+    role: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=320)
     details: str | None = None
 
 
@@ -39,11 +42,15 @@ class NoteCreate(BaseModel):
     body: str = Field(min_length=1)
     title: str | None = Field(default=None, max_length=200)
     project_ids: list[str] | None = None
+    note_kind: str = Field(default="note", pattern="^(note|meeting|call|email|task|report)$")
+    occurred_at: datetime | None = None
 
 
 class NoteUpdate(BaseModel):
     body: str | None = Field(default=None, min_length=1)
     title: str | None = Field(default=None, max_length=200)
+    note_kind: str | None = Field(default=None, pattern="^(note|meeting|call|email|task|report)$")
+    occurred_at: datetime | None = None
 
 
 class NoteProjectSet(BaseModel):

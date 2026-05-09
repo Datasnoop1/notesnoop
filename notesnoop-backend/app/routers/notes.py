@@ -41,11 +41,11 @@ def create_note(workspace_id: str, payload: NoteCreate, user: CurrentUser = Depe
         title, derived = derive_title(payload.body, payload.title)
         cur.execute(
             """
-            INSERT INTO notes (workspace_id, title, title_is_derived, body, created_by)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO notes (workspace_id, title, title_is_derived, body, note_kind, occurred_at, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
-            (workspace_id, title, derived, payload.body, user.clerk_user_id),
+            (workspace_id, title, derived, payload.body, payload.note_kind, payload.occurred_at, user.clerk_user_id),
         )
         note = dict(cur.fetchone())
         cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (str(note["id"]),))
@@ -84,7 +84,15 @@ def update_note(note_id: str, payload: NoteUpdate, user: CurrentUser = Depends(c
         else:
             next_title = note["title"]
             title_is_derived = bool(note["title_is_derived"])
-        if next_body == note["body"] and next_title == note["title"]:
+        next_kind = payload.note_kind if payload.note_kind is not None else note.get("note_kind", "note")
+        occurred_was_sent = "occurred_at" in payload.model_fields_set
+        next_occurred_at = payload.occurred_at if occurred_was_sent else note.get("occurred_at")
+        if (
+            next_body == note["body"]
+            and next_title == note["title"]
+            and next_kind == note.get("note_kind", "note")
+            and next_occurred_at == note.get("occurred_at")
+        ):
             return {"data": get_note_payload(cur, note_id)}
         cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (note_id,))
         cur.execute(
@@ -93,11 +101,13 @@ def update_note(note_id: str, payload: NoteUpdate, user: CurrentUser = Depends(c
             SET title = %s,
                 title_is_derived = %s,
                 body = %s,
+                note_kind = %s,
+                occurred_at = %s,
                 updated_at = now()
             WHERE id = %s
             RETURNING *
             """,
-            (next_title, title_is_derived, next_body, note_id),
+            (next_title, title_is_derived, next_body, next_kind, next_occurred_at, note_id),
         )
         cur.execute(
             """
@@ -181,7 +191,7 @@ def list_notes(workspace_id: str, project_id: str | None = None, user: CurrentUs
                 LEFT JOIN projects p ON p.id = np.project_id
                 WHERE {where}
                 GROUP BY n.id
-                ORDER BY n.created_at DESC
+                ORDER BY coalesce(n.occurred_at, n.created_at) DESC
                 LIMIT 100
                 """,
                 tuple(params),
@@ -416,7 +426,7 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
                 ),
                 "recent_notes": many(
                     cur,
-                    "SELECT * FROM notes WHERE workspace_id = %s ORDER BY created_at DESC LIMIT 5",
+                    "SELECT * FROM notes WHERE workspace_id = %s ORDER BY coalesce(occurred_at, created_at) DESC LIMIT 5",
                     (workspace_id,),
                 ),
             }
@@ -436,7 +446,7 @@ def search(
 ):
     query = q.strip()
     query_embedding = None
-    if query:
+    if len(query) >= 3:
         try:
             query_embedding = embed_text_sync(query)
         except Exception:
@@ -554,10 +564,10 @@ def _search_where(
         )
         params.append(person_id)
     if date_from:
-        clauses.append("n.created_at >= %s::timestamptz")
+        clauses.append("coalesce(n.occurred_at, n.created_at) >= %s::timestamptz")
         params.append(date_from)
     if date_to:
-        clauses.append("n.created_at < (%s::date + interval '1 day')")
+        clauses.append("coalesce(n.occurred_at, n.created_at) < (%s::date + interval '1 day')")
         params.append(date_to)
     if flagged_only:
         clauses.append(

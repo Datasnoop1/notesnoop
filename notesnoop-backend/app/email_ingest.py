@@ -142,8 +142,8 @@ def save_inbound_envelope(cur, envelope: dict) -> dict:
     }
     cur.execute(
         """
-        INSERT INTO notes (workspace_id, title, title_is_derived, body, raw_email_metadata, created_by)
-        VALUES (%s, %s, %s, %s, %s::jsonb, %s)
+        INSERT INTO notes (workspace_id, title, title_is_derived, body, raw_email_metadata, note_kind, occurred_at, created_by)
+        VALUES (%s, %s, %s, %s, %s::jsonb, 'email', now(), %s)
         RETURNING id
         """,
         (membership["workspace_id"], title, derived, body, json.dumps(metadata), user_id),
