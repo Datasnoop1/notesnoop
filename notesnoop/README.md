@@ -1,8 +1,9 @@
 # NoteSnoop
 
 NoteSnoop is the Snoop suite's project/person memory layer. It shares the
-Hetzner host, Postgres instance, and Clerk organization with Datasnoop, but it
-uses its own `notesnoop` Postgres schema and its own services.
+Hetzner host and Clerk organization with Datasnoop, but it runs its own
+Postgres 16 instance (`notesnoop-postgres`) with its own data volume, host port,
+WAL archive, base-backup target, app role, worker role, and services.
 
 ## v1 Defaults Chosen For Beta
 
@@ -31,7 +32,10 @@ python notesnoop/migrate.py status --target=ci
 ```
 
 The migration runner reads `NOTESNOOP_TEST_DATABASE_URL`, `MIGRATE_DATABASE_URL`,
-or `DATABASE_URL` for local/CI targets.
+or `DATABASE_URL` for local/CI targets. Staging and production must use the
+dedicated NoteSnoop Postgres instance via `MIGRATE_STAGING_DATABASE_URL`,
+`MIGRATE_PROD_DATABASE_URL`, or the `NOTESNOOP_POSTGRES_*` env values. Runtime
+tables live in `public` inside that dedicated instance.
 
 ## Worker Commands
 

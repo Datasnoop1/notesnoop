@@ -78,7 +78,7 @@ def test_m7_morning_briefing_enqueue_send_unsubscribe_and_bounce(client):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO notesnoop.review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
+                INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
                 VALUES (%s, %s, 'person', gen_random_uuid(), 'ai_suggestion', %s::jsonb)
                 """,
                 (workspace_id, user_id, '{"name":"Secret note subject","confidence":0.82}'),
@@ -94,7 +94,7 @@ def test_m7_morning_briefing_enqueue_send_unsubscribe_and_bounce(client):
             cur.execute(
                 """
                 SELECT *
-                FROM notesnoop.ai_jobs
+                FROM ai_jobs
                 WHERE workspace_id = %s
                   AND target_user_id = %s
                   AND kind = 'briefing'
@@ -109,7 +109,7 @@ def test_m7_morning_briefing_enqueue_send_unsubscribe_and_bounce(client):
 
     with psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor) as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT state, payload FROM notesnoop.ai_jobs WHERE id = %s", (job["id"],))
+            cur.execute("SELECT state, payload FROM ai_jobs WHERE id = %s", (job["id"],))
             sent = dict(cur.fetchone())
 
     assert sent["state"] == "done"
@@ -128,7 +128,7 @@ def test_m7_morning_briefing_enqueue_send_unsubscribe_and_bounce(client):
     with psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor) as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT morning_briefing_optin FROM notesnoop.workspace_members WHERE workspace_id = %s AND clerk_user_id = %s",
+                "SELECT morning_briefing_optin FROM workspace_members WHERE workspace_id = %s AND clerk_user_id = %s",
                 (workspace_id, user_id),
             )
             assert cur.fetchone()["morning_briefing_optin"] is False
@@ -144,7 +144,7 @@ def test_m7_morning_briefing_enqueue_send_unsubscribe_and_bounce(client):
             cur.execute("RESET ROLE")
             cur.execute("SET ROLE notesnoop_app")
             cur.execute("RESET notesnoop.current_user_id")
-            cur.execute("SELECT notesnoop.disable_morning_briefing(%s, %s)", (workspace_id, user_id))
+            cur.execute("SELECT disable_morning_briefing(%s, %s)", (workspace_id, user_id))
             assert cur.fetchone()[0] is True
     toggled_again = client.patch(
         f"/api/workspaces/{workspace_id}/settings",

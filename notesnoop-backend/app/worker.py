@@ -31,7 +31,7 @@ def _claim_job():
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SET LOCAL search_path = notesnoop, public")
+            cur.execute("SET LOCAL search_path = public")
             cur.execute(
                 """
                 UPDATE ai_jobs
@@ -61,7 +61,7 @@ def _finish_job(job_id: str, state: str, error: str | None = None) -> None:
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SET LOCAL search_path = notesnoop, public")
+            cur.execute("SET LOCAL search_path = public")
             cur.execute(
                 """
                 UPDATE ai_jobs
@@ -127,7 +127,7 @@ async def _process_extract(job: dict) -> None:
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SET LOCAL search_path = notesnoop, public")
+            cur.execute("SET LOCAL search_path = public")
             note, people, projects = _load_context(cur, note_id)
             if note["is_personal"]:
                 cur.execute(
@@ -166,7 +166,7 @@ async def _process_extract(job: dict) -> None:
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SET LOCAL search_path = notesnoop, public")
+            cur.execute("SET LOCAL search_path = public")
             note, people, projects = _load_context(cur, note_id)
             target_user_id = str(job["target_user_id"] or note["created_by"])
             for item in data.get("people", []):

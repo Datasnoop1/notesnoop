@@ -68,7 +68,7 @@ def _seed_embedding(note_id: str, semantic_text: str) -> None:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO notesnoop.embeddings (
+                INSERT INTO embeddings (
                   note_id,
                   workspace_id,
                   embedding,
@@ -78,7 +78,7 @@ def _seed_embedding(note_id: str, semantic_text: str) -> None:
                   embedding_text_sha256
                 )
                 SELECT id, workspace_id, %s::vector, %s, 'lexical_hash', 1024, %s
-                FROM notesnoop.notes
+                FROM notes
                 WHERE id = %s
                 """,
                 (vector, EMBEDDING_MODEL, f"test-{uuid.uuid4().hex}", note_id),

@@ -129,28 +129,28 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "INSERT INTO notesnoop.user_profiles (clerk_user_id, email, display_name) VALUES (%s, %s, 'Peer')",
+                "INSERT INTO user_profiles (clerk_user_id, email, display_name) VALUES (%s, %s, 'Peer')",
                 (peer_id, f"{peer_id}@example.test"),
             )
             cur.execute(
-                "INSERT INTO notesnoop.workspace_members (workspace_id, clerk_user_id, role) VALUES (%s, %s, 'member')",
+                "INSERT INTO workspace_members (workspace_id, clerk_user_id, role) VALUES (%s, %s, 'member')",
                 (workspace_id, peer_id),
             )
             cur.execute(
-                "INSERT INTO notesnoop.project_members (project_id, clerk_user_id) VALUES (%s, %s)",
+                "INSERT INTO project_members (project_id, clerk_user_id) VALUES (%s, %s)",
                 (project_id, peer_id),
             )
-            cur.execute("UPDATE notesnoop.projects SET shared = TRUE WHERE id = %s", (project_id,))
+            cur.execute("UPDATE projects SET shared = TRUE WHERE id = %s", (project_id,))
             cur.execute(
                 """
-                INSERT INTO notesnoop.note_viewers (note_id, viewer_user_id, workspace_id)
+                INSERT INTO note_viewers (note_id, viewer_user_id, workspace_id)
                 VALUES (%s, %s, %s)
                 """,
                 (note_id, peer_id, workspace_id),
             )
             cur.execute(
                 """
-                INSERT INTO notesnoop.review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
+                INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
                 VALUES (%s, %s, 'person', %s, 'ai_suggestion', %s::jsonb)
                 """,
                 (workspace_id, user_id, note_id, '{"name":"Morgan Lee","confidence":0.8}'),

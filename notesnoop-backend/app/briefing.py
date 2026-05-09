@@ -75,7 +75,7 @@ def enqueue_due_morning_briefings(now: datetime | None = None) -> dict[str, int]
     skipped_empty = 0
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SET LOCAL search_path = notesnoop, public")
+            cur.execute("SET LOCAL search_path = public")
             cur.execute(
                 """
                 SELECT wm.workspace_id,
@@ -154,7 +154,7 @@ async def send_morning_briefing(job: dict) -> dict[str, Any]:
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SET LOCAL search_path = notesnoop, public")
+            cur.execute("SET LOCAL search_path = public")
             row = one(
                 cur,
                 """
@@ -223,7 +223,7 @@ async def send_morning_briefing(job: dict) -> dict[str, Any]:
                 result = {"sent": True, "dry_run": False, "postmark_response": response.json()}
 
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SET LOCAL search_path = notesnoop, public")
+            cur.execute("SET LOCAL search_path = public")
             merged_payload = dict(job.get("payload") or {})
             merged_payload.update({"delivery": result})
             cur.execute(
@@ -243,8 +243,8 @@ def disable_morning_briefing(workspace_id: str, user_id: str) -> bool:
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SET LOCAL search_path = notesnoop, public")
-            cur.execute("SELECT notesnoop.disable_morning_briefing(%s, %s)", (workspace_id, user_id))
+            cur.execute("SET LOCAL search_path = public")
+            cur.execute("SELECT disable_morning_briefing(%s, %s)", (workspace_id, user_id))
             changed = bool(cur.fetchone()[0])
         conn.commit()
         return changed
@@ -259,8 +259,8 @@ def disable_morning_briefing_by_email(email: str) -> int:
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SET LOCAL search_path = notesnoop, public")
-            cur.execute("SELECT notesnoop.disable_morning_briefing_by_email(%s)", (email,))
+            cur.execute("SET LOCAL search_path = public")
+            cur.execute("SELECT disable_morning_briefing_by_email(%s)", (email,))
             changed = int(cur.fetchone()[0])
         conn.commit()
         return changed

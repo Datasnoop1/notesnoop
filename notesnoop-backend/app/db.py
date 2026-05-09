@@ -63,7 +63,7 @@ def transaction(user_id: str | None = None, provider_webhook: bool = False) -> I
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("SET LOCAL search_path = notesnoop, public")
+            cur.execute("SET LOCAL search_path = public")
             if user_id:
                 cur.execute("SET LOCAL notesnoop.current_user_id = %s", (user_id,))
             if provider_webhook:

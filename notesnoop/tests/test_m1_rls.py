@@ -71,7 +71,7 @@ def test_rls_workspace_project_and_personal_isolation(conn):
         cur.execute("RESET ROLE")
         cur.execute(
             """
-            INSERT INTO notesnoop.user_profiles (clerk_user_id, email, display_name)
+            INSERT INTO user_profiles (clerk_user_id, email, display_name)
             VALUES
               (%s, 'admin@example.test', 'Admin'),
               (%s, 'member@example.test', 'Member'),
@@ -81,18 +81,18 @@ def test_rls_workspace_project_and_personal_isolation(conn):
             (u_admin, u_member, u_nonmember, u_other),
         )
         cur.execute(
-            "INSERT INTO notesnoop.workspaces (clerk_org_id, name) VALUES (%s, 'Workspace A') RETURNING id",
+            "INSERT INTO workspaces (clerk_org_id, name) VALUES (%s, 'Workspace A') RETURNING id",
             (f"org_a_{suffix}",),
         )
         ws_a = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO notesnoop.workspaces (clerk_org_id, name) VALUES (%s, 'Workspace B') RETURNING id",
+            "INSERT INTO workspaces (clerk_org_id, name) VALUES (%s, 'Workspace B') RETURNING id",
             (f"org_b_{suffix}",),
         )
         ws_b = cur.fetchone()["id"]
         cur.execute(
             """
-            INSERT INTO notesnoop.workspace_members (workspace_id, clerk_user_id, role)
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
             VALUES
               (%s, %s, 'admin'),
               (%s, %s, 'member'),
@@ -102,52 +102,52 @@ def test_rls_workspace_project_and_personal_isolation(conn):
             (ws_a, u_admin, ws_a, u_member, ws_a, u_nonmember, ws_b, u_other),
         )
         cur.execute(
-            "INSERT INTO notesnoop.projects (workspace_id, name, kind, created_by) VALUES (%s, 'Deal A', 'user', %s) RETURNING id",
+            "INSERT INTO projects (workspace_id, name, kind, created_by) VALUES (%s, 'Deal A', 'user', %s) RETURNING id",
             (ws_a, u_admin),
         )
         project_a = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO notesnoop.projects (workspace_id, name, kind, created_by) VALUES (%s, 'Secret Member', 'personal', %s) RETURNING id",
+            "INSERT INTO projects (workspace_id, name, kind, created_by) VALUES (%s, 'Secret Member', 'personal', %s) RETURNING id",
             (ws_a, u_member),
         )
         member_personal = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO notesnoop.projects (workspace_id, name, kind, created_by) VALUES (%s, 'Other', 'user', %s) RETURNING id",
+            "INSERT INTO projects (workspace_id, name, kind, created_by) VALUES (%s, 'Other', 'user', %s) RETURNING id",
             (ws_b, u_other),
         )
         project_b = cur.fetchone()["id"]
         cur.execute(
             """
-            INSERT INTO notesnoop.project_members (project_id, clerk_user_id)
+            INSERT INTO project_members (project_id, clerk_user_id)
             VALUES (%s, %s), (%s, %s), (%s, %s), (%s, %s)
             """,
             (project_a, u_admin, project_a, u_member, member_personal, u_member, project_b, u_other),
         )
         cur.execute(
-            "INSERT INTO notesnoop.notes (workspace_id, title, body, created_by) VALUES (%s, 'A', 'shared', %s) RETURNING id",
+            "INSERT INTO notes (workspace_id, title, body, created_by) VALUES (%s, 'A', 'shared', %s) RETURNING id",
             (ws_a, u_admin),
         )
         note_a = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO notesnoop.note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
+            "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
             (note_a, project_a, u_admin),
         )
         cur.execute(
-            "INSERT INTO notesnoop.notes (workspace_id, title, body, created_by) VALUES (%s, 'P', 'personal', %s) RETURNING id",
+            "INSERT INTO notes (workspace_id, title, body, created_by) VALUES (%s, 'P', 'personal', %s) RETURNING id",
             (ws_a, u_member),
         )
         note_personal = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO notesnoop.note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
+            "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
             (note_personal, member_personal, u_member),
         )
         cur.execute(
-            "INSERT INTO notesnoop.notes (workspace_id, title, body, created_by) VALUES (%s, 'B', 'other workspace', %s) RETURNING id",
+            "INSERT INTO notes (workspace_id, title, body, created_by) VALUES (%s, 'B', 'other workspace', %s) RETURNING id",
             (ws_b, u_other),
         )
         note_b = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO notesnoop.note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
+            "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
             (note_b, project_b, u_other),
         )
         for note_id, workspace_id, label in (
@@ -157,7 +157,7 @@ def test_rls_workspace_project_and_personal_isolation(conn):
         ):
             cur.execute(
                 """
-                INSERT INTO notesnoop.embeddings (
+                INSERT INTO embeddings (
                   note_id,
                   workspace_id,
                   embedding,
@@ -173,29 +173,29 @@ def test_rls_workspace_project_and_personal_isolation(conn):
         conn.commit()
 
         _as_user(cur, u_member)
-        assert set(_fetch_ids(cur, "SELECT id FROM notesnoop.notes ORDER BY title")) == {
+        assert set(_fetch_ids(cur, "SELECT id FROM notes ORDER BY title")) == {
             str(note_a),
             str(note_personal),
         }
-        assert set(_fetch_ids(cur, "SELECT note_id FROM notesnoop.embeddings ORDER BY note_id")) == {
+        assert set(_fetch_ids(cur, "SELECT note_id FROM embeddings ORDER BY note_id")) == {
             str(note_a),
             str(note_personal),
         }
         conn.commit()
 
         _as_user(cur, u_nonmember)
-        assert _fetch_ids(cur, "SELECT id FROM notesnoop.notes ORDER BY title") == []
-        assert _fetch_ids(cur, "SELECT note_id FROM notesnoop.embeddings ORDER BY note_id") == []
+        assert _fetch_ids(cur, "SELECT id FROM notes ORDER BY title") == []
+        assert _fetch_ids(cur, "SELECT note_id FROM embeddings ORDER BY note_id") == []
         conn.commit()
 
         _as_user(cur, u_admin)
-        assert set(_fetch_ids(cur, "SELECT id FROM notesnoop.notes ORDER BY title")) == {str(note_a)}
-        assert set(_fetch_ids(cur, "SELECT note_id FROM notesnoop.embeddings ORDER BY note_id")) == {str(note_a)}
+        assert set(_fetch_ids(cur, "SELECT id FROM notes ORDER BY title")) == {str(note_a)}
+        assert set(_fetch_ids(cur, "SELECT note_id FROM embeddings ORDER BY note_id")) == {str(note_a)}
         conn.commit()
 
         _as_user(cur, u_other)
-        assert _fetch_ids(cur, "SELECT id FROM notesnoop.notes ORDER BY title") == [str(note_b)]
-        assert _fetch_ids(cur, "SELECT note_id FROM notesnoop.embeddings ORDER BY note_id") == [str(note_b)]
+        assert _fetch_ids(cur, "SELECT id FROM notes ORDER BY title") == [str(note_b)]
+        assert _fetch_ids(cur, "SELECT note_id FROM embeddings ORDER BY note_id") == [str(note_b)]
         conn.commit()
 
 
@@ -205,40 +205,40 @@ def test_personal_project_mutual_exclusivity_trigger(conn):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("RESET ROLE")
         cur.execute(
-            "INSERT INTO notesnoop.user_profiles (clerk_user_id) VALUES (%s)",
+            "INSERT INTO user_profiles (clerk_user_id) VALUES (%s)",
             (user_id,),
         )
         cur.execute(
-            "INSERT INTO notesnoop.workspaces (clerk_org_id, name) VALUES (%s, 'Personal Trigger') RETURNING id",
+            "INSERT INTO workspaces (clerk_org_id, name) VALUES (%s, 'Personal Trigger') RETURNING id",
             (f"org_personal_{suffix}",),
         )
         ws = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO notesnoop.workspace_members (workspace_id, clerk_user_id, role) VALUES (%s, %s, 'admin')",
+            "INSERT INTO workspace_members (workspace_id, clerk_user_id, role) VALUES (%s, %s, 'admin')",
             (ws, user_id),
         )
         cur.execute(
-            "INSERT INTO notesnoop.projects (workspace_id, name, kind, created_by) VALUES (%s, 'Personal', 'personal', %s) RETURNING id",
+            "INSERT INTO projects (workspace_id, name, kind, created_by) VALUES (%s, 'Personal', 'personal', %s) RETURNING id",
             (ws, user_id),
         )
         personal = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO notesnoop.projects (workspace_id, name, kind, created_by) VALUES (%s, 'Deal', 'user', %s) RETURNING id",
+            "INSERT INTO projects (workspace_id, name, kind, created_by) VALUES (%s, 'Deal', 'user', %s) RETURNING id",
             (ws, user_id),
         )
         deal = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO notesnoop.notes (workspace_id, body, created_by) VALUES (%s, 'private', %s) RETURNING id",
+            "INSERT INTO notes (workspace_id, body, created_by) VALUES (%s, 'private', %s) RETURNING id",
             (ws, user_id),
         )
         note = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO notesnoop.note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
+            "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
             (note, personal, user_id),
         )
         with pytest.raises(psycopg2.Error):
             cur.execute(
-                "INSERT INTO notesnoop.note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
+                "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
                 (note, deal, user_id),
             )
         conn.rollback()
@@ -271,7 +271,7 @@ def test_workspace_scoped_tables_have_rls_policies(conn):
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             LEFT JOIN pg_policy p ON p.polrelid = c.oid
-            WHERE n.nspname = 'notesnoop'
+            WHERE n.nspname = 'public'
               AND c.relkind = 'r'
               AND c.relname = ANY(%s)
             GROUP BY c.oid, c.relname, c.relrowsecurity

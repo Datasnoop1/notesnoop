@@ -105,7 +105,7 @@ def test_m6_merge_undo_flags_and_brief_safeguards(client):
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO notesnoop.review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
+                INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
                 VALUES (%s, %s, 'person', %s, 'ai_suggestion', %s::jsonb)
                 """,
                 (workspace_id, user_id, note_source_id, f'{{"matched_person_id":"{source_id}","confidence":0.8}}'),

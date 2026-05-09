@@ -3,15 +3,15 @@
 -- @migration: statement_timeout=120s
 
 CREATE INDEX IF NOT EXISTS idx_notesnoop_npl_person_state_note
-  ON notesnoop.note_people_links(person_id, state, note_id);
+  ON note_people_links(person_id, state, note_id);
 
 CREATE INDEX IF NOT EXISTS idx_notesnoop_note_viewers_note
-  ON notesnoop.note_viewers(note_id, last_active DESC);
+  ON note_viewers(note_id, last_active DESC);
 
-CREATE OR REPLACE FUNCTION notesnoop.notify_workspace_event() RETURNS TRIGGER
+CREATE OR REPLACE FUNCTION notify_workspace_event() RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = notesnoop, pg_temp
+SET search_path = public, pg_temp
 AS $$
 DECLARE
   target_workspace_id UUID;
@@ -41,16 +41,16 @@ BEGIN
 END;
 $$;
 
-DROP TRIGGER IF EXISTS trg_review_queue_notify ON notesnoop.review_queue;
+DROP TRIGGER IF EXISTS trg_review_queue_notify ON review_queue;
 CREATE TRIGGER trg_review_queue_notify
-  AFTER INSERT OR UPDATE OR DELETE ON notesnoop.review_queue
-  FOR EACH ROW EXECUTE FUNCTION notesnoop.notify_workspace_event();
+  AFTER INSERT OR UPDATE OR DELETE ON review_queue
+  FOR EACH ROW EXECUTE FUNCTION notify_workspace_event();
 
-DROP TRIGGER IF EXISTS trg_note_viewers_notify ON notesnoop.note_viewers;
+DROP TRIGGER IF EXISTS trg_note_viewers_notify ON note_viewers;
 CREATE TRIGGER trg_note_viewers_notify
-  AFTER INSERT OR UPDATE OR DELETE ON notesnoop.note_viewers
-  FOR EACH ROW EXECUTE FUNCTION notesnoop.notify_workspace_event();
+  AFTER INSERT OR UPDATE OR DELETE ON note_viewers
+  FOR EACH ROW EXECUTE FUNCTION notify_workspace_event();
 
-GRANT EXECUTE ON FUNCTION notesnoop.notify_workspace_event() TO notesnoop_app, notesnoop_worker;
+GRANT EXECUTE ON FUNCTION notify_workspace_event() TO notesnoop_app, notesnoop_worker;
 
-COMMENT ON FUNCTION notesnoop.notify_workspace_event() IS 'Publishes workspace-scoped NoteSnoop SSE invalidation events through Postgres LISTEN/NOTIFY.';
+COMMENT ON FUNCTION notify_workspace_event() IS 'Publishes workspace-scoped NoteSnoop SSE invalidation events through Postgres LISTEN/NOTIFY.';

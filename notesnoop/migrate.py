@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """NoteSnoop migration runner.
 
-This mirrors the platform migration pattern while keeping NoteSnoop's schema
-history separate from Datasnoop. It applies SQL files from notesnoop/migrations
-and records checksums in notesnoop.schema_migrations.
+This mirrors the platform migration pattern while keeping NoteSnoop's database
+instance separate from Datasnoop. It applies SQL files from notesnoop/migrations
+and records checksums in public.schema_migrations.
 """
 
 from __future__ import annotations
@@ -15,9 +15,11 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 import psycopg2
 import psycopg2.extras
+from psycopg2 import sql
 
 
 ROOT = Path(__file__).resolve().parent
@@ -70,18 +72,39 @@ def database_url(target: str) -> str:
         env.update({k: v for k, v in parse_env_file(path).items() if k not in env})
     if target == "staging":
         for path in (repo_root / ".env.staging", Path("/opt/leadpeek/.env.staging")):
-            env.update(parse_env_file(path))
-        keys = ("NOTESNOOP_DATABASE_URL", "MIGRATE_STAGING_DATABASE_URL", "STAGING_DATABASE_URL", "DATABASE_URL")
+            env.update({k: v for k, v in parse_env_file(path).items() if k not in env})
+        keys = ("MIGRATE_STAGING_DATABASE_URL", "NOTESNOOP_MIGRATE_DATABASE_URL", "NOTESNOOP_DATABASE_URL")
     elif target == "prod":
         for path in (repo_root / ".env.production", Path("/opt/leadpeek/.env.production")):
-            env.update(parse_env_file(path))
-        keys = ("NOTESNOOP_DATABASE_URL", "MIGRATE_PROD_DATABASE_URL", "PROD_DATABASE_URL", "DATABASE_URL")
+            env.update({k: v for k, v in parse_env_file(path).items() if k not in env})
+        keys = ("MIGRATE_PROD_DATABASE_URL", "NOTESNOOP_MIGRATE_DATABASE_URL", "NOTESNOOP_DATABASE_URL")
     else:
         keys = ("NOTESNOOP_TEST_DATABASE_URL", "MIGRATE_DATABASE_URL", "DATABASE_URL")
     for key in keys:
         if env.get(key):
             return env[key]
+    if target in {"staging", "prod"} and env.get("NOTESNOOP_POSTGRES_ADMIN_PASSWORD"):
+        user = env.get("NOTESNOOP_POSTGRES_ADMIN_USER", "notesnoop_admin")
+        password = quote(env["NOTESNOOP_POSTGRES_ADMIN_PASSWORD"], safe="")
+        host = env.get("NOTESNOOP_POSTGRES_HOST", "127.0.0.1")
+        port = env.get("NOTESNOOP_POSTGRES_HOST_PORT", "5433")
+        db_name = env.get("NOTESNOOP_POSTGRES_DB", "notesnoop")
+        return f"postgresql://{user}:{password}@{host}:{port}/{db_name}"
     raise SystemExit(f"No database URL configured for target {target!r}")
+
+
+def role_passwords(target: str) -> tuple[str, str]:
+    repo_root = ROOT.parent
+    env = dict(os.environ)
+    for path in (repo_root / ".env", repo_root / ".env.local"):
+        env.update({k: v for k, v in parse_env_file(path).items() if k not in env})
+    if target == "staging":
+        for path in (repo_root / ".env.staging", Path("/opt/leadpeek/.env.staging")):
+            env.update({k: v for k, v in parse_env_file(path).items() if k not in env})
+    elif target == "prod":
+        for path in (repo_root / ".env.production", Path("/opt/leadpeek/.env.production")):
+            env.update({k: v for k, v in parse_env_file(path).items() if k not in env})
+    return env.get("NOTESNOOP_POSTGRES_APP_PASSWORD", ""), env.get("NOTESNOOP_POSTGRES_WORKER_PASSWORD", "")
 
 
 def connect(target: str):
@@ -135,10 +158,9 @@ def migrations() -> list[Migration]:
 
 
 def ensure_tracking(cur) -> None:
-    cur.execute("CREATE SCHEMA IF NOT EXISTS notesnoop")
     cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS notesnoop.schema_migrations (
+        CREATE TABLE IF NOT EXISTS public.schema_migrations (
           filename TEXT PRIMARY KEY,
           checksum TEXT NOT NULL,
           applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -151,9 +173,36 @@ def ensure_tracking(cur) -> None:
 def applied(cur) -> dict[str, dict]:
     ensure_tracking(cur)
     cur.execute(
-        "SELECT filename, checksum, applied_at, applied_by_env FROM notesnoop.schema_migrations ORDER BY filename"
+        "SELECT filename, checksum, applied_at, applied_by_env FROM public.schema_migrations ORDER BY filename"
     )
     return {row["filename"]: dict(row) for row in cur.fetchall()}
+
+
+def ensure_runtime_roles(cur, target: str) -> None:
+    app_password, worker_password = role_passwords(target)
+    if not app_password or not worker_password:
+        return
+    for role, password, bypassrls in (
+        ("notesnoop_app", app_password, "NOBYPASSRLS"),
+        ("notesnoop_worker", worker_password, "BYPASSRLS"),
+    ):
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,))
+        if cur.fetchone():
+            cur.execute(
+                sql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD {} NOINHERIT {}").format(
+                    sql.Identifier(role),
+                    sql.Literal(password),
+                    sql.SQL(bypassrls),
+                )
+            )
+        else:
+            cur.execute(
+                sql.SQL("CREATE ROLE {} WITH LOGIN PASSWORD {} NOINHERIT {}").format(
+                    sql.Identifier(role),
+                    sql.Literal(password),
+                    sql.SQL(bypassrls),
+                )
+            )
 
 
 def set_timeouts(cur, migration: Migration) -> None:
@@ -210,6 +259,8 @@ def command_up(args) -> int:
         with conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 advisory_lock(cur)
+                ensure_tracking(cur)
+                ensure_runtime_roles(cur, args.target)
         try:
             for migration in migrations():
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -222,9 +273,10 @@ def command_up(args) -> int:
                     with conn.cursor() as cur:
                         set_timeouts(cur, migration)
                         cur.execute(migration.sql)
+                        ensure_runtime_roles(cur, args.target)
                         cur.execute(
                             """
-                            INSERT INTO notesnoop.schema_migrations (filename, checksum, applied_by_env)
+                            INSERT INTO public.schema_migrations (filename, checksum, applied_by_env)
                             VALUES (%s, %s, %s)
                             """,
                             (migration.filename, migration.checksum, args.target),
