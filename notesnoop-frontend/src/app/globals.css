@@ -175,6 +175,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   color: #624a0e;
 }
 .review-items { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.review-expand {
+  display: none;
+  border: 1px solid #e1cf94;
+  background: #fffdf2;
+  color: #624a0e;
+  min-height: 30px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-weight: 700;
+}
 .review-item {
   display: inline-flex;
   align-items: center;
@@ -355,6 +365,36 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   padding: 20px;
   overflow: auto;
 }
+.review-sheet {
+  width: min(460px, 100%);
+  max-height: 80vh;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  padding: 18px;
+  overflow: auto;
+}
+.review-sheet-list { display: grid; gap: 10px; }
+.review-sheet-list article {
+  border: 1px solid var(--line);
+  background: #fffdf8;
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  gap: 7px;
+}
+.review-sheet-list article span { color: var(--muted); font-size: 13px; }
+.review-sheet-list article div { display: flex; gap: 8px; flex-wrap: wrap; }
+.review-sheet-list article button {
+  border: 1px solid var(--line);
+  background: #173832;
+  color: white;
+  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .linked-sheet p { white-space: pre-wrap; line-height: 1.55; color: #293d38; }
 .email-meta {
   border: 1px solid var(--line);
@@ -451,13 +491,27 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .sidebar.open { transform: translateX(0); }
   .hide-desktop { display: inline-grid; }
   .topbar { padding: 10px; min-height: 60px; }
+  .mode-btn {
+    width: 40px;
+    min-width: 40px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0;
+  }
+  .mode-btn svg { flex: 0 0 auto; }
   .search-filter-row { padding: 8px 10px 0; }
   .search-filter-row select { flex: 1 1 140px; }
   .review-strip, .composer { margin: 12px 10px 0; }
+  .review-strip {
+    min-height: 38px;
+    padding: 0 10px;
+  }
+  .review-strip .review-items { display: none; }
+  .review-expand { display: inline-flex; align-items: center; }
   .content-grid { grid-template-columns: 1fr; padding: 0 10px 22px; }
   .entity-pane { order: -1; }
   .sheet-backdrop { align-items: flex-end; justify-content: center; }
-  .linked-sheet {
+  .linked-sheet, .review-sheet {
     width: 100%;
     max-height: 84vh;
     border-left: none;

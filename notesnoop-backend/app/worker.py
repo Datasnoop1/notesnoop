@@ -5,10 +5,12 @@ import difflib
 import logging
 import os
 import signal
+import sys
 from typing import Any
 
 from psycopg2.extras import RealDictCursor
 
+from .briefing import enqueue_due_morning_briefings, send_morning_briefing
 from .embeddings import embed_text, note_embedding_text, upsert_note_embedding
 from .db import get_conn, put_conn
 from .ollama_client import extract_entities
@@ -253,6 +255,9 @@ async def handle_job(job: dict) -> None:
     try:
         if job["kind"] in {"extract", "reprocess"} and job.get("note_id"):
             await _process_extract(job)
+        elif job["kind"] == "briefing":
+            await send_morning_briefing(job)
+            _finish_job(str(job["id"]), "done")
         else:
             _finish_job(str(job["id"]), "done")
     except Exception as exc:
@@ -274,4 +279,7 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    if len(sys.argv) > 1 and sys.argv[1] == "enqueue-morning-briefings":
+        print(enqueue_due_morning_briefings())
+    else:
+        asyncio.run(main())

@@ -8,6 +8,7 @@ import os
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
+from ..briefing import disable_morning_briefing, disable_morning_briefing_by_email, parse_unsubscribe_token
 from ..db import transaction
 from ..email_ingest import mailgun_envelope, postmark_envelope, save_inbound_envelope
 
@@ -62,3 +63,31 @@ async def inbound_email(
             return {"data": save_inbound_envelope(cur, envelope)}
         except RuntimeError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.api_route("/email/unsubscribe", methods=["GET", "POST"])
+async def unsubscribe_morning_briefing(token: str):
+    payload = parse_unsubscribe_token(token)
+    if not payload:
+        raise HTTPException(status_code=403, detail="Invalid unsubscribe token")
+    changed = disable_morning_briefing(payload["workspace_id"], payload["user_id"])
+    return {"data": {"unsubscribed": True, "changed": changed}}
+
+
+@router.post("/email/bounce")
+async def outbound_bounce(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_postmark_signature: str | None = Header(default=None),
+):
+    raw = await request.body()
+    _verify_postmark_auth(raw, authorization, x_postmark_signature)
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid JSON") from exc
+    email = payload.get("Email") or payload.get("Recipient")
+    if not email:
+        raise HTTPException(status_code=400, detail="Bounce email is required")
+    disabled = disable_morning_briefing_by_email(str(email))
+    return {"data": {"disabled_memberships": disabled}}

@@ -70,6 +70,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [mobileNav, setMobileNav] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -300,6 +301,17 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setToast(`Email AI is ${nextMode === "auto" ? "Auto" : "Manual"}.`);
   }
 
+  async function toggleMorningBriefing() {
+    if (!workspaceId || !state?.workspace) return;
+    const nextOptIn = !state.workspace.morning_briefing_optin;
+    const res = await api(`/api/workspaces/${workspaceId}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify({ morning_briefing_optin: nextOptIn }),
+    });
+    setState(res.data);
+    setToast(nextOptIn ? "Morning briefing is on." : "Morning briefing is off.");
+  }
+
   async function sendTestEmail() {
     if (!workspaceId) return;
     const res = await api(`/api/workspaces/${workspaceId}/send-test-email`, { method: "POST" });
@@ -464,6 +476,10 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
             <Settings size={18} />
             {state?.workspace?.email_ai_mode === "auto" ? "Auto" : "Manual"}
           </button>
+          <button className="mode-btn" onClick={toggleMorningBriefing} title="Daily count-only morning briefing">
+            <Bell size={18} />
+            {state?.workspace?.morning_briefing_optin ? "Briefing on" : "Briefing off"}
+          </button>
           <UserButton />
         </header>
 
@@ -509,6 +525,9 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         <div className="review-strip">
           <Bell size={17} />
           {!!reviewCount && <strong>{reviewCount}</strong>}
+          <button className="review-expand" onClick={() => setReviewSheetOpen(true)}>
+            Review{reviewCount ? ` (${reviewCount})` : ""}
+          </button>
           {home?.pending_review?.length ? (
             <div className="review-items">
               {home.pending_review.slice(0, 3).map((item) => (
@@ -660,6 +679,14 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         </div>
       )}
 
+      <ReviewSheet
+        open={reviewSheetOpen}
+        items={home?.pending_review || []}
+        reviewCount={reviewCount}
+        onClose={() => setReviewSheetOpen(false)}
+        onDecide={decideReview}
+      />
+
       <LinkedSheet
         open={sheetOpen}
         note={selectedNote}
@@ -701,6 +728,48 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   }
 
   return appBody;
+}
+
+function ReviewSheet({
+  open,
+  items,
+  reviewCount,
+  onClose,
+  onDecide,
+}: {
+  open: boolean;
+  items: any[];
+  reviewCount: number;
+  onClose: () => void;
+  onDecide: (reviewId: string, decision: "accept" | "reject") => Promise<void>;
+}) {
+  if (!open) return null;
+  return (
+    <div className="sheet-backdrop review-backdrop" onClick={onClose}>
+      <aside className="review-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-handle" />
+        <div className="section-head">
+          <h2>Review{reviewCount ? ` (${reviewCount})` : ""}</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="Close review">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="review-sheet-list">
+          {items.slice(0, 5).map((item) => (
+            <article key={item.id}>
+              <strong>{item.payload?.name || item.entity_kind}</strong>
+              <span>{item.entity_kind}</span>
+              <div>
+                <button onClick={() => onDecide(item.id, "accept")}><Check size={15} /> Accept</button>
+                <button onClick={() => onDecide(item.id, "reject")}><X size={15} /> Reject</button>
+              </div>
+            </article>
+          ))}
+          {!items.length && <p className="muted">Caught up.</p>}
+        </div>
+      </aside>
+    </div>
+  );
 }
 
 function TimelinePanel({
