@@ -21,15 +21,39 @@ def person_timeline(person_id: str, user: CurrentUser = Depends(current_user)):
         notes = many(
             cur,
             """
-            SELECT n.*, npl.state, npl.confidence, npl.source
+            SELECT n.*,
+                   npl.state,
+                   npl.confidence,
+                   npl.source,
+                   coalesce(json_agg(DISTINCT p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS projects
             FROM notes n
             JOIN note_people_links npl ON npl.note_id = n.id
+            LEFT JOIN note_projects np ON np.note_id = n.id
+            LEFT JOIN projects p ON p.id = np.project_id
             WHERE npl.person_id = %s
+            GROUP BY n.id, npl.state, npl.confidence, npl.source
             ORDER BY n.created_at DESC
             """,
             (person_id,),
         )
-        return {"data": {"person": person, "notes": notes}}
+        projects = many(
+            cur,
+            """
+            SELECT p.*, count(DISTINCT n.id) AS mention_count, max(n.created_at) AS last_note_at
+            FROM projects p
+            JOIN note_projects np ON np.project_id = p.id
+            JOIN notes n ON n.id = np.note_id
+            JOIN note_people_links npl ON npl.note_id = n.id
+            WHERE npl.person_id = %s
+              AND npl.state IN ('confirmed','auto_linked')
+              AND p.kind <> 'personal'
+            GROUP BY p.id
+            ORDER BY mention_count DESC, p.name
+            LIMIT 10
+            """,
+            (person_id,),
+        )
+        return {"data": {"person": person, "notes": notes, "projects": projects}}
 
 
 @router.get("/projects/{project_id}/timeline")
@@ -41,10 +65,19 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
         notes = many(
             cur,
             """
-            SELECT n.*
+            SELECT n.*,
+                   coalesce(json_agg(DISTINCT jsonb_build_object(
+                     'id', pe.id,
+                     'name', pe.name,
+                     'state', npl.state,
+                     'confidence', npl.confidence
+                   )) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people
             FROM notes n
             JOIN note_projects np ON np.note_id = n.id
+            LEFT JOIN note_people_links npl ON npl.note_id = n.id
+            LEFT JOIN people pe ON pe.id = npl.person_id
             WHERE np.project_id = %s
+            GROUP BY n.id
             ORDER BY n.created_at DESC
             """,
             (project_id,),
@@ -62,7 +95,18 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
             """,
             (project_id,),
         )
-        return {"data": {"project": project, "notes": notes, "people": people}}
+        members = many(
+            cur,
+            """
+            SELECT up.clerk_user_id, up.display_name, up.email, pm.joined_at
+            FROM project_members pm
+            JOIN user_profiles up ON up.clerk_user_id = pm.clerk_user_id
+            WHERE pm.project_id = %s
+            ORDER BY pm.joined_at
+            """,
+            (project_id,),
+        )
+        return {"data": {"project": project, "notes": notes, "people": people, "members": members}}
 
 
 @router.get("/briefs/{kind}/{entity_id}")

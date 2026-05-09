@@ -201,6 +201,14 @@ def get_note(note_id: str, user: CurrentUser = Depends(current_user)):
             """,
             (user.clerk_user_id, note_id),
         )
+        cur.execute(
+            """
+            INSERT INTO note_viewers (note_id, viewer_user_id, workspace_id, last_active)
+            VALUES (%s, %s, %s, now())
+            ON CONFLICT (note_id, viewer_user_id) DO UPDATE SET last_active = EXCLUDED.last_active
+            """,
+            (note_id, user.clerk_user_id, payload["workspace_id"]),
+        )
         return {"data": payload}
 
 
@@ -348,7 +356,16 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
 
 
 @router.get("/workspaces/{workspace_id}/search")
-def search(workspace_id: str, q: str = "", user: CurrentUser = Depends(current_user)):
+def search(
+    workspace_id: str,
+    q: str = "",
+    project_id: str | None = None,
+    person_id: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    flagged_only: bool = False,
+    user: CurrentUser = Depends(current_user),
+):
     query = q.strip()
     query_embedding = None
     if query:
@@ -357,71 +374,136 @@ def search(workspace_id: str, q: str = "", user: CurrentUser = Depends(current_u
         except Exception:
             query_embedding = None
     with transaction(user.clerk_user_id) as cur:
+        where_sql, where_params = _search_where(
+            workspace_id,
+            user.clerk_user_id,
+            project_id,
+            person_id,
+            date_from,
+            date_to,
+            flagged_only,
+        )
         if not query:
             rows = many(
                 cur,
-                """
+                f"""
                 SELECT n.*
                 FROM recently_accessed ra
                 JOIN notes n ON n.id = ra.note_id
-                WHERE ra.clerk_user_id = %s AND n.workspace_id = %s
+                WHERE ra.clerk_user_id = %s
+                  AND {where_sql}
                 ORDER BY ra.accessed_at DESC
                 LIMIT 20
                 """,
-                (user.clerk_user_id, workspace_id),
+                (user.clerk_user_id, *where_params),
             )
             meta = {"semantic_enabled": False, "semantic_excluded": 0}
         else:
             keyword_rows = many(
                 cur,
-                """
+                f"""
                 SELECT *, 'keyword' AS search_source, ts_rank(search_vector, plainto_tsquery('english', %s)) AS search_score
-                FROM notes
-                WHERE workspace_id = %s
-                  AND search_vector @@ plainto_tsquery('english', %s)
+                FROM notes n
+                WHERE {where_sql}
+                  AND n.search_vector @@ plainto_tsquery('english', %s)
                 ORDER BY search_score DESC, created_at DESC
                 LIMIT 50
                 """,
-                (query, workspace_id, query),
+                (query, *where_params, query),
             )
             semantic_rows = []
             if query_embedding:
                 literal = vector_literal(query_embedding.vector)
                 semantic_rows = many(
                     cur,
-                    """
+                    f"""
                     SELECT n.*,
                            'semantic' AS search_source,
                            (1 - (e.embedding <=> %s::vector)) AS search_score
                     FROM embeddings e
                     JOIN notes n ON n.id = e.note_id
-                    WHERE n.workspace_id = %s
+                    WHERE {where_sql}
                       AND e.model_version = %s
                     ORDER BY e.embedding <=> %s::vector
                     LIMIT 50
                     """,
-                    (literal, workspace_id, query_embedding.model, literal),
+                    (literal, *where_params, query_embedding.model, literal),
                 )
             rows = _merge_search_rows(keyword_rows, semantic_rows)
             excluded = one(
                 cur,
-                """
+                f"""
                 SELECT count(*) AS count
                 FROM notes n
-                WHERE n.workspace_id = %s
+                WHERE {where_sql}
                   AND NOT EXISTS (
                     SELECT 1
                     FROM embeddings e
                     WHERE e.note_id = n.id
                   )
                 """,
-                (workspace_id,),
+                tuple(where_params),
             )
             meta = {
                 "semantic_enabled": bool(query_embedding),
                 "semantic_excluded": int(excluded["count"] if excluded else 0),
+                "filters": {
+                    "project_id": project_id,
+                    "person_id": person_id,
+                    "date_from": date_from,
+                    "date_to": date_to,
+                    "flagged_only": flagged_only,
+                },
             }
         return {"data": rows, "meta": meta}
+
+
+def _search_where(
+    workspace_id: str,
+    user_id: str,
+    project_id: str | None,
+    person_id: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    flagged_only: bool,
+) -> tuple[str, list]:
+    clauses = ["n.workspace_id = %s"]
+    params: list = [workspace_id]
+    if project_id:
+        clauses.append("EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s)")
+        params.append(project_id)
+    if person_id:
+        clauses.append(
+            """
+            EXISTS (
+              SELECT 1
+              FROM note_people_links npl
+              WHERE npl.note_id = n.id
+                AND npl.person_id = %s
+                AND npl.state IN ('confirmed','auto_linked')
+            )
+            """
+        )
+        params.append(person_id)
+    if date_from:
+        clauses.append("n.created_at >= %s::timestamptz")
+        params.append(date_from)
+    if date_to:
+        clauses.append("n.created_at < (%s::date + interval '1 day')")
+        params.append(date_to)
+    if flagged_only:
+        clauses.append(
+            """
+            EXISTS (
+              SELECT 1
+              FROM flags f
+              WHERE f.note_id = n.id
+                AND f.flagged_user_id = %s
+            )
+            """
+        )
+        params.append(user_id)
+    return " AND ".join(clauses), params
 
 
 def _merge_search_rows(keyword_rows: list[dict], semantic_rows: list[dict]) -> list[dict]:

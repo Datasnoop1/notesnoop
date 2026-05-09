@@ -5,6 +5,7 @@
 import {
   Archive,
   Bell,
+  CalendarDays,
   Check,
   Copy,
   Flag,
@@ -37,6 +38,13 @@ type HomeState = {
   recent_notes: any[];
 };
 
+type SearchFilters = {
+  person_id?: string;
+  date_from?: string;
+  date_to?: string;
+  flagged_only?: boolean;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_NOTESNOOP_API_URL || "";
 const DEV_AUTH = process.env.NEXT_PUBLIC_NOTESNOOP_DEV_AUTH === "true";
 
@@ -49,9 +57,15 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [body, setBody] = useState("");
   const [title, setTitle] = useState("");
   const [query, setQuery] = useState("");
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
+  const [searchMeta, setSearchMeta] = useState<any | null>(null);
   const [personName, setPersonName] = useState("");
   const [projectName, setProjectName] = useState("");
   const [activeProject, setActiveProject] = useState<string | null>(null);
+  const [personTimeline, setPersonTimeline] = useState<any | null>(null);
+  const [projectTimeline, setProjectTimeline] = useState<any | null>(null);
+  const [activity, setActivity] = useState<any[]>([]);
+  const [reviewCount, setReviewCount] = useState(0);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [mobileNav, setMobileNav] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -85,6 +99,20 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const inbox = useMemo(() => state?.projects.find((p) => p.kind === "inbox"), [state]);
   const personal = useMemo(() => state?.projects.find((p) => p.kind === "personal"), [state]);
   const saveProjectIds = selectedProjectIds.length ? selectedProjectIds : activeProject ? [activeProject] : [];
+  const activityByProject = useMemo(() => new Map(activity.map((item) => [item.project_id, item])), [activity]);
+
+  const buildSearchParams = useCallback(
+    (nextQuery: string, filters: SearchFilters) => {
+      const params = new URLSearchParams({ q: nextQuery });
+      if (activeProject) params.set("project_id", activeProject);
+      if (filters.person_id) params.set("person_id", filters.person_id);
+      if (filters.date_from) params.set("date_from", filters.date_from);
+      if (filters.date_to) params.set("date_to", filters.date_to);
+      if (filters.flagged_only) params.set("flagged_only", "true");
+      return params.toString();
+    },
+    [activeProject],
+  );
 
   const refresh = useCallback(async () => {
     const me = await api("/api/me");
@@ -117,6 +145,16 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setState((prev) => (prev ? { ...prev, people: peopleRes.data, projects: projectsRes.data } : prev));
   }, [activeProject, api, workspaceId]);
 
+  const refreshSignals = useCallback(async () => {
+    if (!workspaceId) return;
+    const [countRes, activityRes] = await Promise.all([
+      api(`/api/review-queue/count?workspace_id=${workspaceId}`),
+      api(`/api/collaborator-activity/${workspaceId}`),
+    ]);
+    setReviewCount(countRes.data.count || 0);
+    setActivity(activityRes.data || []);
+  }, [api, workspaceId]);
+
   useEffect(() => {
     if (isSignedIn || DEV_AUTH) refresh().catch((err) => setToast(err.message));
   }, [isSignedIn, refresh]);
@@ -124,6 +162,52 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   useEffect(() => {
     refreshWorkspaceData().catch((err) => setToast(err.message));
   }, [refreshWorkspaceData]);
+
+  useEffect(() => {
+    refreshSignals().catch((err) => setToast(err.message));
+    const interval = window.setInterval(() => {
+      refreshSignals().catch((err) => setToast(err.message));
+    }, 30000);
+    return () => window.clearInterval(interval);
+  }, [refreshSignals]);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    const controller = new AbortController();
+    let cancelled = false;
+    async function connect() {
+      const token = isSignedIn ? await getToken() : null;
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      if (DEV_AUTH && !token) {
+        headers["x-notesnoop-user-id"] = "dev_user";
+        headers["x-notesnoop-email"] = "dev@example.test";
+        headers["x-notesnoop-name"] = "Dev User";
+      }
+      const response = await fetch(`${API_BASE}/api/events/${workspaceId}`, { headers, signal: controller.signal });
+      if (!response.body) return;
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (!cancelled) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() || "";
+        for (const chunk of chunks) {
+          if (chunk.includes("event: review_queue") || chunk.includes("event: collaborator_activity")) {
+            refreshSignals().catch((err) => setToast(err.message));
+          }
+        }
+      }
+    }
+    connect().catch(() => undefined);
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [getToken, isSignedIn, refreshSignals, workspaceId]);
 
   async function saveNote() {
     if (!workspaceId || !body.trim()) return;
@@ -206,11 +290,31 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     });
   }
 
-  async function runSearch(nextQuery: string) {
+  async function runSearch(nextQuery: string, filters = searchFilters) {
     setQuery(nextQuery);
     if (!workspaceId) return;
-    const res = await api(`/api/workspaces/${workspaceId}/search?q=${encodeURIComponent(nextQuery)}`);
+    const res = await api(`/api/workspaces/${workspaceId}/search?${buildSearchParams(nextQuery, filters)}`);
     setNotes(res.data);
+    setSearchMeta(res.meta || null);
+  }
+
+  async function applySearchFilters(nextFilters: SearchFilters) {
+    setSearchFilters(nextFilters);
+    await runSearch(query, nextFilters);
+  }
+
+  async function openProject(project: any) {
+    setActiveProject(project.id);
+    setSelectedProjectIds([]);
+    setPersonTimeline(null);
+    const res = await api(`/api/projects/${project.id}/timeline`);
+    setProjectTimeline(res.data);
+  }
+
+  async function openPerson(person: any) {
+    setProjectTimeline(null);
+    const res = await api(`/api/people/${person.id}/timeline`);
+    setPersonTimeline(res.data);
   }
 
   async function flag(target: { note_id?: string; project_id?: string; person_id?: string }) {
@@ -253,16 +357,16 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
             <X size={18} />
           </button>
         </div>
-        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={() => { setActiveProject(null); setSelectedProjectIds([]); }}>
+        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={() => { setActiveProject(null); setSelectedProjectIds([]); setPersonTimeline(null); setProjectTimeline(null); }}>
           <Archive size={17} /> Home
         </button>
         {inbox && (
-          <button className={`nav-item ${activeProject === inbox.id ? "active" : ""}`} onClick={() => { setActiveProject(inbox.id); setSelectedProjectIds([]); }}>
+          <button className={`nav-item ${activeProject === inbox.id ? "active" : ""}`} onClick={() => openProject(inbox)}>
             <Inbox size={17} /> Inbox
           </button>
         )}
         {personal && (
-          <button className={`nav-item ${activeProject === personal.id ? "active" : ""}`} onClick={() => { setActiveProject(personal.id); setSelectedProjectIds([]); }}>
+          <button className={`nav-item ${activeProject === personal.id ? "active" : ""}`} onClick={() => openProject(personal)}>
             <UserRound size={17} /> Personal
           </button>
         )}
@@ -270,8 +374,9 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         {state?.projects
           .filter((p) => p.kind === "user")
           .map((project) => (
-            <button key={project.id} className={`nav-item ${activeProject === project.id ? "active" : ""}`} onClick={() => { setActiveProject(project.id); setSelectedProjectIds([]); }}>
+            <button key={project.id} className={`nav-item ${activeProject === project.id ? "active" : ""}`} onClick={() => openProject(project)}>
               <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} /> {project.name}
+              {activityByProject.has(project.id) && <span className="activity-dot" title="Collaborator active" />}
             </button>
           ))}
         <div className="sidebar-create">
@@ -304,8 +409,47 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         </header>
 
         {!quickCapture && (
+          <div className="search-filter-row">
+            <select
+              value={searchFilters.person_id || ""}
+              onChange={(e) => applySearchFilters({ ...searchFilters, person_id: e.target.value || undefined })}
+              aria-label="Filter by person"
+            >
+              <option value="">All people</option>
+              {state?.people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+            </select>
+            <label>
+              <CalendarDays size={15} />
+              <input
+                type="date"
+                value={searchFilters.date_from || ""}
+                onChange={(e) => applySearchFilters({ ...searchFilters, date_from: e.target.value || undefined })}
+                aria-label="Search from date"
+              />
+            </label>
+            <label>
+              <CalendarDays size={15} />
+              <input
+                type="date"
+                value={searchFilters.date_to || ""}
+                onChange={(e) => applySearchFilters({ ...searchFilters, date_to: e.target.value || undefined })}
+                aria-label="Search to date"
+              />
+            </label>
+            <button
+              className={searchFilters.flagged_only ? "filter-toggle active" : "filter-toggle"}
+              onClick={() => applySearchFilters({ ...searchFilters, flagged_only: !searchFilters.flagged_only })}
+            >
+              <Flag size={15} /> Flagged
+            </button>
+            {!!searchMeta?.semantic_excluded && <span>{searchMeta.semantic_excluded} unindexed</span>}
+          </div>
+        )}
+
+        {!quickCapture && (
         <div className="review-strip">
           <Bell size={17} />
+          {!!reviewCount && <strong>{reviewCount}</strong>}
           {home?.pending_review?.length ? (
             <div className="review-items">
               {home.pending_review.slice(0, 3).map((item) => (
@@ -379,27 +523,47 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
 
             <section className="entity-pane">
               <div className="section-head">
-                <h2>People</h2>
-                <Users size={18} />
+                <h2>{personTimeline?.person?.name || projectTimeline?.project?.name || "People"}</h2>
+                {projectTimeline ? <Archive size={18} /> : <Users size={18} />}
               </div>
-              <div className="inline-create">
-                <input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="Quick-add person" />
-                <button className="icon-btn" onClick={createPerson} aria-label="Add person">
-                  <Plus size={18} />
-                </button>
-              </div>
-              {state?.people.map((person) => (
-                <div className="entity-row" key={person.id}>
-                  <UserRound size={17} />
-                  <div>
-                    <strong>{person.name}</strong>
-                    <span>{person.company || `${person.confirmed_note_count || 0} notes`}</span>
+              {personTimeline ? (
+                <TimelinePanel
+                  timeline={personTimeline}
+                  kind="person"
+                  onOpenNote={openNote}
+                  onCopy={() => copyBrief("person", personTimeline.person)}
+                  onBack={() => setPersonTimeline(null)}
+                />
+              ) : projectTimeline ? (
+                <TimelinePanel
+                  timeline={projectTimeline}
+                  kind="project"
+                  onOpenNote={openNote}
+                  onCopy={() => copyBrief("project", projectTimeline.project)}
+                  onBack={() => setProjectTimeline(null)}
+                />
+              ) : (
+                <>
+                  <div className="inline-create">
+                    <input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="Quick-add person" />
+                    <button className="icon-btn" onClick={createPerson} aria-label="Add person">
+                      <Plus size={18} />
+                    </button>
                   </div>
-                  <button className="icon-btn" onClick={() => copyBrief("person", person)} aria-label="Copy person brief">
-                    <Copy size={16} />
-                  </button>
-                </div>
-              ))}
+                  {state?.people.map((person) => (
+                    <div className="entity-row" key={person.id} onClick={() => openPerson(person)}>
+                      <UserRound size={17} />
+                      <div>
+                        <strong>{person.name}</strong>
+                        <span>{person.company || `${person.confirmed_note_count || 0} notes`}</span>
+                      </div>
+                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copyBrief("person", person); }} aria-label="Copy person brief">
+                        <Copy size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </>
+              )}
             </section>
           </div>
         )}
@@ -450,6 +614,56 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   }
 
   return appBody;
+}
+
+function TimelinePanel({
+  timeline,
+  kind,
+  onOpenNote,
+  onCopy,
+  onBack,
+}: {
+  timeline: any;
+  kind: "person" | "project";
+  onOpenNote: (noteId: string) => Promise<void>;
+  onCopy: () => void;
+  onBack: () => void;
+}) {
+  const notes = timeline.notes || [];
+  return (
+    <div className="timeline-panel">
+      <div className="timeline-actions">
+        <button onClick={onCopy}><Copy size={16} /> Brief</button>
+        <button onClick={onBack}><X size={16} /> Close</button>
+      </div>
+      {kind === "person" && !!timeline.projects?.length && (
+        <div className="mini-section">
+          <strong>Projects</strong>
+          {timeline.projects.slice(0, 5).map((project: any) => (
+            <span key={project.id}>{project.name} - {project.mention_count} notes</span>
+          ))}
+        </div>
+      )}
+      {kind === "project" && (
+        <div className="mini-section">
+          <strong>{timeline.members?.length || 0} members</strong>
+          {(timeline.people || []).slice(0, 5).map((person: any) => (
+            <span key={person.id}>{person.name} - {person.mention_count} mentions</span>
+          ))}
+        </div>
+      )}
+      <div className="timeline-list">
+        {notes.map((note: any) => (
+          <article key={note.id} onClick={() => onOpenNote(note.id)}>
+            <strong>{note.title}</strong>
+            <span>{new Date(note.created_at).toLocaleDateString()}</span>
+            <p>{note.body}</p>
+          </article>
+        ))}
+        {!notes.length && <p className="muted">No timeline notes yet.</p>}
+      </div>
+    </div>
+  );
 }
 
 function LinkedSheet({
