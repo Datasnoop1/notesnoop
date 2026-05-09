@@ -40,6 +40,8 @@ def _configured(value: str, *bad_values: str) -> bool:
 def readiness():
     settings = get_settings()
     checks: dict[str, dict[str, object]] = {}
+    allow_unsigned = os.getenv("NOTESNOOP_WEBHOOK_ALLOW_UNSIGNED", "").lower() in {"1", "true", "yes"}
+    postmark_inbound_configured = bool(os.getenv("NOTESNOOP_POSTMARK_BASIC_AUTH") or os.getenv("NOTESNOOP_POSTMARK_WEBHOOK_SECRET"))
 
     conn = None
     try:
@@ -56,27 +58,30 @@ def readiness():
 
     checks["auth"] = {
         "ok": bool(settings.dev_auth or settings.clerk_issuer),
+        "beta_ok": bool(not settings.dev_auth and settings.clerk_issuer),
         "mode": "dev" if settings.dev_auth else "clerk",
     }
-    checks["ollama"] = {"ok": _configured(os.getenv("OLLAMA_API_KEY", ""))}
+    checks["ollama"] = {"ok": _configured(os.getenv("OLLAMA_API_KEY", "")), "beta_ok": _configured(os.getenv("OLLAMA_API_KEY", ""))}
     checks["inbound_webhook_auth"] = {
-        "ok": bool(
-            os.getenv("NOTESNOOP_WEBHOOK_ALLOW_UNSIGNED", "").lower() in {"1", "true", "yes"}
-            or os.getenv("NOTESNOOP_POSTMARK_BASIC_AUTH")
-            or os.getenv("NOTESNOOP_POSTMARK_WEBHOOK_SECRET")
-        ),
-        "mode": "unsigned"
-        if os.getenv("NOTESNOOP_WEBHOOK_ALLOW_UNSIGNED", "").lower() in {"1", "true", "yes"}
-        else "configured",
+        "ok": bool(allow_unsigned or postmark_inbound_configured),
+        "beta_ok": bool(not allow_unsigned and postmark_inbound_configured),
+        "mode": "unsigned" if allow_unsigned else "configured",
     }
     checks["postmark_outbound"] = {
         "ok": bool(settings.postmark_dry_run or settings.postmark_server_token),
+        "beta_ok": bool(not settings.postmark_dry_run and settings.postmark_server_token),
         "mode": "dry_run" if settings.postmark_dry_run else "live",
     }
-    checks["email_ai_default"] = {"ok": settings.email_ai_default == "manual", "value": settings.email_ai_default}
+    checks["email_ai_default"] = {
+        "ok": settings.email_ai_default == "manual",
+        "beta_ok": settings.email_ai_default == "manual",
+        "value": settings.email_ai_default,
+    }
+    checks["database"].setdefault("beta_ok", checks["database"]["ok"])
 
     ready = all(bool(item["ok"]) for item in checks.values())
-    return {"status": "ready" if ready else "blocked", "checks": checks}
+    beta_ready = all(bool(item.get("beta_ok")) for item in checks.values())
+    return {"status": "ready" if ready else "blocked", "beta_status": "ready" if beta_ready else "blocked", "checks": checks}
 
 
 app.include_router(bootstrap.router)

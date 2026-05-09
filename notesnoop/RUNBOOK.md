@@ -16,6 +16,10 @@ curl -fsS http://127.0.0.1:8091/api/health
 curl -fsS http://127.0.0.1:8091/api/readiness
 ```
 
+`/api/readiness` returns both runtime `status` and `beta_status`. Preview can
+be runtime-ready while beta-blocked because it uses dev auth, unsigned inbound
+webhooks, or Postmark dry-run.
+
 If the preview is being checked through `note.datasnoop.be`, remember the
 preview front door has basic auth and is not production.
 

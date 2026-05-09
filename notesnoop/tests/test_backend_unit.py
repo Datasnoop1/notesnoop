@@ -232,6 +232,7 @@ def test_health_and_readiness(monkeypatch):
     ready = main.readiness()
 
     assert ready["status"] == "ready"
+    assert ready["beta_status"] == "ready"
     assert ready["checks"]["database"]["ok"] is True
     assert ready["checks"]["auth"]["mode"] == "clerk"
 
@@ -240,8 +241,20 @@ def test_health_and_readiness(monkeypatch):
     monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
     blocked = main.readiness()
     assert blocked["status"] == "blocked"
+    assert blocked["beta_status"] == "blocked"
     assert blocked["checks"]["ollama"]["ok"] is False
     assert blocked["checks"]["postmark_outbound"]["ok"] is False
+
+    settings.dev_auth = True
+    settings.postmark_server_token = "postmark-token"
+    settings.postmark_dry_run = True
+    monkeypatch.setenv("OLLAMA_API_KEY", "ollama-key")
+    monkeypatch.setenv("NOTESNOOP_WEBHOOK_ALLOW_UNSIGNED", "true")
+    preview_ready = main.readiness()
+    assert preview_ready["status"] == "ready"
+    assert preview_ready["beta_status"] == "blocked"
+    assert preview_ready["checks"]["auth"]["beta_ok"] is False
+    assert preview_ready["checks"]["postmark_outbound"]["mode"] == "dry_run"
 
 
 def test_email_and_webhook_helpers(monkeypatch):
