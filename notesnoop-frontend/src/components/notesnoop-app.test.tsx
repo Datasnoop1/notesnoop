@@ -142,16 +142,45 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
             { id: "person-1", kind: "person", title: "Morgan Lee" },
             { id: "project-1", kind: "project", title: "Apollo" },
             { id: "note-task-1", kind: "task", title: "Send Apollo follow-up" },
+            { id: "workflow-1", kind: "workflow", title: "Diligence loop", status: "active" },
+            { id: "company-1", kind: "company", title: "Northstar", domain: "northstar.example" },
           ],
           edges: [
             { from_kind: "note", from_id: "note-1", to_kind: "person", to_id: "person-1", relation: "mentions" },
             { from_kind: "task", from_id: "note-task-1", to_kind: "note", to_id: "note-1", relation: "sourced_from" },
+            { from_kind: "workflow", from_id: "workflow-1", to_kind: "task", to_id: "note-task-1", relation: "contains" },
           ],
         },
       });
     }
+    if (url.includes("/api/workspaces/workspace-1/review-queue")) {
+      return json({
+        data: pending.map((item) => ({
+          ...item,
+          source_note_title: "Apollo update",
+          source_snippet: "Morgan mentioned Apollo follow-up.",
+          projects: [projects[2]],
+        })),
+        meta: { count: pending.length },
+      });
+    }
     if (url.includes("/api/workspaces/workspace-1/notes") && init?.method === "POST") {
       return json({ data: { ...note, title: "Fresh note", body: JSON.parse(String(init.body)).body } });
+    }
+    if (url.includes("/api/workspaces/workspace-1/tasks") && init?.method === "POST") {
+      return json({ data: { id: "task-created", ...JSON.parse(String(init.body)) } });
+    }
+    if (url.includes("/api/workspaces/workspace-1/meetings") && init?.method === "POST") {
+      return json({ data: { id: "meeting-created", ...JSON.parse(String(init.body)) } });
+    }
+    if (url.includes("/api/workspaces/workspace-1/reports") && init?.method === "POST") {
+      return json({ data: { id: "report-created", ...JSON.parse(String(init.body)) } });
+    }
+    if (url.includes("/api/workspaces/workspace-1/workflows") && init?.method === "POST") {
+      return json({ data: { id: "workflow-created", ...JSON.parse(String(init.body)) } });
+    }
+    if (url.includes("/api/workspaces/workspace-1/companies") && init?.method === "POST") {
+      return json({ data: { id: "company-created", ...JSON.parse(String(init.body)) } });
     }
     if (url.includes("/api/workspaces/workspace-1/projects") && init?.method === "POST") {
       return json({ data: { id: "project-created", name: JSON.parse(String(init.body)).name, kind: "user", color_hex: "#e85d4f" } });
@@ -258,6 +287,37 @@ describe("NoteSnoopApp", () => {
       expect(createdNames).toEqual(["Avery Chen", "Morgan Lee"]);
     });
     expect(await screen.findByText("People added.")).toBeInTheDocument();
+  });
+
+  it("creates meetings, reports, workflows, companies, and dated tasks from the dashboard", async () => {
+    const { calls } = installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    fireEvent.change(within(dashboard).getByLabelText("New task"), { target: { value: "Send diligence pack" } });
+    fireEvent.change(within(dashboard).getByLabelText("Task due date"), { target: { value: "2026-05-15" } });
+    fireEvent.click(within(dashboard).getByRole("button", { name: /Add task/i }));
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/tasks"))).toBe(true));
+
+    fireEvent.click(within(dashboard).getByRole("tab", { name: /Meetings\/calls/i }));
+    fireEvent.change(within(dashboard).getByLabelText("New meeting"), { target: { value: "Apollo partner call" } });
+    fireEvent.click(within(dashboard).getByRole("button", { name: /Add meeting/i }));
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/meetings"))).toBe(true));
+
+    fireEvent.click(within(dashboard).getByRole("tab", { name: /Reports\/briefs/i }));
+    fireEvent.change(within(dashboard).getByLabelText("New report"), { target: { value: "Apollo weekly report" } });
+    fireEvent.click(within(dashboard).getByRole("button", { name: /Add report/i }));
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/reports"))).toBe(true));
+
+    fireEvent.click(within(dashboard).getByRole("tab", { name: /Workflows/i }));
+    fireEvent.change(within(dashboard).getByLabelText("New workflow"), { target: { value: "IC memo loop" } });
+    fireEvent.click(within(dashboard).getByRole("button", { name: /Add workflow/i }));
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/workflows"))).toBe(true));
+
+    fireEvent.click(within(dashboard).getByRole("tab", { name: /Companies/i }));
+    fireEvent.change(within(dashboard).getByLabelText("New company"), { target: { value: "Northstar" } });
+    fireEvent.click(within(dashboard).getByRole("button", { name: /Add company/i }));
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/companies"))).toBe(true));
   });
 
   it("saves a quick capture note and opens the linked-entities sheet", async () => {

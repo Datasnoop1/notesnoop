@@ -23,7 +23,7 @@ ALLOW_DETERMINISTIC_FALLBACK = os.getenv("NOTESNOOP_EXTRACTION_ALLOW_DETERMINIST
 
 EXTRACTION_SYSTEM = """You extract existing project/person mentions and explicit action items from messy professional notes.
 Return strict JSON only:
-{"people":[{"name":"...", "confidence":0.0, "span":[0,10]}], "projects":[{"name":"...", "confidence":0.0, "span":[0,10]}], "tasks":[{"title":"...", "confidence":0.0, "span":[0,10]}]}
+{"people":[{"name":"...", "confidence":0.0, "span":[0,10]}], "projects":[{"name":"...", "confidence":0.0, "span":[0,10]}], "tasks":[{"title":"...", "due_date":"YYYY-MM-DD or null", "confidence":0.0, "span":[0,10]}]}
 Do not invent names or tasks. Only include tasks/action items that are explicit in the note. Confidence must be 0..1. Use character spans when obvious; otherwise [0,0]."""
 
 
@@ -128,6 +128,7 @@ async def extract_entities(note_body: str, known_people: list[str], known_projec
             "Prefer matching known_people and known_projects.",
             "Unknown people may be returned as people mentions, but never create entities yourself.",
             "Return explicit tasks/action items when the note says need, follow up, todo, or action item.",
+            "If an action item has an explicit due date, return due_date as YYYY-MM-DD; otherwise null.",
             "Only return JSON. No markdown.",
         ],
     }

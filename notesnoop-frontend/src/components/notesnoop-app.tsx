@@ -131,9 +131,17 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [mobileNav, setMobileNav] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
+  const [reviewItems, setReviewItems] = useState<any[]>([]);
   const [activeMemoryTab, setActiveMemoryTab] = useState("tasks");
   const [selectedMemory, setSelectedMemory] = useState<{ sectionId: string; item: any } | null>(null);
+  const [selectedGraphKind, setSelectedGraphKind] = useState<string | null>(null);
   const [quickTaskTitle, setQuickTaskTitle] = useState("");
+  const [quickTaskDue, setQuickTaskDue] = useState("");
+  const [quickMeetingTitle, setQuickMeetingTitle] = useState("");
+  const [quickMeetingDate, setQuickMeetingDate] = useState("");
+  const [quickReportTitle, setQuickReportTitle] = useState("");
+  const [quickWorkflowName, setQuickWorkflowName] = useState("");
+  const [quickCompanyName, setQuickCompanyName] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const searchDebounceRef = useRef<number | null>(null);
@@ -422,14 +430,108 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         body: JSON.stringify({
           title: quickTaskTitle,
           status: "todo",
+          due_at: eventDate(quickTaskDue),
           project_ids: projectIds,
         }),
       });
       setQuickTaskTitle("");
+      setQuickTaskDue("");
       setToast("Task added.");
       await refreshWorkspaceData();
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Could not add task");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createQuickMeeting() {
+    if (!workspaceId || !quickMeetingTitle.trim()) return;
+    setBusy(true);
+    try {
+      const projectIds = activeProject ? [activeProject] : selectedProjectIds.length ? selectedProjectIds : undefined;
+      await api(`/api/workspaces/${workspaceId}/meetings`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: quickMeetingTitle,
+          occurred_at: eventDate(quickMeetingDate),
+          project_ids: projectIds,
+        }),
+      });
+      setQuickMeetingTitle("");
+      setQuickMeetingDate("");
+      setToast("Meeting memory added.");
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not add meeting");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createQuickReport() {
+    if (!workspaceId || !quickReportTitle.trim()) return;
+    setBusy(true);
+    try {
+      const projectIds = activeProject ? [activeProject] : selectedProjectIds.length ? selectedProjectIds : undefined;
+      await api(`/api/workspaces/${workspaceId}/reports`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: quickReportTitle,
+          status: "draft",
+          project_ids: projectIds,
+        }),
+      });
+      setQuickReportTitle("");
+      setToast("Report draft added.");
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not add report");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createQuickWorkflow() {
+    if (!workspaceId || !quickWorkflowName.trim()) return;
+    setBusy(true);
+    try {
+      const projectIds = activeProject ? [activeProject] : selectedProjectIds.length ? selectedProjectIds : undefined;
+      await api(`/api/workspaces/${workspaceId}/workflows`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: quickWorkflowName,
+          status: "active",
+          project_ids: projectIds,
+        }),
+      });
+      setQuickWorkflowName("");
+      setToast("Workflow added.");
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not add workflow");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createQuickCompany() {
+    if (!workspaceId || !quickCompanyName.trim()) return;
+    setBusy(true);
+    try {
+      const projectIds = activeProject ? [activeProject] : selectedProjectIds.length ? selectedProjectIds : undefined;
+      await api(`/api/workspaces/${workspaceId}/companies`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: quickCompanyName,
+          project_ids: projectIds,
+        }),
+      });
+      setQuickCompanyName("");
+      setToast("Company added.");
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not add company");
     } finally {
       setBusy(false);
     }
@@ -472,6 +574,48 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
       setSelectedMemory({ sectionId, item: detail });
     } catch {
       setSelectedMemory({ sectionId, item });
+    }
+  }
+
+  async function openGraphNode(node: any) {
+    if (node.kind === "note") {
+      await openNote(node.id);
+      return;
+    }
+    if (node.kind === "project") {
+      const project = (state?.projects || []).find((candidate) => candidate.id === node.id);
+      if (project) await openProject(project);
+      return;
+    }
+    if (node.kind === "person") {
+      const person = (state?.people || []).find((candidate) => candidate.id === node.id) || { id: node.id, name: node.title };
+      await openPerson(person);
+      return;
+    }
+    const sectionByKind: Record<string, string> = {
+      task: "tasks",
+      meeting: "meetings",
+      report: "reports",
+      workflow: "workflows",
+      company: "companies",
+    };
+    const sectionId = sectionByKind[node.kind];
+    if (sectionId) await openMemoryItem(sectionId, node);
+  }
+
+  async function openReviewQueue() {
+    if (!workspaceId) {
+      setReviewSheetOpen(true);
+      return;
+    }
+    setReviewSheetOpen(true);
+    try {
+      const projectQuery = activeProject ? `?project_id=${activeProject}` : "";
+      const res = await api(`/api/workspaces/${workspaceId}/review-queue${projectQuery}`);
+      setReviewItems(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setReviewItems(home?.pending_review || []);
+      setToast(err instanceof Error ? err.message : "Could not load review queue");
     }
   }
 
@@ -645,6 +789,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
       method: "POST",
       body: JSON.stringify({}),
     });
+    setReviewItems((current) => current.filter((item) => item.id !== reviewId));
     setToast(decision === "accept" ? "Suggestion accepted." : "Suggestion rejected.");
     await refreshWorkspaceData();
   }
@@ -659,6 +804,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
 
   const activeProjectRecord = state?.projects.find((project) => project.id === activeProject) || null;
   const dashboardReviewItems = home?.pending_review || [];
+  const visibleReviewItems = reviewSheetOpen ? reviewItems : dashboardReviewItems;
   const dashboardReviewCount = reviewCount || dashboardReviewItems.length;
   const dashboardFlagged = home?.flagged || [];
   const dashboardNotes = home?.recent_notes?.length ? home.recent_notes : notes;
@@ -695,6 +841,8 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const graphSummary = graphKinds
     .map((kind) => ({ kind, count: memoryGraph.nodes.filter((node) => node.kind === kind).length }))
     .filter((item) => item.count > 0);
+  const graphFocusKind = selectedGraphKind || graphSummary[0]?.kind || null;
+  const graphFocusNodes = graphFocusKind ? memoryGraph.nodes.filter((node) => node.kind === graphFocusKind).slice(0, 8) : [];
   const memorySections = [
     {
       id: "tasks",
@@ -917,7 +1065,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                 <p>{activeProjectRecord ? "Open loops, people, and notes in this project." : "Open loops, recent movement, and capture."}</p>
               </div>
               <div className="dashboard-actions">
-                <button type="button" onClick={() => setReviewSheetOpen(true)}>
+                <button type="button" onClick={openReviewQueue}>
                   <Bell size={16} /> Review{dashboardReviewCount ? ` (${dashboardReviewCount})` : ""}
                 </button>
                 {inbox && (
@@ -929,7 +1077,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
             </div>
 
             <div className="dashboard-metrics">
-              <button className="metric-card metric-button" type="button" onClick={() => setReviewSheetOpen(true)} aria-label={`Open review queue with ${dashboardReviewCount} items`}>
+              <button className="metric-card metric-button" type="button" onClick={openReviewQueue} aria-label={`Open review queue with ${dashboardReviewCount} items`}>
                 <span><Bell size={16} /> Review queue</span>
                 <strong>{dashboardReviewCount}</strong>
                 <small>{dashboardReviewCount ? "needs decisions" : "clear"}</small>
@@ -978,15 +1126,79 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                   })}
                 </div>
                 {activeMemorySection.id === "tasks" && (
-                  <div className="quick-task-row">
+                  <div className="quick-task-row task-create-row">
                     <input
                       value={quickTaskTitle}
                       onChange={(event) => setQuickTaskTitle(event.target.value)}
                       placeholder={activeProjectRecord ? `Task for ${activeProjectRecord.name}` : "Add an open loop"}
                       aria-label="New task"
                     />
+                    <input
+                      type="date"
+                      value={quickTaskDue}
+                      onChange={(event) => setQuickTaskDue(event.target.value)}
+                      aria-label="Task due date"
+                    />
                     <button type="button" onClick={createQuickTask} disabled={busy || !quickTaskTitle.trim()}>
                       <Plus size={16} /> Add task
+                    </button>
+                  </div>
+                )}
+                {activeMemorySection.id === "meetings" && (
+                  <div className="quick-task-row task-create-row">
+                    <input
+                      value={quickMeetingTitle}
+                      onChange={(event) => setQuickMeetingTitle(event.target.value)}
+                      placeholder={activeProjectRecord ? `Meeting for ${activeProjectRecord.name}` : "Add a meeting or call"}
+                      aria-label="New meeting"
+                    />
+                    <input
+                      type="date"
+                      value={quickMeetingDate}
+                      onChange={(event) => setQuickMeetingDate(event.target.value)}
+                      aria-label="Meeting date"
+                    />
+                    <button type="button" onClick={createQuickMeeting} disabled={busy || !quickMeetingTitle.trim()}>
+                      <Plus size={16} /> Add meeting
+                    </button>
+                  </div>
+                )}
+                {activeMemorySection.id === "reports" && (
+                  <div className="quick-task-row">
+                    <input
+                      value={quickReportTitle}
+                      onChange={(event) => setQuickReportTitle(event.target.value)}
+                      placeholder={activeProjectRecord ? `Report for ${activeProjectRecord.name}` : "Start a report or brief"}
+                      aria-label="New report"
+                    />
+                    <button type="button" onClick={createQuickReport} disabled={busy || !quickReportTitle.trim()}>
+                      <Plus size={16} /> Add report
+                    </button>
+                  </div>
+                )}
+                {activeMemorySection.id === "workflows" && (
+                  <div className="quick-task-row">
+                    <input
+                      value={quickWorkflowName}
+                      onChange={(event) => setQuickWorkflowName(event.target.value)}
+                      placeholder={activeProjectRecord ? `Workflow in ${activeProjectRecord.name}` : "Add a workflow"}
+                      aria-label="New workflow"
+                    />
+                    <button type="button" onClick={createQuickWorkflow} disabled={busy || !quickWorkflowName.trim()}>
+                      <Plus size={16} /> Add workflow
+                    </button>
+                  </div>
+                )}
+                {activeMemorySection.id === "companies" && (
+                  <div className="quick-task-row">
+                    <input
+                      value={quickCompanyName}
+                      onChange={(event) => setQuickCompanyName(event.target.value)}
+                      placeholder={activeProjectRecord ? `Company in ${activeProjectRecord.name}` : "Add a company"}
+                      aria-label="New company"
+                    />
+                    <button type="button" onClick={createQuickCompany} disabled={busy || !quickCompanyName.trim()}>
+                      <Plus size={16} /> Add company
                     </button>
                   </div>
                 )}
@@ -1021,12 +1233,27 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                   <>
                     <div className="graph-kind-grid">
                       {graphSummary.map((item) => (
-                        <span key={item.kind}>
+                        <button
+                          key={item.kind}
+                          type="button"
+                          className={graphFocusKind === item.kind ? "active" : ""}
+                          onClick={() => setSelectedGraphKind(item.kind)}
+                        >
                           <strong>{item.count}</strong>
                           {item.kind}
-                        </span>
+                        </button>
                       ))}
                     </div>
+                    {!!graphFocusNodes.length && (
+                      <div className="graph-node-list">
+                        {graphFocusNodes.map((node) => (
+                          <button key={`${node.kind}-${node.id}`} type="button" onClick={() => openGraphNode(node)}>
+                            <span>{node.title || node.name || node.id}</span>
+                            <small>{node.status || node.note_kind || node.domain || node.kind}</small>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="graph-edge-list">
                       {memoryGraph.edges.slice(0, 6).map((edge, index) => (
                         <span key={`${edge.from_kind}-${edge.from_id}-${edge.to_kind}-${edge.to_id}-${index}`}>
@@ -1048,7 +1275,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                 {dashboardReviewItems.length || dashboardFlagged.length ? (
                   <div className="dashboard-list">
                     {dashboardReviewItems.slice(0, 3).map((item) => (
-                      <button key={item.id} className="dashboard-row" type="button" onClick={() => setReviewSheetOpen(true)}>
+                      <button key={item.id} className="dashboard-row" type="button" onClick={openReviewQueue}>
                         <span className="row-icon"><Bell size={15} /></span>
                         <span>
                           <strong>{item.payload?.name || item.entity_kind}</strong>
@@ -1284,7 +1511,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
 
       <ReviewSheet
         open={reviewSheetOpen}
-        items={home?.pending_review || []}
+        items={visibleReviewItems}
         reviewCount={reviewCount}
         onClose={() => setReviewSheetOpen(false)}
         onDecide={decideReview}
@@ -1434,6 +1661,7 @@ function ReviewSheet({
   onDecide: (reviewId: string, decision: "accept" | "reject") => Promise<void>;
 }) {
   if (!open) return null;
+  const reviewItems = Array.isArray(items) ? items : [];
   return (
     <div className="sheet-backdrop review-backdrop" onClick={onClose}>
       <aside className="review-sheet" onClick={(e) => e.stopPropagation()}>
@@ -1445,17 +1673,32 @@ function ReviewSheet({
           </button>
         </div>
         <div className="review-sheet-list">
-          {items.slice(0, 5).map((item) => (
+          {reviewItems.slice(0, 5).map((item) => (
             <article key={item.id}>
-              <strong>{item.payload?.name || item.entity_kind}</strong>
-              <span>{item.entity_kind}</span>
+              <strong>{item.payload?.name || item.payload?.title || item.entity_kind}</strong>
+              <span>
+                {item.entity_kind}
+                {item.payload?.confidence || item.confidence ? ` - ${Math.round(Number(item.payload?.confidence || item.confidence) * 100)}%` : ""}
+              </span>
+              {item.source_note_title && <small>{item.source_note_title}</small>}
+              {item.source_snippet && <p>{item.source_snippet}</p>}
+              {!!item.projects?.length && (
+                <div className="review-projects">
+                  {item.projects.slice(0, 3).map((project: any) => (
+                    <span key={project.id}>
+                      <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                      {project.name}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div>
                 <button onClick={() => onDecide(item.id, "accept")}><Check size={15} /> Accept</button>
                 <button onClick={() => onDecide(item.id, "reject")}><X size={15} /> Reject</button>
               </div>
             </article>
           ))}
-          {!items.length && <p className="muted">Caught up.</p>}
+          {!reviewItems.length && <p className="muted">Caught up.</p>}
         </div>
       </aside>
     </div>

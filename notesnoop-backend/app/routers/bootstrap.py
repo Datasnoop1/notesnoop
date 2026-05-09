@@ -195,6 +195,16 @@ def add_project_member(
             raise HTTPException(status_code=404, detail="Project not found")
         if project["kind"] == "personal":
             raise HTTPException(status_code=422, detail="Personal projects cannot be shared")
+        is_admin = one(
+            cur,
+            "SELECT 1 FROM workspace_members WHERE workspace_id = %s AND clerk_user_id = %s AND role = 'admin'",
+            (project["workspace_id"], user.clerk_user_id),
+        )
+        if not is_admin and project["created_by"] != user.clerk_user_id:
+            raise HTTPException(status_code=403, detail="Only workspace admins or the project creator can add members")
+        member = one(cur, "SELECT clerk_user_id FROM user_profiles WHERE clerk_user_id = %s", (member_user_id,))
+        if not member:
+            raise HTTPException(status_code=422, detail="Invite this user by email first")
         cur.execute(
             """
             INSERT INTO workspace_members (workspace_id, clerk_user_id, role)

@@ -397,8 +397,11 @@ def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentU
 @router.post("/review-queue/{review_id}/accept")
 def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
-        review = one(cur, "SELECT * FROM review_queue WHERE id = %s", (review_id,))
+        review = one(cur, "SELECT * FROM review_queue WHERE id = %s AND state = 'open'", (review_id,))
         if not review:
+            existing = one(cur, "SELECT state FROM review_queue WHERE id = %s", (review_id,))
+            if existing:
+                raise HTTPException(status_code=409, detail="Review item is already decided")
             raise HTTPException(status_code=404, detail="Review item not found")
         data = review.get("payload") or {}
         confidence = payload.confidence or data.get("confidence") or 0.75
@@ -445,8 +448,11 @@ def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
 @router.post("/review-queue/{review_id}/reject")
 def reject_review(review_id: str, payload: ReviewDecision, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
-        review = one(cur, "SELECT * FROM review_queue WHERE id = %s", (review_id,))
+        review = one(cur, "SELECT * FROM review_queue WHERE id = %s AND state = 'open'", (review_id,))
         if not review:
+            existing = one(cur, "SELECT state FROM review_queue WHERE id = %s", (review_id,))
+            if existing:
+                raise HTTPException(status_code=409, detail="Review item is already decided")
             raise HTTPException(status_code=404, detail="Review item not found")
         data = review.get("payload") or {}
         confidence = payload.confidence or data.get("confidence") or 0.75

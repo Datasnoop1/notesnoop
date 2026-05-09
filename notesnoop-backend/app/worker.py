@@ -7,6 +7,7 @@ import logging
 import os
 import signal
 import sys
+from datetime import date, datetime, time, timezone
 from typing import Any
 
 from psycopg2.extras import RealDictCursor
@@ -221,6 +222,25 @@ def _materialize_title(value: Any) -> str:
     return title[:240]
 
 
+def _coerce_due_at(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return datetime.combine(value, time(12, 0), tzinfo=timezone.utc).isoformat()
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        if len(text) == 10:
+            parsed_date = date.fromisoformat(text)
+            return datetime.combine(parsed_date, time(12, 0), tzinfo=timezone.utc).isoformat()
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).isoformat()
+    except ValueError:
+        return None
+
+
 def _linked_project_ids(cur, note_id: str) -> list[str]:
     cur.execute(
         """
@@ -298,24 +318,36 @@ def _link_report_people(cur, report_id: str, workspace_id: str, person_ids: list
         )
 
 
-def _materialize_task(cur, note: dict, title: str, source_kind: str, target_user_id: str, project_ids: list[str], person_ids: list[str]) -> str | None:
+def _materialize_task(
+    cur,
+    note: dict,
+    title: str,
+    source_kind: str,
+    target_user_id: str,
+    project_ids: list[str],
+    person_ids: list[str],
+    due_at: Any = None,
+) -> str | None:
     if not title:
         return None
+    task_due_at = _coerce_due_at(due_at)
     cur.execute(
         """
-        INSERT INTO tasks (workspace_id, title, description, status, priority, created_by, source_note_id, source_kind)
-        VALUES (%s, %s, %s, 'todo', 3, %s, %s, %s)
+        INSERT INTO tasks (workspace_id, title, description, status, priority, due_at, created_by, source_note_id, source_kind)
+        VALUES (%s, %s, %s, 'todo', 3, %s, %s, %s, %s)
         ON CONFLICT (source_note_id, source_kind, lower(title))
           WHERE source_note_id IS NOT NULL
         DO UPDATE
           SET updated_at = now(),
-              description = COALESCE(tasks.description, EXCLUDED.description)
+              description = COALESCE(tasks.description, EXCLUDED.description),
+              due_at = COALESCE(tasks.due_at, EXCLUDED.due_at)
         RETURNING id
         """,
         (
             note["workspace_id"],
             title,
             str(note.get("body") or "")[:2000],
+            task_due_at,
             target_user_id,
             note["id"],
             source_kind,
@@ -355,7 +387,7 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
         if not title or key in seen_task_titles:
             continue
         seen_task_titles.add(key)
-        if _materialize_task(cur, note, title, "action_item", target_user_id, project_ids, person_ids):
+        if _materialize_task(cur, note, title, "action_item", target_user_id, project_ids, person_ids, item.get("due_at") or item.get("due_date")):
             created["tasks"] += 1
 
     if note_kind == "task":

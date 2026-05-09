@@ -305,6 +305,7 @@ def create_report(workspace_id: str, payload: ReportCreate, user: CurrentUser = 
         _ensure_workspace_access(cur, workspace_id)
         _validate_project_ids(cur, workspace_id, payload.project_ids or [])
         _validate_person_ids(cur, workspace_id, payload.person_ids or [])
+        _validate_company_ids(cur, workspace_id, payload.company_ids or [])
         _validate_note_ids(cur, workspace_id, payload.note_ids or [])
         _validate_task_ids(cur, workspace_id, payload.task_ids or [])
         cur.execute(
@@ -326,6 +327,7 @@ def create_report(workspace_id: str, payload: ReportCreate, user: CurrentUser = 
         report = dict(cur.fetchone())
         _link_many(cur, "report_projects", "report_id", "project_id", report["id"], workspace_id, payload.project_ids or [], user.clerk_user_id)
         _link_many(cur, "report_people", "report_id", "person_id", report["id"], workspace_id, payload.person_ids or [], user.clerk_user_id)
+        _link_many(cur, "report_companies", "report_id", "company_id", report["id"], workspace_id, payload.company_ids or [], user.clerk_user_id)
         _link_many(cur, "report_notes", "report_id", "note_id", report["id"], workspace_id, payload.note_ids or [], user.clerk_user_id)
         _link_many(cur, "report_tasks", "report_id", "task_id", report["id"], workspace_id, payload.task_ids or [], user.clerk_user_id)
         return {"data": _report_payload(cur, str(report["id"]))}
@@ -475,6 +477,7 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             """,
             (note_ids,),
         )
+        task_ids = [str(task["id"]) for task in tasks]
         meetings = many(
             cur,
             """
@@ -499,6 +502,35 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             """,
             (note_ids,),
         )
+        report_ids = [str(report["id"]) for report in reports]
+        workflows = many(
+            cur,
+            """
+            SELECT DISTINCT w.id, w.name AS title, w.status, w.updated_at
+            FROM workflows w
+            LEFT JOIN workflow_notes wn ON wn.workflow_id = w.id
+            LEFT JOIN workflow_tasks wt ON wt.workflow_id = w.id
+            WHERE wn.note_id = ANY(%s::uuid[])
+               OR wt.task_id = ANY(%s::uuid[])
+            ORDER BY w.updated_at DESC
+            LIMIT 50
+            """,
+            (note_ids, task_ids),
+        )
+        companies = many(
+            cur,
+            """
+            SELECT DISTINCT c.id, c.name AS title, c.domain, c.updated_at
+            FROM companies c
+            LEFT JOIN company_notes cn ON cn.company_id = c.id
+            LEFT JOIN report_companies rc ON rc.company_id = c.id
+            WHERE cn.note_id = ANY(%s::uuid[])
+               OR rc.report_id = ANY(%s::uuid[])
+            ORDER BY c.name
+            LIMIT 50
+            """,
+            (note_ids, report_ids),
+        )
         edges = many(
             cur,
             """
@@ -516,8 +548,66 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             UNION ALL
             SELECT 'report', report_id::text, 'note', note_id::text, 'sourced_from'
             FROM report_notes WHERE note_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'workflow', workflow_id::text, 'note', note_id::text, 'sourced_from'
+            FROM workflow_notes WHERE note_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'workflow', workflow_id::text, 'task', task_id::text, 'contains'
+            FROM workflow_tasks WHERE task_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'workflow', workflow_id::text, 'person', person_id::text, 'involves'
+            FROM workflow_people WHERE workflow_id IN (
+              SELECT id FROM workflows
+              WHERE id IN (SELECT workflow_id FROM workflow_notes WHERE note_id = ANY(%s::uuid[]))
+                 OR id IN (SELECT workflow_id FROM workflow_tasks WHERE task_id = ANY(%s::uuid[]))
+            )
+            UNION ALL
+            SELECT 'workflow', workflow_id::text, 'project', project_id::text, 'runs_in'
+            FROM workflow_projects WHERE workflow_id IN (
+              SELECT id FROM workflows
+              WHERE id IN (SELECT workflow_id FROM workflow_notes WHERE note_id = ANY(%s::uuid[]))
+                 OR id IN (SELECT workflow_id FROM workflow_tasks WHERE task_id = ANY(%s::uuid[]))
+            )
+            UNION ALL
+            SELECT 'company', company_id::text, 'note', note_id::text, 'sourced_from'
+            FROM company_notes WHERE note_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'company', company_id::text, 'person', person_id::text, 'associated_with'
+            FROM company_people WHERE company_id IN (
+              SELECT id FROM companies
+              WHERE id IN (SELECT company_id FROM company_notes WHERE note_id = ANY(%s::uuid[]))
+                 OR id IN (SELECT company_id FROM report_companies WHERE report_id = ANY(%s::uuid[]))
+            )
+            UNION ALL
+            SELECT 'company', company_id::text, 'project', project_id::text, 'works_on'
+            FROM company_projects WHERE company_id IN (
+              SELECT id FROM companies
+              WHERE id IN (SELECT company_id FROM company_notes WHERE note_id = ANY(%s::uuid[]))
+                 OR id IN (SELECT company_id FROM report_companies WHERE report_id = ANY(%s::uuid[]))
+            )
+            UNION ALL
+            SELECT 'report', report_id::text, 'company', company_id::text, 'covers'
+            FROM report_companies WHERE report_id = ANY(%s::uuid[])
             """,
-            (note_ids, note_ids, note_ids, note_ids, note_ids),
+            (
+                note_ids,
+                note_ids,
+                note_ids,
+                note_ids,
+                note_ids,
+                note_ids,
+                task_ids,
+                note_ids,
+                task_ids,
+                note_ids,
+                task_ids,
+                note_ids,
+                note_ids,
+                report_ids,
+                note_ids,
+                report_ids,
+                report_ids,
+            ),
         )
         nodes = []
         for kind, rows in (
@@ -527,6 +617,8 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             ("task", tasks),
             ("meeting", meetings),
             ("report", reports),
+            ("workflow", workflows),
+            ("company", companies),
         ):
             nodes.extend({**row, "kind": kind} for row in rows)
         return {"data": {"nodes": nodes, "edges": edges}}
@@ -680,6 +772,10 @@ def _validate_task_ids(cur, workspace_id: str, ids: list[str]) -> None:
     _validate_ids(cur, "tasks", workspace_id, ids, "One or more tasks are unavailable")
 
 
+def _validate_company_ids(cur, workspace_id: str, ids: list[str]) -> None:
+    _validate_ids(cur, "companies", workspace_id, ids, "One or more companies are unavailable")
+
+
 def _validate_ids(cur, table: str, workspace_id: str, ids: list[str], detail: str) -> None:
     unique_ids = _dedupe(ids)
     if not unique_ids:
@@ -742,6 +838,7 @@ def _report_payload(cur, report_id: str) -> dict | None:
         return None
     report["projects"] = many(cur, "SELECT p.* FROM projects p JOIN report_projects rp ON rp.project_id = p.id WHERE rp.report_id = %s ORDER BY p.name", (report_id,))
     report["people"] = many(cur, "SELECT p.* FROM people p JOIN report_people rp ON rp.person_id = p.id WHERE rp.report_id = %s ORDER BY p.name", (report_id,))
+    report["companies"] = many(cur, "SELECT c.* FROM companies c JOIN report_companies rc ON rc.company_id = c.id WHERE rc.report_id = %s ORDER BY c.name", (report_id,))
     report["notes"] = many(cur, "SELECT n.* FROM notes n JOIN report_notes rn ON rn.note_id = n.id WHERE rn.report_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (report_id,))
     report["tasks"] = many(cur, "SELECT t.* FROM tasks t JOIN report_tasks rt ON rt.task_id = t.id WHERE rt.report_id = %s ORDER BY t.created_at DESC", (report_id,))
     return report

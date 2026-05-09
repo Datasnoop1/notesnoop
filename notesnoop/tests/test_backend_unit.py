@@ -298,6 +298,18 @@ def test_ai_processing_error_migration_adds_note_failure_context():
     assert "ADD COLUMN IF NOT EXISTS ai_processing_error TEXT" in migration.sql
 
 
+def test_project_scoped_memory_rls_migration_replaces_workspace_wide_access():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0015_project_scoped_memory_rls.sql")
+
+    assert migration.filename == "0015_project_scoped_memory_rls.sql"
+    assert "CREATE OR REPLACE FUNCTION can_access_task" in migration.sql
+    assert "can_access_project(tp.project_id)" in migration.sql
+    assert "DROP POLICY IF EXISTS tasks_workspace_access" in migration.sql
+    assert "CREATE POLICY tasks_project_access" in migration.sql
+    assert "DROP POLICY IF EXISTS companies_workspace_access" in migration.sql
+    assert "CREATE POLICY companies_project_access" in migration.sql
+
+
 def test_project_summary_helper_is_deterministic():
     summary = memory.build_project_summary(
         {"id": "project-1", "name": "Apollo"},
@@ -560,7 +572,7 @@ def test_worker_materializes_ai_memory_idempotently():
     result = worker._materialize_ai_memory(
         cur,
         note,
-        {"tasks": [{"title": "follow up with legal"}, {"title": "follow up with legal"}]},
+        {"tasks": [{"title": "follow up with legal", "due_date": "2026-05-15"}, {"title": "follow up with legal"}]},
         "creator-1",
     )
 
@@ -576,6 +588,7 @@ def test_worker_materializes_ai_memory_idempotently():
     task_inserts = [params for sql, params in cur.executed if "INSERT INTO tasks" in sql]
     assert len(task_inserts) == 1
     assert task_inserts[0][1] == "follow up with legal"
+    assert task_inserts[0][3] == "2026-05-15T12:00:00+00:00"
     assert task_inserts[0][-1] == "action_item"
 
 

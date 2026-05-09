@@ -49,6 +49,81 @@ def review_queue_count(workspace_id: str | None = None, project_id: str | None =
         return {"data": {"workspace_id": resolved_workspace_id, "count": int(row["count"] if row else 0)}}
 
 
+@router.get("/workspaces/{workspace_id}/review-queue")
+def list_review_queue(
+    workspace_id: str,
+    project_id: str | None = None,
+    limit: int = 25,
+    offset: int = 0,
+    user: CurrentUser = Depends(current_user),
+):
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    with transaction(user.clerk_user_id) as cur:
+        _ensure_workspace_access(cur, workspace_id)
+        if project_id:
+            project = one(cur, "SELECT id FROM projects WHERE id = %s AND workspace_id = %s", (project_id, workspace_id))
+            if not project:
+                raise HTTPException(status_code=404, detail="Project not found")
+        rows = many(
+            cur,
+            """
+            SELECT rq.*,
+                   n.title AS source_note_title,
+                   left(n.body, 320) AS source_snippet,
+                   n.note_kind AS source_note_kind,
+                   coalesce(n.occurred_at, n.created_at) AS source_at,
+                   coalesce(
+                     jsonb_agg(
+                       DISTINCT jsonb_build_object('id', p.id, 'name', p.name, 'color_hex', p.color_hex)
+                     ) FILTER (WHERE p.id IS NOT NULL),
+                     '[]'::jsonb
+                   ) AS projects
+            FROM review_queue rq
+            LEFT JOIN notes n ON n.id = rq.entity_id
+            LEFT JOIN note_projects np ON np.note_id = n.id
+            LEFT JOIN projects p ON p.id = np.project_id
+            WHERE rq.workspace_id = %s
+              AND rq.target_user_id = %s
+              AND rq.state = 'open'
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1
+                  FROM note_projects scoped_np
+                  WHERE scoped_np.note_id = rq.entity_id
+                    AND scoped_np.project_id = %s::uuid
+                )
+              )
+            GROUP BY rq.id, n.id
+            ORDER BY rq.created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            (workspace_id, user.clerk_user_id, project_id, project_id, limit, offset),
+        )
+        total = one(
+            cur,
+            """
+            SELECT count(*) AS count
+            FROM review_queue rq
+            WHERE rq.workspace_id = %s
+              AND rq.target_user_id = %s
+              AND rq.state = 'open'
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1
+                  FROM note_projects scoped_np
+                  WHERE scoped_np.note_id = rq.entity_id
+                    AND scoped_np.project_id = %s::uuid
+                )
+              )
+            """,
+            (workspace_id, user.clerk_user_id, project_id, project_id),
+        )
+        return {"data": rows, "meta": {"count": int(total["count"] if total else 0), "limit": limit, "offset": offset}}
+
+
 @router.get("/collaborator-activity/{workspace_id}")
 def collaborator_activity(workspace_id: str, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:

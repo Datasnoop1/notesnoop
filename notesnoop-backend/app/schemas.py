@@ -114,6 +114,7 @@ class ReportCreate(BaseModel):
     period_end: date | None = None
     project_ids: list[str] | None = None
     person_ids: list[str] | None = None
+    company_ids: list[str] | None = None
     note_ids: list[str] | None = None
     task_ids: list[str] | None = None
 

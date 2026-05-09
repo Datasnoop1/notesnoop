@@ -617,6 +617,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
 }
+.task-create-row {
+  grid-template-columns: minmax(0, 1fr) 142px auto;
+}
 .quick-task-row button,
 .task-card-actions button,
 .memory-status-actions button,
@@ -661,20 +664,56 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
-.graph-kind-grid span {
+.graph-kind-grid button {
   border: 1px solid var(--line);
   background: #fffefb;
+  color: var(--muted);
   border-radius: 8px;
   padding: 9px;
   display: grid;
   gap: 2px;
-  color: var(--muted);
   font-size: 12px;
   text-transform: capitalize;
+  text-align: left;
+  cursor: pointer;
+}
+.graph-kind-grid button.active {
+  border-color: var(--teal);
+  background: #edf7f3;
 }
 .graph-kind-grid strong {
   color: var(--ink);
   font-size: 18px;
+}
+.graph-node-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+.graph-node-list button {
+  min-width: 0;
+  border: 1px solid #dfe7dd;
+  background: #fffdf8;
+  color: var(--ink);
+  border-radius: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+}
+.graph-node-list span,
+.graph-node-list small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.graph-node-list small {
+  color: var(--muted);
+  text-transform: capitalize;
 }
 .graph-edge-list {
   display: grid;
@@ -902,8 +941,28 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   display: grid;
   gap: 7px;
 }
-.review-sheet-list article span { color: var(--muted); font-size: 13px; }
+.review-sheet-list article span,
+.review-sheet-list article small {
+  color: var(--muted);
+  font-size: 13px;
+}
+.review-sheet-list article p {
+  margin: 0;
+  color: #33423e;
+  line-height: 1.45;
+}
 .review-sheet-list article div { display: flex; gap: 8px; flex-wrap: wrap; }
+.review-projects span {
+  border: 1px solid var(--line);
+  background: #f7fbf8;
+  border-radius: 999px;
+  min-height: 26px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
 .review-sheet-list article button {
   border: 1px solid var(--line);
   background: #173832;
@@ -1124,6 +1183,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
     grid-column: 1;
   }
   .memory-tabs, .memory-card-grid {
+    grid-template-columns: 1fr;
+  }
+  .quick-task-row,
+  .task-create-row {
     grid-template-columns: 1fr;
   }
   .graph-kind-grid {
