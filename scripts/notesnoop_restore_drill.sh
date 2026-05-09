@@ -96,7 +96,7 @@ done
 docker exec "$CONTAINER_NAME" pg_isready -U "$DB_USER" -d "$DB_NAME" >/dev/null
 
 smoke="$(
-  docker exec -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
+  docker exec -i -e PGPASSWORD="$DB_PASSWORD" "$CONTAINER_NAME" \
     psql -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -At <<'SQL'
 SELECT count(*) FROM schema_migrations;
 SELECT coalesce(to_regclass('public.notes')::text, '');
