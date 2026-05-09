@@ -233,6 +233,7 @@ def test_health_and_readiness(monkeypatch):
     monkeypatch.setattr(main, "get_settings", lambda: settings)
     monkeypatch.setattr(main, "get_conn", lambda: conn)
     monkeypatch.setattr(main, "put_conn", lambda _conn: None)
+    monkeypatch.setattr(main, "_ops_checks", lambda _cur: {})
     monkeypatch.setenv("OLLAMA_API_KEY", "ollama-key")
     monkeypatch.setenv("NOTESNOOP_WEBHOOK_ALLOW_UNSIGNED", "false")
     monkeypatch.setenv("NOTESNOOP_POSTMARK_BASIC_AUTH", "postmark:user")
@@ -327,6 +328,16 @@ def test_memory_returning_visibility_migration_allows_fresh_rows_to_return():
     assert "OR can_access_task(id)" in migration.sql
     assert "OR can_access_report(id)" in migration.sql
     assert "WITH CHECK (is_workspace_member(workspace_id))" in migration.sql
+
+
+def test_ops_heartbeat_migration_adds_worker_and_ai_job_health():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0018_ops_heartbeat.sql")
+
+    assert migration.filename == "0018_ops_heartbeat.sql"
+    assert "CREATE TABLE IF NOT EXISTS ops_heartbeats" in migration.sql
+    assert "CREATE OR REPLACE FUNCTION ops_ai_job_health" in migration.sql
+    assert "stale_running" in migration.sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON ops_heartbeats" in migration.sql
 
 
 def test_project_summary_helper_is_deterministic():

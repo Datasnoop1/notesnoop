@@ -24,6 +24,7 @@ logger = logging.getLogger("notesnoop-worker")
 POLL_INTERVAL_S = float(os.getenv("NOTESNOOP_WORKER_POLL_INTERVAL_S", "2"))
 MAX_JOB_ATTEMPTS = int(os.getenv("NOTESNOOP_WORKER_MAX_ATTEMPTS", "3"))
 RETRY_BACKOFF_SECONDS = int(os.getenv("NOTESNOOP_WORKER_RETRY_BACKOFF_SECONDS", "60"))
+HEARTBEAT_INTERVAL_S = float(os.getenv("NOTESNOOP_WORKER_HEARTBEAT_INTERVAL_S", "30"))
 STOP = asyncio.Event()
 
 
@@ -114,6 +115,30 @@ def _retry_job(job_id: str, error: str, delay_seconds: int) -> None:
     except Exception:
         conn.rollback()
         raise
+    finally:
+        put_conn(conn)
+
+
+def _write_heartbeat(key: str = "notesnoop-worker") -> None:
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL search_path = public")
+            cur.execute(
+                """
+                INSERT INTO ops_heartbeats (key, last_seen_at, metadata)
+                VALUES (%s, now(), jsonb_build_object('pid', pg_backend_pid()))
+                ON CONFLICT (key)
+                DO UPDATE
+                  SET last_seen_at = EXCLUDED.last_seen_at,
+                      metadata = EXCLUDED.metadata
+                """,
+                (key,),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.debug("worker heartbeat failed", exc_info=True)
     finally:
         put_conn(conn)
 
@@ -618,7 +643,12 @@ async def main() -> None:
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
     logger.info("NoteSnoop worker started")
+    last_heartbeat = 0.0
     while not STOP.is_set():
+        loop_time = asyncio.get_running_loop().time()
+        if loop_time - last_heartbeat >= HEARTBEAT_INTERVAL_S:
+            _write_heartbeat()
+            last_heartbeat = loop_time
         job = _claim_job()
         if not job:
             await asyncio.sleep(POLL_INTERVAL_S)
