@@ -979,6 +979,31 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   display: grid;
   gap: 12px;
 }
+.memory-edit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.memory-edit-grid textarea,
+.memory-edit-grid button {
+  grid-column: 1 / -1;
+}
+.memory-edit-grid button {
+  justify-self: start;
+  border: 1px solid #173832;
+  background: #173832;
+  color: white;
+  border-radius: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.memory-edit-grid button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
 .ai-error {
   border: 1px solid #e3b6ad;
   background: #fff5f2;

@@ -36,6 +36,15 @@ class CompanyCreate(BaseModel):
     note_ids: list[str] | None = None
 
 
+class CompanyUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    domain: str | None = Field(default=None, max_length=240)
+    description: str | None = None
+    person_ids: list[str] | None = None
+    project_ids: list[str] | None = None
+    note_ids: list[str] | None = None
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     color_hex: str | None = Field(default=None, max_length=16)
@@ -106,6 +115,16 @@ class MeetingCreate(BaseModel):
     note_ids: list[str] | None = None
 
 
+class MeetingUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=240)
+    occurred_at: datetime | None = None
+    location: str | None = Field(default=None, max_length=240)
+    summary: str | None = None
+    project_ids: list[str] | None = None
+    person_ids: list[str] | None = None
+    note_ids: list[str] | None = None
+
+
 class ReportCreate(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     body: str | None = None
@@ -119,10 +138,33 @@ class ReportCreate(BaseModel):
     task_ids: list[str] | None = None
 
 
+class ReportUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=240)
+    body: str | None = None
+    status: str | None = Field(default=None, pattern="^(draft|published|archived)$")
+    period_start: date | None = None
+    period_end: date | None = None
+    project_ids: list[str] | None = None
+    person_ids: list[str] | None = None
+    company_ids: list[str] | None = None
+    note_ids: list[str] | None = None
+    task_ids: list[str] | None = None
+
+
 class WorkflowCreate(BaseModel):
     name: str = Field(min_length=1, max_length=240)
     description: str | None = None
     status: str = Field(default="active", pattern="^(draft|active|paused|retired)$")
+    project_ids: list[str] | None = None
+    person_ids: list[str] | None = None
+    note_ids: list[str] | None = None
+    task_ids: list[str] | None = None
+
+
+class WorkflowUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=240)
+    description: str | None = None
+    status: str | None = Field(default=None, pattern="^(draft|active|paused|retired)$")
     project_ids: list[str] | None = None
     person_ids: list[str] | None = None
     note_ids: list[str] | None = None

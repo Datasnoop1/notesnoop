@@ -4,7 +4,18 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
-from ..schemas import CompanyCreate, MeetingCreate, ReportCreate, TaskCreate, TaskUpdate, WorkflowCreate
+from ..schemas import (
+    CompanyCreate,
+    CompanyUpdate,
+    MeetingCreate,
+    MeetingUpdate,
+    ReportCreate,
+    ReportUpdate,
+    TaskCreate,
+    TaskUpdate,
+    WorkflowCreate,
+    WorkflowUpdate,
+)
 
 
 router = APIRouter(prefix="/api", tags=["memory"])
@@ -62,6 +73,44 @@ def create_company(workspace_id: str, payload: CompanyCreate, user: CurrentUser 
         _link_many(cur, "company_projects", "company_id", "project_id", company["id"], workspace_id, payload.project_ids or [], user.clerk_user_id)
         _link_many(cur, "company_notes", "company_id", "note_id", company["id"], workspace_id, payload.note_ids or [], user.clerk_user_id)
         return {"data": _company_payload(cur, str(company["id"]))}
+
+
+@router.patch("/companies/{company_id}")
+def update_company(company_id: str, payload: CompanyUpdate, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        company = one(cur, "SELECT * FROM companies WHERE id = %s", (company_id,))
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+        workspace_id = str(company["workspace_id"])
+        if payload.project_ids is not None:
+            _validate_project_ids(cur, workspace_id, payload.project_ids)
+        if payload.person_ids is not None:
+            _validate_person_ids(cur, workspace_id, payload.person_ids)
+        if payload.note_ids is not None:
+            _validate_note_ids(cur, workspace_id, payload.note_ids)
+        cur.execute(
+            """
+            UPDATE companies
+            SET name = %s,
+                domain = %s,
+                description = %s,
+                updated_at = now()
+            WHERE id = %s
+            """,
+            (
+                payload.name.strip() if payload.name is not None else company["name"],
+                payload.domain if "domain" in payload.model_fields_set else company.get("domain"),
+                payload.description if "description" in payload.model_fields_set else company.get("description"),
+                company_id,
+            ),
+        )
+        if payload.person_ids is not None:
+            _replace_links(cur, "company_people", "company_id", "person_id", company_id, workspace_id, payload.person_ids, user.clerk_user_id)
+        if payload.project_ids is not None:
+            _replace_links(cur, "company_projects", "company_id", "project_id", company_id, workspace_id, payload.project_ids, user.clerk_user_id)
+        if payload.note_ids is not None:
+            _replace_links(cur, "company_notes", "company_id", "note_id", company_id, workspace_id, payload.note_ids, user.clerk_user_id)
+        return {"data": _company_payload(cur, company_id)}
 
 
 @router.get("/workspaces/{workspace_id}/tasks")
@@ -270,6 +319,46 @@ def create_meeting(workspace_id: str, payload: MeetingCreate, user: CurrentUser 
         return {"data": _meeting_payload(cur, str(meeting["id"]))}
 
 
+@router.patch("/meetings/{meeting_id}")
+def update_meeting(meeting_id: str, payload: MeetingUpdate, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        meeting = one(cur, "SELECT * FROM meetings WHERE id = %s", (meeting_id,))
+        if not meeting:
+            raise HTTPException(status_code=404, detail="Meeting not found")
+        workspace_id = str(meeting["workspace_id"])
+        if payload.project_ids is not None:
+            _validate_project_ids(cur, workspace_id, payload.project_ids)
+        if payload.person_ids is not None:
+            _validate_person_ids(cur, workspace_id, payload.person_ids)
+        if payload.note_ids is not None:
+            _validate_note_ids(cur, workspace_id, payload.note_ids)
+        cur.execute(
+            """
+            UPDATE meetings
+            SET title = %s,
+                occurred_at = %s,
+                location = %s,
+                summary = %s,
+                updated_at = now()
+            WHERE id = %s
+            """,
+            (
+                payload.title.strip() if payload.title is not None else meeting["title"],
+                payload.occurred_at if "occurred_at" in payload.model_fields_set else meeting.get("occurred_at"),
+                payload.location if "location" in payload.model_fields_set else meeting.get("location"),
+                payload.summary if "summary" in payload.model_fields_set else meeting.get("summary"),
+                meeting_id,
+            ),
+        )
+        if payload.project_ids is not None:
+            _replace_links(cur, "meeting_projects", "meeting_id", "project_id", meeting_id, workspace_id, payload.project_ids, user.clerk_user_id)
+        if payload.person_ids is not None:
+            _replace_links(cur, "meeting_people", "meeting_id", "person_id", meeting_id, workspace_id, payload.person_ids, user.clerk_user_id)
+        if payload.note_ids is not None:
+            _replace_links(cur, "meeting_notes", "meeting_id", "note_id", meeting_id, workspace_id, payload.note_ids, user.clerk_user_id)
+        return {"data": _meeting_payload(cur, meeting_id)}
+
+
 @router.get("/workspaces/{workspace_id}/reports")
 def list_reports(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
@@ -331,6 +420,58 @@ def create_report(workspace_id: str, payload: ReportCreate, user: CurrentUser = 
         _link_many(cur, "report_notes", "report_id", "note_id", report["id"], workspace_id, payload.note_ids or [], user.clerk_user_id)
         _link_many(cur, "report_tasks", "report_id", "task_id", report["id"], workspace_id, payload.task_ids or [], user.clerk_user_id)
         return {"data": _report_payload(cur, str(report["id"]))}
+
+
+@router.patch("/reports/{report_id}")
+def update_report(report_id: str, payload: ReportUpdate, user: CurrentUser = Depends(current_user)):
+    if payload.period_start and payload.period_end and payload.period_start > payload.period_end:
+        raise HTTPException(status_code=422, detail="period_start must be on or before period_end")
+    with transaction(user.clerk_user_id) as cur:
+        report = one(cur, "SELECT * FROM reports WHERE id = %s", (report_id,))
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        workspace_id = str(report["workspace_id"])
+        if payload.project_ids is not None:
+            _validate_project_ids(cur, workspace_id, payload.project_ids)
+        if payload.person_ids is not None:
+            _validate_person_ids(cur, workspace_id, payload.person_ids)
+        if payload.company_ids is not None:
+            _validate_company_ids(cur, workspace_id, payload.company_ids)
+        if payload.note_ids is not None:
+            _validate_note_ids(cur, workspace_id, payload.note_ids)
+        if payload.task_ids is not None:
+            _validate_task_ids(cur, workspace_id, payload.task_ids)
+        cur.execute(
+            """
+            UPDATE reports
+            SET title = %s,
+                body = %s,
+                status = %s,
+                period_start = %s,
+                period_end = %s,
+                updated_at = now()
+            WHERE id = %s
+            """,
+            (
+                payload.title.strip() if payload.title is not None else report["title"],
+                payload.body if "body" in payload.model_fields_set else report.get("body"),
+                payload.status or report["status"],
+                payload.period_start if "period_start" in payload.model_fields_set else report.get("period_start"),
+                payload.period_end if "period_end" in payload.model_fields_set else report.get("period_end"),
+                report_id,
+            ),
+        )
+        if payload.project_ids is not None:
+            _replace_links(cur, "report_projects", "report_id", "project_id", report_id, workspace_id, payload.project_ids, user.clerk_user_id)
+        if payload.person_ids is not None:
+            _replace_links(cur, "report_people", "report_id", "person_id", report_id, workspace_id, payload.person_ids, user.clerk_user_id)
+        if payload.company_ids is not None:
+            _replace_links(cur, "report_companies", "report_id", "company_id", report_id, workspace_id, payload.company_ids, user.clerk_user_id)
+        if payload.note_ids is not None:
+            _replace_links(cur, "report_notes", "report_id", "note_id", report_id, workspace_id, payload.note_ids, user.clerk_user_id)
+        if payload.task_ids is not None:
+            _replace_links(cur, "report_tasks", "report_id", "task_id", report_id, workspace_id, payload.task_ids, user.clerk_user_id)
+        return {"data": _report_payload(cur, report_id)}
 
 
 @router.get("/workspaces/{workspace_id}/workflows")
@@ -414,6 +555,66 @@ def create_workflow(workspace_id: str, payload: WorkflowCreate, user: CurrentUse
             )
             position += 1
         return {"data": _workflow_payload(cur, str(workflow["id"]))}
+
+
+@router.patch("/workflows/{workflow_id}")
+def update_workflow(workflow_id: str, payload: WorkflowUpdate, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        workflow = one(cur, "SELECT * FROM workflows WHERE id = %s", (workflow_id,))
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        workspace_id = str(workflow["workspace_id"])
+        if payload.project_ids is not None:
+            _validate_project_ids(cur, workspace_id, payload.project_ids)
+        if payload.person_ids is not None:
+            _validate_person_ids(cur, workspace_id, payload.person_ids)
+        if payload.note_ids is not None:
+            _validate_note_ids(cur, workspace_id, payload.note_ids)
+        if payload.task_ids is not None:
+            _validate_task_ids(cur, workspace_id, payload.task_ids)
+        cur.execute(
+            """
+            UPDATE workflows
+            SET name = %s,
+                description = %s,
+                status = %s,
+                updated_at = now()
+            WHERE id = %s
+            """,
+            (
+                payload.name.strip() if payload.name is not None else workflow["name"],
+                payload.description if "description" in payload.model_fields_set else workflow.get("description"),
+                payload.status or workflow["status"],
+                workflow_id,
+            ),
+        )
+        if payload.project_ids is not None:
+            _replace_links(cur, "workflow_projects", "workflow_id", "project_id", workflow_id, workspace_id, payload.project_ids, user.clerk_user_id)
+        if payload.person_ids is not None:
+            cur.execute("DELETE FROM workflow_people WHERE workflow_id = %s", (workflow_id,))
+            for person_id in _dedupe(payload.person_ids):
+                cur.execute(
+                    """
+                    INSERT INTO workflow_people (workflow_id, person_id, workspace_id, relation, linked_by)
+                    VALUES (%s, %s, %s, 'participant', %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (workflow_id, person_id, workspace_id, user.clerk_user_id),
+                )
+        if payload.note_ids is not None:
+            _replace_links(cur, "workflow_notes", "workflow_id", "note_id", workflow_id, workspace_id, payload.note_ids, user.clerk_user_id)
+        if payload.task_ids is not None:
+            cur.execute("DELETE FROM workflow_tasks WHERE workflow_id = %s", (workflow_id,))
+            for position, task_id in enumerate(_dedupe(payload.task_ids)):
+                cur.execute(
+                    """
+                    INSERT INTO workflow_tasks (workflow_id, task_id, workspace_id, position, linked_by)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (workflow_id, task_id, workspace_id, position, user.clerk_user_id),
+                )
+        return {"data": _workflow_payload(cur, workflow_id)}
 
 
 @router.get("/workspaces/{workspace_id}/memory-graph")

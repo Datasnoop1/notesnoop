@@ -547,6 +547,25 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setToast(status === "done" ? "Task completed." : `Task moved to ${status}.`);
   }
 
+  async function updateMemoryItem(sectionId: string, itemId: string, payload: Record<string, unknown>) {
+    const endpointBySection: Record<string, string> = {
+      tasks: `/api/tasks/${itemId}`,
+      meetings: `/api/meetings/${itemId}`,
+      reports: `/api/reports/${itemId}`,
+      workflows: `/api/workflows/${itemId}`,
+      companies: `/api/companies/${itemId}`,
+    };
+    const endpoint = endpointBySection[sectionId];
+    if (!endpoint) return;
+    const res = await api(endpoint, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    setSelectedMemory({ sectionId, item: res.data });
+    await refreshWorkspaceData();
+    setToast("Memory updated.");
+  }
+
   async function openMemoryItem(sectionId: string, item: any) {
     if (!workspaceId) return;
     if (sectionId === "intel") {
@@ -1521,6 +1540,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         memory={selectedMemory}
         onClose={() => setSelectedMemory(null)}
         onTaskStatusChange={updateTaskStatus}
+        onUpdateMemory={updateMemoryItem}
         onOpenNote={openNote}
         onOpenProject={(projectId) => {
           const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
@@ -1709,23 +1729,63 @@ function MemoryDetailSheet({
   memory,
   onClose,
   onTaskStatusChange,
+  onUpdateMemory,
   onOpenNote,
   onOpenProject,
 }: {
   memory: { sectionId: string; item: any } | null;
   onClose: () => void;
   onTaskStatusChange: (taskId: string, status: "todo" | "doing" | "blocked" | "done") => Promise<void>;
+  onUpdateMemory: (sectionId: string, itemId: string, payload: Record<string, unknown>) => Promise<void>;
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenProject: (projectId: string) => void;
 }) {
-  if (!memory) return null;
-  const { sectionId, item } = memory;
+  const sectionId = memory?.sectionId || "";
+  const item = memory?.item || {};
   const title = item.title || item.name || "Memory";
   const body = item.description || item.summary || item.body || item.subtitle || "";
+  const [draftTitle, setDraftTitle] = useState(title);
+  const [draftBody, setDraftBody] = useState(body);
+  const [draftStatus, setDraftStatus] = useState(item.status || "");
+  const [draftDate, setDraftDate] = useState(inputDate(item.due_at || item.occurred_at || null));
+  useEffect(() => {
+    setDraftTitle(title);
+    setDraftBody(body);
+    setDraftStatus(item.status || "");
+    setDraftDate(inputDate(item.due_at || item.occurred_at || null));
+  }, [body, item.due_at, item.id, item.occurred_at, item.status, title]);
+  if (!memory) return null;
   const projects = item.projects || [];
   const people = item.people || [];
   const notes = item.notes || [];
   const isTask = sectionId === "tasks";
+  const sourceNoteFallback = Boolean(item.note_id && item.id === item.note_id && ["meetings", "reports"].includes(sectionId));
+  const canEdit = ["tasks", "meetings", "reports", "workflows", "companies"].includes(sectionId) && !sourceNoteFallback;
+  async function saveEdits() {
+    if (!canEdit || !item.id || !draftTitle.trim()) return;
+    const payload: Record<string, unknown> = {};
+    if (sectionId === "workflows") payload.name = draftTitle.trim();
+    else payload.title = draftTitle.trim();
+    if (sectionId === "companies") payload.description = draftBody || null;
+    if (sectionId === "tasks") {
+      payload.description = draftBody || null;
+      payload.due_at = eventDate(draftDate);
+      if (draftStatus) payload.status = draftStatus;
+    }
+    if (sectionId === "meetings") {
+      payload.summary = draftBody || null;
+      payload.occurred_at = eventDate(draftDate);
+    }
+    if (sectionId === "reports") {
+      payload.body = draftBody || null;
+      if (draftStatus) payload.status = draftStatus;
+    }
+    if (sectionId === "workflows") {
+      payload.description = draftBody || null;
+      if (draftStatus) payload.status = draftStatus;
+    }
+    await onUpdateMemory(sectionId, item.id, payload);
+  }
   const kindLabel: Record<string, string> = {
     tasks: "Task",
     meetings: "Meeting/call",
@@ -1748,7 +1808,26 @@ function MemoryDetailSheet({
           {item.status && <span>{item.status}</span>}
           {(item.due_at || item.occurred_at || item.created_at) && <span>{new Date(item.due_at || item.occurred_at || item.created_at).toLocaleDateString()}</span>}
         </div>
-        {body && <p>{body}</p>}
+        {canEdit && (
+          <div className="memory-edit-grid">
+            <input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} aria-label="Memory title" />
+            {(isTask || sectionId === "meetings") && (
+              <input type="date" value={draftDate} onChange={(event) => setDraftDate(event.target.value)} aria-label="Memory date" />
+            )}
+            {(isTask || sectionId === "reports" || sectionId === "workflows") && (
+              <select value={draftStatus} onChange={(event) => setDraftStatus(event.target.value)} aria-label="Memory status">
+                {isTask && ["todo", "doing", "blocked", "done", "archived"].map((status) => <option key={status} value={status}>{status}</option>)}
+                {sectionId === "reports" && ["draft", "published", "archived"].map((status) => <option key={status} value={status}>{status}</option>)}
+                {sectionId === "workflows" && ["draft", "active", "paused", "retired"].map((status) => <option key={status} value={status}>{status}</option>)}
+              </select>
+            )}
+            <textarea value={draftBody} onChange={(event) => setDraftBody(event.target.value)} rows={4} aria-label="Memory body" />
+            <button type="button" onClick={saveEdits} disabled={!draftTitle.trim()}>
+              <Check size={15} /> Save memory
+            </button>
+          </div>
+        )}
+        {!canEdit && body && <p>{body}</p>}
         {isTask && (
           <div className="memory-status-actions">
             <button disabled={item.status === "todo"} onClick={() => onTaskStatusChange(item.id, "todo")}>Todo</button>
