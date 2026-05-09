@@ -19,17 +19,32 @@ router = APIRouter(prefix="/api", tags=["realtime"])
 
 
 @router.get("/review-queue/count")
-def review_queue_count(workspace_id: str | None = None, user: CurrentUser = Depends(current_user)):
+def review_queue_count(workspace_id: str | None = None, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
         resolved_workspace_id = _resolve_workspace_id(cur, user.clerk_user_id, workspace_id)
+        if project_id:
+            project = one(cur, "SELECT id FROM projects WHERE id = %s AND workspace_id = %s", (project_id, resolved_workspace_id))
+            if not project:
+                raise HTTPException(status_code=404, detail="Project not found")
         row = one(
             cur,
             """
             SELECT count(*) AS count
-            FROM review_queue
-            WHERE workspace_id = %s AND state = 'open'
+            FROM review_queue rq
+            WHERE rq.workspace_id = %s
+              AND rq.target_user_id = %s
+              AND rq.state = 'open'
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1
+                  FROM note_projects np
+                  WHERE np.note_id = rq.entity_id
+                    AND np.project_id = %s::uuid
+                )
+              )
             """,
-            (resolved_workspace_id,),
+            (resolved_workspace_id, user.clerk_user_id, project_id, project_id),
         )
         return {"data": {"workspace_id": resolved_workspace_id, "count": int(row["count"] if row else 0)}}
 

@@ -27,6 +27,15 @@ class PersonCreate(BaseModel):
     details: str | None = None
 
 
+class CompanyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    domain: str | None = Field(default=None, max_length=240)
+    description: str | None = None
+    person_ids: list[str] | None = None
+    project_ids: list[str] | None = None
+    note_ids: list[str] | None = None
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     color_hex: str | None = Field(default=None, max_length=16)
@@ -103,6 +112,16 @@ class ReportCreate(BaseModel):
     status: str = Field(default="draft", pattern="^(draft|published|archived)$")
     period_start: date | None = None
     period_end: date | None = None
+    project_ids: list[str] | None = None
+    person_ids: list[str] | None = None
+    note_ids: list[str] | None = None
+    task_ids: list[str] | None = None
+
+
+class WorkflowCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=240)
+    description: str | None = None
+    status: str = Field(default="active", pattern="^(draft|active|paused|retired)$")
     project_ids: list[str] | None = None
     person_ids: list[str] | None = None
     note_ids: list[str] | None = None

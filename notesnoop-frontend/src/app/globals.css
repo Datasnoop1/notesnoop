@@ -526,7 +526,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 }
 .memory-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 .memory-tabs button {
@@ -577,13 +577,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   gap: 8px;
   text-align: left;
 }
-.memory-card:not(:disabled):hover {
+.memory-card[role="button"]:hover {
   border-color: #bdd7d0;
   background: #f7fbf8;
 }
-.memory-card:disabled {
-  cursor: default;
-}
+.memory-card[role="button"] { cursor: pointer; }
 .memory-card-meta {
   display: flex;
   align-items: center;
@@ -610,6 +608,47 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+}
+.quick-task-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.quick-task-row button,
+.task-card-actions button,
+.memory-status-actions button,
+.mini-section button {
+  border: 1px solid var(--line);
+  background: #fffdf8;
+  color: var(--ink);
+  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+}
+.quick-task-row button {
+  background: #173832;
+  color: white;
+}
+.quick-task-row button:disabled,
+.memory-status-actions button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.task-card-actions,
+.memory-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.task-card-actions button {
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 .memory-empty {
   min-height: 132px;
@@ -839,6 +878,25 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   gap: 6px;
 }
 .linked-sheet p { white-space: pre-wrap; line-height: 1.55; color: #293d38; }
+.memory-detail-sheet {
+  display: grid;
+  gap: 12px;
+}
+.ai-error {
+  border: 1px solid #e3b6ad;
+  background: #fff5f2;
+  color: #7b2e24;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.danger-chip {
+  border-color: #e3b6ad;
+  background: #fff5f2;
+  color: #7b2e24;
+}
 .email-meta {
   border: 1px solid var(--line);
   background: #f7fbf8;

@@ -156,6 +156,9 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/briefs/")) return json({ data: { markdown: "Brief markdown" } });
     if (url.includes("/api/flags")) return json({ data: { flagged: true } });
     if (url.includes("/api/notes/note-1/process-with-ai")) return json({ data: { queued: true } });
+    if (url.includes("/api/tasks/") && init?.method === "PATCH") {
+      return json({ data: { ...taskNote, status: JSON.parse(String(init.body)).status } });
+    }
     if (url.includes("/api/email-blocks")) return json({ data: { deleted_note_id: "note-1" } });
     if (url.includes("/api/notes/note-1/people")) return json({ data: note });
     if (url.includes("/api/notes/note-1/projects")) return json({ data: note });
@@ -195,6 +198,8 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Memory system" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("tab", { name: /Open tasks1/i })).toHaveAttribute("aria-selected", "true");
     expect(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByRole("button", { name: /Mark task done/i }));
+    await waitFor(() => expect(calls.some((call) => call.includes("PATCH /api/tasks/note-task-1"))).toBe(true));
     fireEvent.click(within(dashboard).getByRole("tab", { name: /Meetings\/calls1/i }));
     expect(within(screen.getByRole("tabpanel", { name: "Meetings/calls" })).getByText("Morgan kickoff call")).toBeInTheDocument();
     fireEvent.click(within(dashboard).getByRole("tab", { name: /Reports\/briefs1/i }));

@@ -53,7 +53,71 @@ def person_timeline(person_id: str, user: CurrentUser = Depends(current_user)):
             """,
             (person_id,),
         )
-        return {"data": {"person": person, "notes": notes, "projects": projects}}
+        tasks = many(
+            cur,
+            """
+            SELECT t.*,
+                   min(p.name) AS project_name
+            FROM tasks t
+            JOIN task_people tp ON tp.task_id = t.id
+            LEFT JOIN task_projects tpr ON tpr.task_id = t.id
+            LEFT JOIN projects p ON p.id = tpr.project_id
+            WHERE tp.person_id = %s
+              AND t.status <> 'archived'
+            GROUP BY t.id
+            ORDER BY
+              CASE t.status WHEN 'blocked' THEN 1 WHEN 'doing' THEN 2 WHEN 'todo' THEN 3 WHEN 'done' THEN 4 ELSE 5 END,
+              t.due_at NULLS LAST,
+              t.created_at DESC
+            LIMIT 10
+            """,
+            (person_id,),
+        )
+        meetings = many(
+            cur,
+            """
+            SELECT m.*,
+                   min(p.name) AS project_name
+            FROM meetings m
+            JOIN meeting_people mp ON mp.meeting_id = m.id
+            LEFT JOIN meeting_projects mpr ON mpr.meeting_id = m.id
+            LEFT JOIN projects p ON p.id = mpr.project_id
+            WHERE mp.person_id = %s
+            GROUP BY m.id
+            ORDER BY coalesce(m.occurred_at, m.created_at) DESC
+            LIMIT 10
+            """,
+            (person_id,),
+        )
+        reports = many(
+            cur,
+            """
+            SELECT r.*,
+                   min(p.name) AS project_name
+            FROM reports r
+            JOIN report_people rp ON rp.report_id = r.id
+            LEFT JOIN report_projects rpr ON rpr.report_id = r.id
+            LEFT JOIN projects p ON p.id = rpr.project_id
+            WHERE rp.person_id = %s
+            GROUP BY r.id
+            ORDER BY r.created_at DESC
+            LIMIT 10
+            """,
+            (person_id,),
+        )
+        companies = many(
+            cur,
+            """
+            SELECT c.*, cp.role
+            FROM companies c
+            JOIN company_people cp ON cp.company_id = c.id
+            WHERE cp.person_id = %s
+            ORDER BY c.name
+            LIMIT 10
+            """,
+            (person_id,),
+        )
+        return {"data": {"person": person, "notes": notes, "projects": projects, "tasks": tasks, "meetings": meetings, "reports": reports, "companies": companies}}
 
 
 @router.get("/projects/{project_id}/timeline")
@@ -117,7 +181,91 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
             """,
             (project_id,),
         )
-        return {"data": {"project": project, "notes": notes, "people": people, "members": members, "invites": invites}}
+        tasks = many(
+            cur,
+            """
+            SELECT t.*,
+                   min(pe.name) AS assignee_name
+            FROM tasks t
+            JOIN task_projects tp ON tp.task_id = t.id
+            LEFT JOIN task_people tpe ON tpe.task_id = t.id AND tpe.relation = 'assignee'
+            LEFT JOIN people pe ON pe.id = tpe.person_id
+            WHERE tp.project_id = %s
+              AND t.status <> 'archived'
+            GROUP BY t.id
+            ORDER BY
+              CASE t.status WHEN 'blocked' THEN 1 WHEN 'doing' THEN 2 WHEN 'todo' THEN 3 WHEN 'done' THEN 4 ELSE 5 END,
+              t.due_at NULLS LAST,
+              t.created_at DESC
+            LIMIT 15
+            """,
+            (project_id,),
+        )
+        meetings = many(
+            cur,
+            """
+            SELECT m.*
+            FROM meetings m
+            JOIN meeting_projects mp ON mp.meeting_id = m.id
+            WHERE mp.project_id = %s
+            ORDER BY coalesce(m.occurred_at, m.created_at) DESC
+            LIMIT 10
+            """,
+            (project_id,),
+        )
+        reports = many(
+            cur,
+            """
+            SELECT r.*
+            FROM reports r
+            JOIN report_projects rp ON rp.report_id = r.id
+            WHERE rp.project_id = %s
+            ORDER BY r.created_at DESC
+            LIMIT 10
+            """,
+            (project_id,),
+        )
+        workflows = many(
+            cur,
+            """
+            SELECT w.*,
+                   count(DISTINCT wt.task_id) AS task_count
+            FROM workflows w
+            JOIN workflow_projects wp ON wp.workflow_id = w.id
+            LEFT JOIN workflow_tasks wt ON wt.workflow_id = w.id
+            WHERE wp.project_id = %s
+            GROUP BY w.id
+            ORDER BY w.updated_at DESC
+            LIMIT 10
+            """,
+            (project_id,),
+        )
+        companies = many(
+            cur,
+            """
+            SELECT c.*
+            FROM companies c
+            JOIN company_projects cp ON cp.company_id = c.id
+            WHERE cp.project_id = %s
+            ORDER BY c.name
+            LIMIT 10
+            """,
+            (project_id,),
+        )
+        return {
+            "data": {
+                "project": project,
+                "notes": notes,
+                "people": people,
+                "members": members,
+                "invites": invites,
+                "tasks": tasks,
+                "meetings": meetings,
+                "reports": reports,
+                "workflows": workflows,
+                "companies": companies,
+            }
+        }
 
 
 @router.get("/briefs/{kind}/{entity_id}")

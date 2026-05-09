@@ -5,8 +5,10 @@
 import {
   Archive,
   Bell,
+  Building2,
   CalendarDays,
   Check,
+  CheckCircle2,
   ClipboardList,
   Copy,
   FileText,
@@ -19,6 +21,7 @@ import {
   Send,
   Settings,
   Sparkles,
+  Workflow,
   UserRound,
   Users,
   X,
@@ -49,6 +52,8 @@ type HomeState = {
   reports_briefs?: any[];
   reports?: any[];
   briefs?: any[];
+  workflows?: any[];
+  companies?: any[];
   project_intelligence?: any[];
 };
 
@@ -121,6 +126,8 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
   const [activeMemoryTab, setActiveMemoryTab] = useState("tasks");
+  const [selectedMemory, setSelectedMemory] = useState<{ sectionId: string; item: any } | null>(null);
+  const [quickTaskTitle, setQuickTaskTitle] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const searchDebounceRef = useRef<number | null>(null);
@@ -195,8 +202,9 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
 
   const refreshWorkspaceData = useCallback(async () => {
     if (!workspaceId) return;
+    const projectQuery = activeProject ? `?project_id=${activeProject}` : "";
     const [homeRes, notesRes, peopleRes, projectsRes] = await Promise.all([
-      api(`/api/workspaces/${workspaceId}/home`),
+      api(`/api/workspaces/${workspaceId}/home${projectQuery}`),
       api(`/api/workspaces/${workspaceId}/notes${activeProject ? `?project_id=${activeProject}` : ""}`),
       api(`/api/workspaces/${workspaceId}/people`),
       api(`/api/workspaces/${workspaceId}/projects`),
@@ -208,13 +216,14 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
 
   const refreshSignals = useCallback(async () => {
     if (!workspaceId) return;
+    const projectQuery = activeProject ? `&project_id=${activeProject}` : "";
     const [countRes, activityRes] = await Promise.all([
-      api(`/api/review-queue/count?workspace_id=${workspaceId}`),
+      api(`/api/review-queue/count?workspace_id=${workspaceId}${projectQuery}`),
       api(`/api/collaborator-activity/${workspaceId}`),
     ]);
     setReviewCount(countRes.data.count || 0);
     setActivity(activityRes.data || []);
-  }, [api, workspaceId]);
+  }, [activeProject, api, workspaceId]);
 
   useEffect(() => {
     if (isSignedIn || DEV_AUTH) refresh().catch((err) => setToast(err.message));
@@ -395,6 +404,69 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     await refreshWorkspaceData();
   }
 
+  async function createQuickTask() {
+    if (!workspaceId || !quickTaskTitle.trim()) return;
+    setBusy(true);
+    try {
+      const projectIds = activeProject ? [activeProject] : selectedProjectIds.length ? selectedProjectIds : undefined;
+      await api(`/api/workspaces/${workspaceId}/tasks`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: quickTaskTitle,
+          status: "todo",
+          project_ids: projectIds,
+        }),
+      });
+      setQuickTaskTitle("");
+      setToast("Task added.");
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not add task");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateTaskStatus(taskId: string, status: "todo" | "doing" | "blocked" | "done") {
+    const res = await api(`/api/tasks/${taskId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    });
+    setSelectedMemory((current) => current?.item?.id === taskId ? { ...current, item: res.data } : current);
+    await refreshWorkspaceData();
+    setToast(status === "done" ? "Task completed." : `Task moved to ${status}.`);
+  }
+
+  async function openMemoryItem(sectionId: string, item: any) {
+    if (!workspaceId) return;
+    if (sectionId === "intel") {
+      const projectId = item.project_id || item.id;
+      const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
+      if (project) await openProject(project);
+      return;
+    }
+    const query = activeProject ? `?project_id=${activeProject}` : "";
+    const endpointBySection: Record<string, string> = {
+      tasks: `/api/workspaces/${workspaceId}/tasks${query}`,
+      meetings: `/api/workspaces/${workspaceId}/meetings${query}`,
+      reports: `/api/workspaces/${workspaceId}/reports${query}`,
+      workflows: `/api/workspaces/${workspaceId}/workflows${query}`,
+      companies: `/api/workspaces/${workspaceId}/companies`,
+    };
+    try {
+      const endpoint = endpointBySection[sectionId];
+      if (!endpoint) {
+        if (item.note_id || item.source_note_id) await openNote(item.note_id || item.source_note_id);
+        return;
+      }
+      const res = await api(endpoint);
+      const detail = (res.data || []).find((candidate: any) => candidate.id === item.id) || item;
+      setSelectedMemory({ sectionId, item: detail });
+    } catch {
+      setSelectedMemory({ sectionId, item });
+    }
+  }
+
   async function toggleEmailAI() {
     if (!workspaceId || !state?.workspace) return;
     const nextMode = state.workspace.email_ai_mode === "auto" ? "manual" : "auto";
@@ -469,6 +541,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setPersonTimeline(null);
     setProjectTimeline(null);
     setSelectedNote(null);
+    setSelectedMemory(null);
     setSheetOpen(false);
     setHome(null);
     setNotes([]);
@@ -485,6 +558,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setActiveProject(project.id);
     setSelectedProjectIds([]);
     setPersonTimeline(null);
+    setSelectedMemory(null);
     const res = await api(`/api/projects/${project.id}/timeline`);
     setProjectTimeline(res.data);
   }, [api]);
@@ -599,6 +673,8 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         ? [...(home?.reports || []), ...(home?.briefs || [])]
         : dashboardNotes.filter((note) => note.note_kind === "report")
   );
+  const workflows = home?.workflows || [];
+  const companies = home?.companies || [];
   const projectIntelligence = home?.project_intelligence?.length
     ? home.project_intelligence
     : dashboardProjects.map((project) => ({
@@ -627,6 +703,20 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
       icon: FileText,
       items: reportsBriefs,
       empty: "No reports or briefs yet. Report memories will collect here.",
+    },
+    {
+      id: "workflows",
+      title: "Workflows",
+      icon: Workflow,
+      items: workflows,
+      empty: "No workflows yet. Group recurring loops across notes, people, and tasks.",
+    },
+    {
+      id: "companies",
+      title: "Companies",
+      icon: Building2,
+      items: companies,
+      empty: "Companies will appear once contacts and projects start linking to organizations.",
     },
     {
       id: "intel",
@@ -694,7 +784,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
             <X size={18} />
           </button>
         </div>
-        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={() => { setActiveProject(null); setSelectedProjectIds([]); setPersonTimeline(null); setProjectTimeline(null); }}>
+        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={() => { setActiveProject(null); setSelectedProjectIds([]); setPersonTimeline(null); setProjectTimeline(null); setSelectedMemory(null); }}>
           <Archive size={17} /> Home
         </button>
         {inbox && (
@@ -874,6 +964,19 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                     );
                   })}
                 </div>
+                {activeMemorySection.id === "tasks" && (
+                  <div className="quick-task-row">
+                    <input
+                      value={quickTaskTitle}
+                      onChange={(event) => setQuickTaskTitle(event.target.value)}
+                      placeholder={activeProjectRecord ? `Task for ${activeProjectRecord.name}` : "Add an open loop"}
+                      aria-label="New task"
+                    />
+                    <button type="button" onClick={createQuickTask} disabled={busy || !quickTaskTitle.trim()}>
+                      <Plus size={16} /> Add task
+                    </button>
+                  </div>
+                )}
                 <div className="memory-card-grid" role="tabpanel" aria-label={activeMemorySection.title}>
                   {activeMemorySection.items.length ? (
                     activeMemorySection.items.slice(0, 4).map((item) => (
@@ -886,6 +989,8 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                           const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
                           if (project) openProject(project);
                         }}
+                        onOpenMemory={openMemoryItem}
+                        onTaskStatusChange={updateTaskStatus}
                       />
                     ))
                   ) : (
@@ -1144,6 +1249,17 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         onDecide={decideReview}
       />
 
+      <MemoryDetailSheet
+        memory={selectedMemory}
+        onClose={() => setSelectedMemory(null)}
+        onTaskStatusChange={updateTaskStatus}
+        onOpenNote={openNote}
+        onOpenProject={(projectId) => {
+          const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
+          if (project) openProject(project);
+        }}
+      />
+
       <LinkedSheet
         open={sheetOpen}
         note={selectedNote}
@@ -1193,30 +1309,49 @@ function MemoryCard({
   sectionId,
   onOpenNote,
   onOpenProject,
+  onOpenMemory,
+  onTaskStatusChange,
 }: {
   item: any;
   sectionId: string;
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenProject: (projectId: string) => void;
+  onOpenMemory: (sectionId: string, item: any) => Promise<void>;
+  onTaskStatusChange: (taskId: string, status: "todo" | "doing" | "blocked" | "done") => Promise<void>;
 }) {
   const title = item.title || item.label || item.name || item.project_name || "Untitled memory";
-  const subtitle = item.subtitle || item.summary || item.body || item.status || item.next_step || "Awaiting more context";
-  const owner = item.owner_name || item.assignee_name || item.person_name || item.company || item.kind || NOTE_KIND_LABELS[item.note_kind || ""] || "Memory";
+  const subtitle = item.subtitle || item.summary || item.description || item.body || item.status || item.next_step || "Awaiting more context";
+  const people = item.people || [];
+  const owner = item.owner_name || item.assignee_name || people[0]?.name || item.person_name || item.company || item.kind || NOTE_KIND_LABELS[item.note_kind || ""] || "Memory";
   const date = item.due_at || item.due_date || item.occurred_at || item.created_at || item.updated_at;
   const noteId = item.note_id || (sectionId !== "intel" ? item.id : null);
   const projectId = item.project_id || (sectionId === "intel" ? item.id : null);
-  const canOpen = Boolean(noteId || projectId);
+  const isTask = sectionId === "tasks";
+  const canOpen = Boolean(isTask || noteId || projectId || ["meetings", "reports", "workflows", "companies"].includes(sectionId));
+  async function open() {
+    if (["tasks", "meetings", "reports", "workflows", "companies"].includes(sectionId)) {
+      await onOpenMemory(sectionId, item);
+      return;
+    }
+    if (noteId) {
+      await onOpenNote(noteId);
+      return;
+    }
+    if (projectId) onOpenProject(projectId);
+  }
   return (
-    <button
-      type="button"
+    <article
       className="memory-card"
-      disabled={!canOpen}
+      role={canOpen ? "button" : undefined}
+      tabIndex={canOpen ? 0 : -1}
       onClick={() => {
-        if (noteId) {
-          onOpenNote(noteId);
-          return;
+        if (canOpen) open();
+      }}
+      onKeyDown={(event) => {
+        if (canOpen && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          open();
         }
-        if (projectId) onOpenProject(projectId);
       }}
     >
       <span className="memory-card-meta">
@@ -1225,7 +1360,22 @@ function MemoryCard({
       </span>
       <span className="memory-card-title">{title}</span>
       <span className="memory-card-body">{subtitle}</span>
-    </button>
+      {isTask && (
+        <span className="task-card-actions" onClick={(event) => event.stopPropagation()}>
+          {item.status !== "doing" && item.status !== "done" && (
+            <button type="button" onClick={() => onTaskStatusChange(item.id, "doing")}>Doing</button>
+          )}
+          {item.status !== "blocked" && item.status !== "done" && (
+            <button type="button" onClick={() => onTaskStatusChange(item.id, "blocked")}>Block</button>
+          )}
+          {item.status !== "done" ? (
+            <button type="button" aria-label="Mark task done" onClick={() => onTaskStatusChange(item.id, "done")}><CheckCircle2 size={14} /> Done</button>
+          ) : (
+            <button type="button" onClick={() => onTaskStatusChange(item.id, "todo")}>Reopen</button>
+          )}
+        </span>
+      )}
+    </article>
   );
 }
 
@@ -1266,6 +1416,102 @@ function ReviewSheet({
           ))}
           {!items.length && <p className="muted">Caught up.</p>}
         </div>
+      </aside>
+    </div>
+  );
+}
+
+function MemoryDetailSheet({
+  memory,
+  onClose,
+  onTaskStatusChange,
+  onOpenNote,
+  onOpenProject,
+}: {
+  memory: { sectionId: string; item: any } | null;
+  onClose: () => void;
+  onTaskStatusChange: (taskId: string, status: "todo" | "doing" | "blocked" | "done") => Promise<void>;
+  onOpenNote: (noteId: string) => Promise<void>;
+  onOpenProject: (projectId: string) => void;
+}) {
+  if (!memory) return null;
+  const { sectionId, item } = memory;
+  const title = item.title || item.name || "Memory";
+  const body = item.description || item.summary || item.body || item.subtitle || "";
+  const projects = item.projects || [];
+  const people = item.people || [];
+  const notes = item.notes || [];
+  const isTask = sectionId === "tasks";
+  const kindLabel: Record<string, string> = {
+    tasks: "Task",
+    meetings: "Meeting/call",
+    reports: "Report/brief",
+    workflows: "Workflow",
+    companies: "Company",
+  };
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <aside className="linked-sheet memory-detail-sheet" onClick={(event) => event.stopPropagation()}>
+        <div className="sheet-handle" />
+        <div className="section-head">
+          <h2>{title}</h2>
+          <button className="icon-btn" onClick={onClose} aria-label="Close memory">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="note-meta-row">
+          <span>{kindLabel[sectionId] || "Memory"}</span>
+          {item.status && <span>{item.status}</span>}
+          {(item.due_at || item.occurred_at || item.created_at) && <span>{new Date(item.due_at || item.occurred_at || item.created_at).toLocaleDateString()}</span>}
+        </div>
+        {body && <p>{body}</p>}
+        {isTask && (
+          <div className="memory-status-actions">
+            <button disabled={item.status === "todo"} onClick={() => onTaskStatusChange(item.id, "todo")}>Todo</button>
+            <button disabled={item.status === "doing"} onClick={() => onTaskStatusChange(item.id, "doing")}>Doing</button>
+            <button disabled={item.status === "blocked"} onClick={() => onTaskStatusChange(item.id, "blocked")}>Blocked</button>
+            <button disabled={item.status === "done"} onClick={() => onTaskStatusChange(item.id, "done")}><CheckCircle2 size={15} /> Done</button>
+          </div>
+        )}
+        {!!projects.length && (
+          <div className="mini-section">
+            <strong>Projects</strong>
+            {projects.map((project: any) => (
+              <button key={project.id} type="button" onClick={() => onOpenProject(project.id)}>
+                <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                {project.name}
+              </button>
+            ))}
+          </div>
+        )}
+        {!!people.length && (
+          <div className="mini-section">
+            <strong>People</strong>
+            {people.map((person: any) => (
+              <span key={`${person.id}-${person.relation || person.attendance_status || "person"}`}>
+                {[person.name, person.role || person.relation || person.attendance_status, person.company].filter(Boolean).join(" - ")}
+              </span>
+            ))}
+          </div>
+        )}
+        {!!notes.length && (
+          <div className="timeline-list">
+            {notes.slice(0, 5).map((note: any) => (
+              <article key={note.id} onClick={() => onOpenNote(note.id)}>
+                <strong>{note.title}</strong>
+                <span>{NOTE_KIND_LABELS[note.note_kind || "note"] || "Note"} - {new Date(note.occurred_at || note.created_at).toLocaleDateString()}</span>
+                <p>{note.body}</p>
+              </article>
+            ))}
+          </div>
+        )}
+        {(item.source_note_id || item.note_id) && !notes.length && (
+          <div className="sheet-actions">
+            <button onClick={() => onOpenNote(item.source_note_id || item.note_id)}>
+              <FileText size={16} /> Source note
+            </button>
+          </div>
+        )}
       </aside>
     </div>
   );
@@ -1334,6 +1580,46 @@ function TimelinePanel({
           <strong>{timeline.members?.length || 0} members</strong>
           {(timeline.people || []).slice(0, 5).map((person: any) => (
             <span key={person.id}>{person.name} - {person.mention_count} mentions</span>
+          ))}
+        </div>
+      )}
+      {!!timeline.companies?.length && (
+        <div className="mini-section">
+          <strong>Companies</strong>
+          {timeline.companies.slice(0, 5).map((company: any) => (
+            <span key={company.id}>{company.name}{company.role ? ` - ${company.role}` : ""}</span>
+          ))}
+        </div>
+      )}
+      {!!timeline.tasks?.length && (
+        <div className="mini-section">
+          <strong>Tasks</strong>
+          {timeline.tasks.slice(0, 6).map((task: any) => (
+            <span key={task.id}>{task.status} - {task.title}{task.assignee_name ? ` - ${task.assignee_name}` : ""}</span>
+          ))}
+        </div>
+      )}
+      {!!timeline.meetings?.length && (
+        <div className="mini-section">
+          <strong>Meetings/calls</strong>
+          {timeline.meetings.slice(0, 4).map((meeting: any) => (
+            <span key={meeting.id}>{meeting.title}</span>
+          ))}
+        </div>
+      )}
+      {!!timeline.reports?.length && (
+        <div className="mini-section">
+          <strong>Reports</strong>
+          {timeline.reports.slice(0, 4).map((report: any) => (
+            <span key={report.id}>{report.title}</span>
+          ))}
+        </div>
+      )}
+      {!!timeline.workflows?.length && (
+        <div className="mini-section">
+          <strong>Workflows</strong>
+          {timeline.workflows.slice(0, 4).map((workflow: any) => (
+            <span key={workflow.id}>{workflow.name} - {workflow.status}</span>
           ))}
         </div>
       )}
@@ -1511,7 +1797,14 @@ function LinkedSheet({
           ))}
           {note.ai_processing_status === "processing" && <span className="chip">Processing...</span>}
           {note.ai_processing_status === "skipped" && <span className="chip">Manual only</span>}
+          {note.ai_processing_status === "failed" && <span className="chip danger-chip">AI failed</span>}
         </div>
+        {note.ai_processing_status === "failed" && note.ai_processing_error && (
+          <div className="ai-error">
+            <strong>AI processing failed</strong>
+            <span>{note.ai_processing_error}</span>
+          </div>
+        )}
         <div className="inline-create">
           <select value={personId} onChange={(e) => setPersonId(e.target.value)}>
             <option value="">Link a person</option>

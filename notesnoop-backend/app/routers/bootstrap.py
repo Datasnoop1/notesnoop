@@ -93,7 +93,29 @@ def create_person(
             """,
             (workspace_id, payload.name.strip(), payload.company, payload.role, payload.email, payload.details, user.clerk_user_id),
         )
-        return {"data": dict(cur.fetchone())}
+        person = dict(cur.fetchone())
+        if payload.company:
+            cur.execute(
+                """
+                INSERT INTO companies (workspace_id, name, created_by)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (workspace_id, lower(name))
+                DO UPDATE SET updated_at = now()
+                RETURNING id
+                """,
+                (workspace_id, payload.company.strip(), user.clerk_user_id),
+            )
+            company = cur.fetchone()
+            if company:
+                cur.execute(
+                    """
+                    INSERT INTO company_people (company_id, person_id, workspace_id, role, linked_by)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (company["id"], person["id"], workspace_id, payload.role, user.clerk_user_id),
+                )
+        return {"data": person}
 
 
 @router.get("/workspaces/{workspace_id}/people")

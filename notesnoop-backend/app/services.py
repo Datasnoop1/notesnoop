@@ -257,7 +257,7 @@ def enqueue_ai_if_allowed(cur, workspace_id: str, note_id: str, user_id: str, pr
     )
     if not row or row["ai_mode"] != "on" or row["has_personal"] or row["has_manual_project"]:
         cur.execute(
-            "UPDATE notes SET ai_processing_status = 'skipped' WHERE id = %s",
+            "UPDATE notes SET ai_processing_status = 'skipped', ai_processing_error = NULL WHERE id = %s",
             (note_id,),
         )
         return False
@@ -272,7 +272,7 @@ def enqueue_ai_if_allowed(cur, workspace_id: str, note_id: str, user_id: str, pr
         """,
         (workspace_id, note_id, user_id, f"note:{note_id}:extract"),
     )
-    cur.execute("UPDATE notes SET ai_processing_status = 'processing' WHERE id = %s", (note_id,))
+    cur.execute("UPDATE notes SET ai_processing_status = 'processing', ai_processing_error = NULL WHERE id = %s", (note_id,))
     return True
 
 

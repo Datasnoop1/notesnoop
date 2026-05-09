@@ -4,10 +4,64 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
-from ..schemas import MeetingCreate, ReportCreate, TaskCreate, TaskUpdate
+from ..schemas import CompanyCreate, MeetingCreate, ReportCreate, TaskCreate, TaskUpdate, WorkflowCreate
 
 
 router = APIRouter(prefix="/api", tags=["memory"])
+
+
+@router.get("/workspaces/{workspace_id}/companies")
+def list_companies(workspace_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        return {
+            "data": many(
+                cur,
+                """
+                SELECT c.*,
+                       count(DISTINCT cp.person_id) AS people_count,
+                       count(DISTINCT cpr.project_id) AS project_count,
+                       count(DISTINCT cn.note_id) AS note_count,
+                       max(coalesce(n.occurred_at, n.created_at)) AS last_note_at
+                FROM companies c
+                LEFT JOIN company_people cp ON cp.company_id = c.id
+                LEFT JOIN company_projects cpr ON cpr.company_id = c.id
+                LEFT JOIN company_notes cn ON cn.company_id = c.id
+                LEFT JOIN notes n ON n.id = cn.note_id
+                WHERE c.workspace_id = %s
+                GROUP BY c.id
+                ORDER BY coalesce(max(coalesce(n.occurred_at, n.created_at)), c.created_at) DESC, lower(c.name)
+                LIMIT 100
+                """,
+                (workspace_id,),
+            )
+        }
+
+
+@router.post("/workspaces/{workspace_id}/companies")
+def create_company(workspace_id: str, payload: CompanyCreate, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        _ensure_workspace_access(cur, workspace_id)
+        _validate_person_ids(cur, workspace_id, payload.person_ids or [])
+        _validate_project_ids(cur, workspace_id, payload.project_ids or [])
+        _validate_note_ids(cur, workspace_id, payload.note_ids or [])
+        cur.execute(
+            """
+            INSERT INTO companies (workspace_id, name, domain, description, created_by)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (workspace_id, lower(name))
+            DO UPDATE
+              SET domain = COALESCE(EXCLUDED.domain, companies.domain),
+                  description = COALESCE(EXCLUDED.description, companies.description),
+                  updated_at = now()
+            RETURNING *
+            """,
+            (workspace_id, payload.name.strip(), payload.domain, payload.description, user.clerk_user_id),
+        )
+        company = dict(cur.fetchone())
+        _link_many(cur, "company_people", "company_id", "person_id", company["id"], workspace_id, payload.person_ids or [], user.clerk_user_id)
+        _link_many(cur, "company_projects", "company_id", "project_id", company["id"], workspace_id, payload.project_ids or [], user.clerk_user_id)
+        _link_many(cur, "company_notes", "company_id", "note_id", company["id"], workspace_id, payload.note_ids or [], user.clerk_user_id)
+        return {"data": _company_payload(cur, str(company["id"]))}
 
 
 @router.get("/workspaces/{workspace_id}/tasks")
@@ -23,10 +77,16 @@ def list_tasks(workspace_id: str, project_id: str | None = None, user: CurrentUs
                 cur,
                 f"""
                 SELECT t.*,
-                       coalesce(json_agg(DISTINCT p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS projects
+                       coalesce(json_agg(DISTINCT p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS projects,
+                       coalesce(json_agg(DISTINCT pe.*) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people,
+                       coalesce(json_agg(DISTINCT n.*) FILTER (WHERE n.id IS NOT NULL), '[]') AS notes
                 FROM tasks t
                 LEFT JOIN task_projects tp ON tp.task_id = t.id
                 LEFT JOIN projects p ON p.id = tp.project_id
+                LEFT JOIN task_people tpe ON tpe.task_id = t.id
+                LEFT JOIN people pe ON pe.id = tpe.person_id
+                LEFT JOIN task_notes tn ON tn.task_id = t.id
+                LEFT JOIN notes n ON n.id = tn.note_id
                 WHERE {where}
                 GROUP BY t.id
                 ORDER BY
@@ -271,6 +331,207 @@ def create_report(workspace_id: str, payload: ReportCreate, user: CurrentUser = 
         return {"data": _report_payload(cur, str(report["id"]))}
 
 
+@router.get("/workspaces/{workspace_id}/workflows")
+def list_workflows(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        params: list = [workspace_id]
+        where = "w.workspace_id = %s"
+        if project_id:
+            where += " AND EXISTS (SELECT 1 FROM workflow_projects wp WHERE wp.workflow_id = w.id AND wp.project_id = %s)"
+            params.append(project_id)
+        return {
+            "data": many(
+                cur,
+                f"""
+                SELECT w.*,
+                       count(DISTINCT wt.task_id) AS task_count,
+                       count(DISTINCT wt.task_id) FILTER (WHERE t.status IN ('todo','doing','blocked')) AS open_task_count,
+                       coalesce(json_agg(DISTINCT p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS projects,
+                       coalesce(json_agg(DISTINCT pe.*) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people
+                FROM workflows w
+                LEFT JOIN workflow_projects wp ON wp.workflow_id = w.id
+                LEFT JOIN projects p ON p.id = wp.project_id
+                LEFT JOIN workflow_people wpe ON wpe.workflow_id = w.id
+                LEFT JOIN people pe ON pe.id = wpe.person_id
+                LEFT JOIN workflow_tasks wt ON wt.workflow_id = w.id
+                LEFT JOIN tasks t ON t.id = wt.task_id
+                WHERE {where}
+                GROUP BY w.id
+                ORDER BY
+                  CASE w.status WHEN 'active' THEN 1 WHEN 'draft' THEN 2 WHEN 'paused' THEN 3 ELSE 4 END,
+                  w.updated_at DESC
+                LIMIT 100
+                """,
+                tuple(params),
+            )
+        }
+
+
+@router.post("/workspaces/{workspace_id}/workflows")
+def create_workflow(workspace_id: str, payload: WorkflowCreate, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        _ensure_workspace_access(cur, workspace_id)
+        _validate_project_ids(cur, workspace_id, payload.project_ids or [])
+        _validate_person_ids(cur, workspace_id, payload.person_ids or [])
+        _validate_note_ids(cur, workspace_id, payload.note_ids or [])
+        _validate_task_ids(cur, workspace_id, payload.task_ids or [])
+        cur.execute(
+            """
+            INSERT INTO workflows (workspace_id, name, description, status, created_by)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (workspace_id, lower(name))
+            DO UPDATE
+              SET description = COALESCE(EXCLUDED.description, workflows.description),
+                  status = EXCLUDED.status,
+                  updated_at = now()
+            RETURNING *
+            """,
+            (workspace_id, payload.name.strip(), payload.description, payload.status, user.clerk_user_id),
+        )
+        workflow = dict(cur.fetchone())
+        _link_many(cur, "workflow_projects", "workflow_id", "project_id", workflow["id"], workspace_id, payload.project_ids or [], user.clerk_user_id)
+        for person_id in _dedupe(payload.person_ids or []):
+            cur.execute(
+                """
+                INSERT INTO workflow_people (workflow_id, person_id, workspace_id, relation, linked_by)
+                VALUES (%s, %s, %s, 'participant', %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (workflow["id"], person_id, workspace_id, user.clerk_user_id),
+            )
+        _link_many(cur, "workflow_notes", "workflow_id", "note_id", workflow["id"], workspace_id, payload.note_ids or [], user.clerk_user_id)
+        position = 0
+        for task_id in _dedupe(payload.task_ids or []):
+            cur.execute(
+                """
+                INSERT INTO workflow_tasks (workflow_id, task_id, workspace_id, position, linked_by)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (workflow["id"], task_id, workspace_id, position, user.clerk_user_id),
+            )
+            position += 1
+        return {"data": _workflow_payload(cur, str(workflow["id"]))}
+
+
+@router.get("/workspaces/{workspace_id}/memory-graph")
+def memory_graph(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        _ensure_workspace_access(cur, workspace_id)
+        filter_project_sql = ""
+        params: list = [workspace_id]
+        if project_id:
+            _validate_project_ids(cur, workspace_id, [project_id])
+            filter_project_sql = "AND EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s)"
+            params.append(project_id)
+        notes = many(
+            cur,
+            f"""
+            SELECT n.id, n.title, n.note_kind, coalesce(n.occurred_at, n.created_at) AS happened_at
+            FROM notes n
+            WHERE n.workspace_id = %s {filter_project_sql}
+            ORDER BY coalesce(n.occurred_at, n.created_at) DESC
+            LIMIT 30
+            """,
+            tuple(params),
+        )
+        note_ids = [str(note["id"]) for note in notes]
+        if not note_ids:
+            return {"data": {"nodes": [], "edges": []}}
+        people = many(
+            cur,
+            """
+            SELECT DISTINCT p.id, p.name AS title, p.company
+            FROM people p
+            JOIN note_people_links npl ON npl.person_id = p.id
+            WHERE npl.note_id = ANY(%s::uuid[])
+              AND npl.state IN ('confirmed','auto_linked')
+            ORDER BY p.name
+            LIMIT 50
+            """,
+            (note_ids,),
+        )
+        projects = many(
+            cur,
+            """
+            SELECT DISTINCT p.id, p.name AS title, p.color_hex
+            FROM projects p
+            JOIN note_projects np ON np.project_id = p.id
+            WHERE np.note_id = ANY(%s::uuid[])
+            ORDER BY p.name
+            LIMIT 50
+            """,
+            (note_ids,),
+        )
+        tasks = many(
+            cur,
+            """
+            SELECT DISTINCT t.id, t.title, t.status
+            FROM tasks t
+            JOIN task_notes tn ON tn.task_id = t.id
+            WHERE tn.note_id = ANY(%s::uuid[])
+            ORDER BY t.created_at DESC
+            LIMIT 50
+            """,
+            (note_ids,),
+        )
+        meetings = many(
+            cur,
+            """
+            SELECT DISTINCT m.id, m.title, coalesce(m.occurred_at, m.created_at) AS happened_at
+            FROM meetings m
+            JOIN meeting_notes mn ON mn.meeting_id = m.id
+            WHERE mn.note_id = ANY(%s::uuid[])
+            ORDER BY coalesce(m.occurred_at, m.created_at) DESC
+            LIMIT 50
+            """,
+            (note_ids,),
+        )
+        reports = many(
+            cur,
+            """
+            SELECT DISTINCT r.id, r.title, r.status
+            FROM reports r
+            JOIN report_notes rn ON rn.report_id = r.id
+            WHERE rn.note_id = ANY(%s::uuid[])
+            ORDER BY r.created_at DESC
+            LIMIT 50
+            """,
+            (note_ids,),
+        )
+        edges = many(
+            cur,
+            """
+            SELECT 'note' AS from_kind, note_id::text AS from_id, 'person' AS to_kind, person_id::text AS to_id, 'mentions' AS relation
+            FROM note_people_links WHERE note_id = ANY(%s::uuid[]) AND state IN ('confirmed','auto_linked')
+            UNION ALL
+            SELECT 'note', note_id::text, 'project', project_id::text, 'filed_in'
+            FROM note_projects WHERE note_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'task', task_id::text, 'note', note_id::text, 'sourced_from'
+            FROM task_notes WHERE note_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'meeting', meeting_id::text, 'note', note_id::text, 'sourced_from'
+            FROM meeting_notes WHERE note_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'report', report_id::text, 'note', note_id::text, 'sourced_from'
+            FROM report_notes WHERE note_id = ANY(%s::uuid[])
+            """,
+            (note_ids, note_ids, note_ids, note_ids, note_ids),
+        )
+        nodes = []
+        for kind, rows in (
+            ("note", notes),
+            ("person", people),
+            ("project", projects),
+            ("task", tasks),
+            ("meeting", meetings),
+            ("report", reports),
+        ):
+            nodes.extend({**row, "kind": kind} for row in rows)
+        return {"data": {"nodes": nodes, "edges": edges}}
+
+
 @router.get("/projects/{project_id}/summary")
 def project_summary(project_id: str, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
@@ -312,10 +573,42 @@ def project_summary(project_id: str, user: CurrentUser = Depends(current_user)):
             """,
             (project_id,),
         )
-        return {"data": build_project_summary(project, notes, tasks)}
+        meetings = many(
+            cur,
+            """
+            SELECT m.title, m.summary, coalesce(m.occurred_at, m.created_at) AS sort_at
+            FROM meetings m
+            JOIN meeting_projects mp ON mp.meeting_id = m.id
+            WHERE mp.project_id = %s
+            ORDER BY coalesce(m.occurred_at, m.created_at) DESC
+            LIMIT 5
+            """,
+            (project_id,),
+        )
+        reports = many(
+            cur,
+            """
+            SELECT r.title, r.status, r.created_at
+            FROM reports r
+            JOIN report_projects rp ON rp.report_id = r.id
+            WHERE rp.project_id = %s
+            ORDER BY r.created_at DESC
+            LIMIT 5
+            """,
+            (project_id,),
+        )
+        return {"data": build_project_summary(project, notes, tasks, meetings, reports)}
 
 
-def build_project_summary(project: dict, notes: list[dict], tasks: list[dict]) -> dict:
+def build_project_summary(
+    project: dict,
+    notes: list[dict],
+    tasks: list[dict],
+    meetings: list[dict] | None = None,
+    reports: list[dict] | None = None,
+) -> dict:
+    meetings = meetings or []
+    reports = reports or []
     task_counts = {status: 0 for status in ("todo", "doing", "blocked", "done")}
     for task in tasks:
         status = str(task.get("status") or "")
@@ -340,12 +633,20 @@ def build_project_summary(project: dict, notes: list[dict], tasks: list[dict]) -
     if recent_notes:
         lines.append("Recent notes:")
         lines.extend(f"- {note}" for note in recent_notes)
+    if meetings:
+        lines.append("Recent meetings/calls:")
+        lines.extend(f"- {_display_note(meeting)}" for meeting in meetings[:3])
+    if reports:
+        lines.append("Reports:")
+        lines.extend(f"- {report.get('title')}" for report in reports[:3])
     return {
         "project_id": project.get("id"),
         "project_name": project.get("name"),
         "task_counts": task_counts,
         "open_tasks": open_tasks,
         "recent_notes": recent_notes,
+        "recent_meetings": [_display_note(meeting) for meeting in meetings[:5]],
+        "recent_reports": [report.get("title") for report in reports[:5]],
         "markdown": "\n".join(lines),
     }
 
@@ -415,6 +716,16 @@ def _task_payload(cur, task_id: str) -> dict | None:
     return task
 
 
+def _company_payload(cur, company_id: str) -> dict | None:
+    company = one(cur, "SELECT * FROM companies WHERE id = %s", (company_id,))
+    if not company:
+        return None
+    company["people"] = many(cur, "SELECT p.*, cp.role FROM people p JOIN company_people cp ON cp.person_id = p.id WHERE cp.company_id = %s ORDER BY p.name", (company_id,))
+    company["projects"] = many(cur, "SELECT p.* FROM projects p JOIN company_projects cp ON cp.project_id = p.id WHERE cp.company_id = %s ORDER BY p.name", (company_id,))
+    company["notes"] = many(cur, "SELECT n.* FROM notes n JOIN company_notes cn ON cn.note_id = n.id WHERE cn.company_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (company_id,))
+    return company
+
+
 def _meeting_payload(cur, meeting_id: str) -> dict | None:
     meeting = one(cur, "SELECT * FROM meetings WHERE id = %s", (meeting_id,))
     if not meeting:
@@ -434,6 +745,17 @@ def _report_payload(cur, report_id: str) -> dict | None:
     report["notes"] = many(cur, "SELECT n.* FROM notes n JOIN report_notes rn ON rn.note_id = n.id WHERE rn.report_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (report_id,))
     report["tasks"] = many(cur, "SELECT t.* FROM tasks t JOIN report_tasks rt ON rt.task_id = t.id WHERE rt.report_id = %s ORDER BY t.created_at DESC", (report_id,))
     return report
+
+
+def _workflow_payload(cur, workflow_id: str) -> dict | None:
+    workflow = one(cur, "SELECT * FROM workflows WHERE id = %s", (workflow_id,))
+    if not workflow:
+        return None
+    workflow["projects"] = many(cur, "SELECT p.* FROM projects p JOIN workflow_projects wp ON wp.project_id = p.id WHERE wp.workflow_id = %s ORDER BY p.name", (workflow_id,))
+    workflow["people"] = many(cur, "SELECT p.*, wp.relation FROM people p JOIN workflow_people wp ON wp.person_id = p.id WHERE wp.workflow_id = %s ORDER BY p.name", (workflow_id,))
+    workflow["notes"] = many(cur, "SELECT n.* FROM notes n JOIN workflow_notes wn ON wn.note_id = n.id WHERE wn.workflow_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (workflow_id,))
+    workflow["tasks"] = many(cur, "SELECT t.* FROM tasks t JOIN workflow_tasks wt ON wt.task_id = t.id WHERE wt.workflow_id = %s ORDER BY wt.position, t.created_at DESC", (workflow_id,))
+    return workflow
 
 
 def _dedupe(values: list[str]) -> list[str]:

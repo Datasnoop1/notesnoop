@@ -317,7 +317,7 @@ def process_with_ai(note_id: str, user: CurrentUser = Depends(current_user)):
             """,
             (note["workspace_id"], note_id, user.clerk_user_id, f"note:{note_id}:reprocess"),
         )
-        cur.execute("UPDATE notes SET ai_processing_status = 'processing' WHERE id = %s", (note_id,))
+        cur.execute("UPDATE notes SET ai_processing_status = 'processing', ai_processing_error = NULL WHERE id = %s", (note_id,))
         return {"data": {"queued": True, "note_id": note_id}}
 
 
@@ -367,12 +367,33 @@ def toggle_flag(payload: FlagRequest, user: CurrentUser = Depends(current_user))
 
 
 @router.get("/workspaces/{workspace_id}/home")
-def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
+def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
+        if project_id:
+            project = one(cur, "SELECT id FROM projects WHERE id = %s AND workspace_id = %s", (project_id, workspace_id))
+            if not project:
+                raise HTTPException(status_code=404, detail="Project not found")
         pending_review = many(
             cur,
-            "SELECT * FROM review_queue WHERE workspace_id = %s AND state = 'open' ORDER BY created_at DESC LIMIT 5",
-            (workspace_id,),
+            """
+            SELECT *
+            FROM review_queue rq
+            WHERE rq.workspace_id = %s
+              AND rq.target_user_id = %s
+              AND rq.state = 'open'
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1
+                  FROM note_projects np
+                  WHERE np.note_id = rq.entity_id
+                    AND np.project_id = %s::uuid
+                )
+              )
+            ORDER BY rq.created_at DESC
+            LIMIT 5
+            """,
+            (workspace_id, user.clerk_user_id, project_id, project_id),
         )
         recent_projects = many(
             cur,
@@ -387,11 +408,12 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
             LEFT JOIN task_projects tp ON tp.project_id = p.id
             LEFT JOIN tasks t ON t.id = tp.task_id
             WHERE p.workspace_id = %s
+              AND (%s::uuid IS NULL OR p.id = %s::uuid)
             GROUP BY p.id
             ORDER BY coalesce(max(coalesce(n.occurred_at, n.created_at)), p.created_at) DESC
             LIMIT 5
             """,
-            (workspace_id,),
+            (workspace_id, project_id, project_id),
         )
         recent_people = many(
             cur,
@@ -401,11 +423,22 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
             LEFT JOIN note_people_links npl ON npl.person_id = p.id AND npl.state IN ('confirmed','auto_linked')
             LEFT JOIN notes n ON n.id = npl.note_id
             WHERE p.workspace_id = %s
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1
+                  FROM note_people_links pnpl
+                  JOIN note_projects pnp ON pnp.note_id = pnpl.note_id
+                  WHERE pnpl.person_id = p.id
+                    AND pnpl.state IN ('confirmed','auto_linked')
+                    AND pnp.project_id = %s::uuid
+                )
+              )
             GROUP BY p.id
             ORDER BY coalesce(max(coalesce(n.occurred_at, n.created_at)), p.created_at) DESC
             LIMIT 5
             """,
-            (workspace_id,),
+            (workspace_id, project_id, project_id),
         )
         open_tasks = many(
             cur,
@@ -424,6 +457,7 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
             LEFT JOIN people pe ON pe.id = tpe.person_id
             WHERE t.workspace_id = %s
               AND t.status IN ('todo','doing','blocked')
+              AND (%s::uuid IS NULL OR tp.project_id = %s::uuid)
             GROUP BY t.id
             ORDER BY
               CASE t.status
@@ -437,7 +471,7 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
               t.created_at DESC
             LIMIT 8
             """,
-            (workspace_id,),
+            (workspace_id, project_id, project_id),
         )
         meetings_calls = many(
             cur,
@@ -456,6 +490,7 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
               LEFT JOIN meeting_projects mp ON mp.meeting_id = m.id
               LEFT JOIN projects p ON p.id = mp.project_id
               WHERE m.workspace_id = %s
+                AND (%s::uuid IS NULL OR mp.project_id = %s::uuid)
               GROUP BY m.id
               UNION ALL
               SELECT n.id,
@@ -471,12 +506,13 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
               LEFT JOIN projects p ON p.id = np.project_id
               WHERE n.workspace_id = %s
                 AND n.note_kind IN ('meeting','call')
+                AND (%s::uuid IS NULL OR np.project_id = %s::uuid)
               GROUP BY n.id
             ) memory
             ORDER BY occurred_at DESC
             LIMIT 8
             """,
-            (workspace_id, workspace_id),
+            (workspace_id, project_id, project_id, workspace_id, project_id, project_id),
         )
         reports_briefs = many(
             cur,
@@ -495,6 +531,7 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
               LEFT JOIN report_projects rp ON rp.report_id = r.id
               LEFT JOIN projects p ON p.id = rp.project_id
               WHERE r.workspace_id = %s
+                AND (%s::uuid IS NULL OR rp.project_id = %s::uuid)
               GROUP BY r.id
               UNION ALL
               SELECT n.id,
@@ -510,12 +547,57 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
               LEFT JOIN projects p ON p.id = np.project_id
               WHERE n.workspace_id = %s
                 AND n.note_kind = 'report'
+                AND (%s::uuid IS NULL OR np.project_id = %s::uuid)
               GROUP BY n.id
             ) reports
             ORDER BY created_at DESC
             LIMIT 8
             """,
-            (workspace_id, workspace_id),
+            (workspace_id, project_id, project_id, workspace_id, project_id, project_id),
+        )
+        workflows = many(
+            cur,
+            """
+            SELECT w.*,
+                   count(DISTINCT wt.task_id) AS task_count,
+                   count(DISTINCT wt.task_id) FILTER (WHERE t.status IN ('todo','doing','blocked')) AS open_task_count,
+                   min(p.name) AS project_name
+            FROM workflows w
+            LEFT JOIN workflow_projects wp ON wp.workflow_id = w.id
+            LEFT JOIN projects p ON p.id = wp.project_id
+            LEFT JOIN workflow_tasks wt ON wt.workflow_id = w.id
+            LEFT JOIN tasks t ON t.id = wt.task_id
+            WHERE w.workspace_id = %s
+              AND (%s::uuid IS NULL OR wp.project_id = %s::uuid)
+              AND w.status IN ('draft','active','paused')
+            GROUP BY w.id
+            ORDER BY
+              CASE w.status WHEN 'active' THEN 1 WHEN 'draft' THEN 2 WHEN 'paused' THEN 3 ELSE 4 END,
+              w.updated_at DESC
+            LIMIT 6
+            """,
+            (workspace_id, project_id, project_id),
+        )
+        companies = many(
+            cur,
+            """
+            SELECT c.*,
+                   count(DISTINCT cp.person_id) AS people_count,
+                   count(DISTINCT cpr.project_id) AS project_count,
+                   count(DISTINCT cn.note_id) AS note_count,
+                   max(coalesce(n.occurred_at, n.created_at)) AS last_note_at
+            FROM companies c
+            LEFT JOIN company_people cp ON cp.company_id = c.id
+            LEFT JOIN company_projects cpr ON cpr.company_id = c.id
+            LEFT JOIN company_notes cn ON cn.company_id = c.id
+            LEFT JOIN notes n ON n.id = cn.note_id
+            WHERE c.workspace_id = %s
+              AND (%s::uuid IS NULL OR cpr.project_id = %s::uuid)
+            GROUP BY c.id
+            ORDER BY coalesce(max(coalesce(n.occurred_at, n.created_at)), c.created_at) DESC
+            LIMIT 6
+            """,
+            (workspace_id, project_id, project_id),
         )
         project_intelligence = many(
             cur,
@@ -543,13 +625,14 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
             LEFT JOIN tasks t ON t.id = tp.task_id
             WHERE p.workspace_id = %s
               AND p.kind <> 'personal'
+              AND (%s::uuid IS NULL OR p.id = %s::uuid)
             GROUP BY p.id
             ORDER BY count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing','blocked')) DESC,
                      max(coalesce(n.occurred_at, n.created_at)) DESC NULLS LAST,
                      p.created_at DESC
             LIMIT 6
             """,
-            (workspace_id,),
+            (workspace_id, project_id, project_id),
         )
         return {
             "data": {
@@ -571,19 +654,54 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
                     LEFT JOIN projects p ON p.id = f.project_id
                     LEFT JOIN people pe ON pe.id = f.person_id
                     WHERE f.workspace_id = %s
+                      AND (
+                        %s::uuid IS NULL
+                        OR f.project_id = %s::uuid
+                        OR EXISTS (
+                          SELECT 1
+                          FROM note_projects fnp
+                          WHERE fnp.note_id = f.note_id
+                            AND fnp.project_id = %s::uuid
+                        )
+                        OR EXISTS (
+                          SELECT 1
+                          FROM note_people_links fp
+                          JOIN note_projects fpp ON fpp.note_id = fp.note_id
+                          WHERE fp.person_id = f.person_id
+                            AND fp.state IN ('confirmed','auto_linked')
+                            AND fpp.project_id = %s::uuid
+                        )
+                      )
                     ORDER BY f.flagged_at DESC
                     LIMIT 5
                     """,
-                    (workspace_id,),
+                    (workspace_id, project_id, project_id, project_id, project_id),
                 ),
                 "recent_notes": many(
                     cur,
-                    "SELECT * FROM notes WHERE workspace_id = %s ORDER BY coalesce(occurred_at, created_at) DESC LIMIT 5",
-                    (workspace_id,),
+                    """
+                    SELECT *
+                    FROM notes n
+                    WHERE n.workspace_id = %s
+                      AND (
+                        %s::uuid IS NULL
+                        OR EXISTS (
+                          SELECT 1
+                          FROM note_projects np
+                          WHERE np.note_id = n.id
+                            AND np.project_id = %s::uuid
+                        )
+                      )
+                    ORDER BY coalesce(occurred_at, created_at) DESC
+                    LIMIT 5
+                    """,
+                    (workspace_id, project_id, project_id),
                 ),
                 "open_tasks": open_tasks,
                 "meetings_calls": meetings_calls,
                 "reports_briefs": reports_briefs,
+                "workflows": workflows,
+                "companies": companies,
                 "project_intelligence": project_intelligence,
             }
         }

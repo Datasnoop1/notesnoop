@@ -117,6 +117,29 @@ def _retry_job(job_id: str, error: str, delay_seconds: int) -> None:
         put_conn(conn)
 
 
+def _mark_note_failed(note_id: str, error: str) -> None:
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL search_path = public")
+            cur.execute(
+                """
+                UPDATE notes
+                SET ai_processing_status = 'failed',
+                    ai_processing_error = %s,
+                    updated_at = now()
+                WHERE id = %s
+                """,
+                (error[:1000], note_id),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        put_conn(conn)
+
+
 def _is_retryable_exception(exc: Exception) -> bool:
     response = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
@@ -225,7 +248,57 @@ def _link_memory_projects(cur, table: str, id_column: str, entity_id: str, works
         )
 
 
-def _materialize_task(cur, note: dict, title: str, source_kind: str, target_user_id: str, project_ids: list[str]) -> str | None:
+def _linked_person_ids(cur, note_id: str) -> list[str]:
+    cur.execute(
+        """
+        SELECT person_id
+        FROM note_people_links
+        WHERE note_id = %s
+          AND state IN ('confirmed','auto_linked')
+        ORDER BY created_at
+        """,
+        (note_id,),
+    )
+    return [str(row["person_id"]) for row in cur.fetchall()]
+
+
+def _link_task_people(cur, task_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
+    for person_id in person_ids:
+        cur.execute(
+            """
+            INSERT INTO task_people (task_id, person_id, workspace_id, relation, linked_by)
+            VALUES (%s, %s, %s, 'assignee', %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (task_id, person_id, workspace_id, linked_by),
+        )
+
+
+def _link_meeting_people(cur, meeting_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
+    for person_id in person_ids:
+        cur.execute(
+            """
+            INSERT INTO meeting_people (meeting_id, person_id, workspace_id, attendance_status, linked_by)
+            VALUES (%s, %s, %s, 'attended', %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (meeting_id, person_id, workspace_id, linked_by),
+        )
+
+
+def _link_report_people(cur, report_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
+    for person_id in person_ids:
+        cur.execute(
+            """
+            INSERT INTO report_people (report_id, person_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (report_id, person_id, workspace_id, linked_by),
+        )
+
+
+def _materialize_task(cur, note: dict, title: str, source_kind: str, target_user_id: str, project_ids: list[str], person_ids: list[str]) -> str | None:
     if not title:
         return None
     cur.execute(
@@ -261,15 +334,17 @@ def _materialize_task(cur, note: dict, title: str, source_kind: str, target_user
         (task_id, note["id"], note["workspace_id"], target_user_id),
     )
     _link_memory_projects(cur, "task_projects", "task_id", task_id, note["workspace_id"], project_ids, target_user_id)
+    _link_task_people(cur, task_id, note["workspace_id"], person_ids, target_user_id)
     return task_id
 
 
-def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id: str) -> dict[str, int]:
+def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id: str, person_ids: list[str] | None = None) -> dict[str, int]:
     note_id = str(note["id"])
     workspace_id = str(note["workspace_id"])
     note_kind = str(note.get("note_kind") or "note").lower()
     created = {"tasks": 0, "meetings": 0, "reports": 0}
     project_ids = _linked_project_ids(cur, note_id)
+    person_ids = person_ids or _linked_person_ids(cur, note_id)
 
     cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"memory:{note_id}",))
 
@@ -280,12 +355,12 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
         if not title or key in seen_task_titles:
             continue
         seen_task_titles.add(key)
-        if _materialize_task(cur, note, title, "action_item", target_user_id, project_ids):
+        if _materialize_task(cur, note, title, "action_item", target_user_id, project_ids, person_ids):
             created["tasks"] += 1
 
     if note_kind == "task":
         title = _note_title(note, "Task")
-        if title.casefold() not in seen_task_titles and _materialize_task(cur, note, title, "note_task", target_user_id, project_ids):
+        if title.casefold() not in seen_task_titles and _materialize_task(cur, note, title, "note_task", target_user_id, project_ids, person_ids):
             created["tasks"] += 1
 
     if note_kind in {"meeting", "call"}:
@@ -321,6 +396,7 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             (meeting_id, note_id, workspace_id, target_user_id),
         )
         _link_memory_projects(cur, "meeting_projects", "meeting_id", meeting_id, workspace_id, project_ids, target_user_id)
+        _link_meeting_people(cur, meeting_id, workspace_id, person_ids, target_user_id)
         created["meetings"] += 1
 
     if note_kind == "report":
@@ -347,6 +423,7 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             (report_id, note_id, workspace_id, target_user_id),
         )
         _link_memory_projects(cur, "report_projects", "report_id", report_id, workspace_id, project_ids, target_user_id)
+        _link_report_people(cur, report_id, workspace_id, person_ids, target_user_id)
         created["reports"] += 1
 
     return created
@@ -360,10 +437,7 @@ async def _process_extract(job: dict) -> None:
             cur.execute("SET LOCAL search_path = public")
             note, people, projects = _load_context(cur, note_id)
             if note["is_personal"]:
-                cur.execute(
-                    "UPDATE notes SET ai_processing_status = 'skipped' WHERE id = %s",
-                    (note_id,),
-                )
+                cur.execute("UPDATE notes SET ai_processing_status = 'skipped', ai_processing_error = NULL WHERE id = %s", (note_id,))
                 conn.commit()
                 _finish_job(str(job["id"]), "done")
                 return
@@ -378,7 +452,7 @@ async def _process_extract(job: dict) -> None:
                 (note_id,),
             )
             if cur.fetchone():
-                cur.execute("UPDATE notes SET ai_processing_status = 'skipped' WHERE id = %s", (note_id,))
+                cur.execute("UPDATE notes SET ai_processing_status = 'skipped', ai_processing_error = NULL WHERE id = %s", (note_id,))
                 conn.commit()
                 _finish_job(str(job["id"]), "done")
                 return
@@ -462,13 +536,16 @@ async def _process_extract(job: dict) -> None:
                     (note_id, project["id"], target_user_id),
                 )
 
-            _materialize_ai_memory(cur, note, data, target_user_id)
+            person_ids = _linked_person_ids(cur, note_id)
+            _materialize_ai_memory(cur, note, data, target_user_id, person_ids)
             upsert_note_embedding(cur, note, embedding)
 
             cur.execute(
                 """
                 UPDATE notes
-                SET ai_processing_status = 'processed', ai_processed_at = now()
+                SET ai_processing_status = 'processed',
+                    ai_processing_error = NULL,
+                    ai_processed_at = now()
                 WHERE id = %s
                 """,
                 (note_id,),
@@ -501,6 +578,8 @@ async def handle_job(job: dict) -> None:
             logger.warning("job requeued after transient failure: %s delay=%ss attempt=%s", job.get("id"), delay, attempts)
             return
         _finish_job(str(job["id"]), "failed", error)
+        if job.get("note_id"):
+            _mark_note_failed(str(job["note_id"]), error)
 
 
 async def main() -> None:

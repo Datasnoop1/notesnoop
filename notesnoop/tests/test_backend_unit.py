@@ -291,6 +291,13 @@ def test_ai_memory_materialization_migration_adds_source_provenance():
     assert "idx_notesnoop_reports_source_note_kind" in migration.sql
 
 
+def test_ai_processing_error_migration_adds_note_failure_context():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0014_ai_processing_error.sql")
+
+    assert migration.filename == "0014_ai_processing_error.sql"
+    assert "ADD COLUMN IF NOT EXISTS ai_processing_error TEXT" in migration.sql
+
+
 def test_project_summary_helper_is_deterministic():
     summary = memory.build_project_summary(
         {"id": "project-1", "name": "Apollo"},
@@ -547,7 +554,7 @@ def test_worker_materializes_ai_memory_idempotently():
     }
     cur = FakeCursor(
         fetchone_values=[{"id": "task-1"}, {"id": "meeting-1"}],
-        fetchall_values=[[{"id": "project-1"}]],
+        fetchall_values=[[{"id": "project-1"}], [{"person_id": "person-1"}]],
     )
 
     result = worker._materialize_ai_memory(
@@ -564,6 +571,8 @@ def test_worker_materializes_ai_memory_idempotently():
     assert "INSERT INTO task_notes" in executed_sql
     assert "INSERT INTO meeting_notes" in executed_sql
     assert "INSERT INTO task_projects" in executed_sql
+    assert "INSERT INTO task_people" in executed_sql
+    assert "INSERT INTO meeting_people" in executed_sql
     task_inserts = [params for sql, params in cur.executed if "INSERT INTO tasks" in sql]
     assert len(task_inserts) == 1
     assert task_inserts[0][1] == "follow up with legal"
