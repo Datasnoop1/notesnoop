@@ -179,13 +179,19 @@ def test_ollama_extraction_payload_and_validation(monkeypatch):
     assert posted["json"]["format"] == "json"
 
     fallback = ollama_client.deterministic_extract_entities(
-        "Morgan Lee discussed Apollo. Morgan was also there.",
+        "Morgan Lee discussed Apollo. Action: follow up with legal.",
         ["Morgan Lee", "Morgan", "Absent Person"],
         ["Apollo", "Missing Project"],
     )
     assert fallback["people"][0]["name"] == "Morgan Lee"
     assert fallback["people"][0]["span"] == [0, 10]
     assert fallback["projects"][0]["name"] == "Apollo"
+    assert fallback["tasks"][0]["title"] == "follow up with legal"
+
+    actions = ollama_client.deterministic_extract_tasks(
+        "We need to send the deck.\nTODO: confirm pricing\nFYI no task here."
+    )
+    assert [item["title"] for item in actions] == ["We need to send the deck", "confirm pricing"]
 
     class RateLimitedResponse:
         status_code = 429
@@ -272,6 +278,17 @@ def test_reserved_memory_graph_migration_parses_and_stays_notesnoop_scoped():
     assert "enforce_memory_link_workspace" in migration.sql
     assert "datasnoop" not in migration.sql.lower()
     assert "ALTER TABLE notes" not in migration.sql
+
+
+def test_ai_memory_materialization_migration_adds_source_provenance():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0013_ai_memory_materialization_provenance.sql")
+
+    assert migration.filename == "0013_ai_memory_materialization_provenance.sql"
+    assert "ALTER TABLE tasks" in migration.sql
+    assert "source_note_id UUID REFERENCES notes" in migration.sql
+    assert "idx_notesnoop_tasks_source_note_kind_title" in migration.sql
+    assert "idx_notesnoop_meetings_source_note_kind" in migration.sql
+    assert "idx_notesnoop_reports_source_note_kind" in migration.sql
 
 
 def test_project_summary_helper_is_deterministic():
@@ -516,6 +533,41 @@ def test_worker_matching_claim_finish_and_process_extract(monkeypatch):
     assert review_params
     assert isinstance(review_params[0][-1], str)
     assert json.loads(review_params[0][-1])["name"] == "New Person"
+
+
+def test_worker_materializes_ai_memory_idempotently():
+    note = {
+        "id": "note-1",
+        "workspace_id": "workspace-1",
+        "title": "Weekly call",
+        "body": "Action: follow up with legal.",
+        "note_kind": "call",
+        "occurred_at": "2026-05-09T10:00:00Z",
+        "created_by": "creator-1",
+    }
+    cur = FakeCursor(
+        fetchone_values=[{"id": "task-1"}, {"id": "meeting-1"}],
+        fetchall_values=[[{"id": "project-1"}]],
+    )
+
+    result = worker._materialize_ai_memory(
+        cur,
+        note,
+        {"tasks": [{"title": "follow up with legal"}, {"title": "follow up with legal"}]},
+        "creator-1",
+    )
+
+    assert result == {"tasks": 1, "meetings": 1, "reports": 0}
+    executed_sql = "\n".join(sql for sql, _params in cur.executed)
+    assert "ON CONFLICT (source_note_id, source_kind, lower(title))" in executed_sql
+    assert "ON CONFLICT (source_note_id, source_kind)" in executed_sql
+    assert "INSERT INTO task_notes" in executed_sql
+    assert "INSERT INTO meeting_notes" in executed_sql
+    assert "INSERT INTO task_projects" in executed_sql
+    task_inserts = [params for sql, params in cur.executed if "INSERT INTO tasks" in sql]
+    assert len(task_inserts) == 1
+    assert task_inserts[0][1] == "follow up with legal"
+    assert task_inserts[0][-1] == "action_item"
 
 
 def test_worker_personal_skip_and_failure_paths(monkeypatch):

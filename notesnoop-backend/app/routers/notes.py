@@ -446,6 +446,7 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
             FROM (
               SELECT m.id,
                      NULL::uuid AS note_id,
+                     m.source_note_id,
                      m.title,
                      m.summary AS subtitle,
                      'meeting'::text AS note_kind,
@@ -459,6 +460,7 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
               UNION ALL
               SELECT n.id,
                      n.id AS note_id,
+                     n.id AS source_note_id,
                      n.title,
                      left(n.body, 240) AS subtitle,
                      n.note_kind,
@@ -483,6 +485,7 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
             FROM (
               SELECT r.id,
                      NULL::uuid AS note_id,
+                     r.source_note_id,
                      r.title,
                      left(coalesce(r.body, ''), 240) AS subtitle,
                      r.status,
@@ -496,6 +499,7 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
               UNION ALL
               SELECT n.id,
                      n.id AS note_id,
+                     n.id AS source_note_id,
                      n.title,
                      left(n.body, 240) AS subtitle,
                      'note'::text AS status,

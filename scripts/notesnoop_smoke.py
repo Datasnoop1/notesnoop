@@ -178,6 +178,55 @@ def run(base_url: str, basic_auth: str | None) -> None:
     assert_true(project_timeline["notes"], "project timeline populates")
     assert_true(search, "persistent search returns matching notes")
 
+    task_memory_note = data(
+        owner.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            {
+                "title": f"Task memory {suffix}",
+                "body": f"Action: follow up with Avery Smoke {suffix} about Apollo Smoke {suffix} materials.",
+                "note_kind": "task",
+                "project_ids": [project["id"]],
+            },
+        )
+    )
+    call_memory_note = data(
+        owner.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            {
+                "title": f"Apollo call memory {suffix}",
+                "body": "Kickoff call: legal timeline is still the blocker.",
+                "note_kind": "call",
+                "project_ids": [project["id"]],
+            },
+        )
+    )
+    report_memory_note = data(
+        owner.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            {
+                "title": f"Apollo report memory {suffix}",
+                "body": "Weekly status: progress, blockers, next asks.",
+                "note_kind": "report",
+                "project_ids": [project["id"]],
+            },
+        )
+    )
+    for memory_note in [task_memory_note, call_memory_note, report_memory_note]:
+        wait_for_note_processed(owner, memory_note["id"], timeout_s=60)
+    materialized_home = data(owner.get(f"/api/workspaces/{workspace_id}/home"))
+    assert_true(
+        any(item.get("source_note_id") == task_memory_note["id"] for item in materialized_home["open_tasks"]),
+        "AI worker materializes task memories into task graph",
+    )
+    assert_true(
+        any(item.get("note_id") == call_memory_note["id"] or item.get("source_note_id") == call_memory_note["id"] for item in materialized_home["meetings_calls"]),
+        "AI worker materializes call memories into meeting graph",
+    )
+    assert_true(
+        any(item.get("note_id") == report_memory_note["id"] or item.get("source_note_id") == report_memory_note["id"] for item in materialized_home["reports_briefs"]),
+        "AI worker materializes report memories into report graph",
+    )
+
     task = data(
         owner.post(
             f"/api/workspaces/{workspace_id}/tasks",

@@ -21,10 +21,10 @@ ALLOW_DETERMINISTIC_FALLBACK = os.getenv("NOTESNOOP_EXTRACTION_ALLOW_DETERMINIST
 }
 
 
-EXTRACTION_SYSTEM = """You extract existing project/person mentions from messy professional notes.
+EXTRACTION_SYSTEM = """You extract existing project/person mentions and explicit action items from messy professional notes.
 Return strict JSON only:
-{"people":[{"name":"...", "confidence":0.0, "span":[0,10]}], "projects":[{"name":"...", "confidence":0.0, "span":[0,10]}]}
-Do not invent names. Confidence must be 0..1. Use character spans when obvious; otherwise [0,0]."""
+{"people":[{"name":"...", "confidence":0.0, "span":[0,10]}], "projects":[{"name":"...", "confidence":0.0, "span":[0,10]}], "tasks":[{"title":"...", "confidence":0.0, "span":[0,10]}]}
+Do not invent names or tasks. Only include tasks/action items that are explicit in the note. Confidence must be 0..1. Use character spans when obvious; otherwise [0,0]."""
 
 
 def _is_cloud_host() -> bool:
@@ -76,10 +76,44 @@ def _exact_mentions(note_body: str, names: list[str]) -> list[dict[str, Any]]:
     return mentions
 
 
+ACTION_ITEM_RE = re.compile(
+    r"\b("
+    r"todo|to-do|action(?:\s+item)?|follow\s+up|need(?:s|ed)?\s+to|we\s+need|i\s+need|please"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_action_title(text: str) -> str:
+    title = re.sub(r"^\s*(?:[-*]|\d+[.)])\s*", "", text).strip()
+    title = re.sub(r"^\s*(?:todo|to-do|action(?:\s+item)?|follow\s+up)\s*[:\-]\s*", "", title, flags=re.IGNORECASE)
+    title = re.sub(r"\s+", " ", title).strip(" .;")
+    if len(title) > 240:
+        title = title[:237].rstrip() + "..."
+    return title
+
+
+def deterministic_extract_tasks(note_body: str) -> list[dict[str, Any]]:
+    tasks: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"[^.\n\r;]+(?:[.\n\r;]|$)", note_body):
+        segment = match.group(0).strip()
+        if not segment or not ACTION_ITEM_RE.search(segment):
+            continue
+        title = _clean_action_title(segment)
+        key = title.casefold()
+        if len(title) < 3 or key in seen:
+            continue
+        seen.add(key)
+        tasks.append({"title": title, "confidence": 0.86, "span": [match.start(), match.end()]})
+    return tasks
+
+
 def deterministic_extract_entities(note_body: str, known_people: list[str], known_projects: list[str]) -> dict[str, Any]:
     return {
         "people": _exact_mentions(note_body, known_people),
         "projects": _exact_mentions(note_body, known_projects),
+        "tasks": deterministic_extract_tasks(note_body),
     }
 
 
@@ -93,6 +127,7 @@ async def extract_entities(note_body: str, known_people: list[str], known_projec
         "instructions": [
             "Prefer matching known_people and known_projects.",
             "Unknown people may be returned as people mentions, but never create entities yourself.",
+            "Return explicit tasks/action items when the note says need, follow up, todo, or action item.",
             "Only return JSON. No markdown.",
         ],
     }
@@ -125,6 +160,11 @@ async def extract_entities(note_body: str, known_people: list[str], known_projec
         raise ValueError("Ollama extraction response must be a JSON object")
     data.setdefault("people", [])
     data.setdefault("projects", [])
-    if not isinstance(data["people"], list) or not isinstance(data["projects"], list):
+    data.setdefault("tasks", [])
+    if not isinstance(data["people"], list) or not isinstance(data["projects"], list) or not isinstance(data["tasks"], list):
         raise ValueError("Ollama extraction response has invalid entity lists")
+    existing_task_titles = {str(item.get("title", "")).strip().casefold() for item in data["tasks"] if isinstance(item, dict)}
+    for task in deterministic_extract_tasks(note_body):
+        if task["title"].casefold() not in existing_task_titles:
+            data["tasks"].append(task)
     return data
