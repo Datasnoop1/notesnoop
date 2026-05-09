@@ -466,7 +466,7 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
         tasks = many(
             cur,
             """
-            SELECT DISTINCT t.id, t.title, t.status
+            SELECT DISTINCT t.id, t.title, t.status, t.created_at
             FROM tasks t
             JOIN task_notes tn ON tn.task_id = t.id
             WHERE tn.note_id = ANY(%s::uuid[])
@@ -490,7 +490,7 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
         reports = many(
             cur,
             """
-            SELECT DISTINCT r.id, r.title, r.status
+            SELECT DISTINCT r.id, r.title, r.status, r.created_at
             FROM reports r
             JOIN report_notes rn ON rn.report_id = r.id
             WHERE rn.note_id = ANY(%s::uuid[])
