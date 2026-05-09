@@ -21,6 +21,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("notesnoop-worker")
 
 POLL_INTERVAL_S = float(os.getenv("NOTESNOOP_WORKER_POLL_INTERVAL_S", "2"))
+MAX_JOB_ATTEMPTS = int(os.getenv("NOTESNOOP_WORKER_MAX_ATTEMPTS", "3"))
+RETRY_BACKOFF_SECONDS = int(os.getenv("NOTESNOOP_WORKER_RETRY_BACKOFF_SECONDS", "60"))
 STOP = asyncio.Event()
 
 
@@ -43,8 +45,9 @@ def _claim_job():
                 SET state = 'running', consumed_at = now(), attempts = attempts + 1
                 WHERE id = (
                   SELECT id
-                  FROM ai_jobs
+                FROM ai_jobs
                   WHERE state = 'queued'
+                    AND (consumed_at IS NULL OR consumed_at <= now())
                   ORDER BY priority DESC, created_at ASC
                   FOR UPDATE SKIP LOCKED
                   LIMIT 1
@@ -81,6 +84,51 @@ def _finish_job(job_id: str, state: str, error: str | None = None) -> None:
         raise
     finally:
         put_conn(conn)
+
+
+def _retry_job(job_id: str, error: str, delay_seconds: int) -> None:
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET LOCAL search_path = public")
+            cur.execute(
+                """
+                UPDATE ai_jobs
+                SET state = 'queued',
+                    consumed_at = now() + (%s * interval '1 second'),
+                    completed_at = NULL,
+                    last_error = %s
+                WHERE id = %s
+                """,
+                (delay_seconds, error, job_id),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        put_conn(conn)
+
+
+def _is_retryable_exception(exc: Exception) -> bool:
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
+        return True
+    message = str(exc).lower()
+    retryable_markers = (
+        "too many requests",
+        "rate limit",
+        "timed out",
+        "timeout",
+        "connection reset",
+        "connection refused",
+        "temporarily unavailable",
+        "bad gateway",
+        "service unavailable",
+        "gateway timeout",
+    )
+    return any(marker in message for marker in retryable_markers)
 
 
 def _similarity(left: str, right: str) -> float:
@@ -267,7 +315,14 @@ async def handle_job(job: dict) -> None:
             _finish_job(str(job["id"]), "done")
     except Exception as exc:
         logger.exception("job failed: %s", job.get("id"))
-        _finish_job(str(job["id"]), "failed", str(exc)[:1000])
+        error = str(exc)[:1000]
+        attempts = int(job.get("attempts") or 0)
+        if _is_retryable_exception(exc) and attempts < MAX_JOB_ATTEMPTS:
+            delay = max(1, RETRY_BACKOFF_SECONDS) * attempts
+            _retry_job(str(job["id"]), error, delay)
+            logger.warning("job requeued after transient failure: %s delay=%ss attempt=%s", job.get("id"), delay, attempts)
+            return
+        _finish_job(str(job["id"]), "failed", error)
 
 
 async def main() -> None:

@@ -314,6 +314,12 @@ def test_worker_matching_claim_finish_and_process_extract(monkeypatch):
     assert finish_conn.commits == 1
     assert any("UPDATE ai_jobs" in sql for sql, _params in finish_conn.cursor_obj.executed)
 
+    retry_conn = FakeConn()
+    monkeypatch.setattr(worker, "get_conn", lambda: retry_conn)
+    worker._retry_job("job-1", "429 Too Many Requests", 30)
+    assert retry_conn.commits == 1
+    assert any("state = 'queued'" in sql for sql, _params in retry_conn.cursor_obj.executed)
+
     async def fake_extract(_body, _people, _projects):
         return {
             "people": [
@@ -410,6 +416,23 @@ def test_worker_personal_skip_and_failure_paths(monkeypatch):
     finish_calls.clear()
     asyncio.run(worker.handle_job({"id": "job-fail", "kind": "extract", "note_id": "note-1"}))
     assert finish_calls[-1] == ("job-fail", "failed", "boom")
+
+    retry_calls = []
+
+    async def transient_process(_job):
+        raise RuntimeError("429 Too Many Requests")
+
+    monkeypatch.setattr(worker, "_process_extract", transient_process)
+    monkeypatch.setattr(worker, "_retry_job", lambda job_id, error, delay: retry_calls.append((job_id, error, delay)))
+    monkeypatch.setattr(worker, "RETRY_BACKOFF_SECONDS", 7)
+    monkeypatch.setattr(worker, "MAX_JOB_ATTEMPTS", 3)
+    finish_calls.clear()
+    asyncio.run(worker.handle_job({"id": "job-retry", "kind": "extract", "note_id": "note-1", "attempts": 1}))
+    assert retry_calls[-1] == ("job-retry", "429 Too Many Requests", 7)
+    assert finish_calls == []
+
+    asyncio.run(worker.handle_job({"id": "job-retry-exhausted", "kind": "extract", "note_id": "note-1", "attempts": 3}))
+    assert finish_calls[-1] == ("job-retry-exhausted", "failed", "429 Too Many Requests")
 
     finish_calls.clear()
     asyncio.run(worker.handle_job({"id": "job-noop", "kind": "unknown"}))

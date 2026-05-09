@@ -138,6 +138,11 @@ If failures rise, inspect the worker logs and confirm `OLLAMA_API_KEY`,
 `OLLAMA_HOST`, `NOTESNOOP_EXTRACTION_MODEL`, and embedding settings are present
 in the NoteSnoop containers. Product AI must use Ollama Cloud only.
 
+Transient upstream failures such as Ollama `429` responses are requeued with
+backoff. Tune `NOTESNOOP_WORKER_MAX_ATTEMPTS` and
+`NOTESNOOP_WORKER_RETRY_BACKOFF_SECONDS` if the queue starts failing faster
+than the provider recovers.
+
 ## Postmark Provider Issues
 
 Inbound webhook path:
