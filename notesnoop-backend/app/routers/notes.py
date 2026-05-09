@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
@@ -215,6 +217,57 @@ def get_note(note_id: str, user: CurrentUser = Depends(current_user)):
 @router.post("/notes/{note_id}/people")
 def link_person(note_id: str, payload: NoteLinkPerson, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
+        note = one(cur, "SELECT * FROM notes WHERE id = %s", (note_id,))
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        person = one(
+            cur,
+            "SELECT * FROM people WHERE id = %s AND workspace_id = %s",
+            (payload.person_id, note["workspace_id"]),
+        )
+        if not person:
+            raise HTTPException(status_code=404, detail="Person not found")
+        if _should_route_collaborator_person_suggestion(cur, note_id, note, user.clerk_user_id, payload.source):
+            confidence = payload.confidence or 0.75
+            existing = one(
+                cur,
+                """
+                SELECT id
+                FROM review_queue
+                WHERE workspace_id = %s
+                  AND target_user_id = %s
+                  AND entity_kind = 'person'
+                  AND entity_id = %s
+                  AND state = 'open'
+                  AND payload->>'person_id' = %s
+                LIMIT 1
+                """,
+                (note["workspace_id"], note["created_by"], note_id, payload.person_id),
+            )
+            if not existing:
+                cur.execute(
+                    """
+                    INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
+                    VALUES (%s, %s, 'person', %s, 'collaborator_suggestion', %s::jsonb)
+                    """,
+                    (
+                        note["workspace_id"],
+                        note["created_by"],
+                        note_id,
+                        json.dumps(
+                            {
+                                "name": person["name"],
+                                "person_id": payload.person_id,
+                                "confidence": confidence,
+                                "suggested_by": user.clerk_user_id,
+                            }
+                        ),
+                    ),
+                )
+            linked_note = get_note_payload(cur, note_id) or {}
+            linked_note["collaborator_suggestion"] = True
+            return {"data": linked_note}
+
         cur.execute(
             """
             INSERT INTO note_people_links (note_id, person_id, state, confidence, source, source_user_id)
@@ -537,6 +590,27 @@ def _merge_search_rows(keyword_rows: list[dict], semantic_rows: list[dict]) -> l
         key=lambda row: (float(row.get("search_score") or 0), row.get("created_at")),
         reverse=True,
     )[:50]
+
+
+def _should_route_collaborator_person_suggestion(cur, note_id: str, note: dict, user_id: str, source: str) -> bool:
+    if note["created_by"] == user_id and source != "collaborator_suggestion":
+        return False
+    return bool(
+        one(
+            cur,
+            """
+            SELECT 1
+            FROM note_projects np
+            JOIN projects p ON p.id = np.project_id
+            JOIN project_members pm ON pm.project_id = p.id
+            WHERE np.note_id = %s
+              AND p.shared = TRUE
+              AND pm.clerk_user_id = %s
+            LIMIT 1
+            """,
+            (note_id, user_id),
+        )
+    )
 
 
 def get_note_payload(cur, note_id: str) -> dict | None:

@@ -780,6 +780,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         onBlockSender={() => selectedNote && blockSender(selectedNote)}
         onUpdate={updateNote}
         onSetProjects={setNoteProjects}
+        onSuggestionQueued={() => setToast("Suggestion sent to Review.")}
         createProject={async (name) => {
           if (!workspaceId) throw new Error("Workspace is not ready");
           const res = await api(`/api/workspaces/${workspaceId}/projects`, {
@@ -967,6 +968,7 @@ function LinkedSheet({
   onBlockSender,
   onUpdate,
   onSetProjects,
+  onSuggestionQueued,
   createProject,
   api,
   refresh,
@@ -983,6 +985,7 @@ function LinkedSheet({
   onBlockSender: () => void;
   onUpdate: (noteId: string, title: string, body: string) => Promise<void>;
   onSetProjects: (note: any, projectIds: string[], confirmPersonalMove?: boolean) => Promise<void>;
+  onSuggestionQueued: () => void;
   createProject: (name: string) => Promise<any>;
   api: (path: string, init?: RequestInit) => Promise<any>;
   refresh: () => Promise<void>;
@@ -1005,10 +1008,11 @@ function LinkedSheet({
 
   async function link() {
     if (!personId) return;
-    await api(`/api/notes/${note.id}/people`, {
+    const res = await api(`/api/notes/${note.id}/people`, {
       method: "POST",
       body: JSON.stringify({ person_id: personId, state: "confirmed", source: "user" }),
     });
+    if (res.data?.collaborator_suggestion) onSuggestionQueued();
     await refresh();
   }
 

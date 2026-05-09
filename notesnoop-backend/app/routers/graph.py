@@ -254,14 +254,20 @@ def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
             raise HTTPException(status_code=404, detail="Review item not found")
         data = review.get("payload") or {}
         confidence = payload.confidence or data.get("confidence") or 0.75
-        if review["entity_kind"] == "person" and data.get("matched_person_id"):
+        person_id = data.get("matched_person_id") or data.get("person_id")
+        if review["entity_kind"] == "person" and person_id:
+            source = "collaborator_suggestion" if review["reason"] == "collaborator_suggestion" else "ai"
             cur.execute(
                 """
                 INSERT INTO note_people_links (note_id, person_id, state, confidence, source, source_user_id)
-                VALUES (%s, %s, 'confirmed', %s, 'ai', %s)
-                ON CONFLICT (note_id, person_id) DO UPDATE SET state = 'confirmed'
+                VALUES (%s, %s, 'confirmed', %s, %s, %s)
+                ON CONFLICT (note_id, person_id) DO UPDATE
+                  SET state = 'confirmed',
+                      confidence = EXCLUDED.confidence,
+                      source = EXCLUDED.source,
+                      source_user_id = EXCLUDED.source_user_id
                 """,
-                (review["entity_id"], data["matched_person_id"], confidence, user.clerk_user_id),
+                (review["entity_id"], person_id, confidence, source, data.get("suggested_by") or user.clerk_user_id),
             )
         if review["entity_kind"] == "project" and data.get("matched_project_id"):
             cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (str(review["entity_id"]),))

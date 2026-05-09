@@ -103,6 +103,36 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     assert note.status_code == 200
     note_id = note.json()["data"]["id"]
 
+    suggested_person = client.post(
+        f"/api/workspaces/{workspace_id}/people",
+        json={"name": "Jordan Kim"},
+        headers=peer_headers,
+    )
+    assert suggested_person.status_code == 200
+    suggested_person_id = suggested_person.json()["data"]["id"]
+
+    suggestion = client.post(
+        f"/api/notes/{note_id}/people",
+        json={"person_id": suggested_person_id, "state": "confirmed", "source": "user", "confidence": 0.88},
+        headers=peer_headers,
+    )
+    assert suggestion.status_code == 200
+    assert suggestion.json()["data"]["collaborator_suggestion"] is True
+    assert suggested_person_id not in {row["id"] for row in client.get(f"/api/notes/{note_id}", headers=headers).json()["data"]["people"]}
+
+    owner_home = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    assert owner_home.status_code == 200
+    routed = next(
+        row
+        for row in owner_home.json()["data"]["pending_review"]
+        if row["reason"] == "collaborator_suggestion" and row["payload"]["person_id"] == suggested_person_id
+    )
+    assert routed["target_user_id"] == user_id
+    accepted_suggestion = client.post(f"/api/review-queue/{routed['id']}/accept", json={}, headers=headers)
+    assert accepted_suggestion.status_code == 200
+    accepted_people = client.get(f"/api/notes/{note_id}", headers=headers).json()["data"]["people"]
+    assert suggested_person_id in {row["id"] for row in accepted_people}
+
     link = client.post(
         f"/api/notes/{note_id}/people",
         json={"person_id": person_id, "state": "confirmed", "source": "user", "confidence": 0.99},
@@ -141,7 +171,9 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     assert project_timeline.status_code == 200
     timeline_data = project_timeline.json()["data"]
     assert {row["id"] for row in timeline_data["notes"]} >= {note_id}
-    assert timeline_data["people"][0]["id"] == person_id
+    timeline_people = {row["id"] for row in timeline_data["people"]}
+    assert person_id in timeline_people
+    assert suggested_person_id in timeline_people
 
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
