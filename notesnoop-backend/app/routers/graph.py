@@ -300,10 +300,24 @@ def merge_person(source_person_id: str, payload: PersonMergeRequest, user: Curre
         if not allowed and not admin:
             raise HTTPException(status_code=403, detail="Not allowed to merge these people")
         links = many(cur, "SELECT * FROM note_people_links WHERE person_id = %s", (source_person_id,))
+        source_note_ids = [link["note_id"] for link in links]
+        target_links = many(
+            cur,
+            "SELECT * FROM note_people_links WHERE person_id = %s AND note_id = ANY(%s::uuid[])",
+            (payload.target_person_id, source_note_ids),
+        )
         cur.execute(
             """
-            INSERT INTO person_merge_undos (workspace_id, source_person_id, target_person_id, source_person, source_links, created_by)
-            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s)
+            INSERT INTO person_merge_undos (
+              workspace_id,
+              source_person_id,
+              target_person_id,
+              source_person,
+              source_links,
+              target_links,
+              created_by
+            )
+            VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s)
             RETURNING id
             """,
             (
@@ -312,6 +326,7 @@ def merge_person(source_person_id: str, payload: PersonMergeRequest, user: Curre
                 payload.target_person_id,
                 json.dumps(_json_safe(source)),
                 json.dumps(_json_safe(links)),
+                json.dumps(_json_safe(target_links)),
                 user.clerk_user_id,
             ),
         )
@@ -334,6 +349,16 @@ def merge_person(source_person_id: str, payload: PersonMergeRequest, user: Curre
                     link["source_user_id"],
                 ),
             )
+        cur.execute(
+            """
+            UPDATE review_queue
+            SET payload = jsonb_set(payload, '{matched_person_id}', to_jsonb(%s::text), true)
+            WHERE workspace_id = %s
+              AND entity_kind = 'person'
+              AND payload->>'matched_person_id' = %s
+            """,
+            (payload.target_person_id, source["workspace_id"], source_person_id),
+        )
         cur.execute("DELETE FROM people WHERE id = %s", (source_person_id,))
         return {"data": {"merged": True, "undo_id": undo_id}}
 
@@ -350,6 +375,34 @@ def undo_person_merge(undo_id: str, user: CurrentUser = Depends(current_user)):
             raise HTTPException(status_code=404, detail="Undo window has expired")
         source = undo["source_person"]
         links = undo["source_links"]
+        target_links = undo.get("target_links") or []
+        source_note_ids = [link["note_id"] for link in links]
+        if source_note_ids:
+            cur.execute(
+                "DELETE FROM note_people_links WHERE person_id = %s AND note_id = ANY(%s::uuid[])",
+                (undo["target_person_id"], source_note_ids),
+            )
+        for link in target_links:
+            cur.execute(
+                """
+                INSERT INTO note_people_links (note_id, person_id, state, confidence, source, source_user_id, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (note_id, person_id) DO UPDATE
+                  SET state = EXCLUDED.state,
+                      confidence = EXCLUDED.confidence,
+                      source = EXCLUDED.source,
+                      source_user_id = EXCLUDED.source_user_id
+                """,
+                (
+                    link["note_id"],
+                    undo["target_person_id"],
+                    link["state"],
+                    link["confidence"],
+                    link["source"],
+                    link["source_user_id"],
+                    link["created_at"],
+                ),
+            )
         cur.execute(
             """
             INSERT INTO people (id, workspace_id, name, company, details, clerk_user_id, created_by, created_at)
@@ -372,7 +425,11 @@ def undo_person_merge(undo_id: str, user: CurrentUser = Depends(current_user)):
                 """
                 INSERT INTO note_people_links (note_id, person_id, state, confidence, source, source_user_id, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (note_id, person_id) DO UPDATE SET person_id = EXCLUDED.person_id
+                ON CONFLICT (note_id, person_id) DO UPDATE
+                  SET state = EXCLUDED.state,
+                      confidence = EXCLUDED.confidence,
+                      source = EXCLUDED.source,
+                      source_user_id = EXCLUDED.source_user_id
                 """,
                 (
                     link["note_id"],
@@ -383,6 +440,18 @@ def undo_person_merge(undo_id: str, user: CurrentUser = Depends(current_user)):
                     link["source_user_id"],
                     link["created_at"],
                 ),
+            )
+        if source_note_ids:
+            cur.execute(
+                """
+                UPDATE review_queue
+                SET payload = jsonb_set(payload, '{matched_person_id}', to_jsonb(%s::text), true)
+                WHERE workspace_id = %s
+                  AND entity_kind = 'person'
+                  AND entity_id = ANY(%s::uuid[])
+                  AND payload->>'matched_person_id' = %s
+                """,
+                (undo["source_person_id"], undo["workspace_id"], source_note_ids, undo["target_person_id"]),
             )
         cur.execute("UPDATE person_merge_undos SET undone_at = now() WHERE id = %s", (undo_id,))
         return {"data": {"undone": True}}
@@ -409,5 +478,12 @@ def _json_safe(value):
     if isinstance(value, list):
         return [_json_safe(item) for item in value]
     if isinstance(value, dict):
-        return {key: str(item) if key.endswith("_at") or key.endswith("_id") or key == "id" else item for key, item in value.items()}
+        return {
+            key: None
+            if item is None
+            else str(item)
+            if key.endswith("_at") or key.endswith("_id") or key == "id"
+            else item
+            for key, item in value.items()
+        }
     return value

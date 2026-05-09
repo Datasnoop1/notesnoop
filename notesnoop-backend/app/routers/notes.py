@@ -343,7 +343,22 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
                 ),
                 "flagged": many(
                     cur,
-                    "SELECT * FROM flags WHERE workspace_id = %s ORDER BY flagged_at DESC LIMIT 5",
+                    """
+                    SELECT f.*,
+                           CASE
+                             WHEN f.note_id IS NOT NULL THEN 'note'
+                             WHEN f.project_id IS NOT NULL THEN 'project'
+                             ELSE 'person'
+                           END AS target_kind,
+                           coalesce(n.title, p.name, pe.name) AS label
+                    FROM flags f
+                    LEFT JOIN notes n ON n.id = f.note_id
+                    LEFT JOIN projects p ON p.id = f.project_id
+                    LEFT JOIN people pe ON pe.id = f.person_id
+                    WHERE f.workspace_id = %s
+                    ORDER BY f.flagged_at DESC
+                    LIMIT 5
+                    """,
                     (workspace_id,),
                 ),
                 "recent_notes": many(

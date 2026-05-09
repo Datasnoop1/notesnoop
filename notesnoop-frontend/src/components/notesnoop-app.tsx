@@ -66,6 +66,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [projectTimeline, setProjectTimeline] = useState<any | null>(null);
   const [activity, setActivity] = useState<any[]>([]);
   const [reviewCount, setReviewCount] = useState(0);
+  const [mergeUndoId, setMergeUndoId] = useState("");
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [mobileNav, setMobileNav] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -367,10 +368,29 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     await refreshWorkspaceData();
   }
 
-  async function copyBrief(kind: "note" | "project" | "person", item: any) {
-    const res = await api(`/api/briefs/${kind}/${item.id}?variant=quick`);
+  async function mergePerson(sourcePersonId: string, targetPersonId: string) {
+    const res = await api(`/api/people/${sourcePersonId}/merge`, {
+      method: "POST",
+      body: JSON.stringify({ target_person_id: targetPersonId }),
+    });
+    setMergeUndoId(res.data.undo_id);
+    setPersonTimeline(null);
+    setToast("People merged.");
+    await refreshWorkspaceData();
+  }
+
+  async function undoMerge() {
+    if (!mergeUndoId) return;
+    await api(`/api/person-merges/${mergeUndoId}/undo`, { method: "POST" });
+    setMergeUndoId("");
+    setToast("Merge undone.");
+    await refreshWorkspaceData();
+  }
+
+  async function copyBrief(kind: "note" | "project" | "person", item: any, variant: "quick" | "full" = "quick") {
+    const res = await api(`/api/briefs/${kind}/${item.id}?variant=${variant}`);
     await navigator.clipboard.writeText(res.data.markdown);
-    setToast("Brief copied.");
+    setToast(`${variant === "full" ? "Full" : "Quick"} brief copied.`);
   }
 
   async function decideReview(reviewId: string, decision: "accept" | "reject") {
@@ -543,6 +563,20 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         {!quickCapture && (
           <div className="content-grid">
             <section className="list-pane">
+              {!!home?.flagged?.length && (
+                <div className="flagged-strip">
+                  <div className="section-head">
+                    <h2>Flagged</h2>
+                    <Flag size={18} />
+                  </div>
+                  {home.flagged.map((item) => (
+                    <button key={item.id} onClick={() => item.note_id && openNote(item.note_id)}>
+                      <Flag size={15} />
+                      <span>{item.label || item.target_kind}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="section-head">
                 <h2>Notes</h2>
                 <Sparkles size={18} />
@@ -572,16 +606,22 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                 <TimelinePanel
                   timeline={personTimeline}
                   kind="person"
+                  people={state?.people || []}
                   onOpenNote={openNote}
                   onCopy={() => copyBrief("person", personTimeline.person)}
+                  onFlag={() => flag({ person_id: personTimeline.person.id })}
+                  onMerge={mergePerson}
                   onBack={() => setPersonTimeline(null)}
                 />
               ) : projectTimeline ? (
                 <TimelinePanel
                   timeline={projectTimeline}
                   kind="project"
+                  people={state?.people || []}
                   onOpenNote={openNote}
                   onCopy={() => copyBrief("project", projectTimeline.project)}
+                  onFlag={() => flag({ project_id: projectTimeline.project.id })}
+                  onMerge={mergePerson}
                   onBack={() => setProjectTimeline(null)}
                 />
               ) : (
@@ -612,9 +652,12 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
       </section>
 
       {toast && (
-        <button className="toast" onClick={() => setToast("")}>
-          <Check size={16} /> {toast}
-        </button>
+        <div className="toast">
+          <button onClick={() => setToast("")}>
+            <Check size={16} /> {toast}
+          </button>
+          {mergeUndoId && <button onClick={undoMerge}>Undo merge</button>}
+        </div>
       )}
 
       <LinkedSheet
@@ -624,6 +667,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         people={state?.people || []}
         onClose={() => setSheetOpen(false)}
         onCopy={() => selectedNote && copyBrief("note", selectedNote)}
+        onFullCopy={() => selectedNote && copyBrief("note", selectedNote, "full")}
         onFlag={() => selectedNote && flag({ note_id: selectedNote.id })}
         onProcess={() => selectedNote && processWithAI(selectedNote.id)}
         onBlockSender={() => selectedNote && blockSender(selectedNote)}
@@ -662,23 +706,44 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
 function TimelinePanel({
   timeline,
   kind,
+  people,
   onOpenNote,
   onCopy,
+  onFlag,
+  onMerge,
   onBack,
 }: {
   timeline: any;
   kind: "person" | "project";
+  people: any[];
   onOpenNote: (noteId: string) => Promise<void>;
   onCopy: () => void;
+  onFlag: () => void;
+  onMerge: (sourcePersonId: string, targetPersonId: string) => Promise<void>;
   onBack: () => void;
 }) {
+  const [mergeTargetId, setMergeTargetId] = useState("");
   const notes = timeline.notes || [];
   return (
     <div className="timeline-panel">
       <div className="timeline-actions">
         <button onClick={onCopy}><Copy size={16} /> Brief</button>
+        <button onClick={onFlag}><Flag size={16} /> Flag</button>
         <button onClick={onBack}><X size={16} /> Close</button>
       </div>
+      {kind === "person" && (
+        <div className="merge-row">
+          <select value={mergeTargetId} onChange={(event) => setMergeTargetId(event.target.value)}>
+            <option value="">Merge with...</option>
+            {people
+              .filter((person) => person.id !== timeline.person.id)
+              .map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+          </select>
+          <button disabled={!mergeTargetId} onClick={() => onMerge(timeline.person.id, mergeTargetId)}>
+            <Users size={16} /> Merge
+          </button>
+        </div>
+      )}
       {kind === "person" && !!timeline.projects?.length && (
         <div className="mini-section">
           <strong>Projects</strong>
@@ -716,6 +781,7 @@ function LinkedSheet({
   people,
   onClose,
   onCopy,
+  onFullCopy,
   onFlag,
   onProcess,
   onBlockSender,
@@ -731,6 +797,7 @@ function LinkedSheet({
   people: any[];
   onClose: () => void;
   onCopy: () => void;
+  onFullCopy: () => void;
   onFlag: () => void;
   onProcess: () => void;
   onBlockSender: () => void;
@@ -885,6 +952,7 @@ function LinkedSheet({
         )}
         <div className="sheet-actions">
           <button onClick={onCopy}><Copy size={17} /> Quick brief</button>
+          <button onClick={onFullCopy}><Copy size={17} /> Full brief</button>
           <button onClick={onFlag}><Flag size={17} /> Flag</button>
           <button onClick={() => setEditMode(true)}><Settings size={17} /> Edit</button>
           <button onClick={onProcess}><Sparkles size={17} /> Process with AI</button>

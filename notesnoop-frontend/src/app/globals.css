@@ -246,6 +246,27 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .section-head h2 { font-size: 18px; margin: 0 0 10px; }
 
 .list-pane, .entity-pane { min-width: 0; }
+.flagged-strip {
+  border: 1px solid #d9c68e;
+  background: #fff8dc;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+  display: grid;
+  gap: 8px;
+}
+.flagged-strip button {
+  border: 1px solid #e1cf94;
+  background: #fffdf2;
+  color: #624a0e;
+  border-radius: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-align: left;
+}
 .note-row, .entity-row {
   border-top: 1px solid var(--line);
   padding: 13px 0;
@@ -274,7 +295,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .entity-row span { color: var(--muted); font-size: 13px; }
 .timeline-panel { display: grid; gap: 12px; }
 .timeline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.timeline-actions button {
+.timeline-actions button, .merge-row button {
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--ink);
@@ -285,6 +306,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   align-items: center;
   gap: 6px;
 }
+.merge-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.merge-row button:disabled { opacity: .55; cursor: not-allowed; }
 .mini-section {
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
@@ -382,6 +409,20 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   align-items: center;
   gap: 8px;
   max-width: min(420px, calc(100vw - 36px));
+}
+.toast button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+}
+.toast button + button {
+  border-left: 1px solid rgba(255,255,255,.24);
+  padding-left: 10px;
+  font-weight: 700;
 }
 
 .signin-shell {
