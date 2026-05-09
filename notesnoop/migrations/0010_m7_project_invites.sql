@@ -81,6 +81,21 @@ $$;
 
 ALTER TABLE project_invites ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS user_profiles_workspace_peer_select ON user_profiles;
+CREATE POLICY user_profiles_workspace_peer_select ON user_profiles
+  FOR SELECT
+  USING (
+    clerk_user_id = current_user_id()
+    OR EXISTS (
+      SELECT 1
+      FROM workspace_members self_member
+      JOIN workspace_members profile_member
+        ON profile_member.workspace_id = self_member.workspace_id
+      WHERE self_member.clerk_user_id = current_user_id()
+        AND profile_member.clerk_user_id = user_profiles.clerk_user_id
+    )
+  );
+
 DROP POLICY IF EXISTS project_invites_admin_or_invitee_select ON project_invites;
 CREATE POLICY project_invites_admin_or_invitee_select ON project_invites
   FOR SELECT
