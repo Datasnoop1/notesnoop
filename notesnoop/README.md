@@ -56,3 +56,17 @@ their configured local morning hour.
 
 Use `notesnoop/RUNBOOK.md` for backups/restore, RLS troubleshooting, AI
 rate-limit alerts, Postmark provider issues, nightly health, and on-call basics.
+
+## Smoke Checks
+
+Use the API-level smoke runner after staging or preview deploys:
+
+```bash
+python scripts/notesnoop_smoke.py --base-url http://localhost:3010
+python scripts/notesnoop_smoke.py --base-url http://62.238.14.150:8091 --basic-auth "$NOTESNOOP_PREVIEW_BASIC_AUTH"
+```
+
+It drives the v1 flow end to end with synthetic users: bootstrap, pre-seeded
+people, first note and project nudge, timelines, search, flags, copy briefs,
+person merge/undo, Manual email AI, invite/share, collaborator review routing,
+Personal hard-block, and AI rate limiting.

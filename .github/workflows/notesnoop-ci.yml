@@ -8,6 +8,7 @@ on:
       - "notesnoop-worker/**"
       - "notesnoop-frontend/**"
       - "scripts/nightly_health_report.py"
+      - "scripts/notesnoop_smoke.py"
       - "scripts/deploy_staging.sh"
       - "scripts/ollama_delegate.py"
       - ".github/workflows/notesnoop-ci.yml"
@@ -23,6 +24,7 @@ on:
       - "notesnoop-worker/**"
       - "notesnoop-frontend/**"
       - "scripts/nightly_health_report.py"
+      - "scripts/notesnoop_smoke.py"
       - "scripts/deploy_staging.sh"
       - "scripts/ollama_delegate.py"
       - ".github/workflows/notesnoop-ci.yml"
@@ -40,7 +42,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r notesnoop-backend/requirements.txt pytest pytest-cov
       - name: Compile backend
-        run: python -m compileall -q notesnoop-backend/app notesnoop/migrate.py scripts/nightly_health_report.py scripts/ollama_delegate.py
+        run: python -m compileall -q notesnoop-backend/app notesnoop/migrate.py scripts/nightly_health_report.py scripts/notesnoop_smoke.py scripts/ollama_delegate.py
 
   frontend:
     runs-on: ubuntu-latest
