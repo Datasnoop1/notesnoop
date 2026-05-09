@@ -51,3 +51,8 @@ uses the `notesnoop_worker` BYPASSRLS role; API services use `notesnoop_app`.
 The enqueue command is cron-safe and idempotent per workspace/member/local day.
 It only queues opted-in members with at least one open Review Queue item at
 their configured local morning hour.
+
+## Operations
+
+Use `notesnoop/RUNBOOK.md` for backups/restore, RLS troubleshooting, AI
+rate-limit alerts, Postmark provider issues, nightly health, and on-call basics.
