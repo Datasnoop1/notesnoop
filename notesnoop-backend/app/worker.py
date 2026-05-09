@@ -12,7 +12,7 @@ from psycopg2.extras import RealDictCursor
 
 from .briefing import enqueue_due_morning_briefings, send_morning_briefing
 from .embeddings import embed_text, note_embedding_text, upsert_note_embedding
-from .db import get_conn, put_conn
+from .db import get_worker_conn, put_conn
 from .ollama_client import extract_entities
 
 
@@ -21,6 +21,10 @@ logger = logging.getLogger("notesnoop-worker")
 
 POLL_INTERVAL_S = float(os.getenv("NOTESNOOP_WORKER_POLL_INTERVAL_S", "2"))
 STOP = asyncio.Event()
+
+
+def get_conn():
+    return get_worker_conn()
 
 
 def _stop(*_args):

@@ -12,7 +12,7 @@ import httpx
 from psycopg2.extras import RealDictCursor
 
 from .config import get_settings
-from .db import get_conn, one, put_conn
+from .db import get_conn, get_worker_conn, one, put_conn
 
 
 def _safe_zone(name: str | None) -> ZoneInfo:
@@ -68,7 +68,7 @@ def enqueue_due_morning_briefings(now: datetime | None = None) -> dict[str, int]
     else:
         now_utc = now_utc.astimezone(timezone.utc)
 
-    conn = get_conn()
+    conn = get_worker_conn()
     queued = 0
     considered = 0
     skipped_not_due = 0
@@ -151,7 +151,7 @@ async def send_morning_briefing(job: dict) -> dict[str, Any]:
     settings = get_settings()
     workspace_id = str(job["workspace_id"])
     user_id = str(job["target_user_id"])
-    conn = get_conn()
+    conn = get_worker_conn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SET LOCAL search_path = public")

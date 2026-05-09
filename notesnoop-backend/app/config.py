@@ -12,6 +12,11 @@ load_dotenv()
 
 class Settings(BaseModel):
     database_url: str = Field(default_factory=lambda: os.getenv("NOTESNOOP_DATABASE_URL") or os.getenv("DATABASE_URL", ""))
+    worker_database_url: str = Field(
+        default_factory=lambda: os.getenv("NOTESNOOP_WORKER_DATABASE_URL")
+        or os.getenv("NOTESNOOP_DATABASE_URL")
+        or os.getenv("DATABASE_URL", "")
+    )
     frontend_base_url: str = Field(default_factory=lambda: os.getenv("NOTESNOOP_FRONTEND_BASE_URL", "https://notesnoop.app"))
     backend_base_url: str = Field(default_factory=lambda: os.getenv("NOTESNOOP_BACKEND_BASE_URL", "https://api.notesnoop.app"))
     inbound_domain: str = Field(default_factory=lambda: os.getenv("NOTESNOOP_INBOUND_DOMAIN", "in.notesnoop.app"))

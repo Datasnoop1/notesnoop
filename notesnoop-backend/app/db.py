@@ -13,46 +13,68 @@ from .config import get_settings
 
 
 logger = logging.getLogger(__name__)
-_pool: psycopg2.pool.ThreadedConnectionPool | None = None
+_pools: dict[tuple[str, str], psycopg2.pool.ThreadedConnectionPool] = {}
+_conn_pool_keys: dict[int, tuple[str, str]] = {}
 _lock = threading.Lock()
 
 
-def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
-    global _pool
+def _database_url(url: str | None = None) -> str:
+    database_url = url or get_settings().database_url
+    if not database_url:
+        raise RuntimeError("NOTESNOOP_DATABASE_URL or DATABASE_URL is required")
+    return database_url
+
+
+def _get_pool(database_url: str | None = None, application_name: str = "notesnoop-backend") -> psycopg2.pool.ThreadedConnectionPool:
+    key = (_database_url(database_url), application_name)
     with _lock:
-        if _pool is None or _pool.closed:
-            database_url = get_settings().database_url
-            if not database_url:
-                raise RuntimeError("NOTESNOOP_DATABASE_URL or DATABASE_URL is required")
-            _pool = psycopg2.pool.ThreadedConnectionPool(
+        pool = _pools.get(key)
+        if pool is None or pool.closed:
+            pool = psycopg2.pool.ThreadedConnectionPool(
                 1,
                 12,
-                database_url,
+                key[0],
                 connect_timeout=10,
-                application_name="notesnoop-backend",
+                application_name=application_name,
             )
-        return _pool
+            _pools[key] = pool
+        return pool
 
 
-def get_conn():
-    conn = _get_pool().getconn()
+def get_conn(database_url: str | None = None, application_name: str = "notesnoop-backend"):
+    pool = _get_pool(database_url, application_name)
+    conn = pool.getconn()
+    _conn_pool_keys[id(conn)] = (_database_url(database_url), application_name)
     conn.autocommit = False
     return conn
+
+
+def get_worker_conn():
+    settings = get_settings()
+    return get_conn(settings.worker_database_url, application_name="notesnoop-worker")
 
 
 def put_conn(conn) -> None:
     if conn is None:
         return
+    key = _conn_pool_keys.pop(id(conn), None)
+    pool = _pools.get(key) if key else None
     try:
         if conn.closed:
             return
         if conn.info.transaction_status != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
             conn.rollback()
-        _get_pool().putconn(conn)
+        if pool is None:
+            conn.close()
+        else:
+            pool.putconn(conn)
     except Exception:
         logger.debug("discarding broken database connection", exc_info=True)
         try:
-            _get_pool().putconn(conn, close=True)
+            if pool is None:
+                conn.close()
+            else:
+                pool.putconn(conn, close=True)
         except Exception:
             with contextlib.suppress(Exception):
                 conn.close()
