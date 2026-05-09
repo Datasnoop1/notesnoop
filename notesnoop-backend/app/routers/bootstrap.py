@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
-from ..schemas import BootstrapRequest, PersonCreate, ProjectCreate, WorkspaceSettingsUpdate
-from ..services import bootstrap_workspace, get_bootstrap_state
+from ..schemas import BootstrapRequest, PersonCreate, ProjectCreate, ProjectInviteCreate, WorkspaceSettingsUpdate
+from ..services import accept_pending_project_invites, bootstrap_workspace, get_bootstrap_state, normalize_email, upsert_user_profile
 
 
 router = APIRouter(prefix="/api", tags=["bootstrap"])
@@ -19,6 +19,8 @@ def bootstrap(payload: BootstrapRequest, user: CurrentUser = Depends(current_use
 @router.get("/me")
 def me(user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
+        upsert_user_profile(cur, user)
+        accepted_invites = accept_pending_project_invites(cur, user)
         membership = one(
             cur,
             """
@@ -31,9 +33,9 @@ def me(user: CurrentUser = Depends(current_user)):
             (user.clerk_user_id,),
         )
         if not membership:
-            return {"data": {"user": user.__dict__, "bootstrapped": False}}
+            return {"data": {"user": user.__dict__, "bootstrapped": False, "accepted_invites": accepted_invites}}
         state = get_bootstrap_state(cur, user.clerk_user_id, str(membership["workspace_id"]))
-        return {"data": {"user": user.__dict__, "bootstrapped": True, **state}}
+        return {"data": {"user": user.__dict__, "bootstrapped": True, "accepted_invites": accepted_invites, **state}}
 
 
 @router.patch("/workspaces/{workspace_id}/settings")
@@ -179,3 +181,46 @@ def add_project_member(
         )
         cur.execute("UPDATE projects SET shared = TRUE WHERE id = %s", (project_id,))
         return {"data": {"project_id": project_id, "member_user_id": member_user_id}}
+
+
+@router.post("/projects/{project_id}/invites")
+def invite_project_member(
+    project_id: str,
+    payload: ProjectInviteCreate,
+    user: CurrentUser = Depends(current_user),
+):
+    email = normalize_email(payload.email)
+    if not email or "@" not in email:
+        raise HTTPException(status_code=422, detail="A valid email address is required")
+    with transaction(user.clerk_user_id) as cur:
+        project = one(cur, "SELECT * FROM projects WHERE id = %s", (project_id,))
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if project["kind"] == "personal":
+            raise HTTPException(status_code=422, detail="Personal projects cannot be shared")
+        is_admin = one(
+            cur,
+            "SELECT 1 FROM workspace_members WHERE workspace_id = %s AND clerk_user_id = %s AND role = 'admin'",
+            (project["workspace_id"], user.clerk_user_id),
+        )
+        if not is_admin and project["created_by"] != user.clerk_user_id:
+            raise HTTPException(status_code=403, detail="Only workspace admins or the project creator can invite people")
+
+        cur.execute("UPDATE projects SET shared = TRUE WHERE id = %s", (project_id,))
+        cur.execute(
+            """
+            INSERT INTO project_invites (workspace_id, project_id, email, display_name, invited_by)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (project_id, (lower(email))) WHERE status = 'pending'
+            DO UPDATE SET display_name = EXCLUDED.display_name
+            RETURNING *
+            """,
+            (
+                project["workspace_id"],
+                project_id,
+                email,
+                payload.display_name,
+                user.clerk_user_id,
+            ),
+        )
+        return {"data": dict(cur.fetchone())}

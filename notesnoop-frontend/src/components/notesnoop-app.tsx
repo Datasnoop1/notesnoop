@@ -61,6 +61,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [searchMeta, setSearchMeta] = useState<any | null>(null);
   const [personName, setPersonName] = useState("");
   const [projectName, setProjectName] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
   const [activeProject, setActiveProject] = useState<string | null>(null);
   const [personTimeline, setPersonTimeline] = useState<any | null>(null);
   const [projectTimeline, setProjectTimeline] = useState<any | null>(null);
@@ -346,6 +347,17 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setPersonTimeline(null);
     const res = await api(`/api/projects/${project.id}/timeline`);
     setProjectTimeline(res.data);
+  }
+
+  async function inviteProjectMember(project: any, email: string) {
+    if (!email.trim()) return;
+    const res = await api(`/api/projects/${project.id}/invites`, {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+    setInviteEmail("");
+    setToast(`Invite ready for ${res.data.email}.`);
+    await openProject(project);
   }
 
   async function openPerson(person: any) {
@@ -641,6 +653,9 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                   onCopy={() => copyBrief("project", projectTimeline.project)}
                   onFlag={() => flag({ project_id: projectTimeline.project.id })}
                   onMerge={mergePerson}
+                  inviteEmail={inviteEmail}
+                  onInviteEmailChange={setInviteEmail}
+                  onInvite={inviteProjectMember}
                   onBack={() => setProjectTimeline(null)}
                 />
               ) : (
@@ -780,6 +795,9 @@ function TimelinePanel({
   onCopy,
   onFlag,
   onMerge,
+  inviteEmail = "",
+  onInviteEmailChange,
+  onInvite,
   onBack,
 }: {
   timeline: any;
@@ -789,6 +807,9 @@ function TimelinePanel({
   onCopy: () => void;
   onFlag: () => void;
   onMerge: (sourcePersonId: string, targetPersonId: string) => Promise<void>;
+  inviteEmail?: string;
+  onInviteEmailChange?: (email: string) => void;
+  onInvite?: (project: any, email: string) => Promise<void>;
   onBack: () => void;
 }) {
   const [mergeTargetId, setMergeTargetId] = useState("");
@@ -827,6 +848,31 @@ function TimelinePanel({
           {(timeline.people || []).slice(0, 5).map((person: any) => (
             <span key={person.id}>{person.name} - {person.mention_count} mentions</span>
           ))}
+        </div>
+      )}
+      {kind === "project" && (
+        <div className="share-panel">
+          <div className="share-members">
+            {(timeline.members || []).map((member: any) => (
+              <span key={member.clerk_user_id}>{member.display_name || member.email || member.clerk_user_id}</span>
+            ))}
+            {(timeline.invites || [])
+              .filter((invite: any) => invite.status === "pending")
+              .map((invite: any) => (
+                <span key={invite.id} className="pending-invite">{invite.email}</span>
+              ))}
+          </div>
+          <div className="share-row">
+            <input
+              value={inviteEmail}
+              onChange={(event) => onInviteEmailChange?.(event.target.value)}
+              placeholder="Invite by email"
+              type="email"
+            />
+            <button disabled={!inviteEmail.trim()} onClick={() => onInvite?.(timeline.project, inviteEmail)}>
+              <Users size={16} /> Share
+            </button>
+          </div>
         </div>
       )}
       <div className="timeline-list">

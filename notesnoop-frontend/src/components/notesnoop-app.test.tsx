@@ -52,7 +52,8 @@ const personTimeline = {
 };
 const projectTimeline = {
   project: projects[2],
-  members: [{ clerk_user_id: "dev_user" }],
+  members: [{ clerk_user_id: "dev_user", display_name: "Dev User" }],
+  invites: [{ id: "invite-1", email: "pending@example.test", status: "pending" }],
   people: [{ ...people[0], mention_count: 1 }],
   notes: [{ ...note, created_at: "2026-05-09T08:00:00Z" }],
 };
@@ -101,6 +102,9 @@ function installFetch() {
     if (url.includes("/api/workspaces/workspace-1/notes")) return json({ data: [note] });
     if (url.includes("/api/workspaces/workspace-1/people")) return json({ data: people });
     if (url.includes("/api/workspaces/workspace-1/projects")) return json({ data: projects });
+    if (url.includes("/api/projects/project-1/invites")) {
+      return json({ data: { id: "invite-created", email: JSON.parse(String(init?.body)).email, status: "pending" } });
+    }
     if (url.includes("/api/projects/project-1/timeline")) return json({ data: projectTimeline });
     if (url.includes("/api/people/person-1/timeline")) return json({ data: personTimeline });
     if (url.includes("/api/people/person-1/merge")) return json({ data: { undo_id: "undo-1" } });
@@ -209,6 +213,9 @@ describe("NoteSnoopApp", () => {
     const projectButtons = await screen.findAllByRole("button", { name: /^Apollo$/i });
     fireEvent.click(projectButtons[0]);
     expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText("Invite by email"), { target: { value: "peer@example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Share$/i }));
+    expect(await screen.findByText("Invite ready for peer@example.test.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^Brief$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Flag$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Close$/i }));
@@ -225,6 +232,7 @@ describe("NoteSnoopApp", () => {
 
     await waitFor(() => {
       expect(calls.some((call) => call.includes("GET /api/projects/project-1/timeline"))).toBe(true);
+      expect(calls.some((call) => call.includes("POST /api/projects/project-1/invites"))).toBe(true);
       expect(calls.some((call) => call.includes("GET /api/people/person-1/timeline"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/people/person-1/merge"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/person-merges/undo-1/undo"))).toBe(true);

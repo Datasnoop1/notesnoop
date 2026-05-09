@@ -24,6 +24,137 @@ def inbound_address_for(user_id: str) -> str:
     return f"{local[:48]}@{get_settings().inbound_domain}"
 
 
+def normalize_email(email: str | None) -> str | None:
+    if not email:
+        return None
+    return email.strip().lower() or None
+
+
+def upsert_user_profile(cur, user: CurrentUser, timezone: str = "UTC") -> None:
+    cur.execute(
+        """
+        INSERT INTO user_profiles (clerk_user_id, email, display_name, avatar_url, timezone)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (clerk_user_id) DO UPDATE
+          SET email = COALESCE(EXCLUDED.email, user_profiles.email),
+              display_name = COALESCE(EXCLUDED.display_name, user_profiles.display_name),
+              avatar_url = COALESCE(EXCLUDED.avatar_url, user_profiles.avatar_url),
+              timezone = EXCLUDED.timezone
+        """,
+        (
+            user.clerk_user_id,
+            normalize_email(user.email),
+            user.display_name,
+            user.avatar_url,
+            timezone,
+        ),
+    )
+
+
+def accept_pending_project_invites(cur, user: CurrentUser) -> list[dict]:
+    email = normalize_email(user.email)
+    if not email:
+        return []
+    invites = many(
+        cur,
+        """
+        SELECT *
+        FROM project_invites
+        WHERE status = 'pending'
+          AND lower(email) = %s
+        ORDER BY created_at
+        """,
+        (email,),
+    )
+    accepted: list[dict] = []
+    for invite in invites:
+        cur.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
+            VALUES (%s, %s, 'member')
+            ON CONFLICT DO NOTHING
+            """,
+            (invite["workspace_id"], user.clerk_user_id),
+        )
+        workspace = one(cur, "SELECT inbox_mode FROM workspaces WHERE id = %s", (invite["workspace_id"],))
+        ensure_member_default_projects(
+            cur,
+            str(invite["workspace_id"]),
+            user.clerk_user_id,
+            workspace["inbox_mode"] if workspace else "per_user_private",
+        )
+        cur.execute(
+            """
+            INSERT INTO project_members (project_id, clerk_user_id)
+            VALUES (%s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (invite["project_id"], user.clerk_user_id),
+        )
+        cur.execute(
+            """
+            UPDATE project_invites
+            SET status = 'accepted',
+                accepted_by = %s,
+                accepted_at = now()
+            WHERE id = %s
+            RETURNING *
+            """,
+            (user.clerk_user_id, invite["id"]),
+        )
+        accepted.append(dict(cur.fetchone()))
+    return accepted
+
+
+def ensure_member_default_projects(cur, workspace_id: str, user_id: str, inbox_mode: str) -> None:
+    defaults = [("Personal", "personal", "#7c3aed", False)]
+    if inbox_mode == "shared":
+        shared_inbox = one(
+            cur,
+            "SELECT id FROM projects WHERE workspace_id = %s AND kind = 'inbox' AND shared = TRUE LIMIT 1",
+            (workspace_id,),
+        )
+        if shared_inbox:
+            cur.execute(
+                "INSERT INTO project_members (project_id, clerk_user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                (shared_inbox["id"], user_id),
+            )
+        else:
+            defaults.append(("Inbox", "inbox", "#0f766e", True))
+    else:
+        defaults.append(("Inbox", "inbox", "#0f766e", False))
+
+    for name, kind, color, shared in defaults:
+        existing = one(
+            cur,
+            """
+            SELECT id
+            FROM projects
+            WHERE workspace_id = %s
+              AND kind = %s
+              AND created_by = %s
+            LIMIT 1
+            """,
+            (workspace_id, kind, user_id),
+        )
+        if existing:
+            project_id = existing["id"]
+        else:
+            cur.execute(
+                """
+                INSERT INTO projects (workspace_id, name, kind, color_hex, shared, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (workspace_id, name, kind, color, shared, user_id),
+            )
+            project_id = cur.fetchone()["id"]
+        cur.execute(
+            "INSERT INTO project_members (project_id, clerk_user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+            (project_id, user_id),
+        )
+
+
 def _consume_bucket(cur, key: str, capacity: float, refill_per_second: float) -> tuple[bool, int]:
     cur.execute(
         """
@@ -106,18 +237,8 @@ def bootstrap_workspace(user: CurrentUser, payload: BootstrapRequest) -> dict:
     settings = get_settings()
     workspace_name = payload.workspace_name or "My NoteSnoop workspace"
     with transaction(user.clerk_user_id) as cur:
-        cur.execute(
-            """
-            INSERT INTO user_profiles (clerk_user_id, email, display_name, avatar_url, timezone)
-            VALUES (%s, %s, %s, %s, %s)
-            ON CONFLICT (clerk_user_id) DO UPDATE
-              SET email = COALESCE(EXCLUDED.email, user_profiles.email),
-                  display_name = COALESCE(EXCLUDED.display_name, user_profiles.display_name),
-                  avatar_url = COALESCE(EXCLUDED.avatar_url, user_profiles.avatar_url),
-                  timezone = EXCLUDED.timezone
-            """,
-            (user.clerk_user_id, user.email, user.display_name, user.avatar_url, payload.timezone),
-        )
+        upsert_user_profile(cur, user, payload.timezone)
+        accept_pending_project_invites(cur, user)
         existing = one(
             cur,
             """

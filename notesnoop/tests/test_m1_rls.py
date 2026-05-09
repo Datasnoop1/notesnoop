@@ -258,6 +258,7 @@ def test_workspace_scoped_tables_have_rls_policies(conn):
         "embeddings",
         "flags",
         "review_queue",
+        "project_invites",
         "ai_jobs",
         "recently_accessed",
         "calibration_events",

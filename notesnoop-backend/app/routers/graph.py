@@ -106,7 +106,18 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
             """,
             (project_id,),
         )
-        return {"data": {"project": project, "notes": notes, "people": people, "members": members}}
+        invites = many(
+            cur,
+            """
+            SELECT id, email, display_name, status, invited_by, accepted_by, accepted_at, created_at
+            FROM project_invites
+            WHERE project_id = %s
+            ORDER BY created_at DESC
+            LIMIT 25
+            """,
+            (project_id,),
+        )
+        return {"data": {"project": project, "notes": notes, "people": people, "members": members, "invites": invites}}
 
 
 @router.get("/briefs/{kind}/{entity_id}")

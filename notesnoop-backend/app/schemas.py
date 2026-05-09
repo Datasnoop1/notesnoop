@@ -30,6 +30,11 @@ class ProjectCreate(BaseModel):
     ai_mode: str = Field(default="on", pattern="^(on|manual)$")
 
 
+class ProjectInviteCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    display_name: str | None = Field(default=None, max_length=200)
+
+
 class NoteCreate(BaseModel):
     body: str = Field(min_length=1)
     title: str | None = Field(default=None, max_length=200)

@@ -79,6 +79,22 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     assert project.status_code == 200
     project_id = project.json()["data"]["id"]
 
+    peer_headers = _headers(peer_id)
+    invite = client.post(
+        f"/api/projects/{project_id}/invites",
+        json={"email": peer_headers["x-notesnoop-email"]},
+        headers=headers,
+    )
+    assert invite.status_code == 200
+    assert invite.json()["data"]["status"] == "pending"
+
+    accepted = client.get("/api/me", headers=peer_headers)
+    assert accepted.status_code == 200
+    accepted_data = accepted.json()["data"]
+    assert accepted_data["bootstrapped"] is True
+    assert accepted_data["workspace"]["id"] == workspace_id
+    assert accepted_data["accepted_invites"][0]["project_id"] == project_id
+
     note = client.post(
         f"/api/workspaces/{workspace_id}/notes",
         json={"body": "Apollo quarterly launch memo with Morgan.", "project_ids": [project_id]},
@@ -95,6 +111,7 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     assert link.status_code == 200
     assert client.post("/api/flags", json={"note_id": note_id}, headers=headers).status_code == 200
     assert client.get(f"/api/notes/{note_id}", headers=headers).status_code == 200
+    assert client.get(f"/api/notes/{note_id}", headers=peer_headers).status_code == 200
 
     other_note = client.post(
         f"/api/workspaces/{workspace_id}/notes",
@@ -129,26 +146,6 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "INSERT INTO user_profiles (clerk_user_id, email, display_name) VALUES (%s, %s, 'Peer')",
-                (peer_id, f"{peer_id}@example.test"),
-            )
-            cur.execute(
-                "INSERT INTO workspace_members (workspace_id, clerk_user_id, role) VALUES (%s, %s, 'member')",
-                (workspace_id, peer_id),
-            )
-            cur.execute(
-                "INSERT INTO project_members (project_id, clerk_user_id) VALUES (%s, %s)",
-                (project_id, peer_id),
-            )
-            cur.execute("UPDATE projects SET shared = TRUE WHERE id = %s", (project_id,))
-            cur.execute(
-                """
-                INSERT INTO note_viewers (note_id, viewer_user_id, workspace_id)
-                VALUES (%s, %s, %s)
-                """,
-                (note_id, peer_id, workspace_id),
-            )
-            cur.execute(
                 """
                 INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
                 VALUES (%s, %s, 'person', %s, 'ai_suggestion', %s::jsonb)
@@ -164,3 +161,8 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     assert activity.status_code == 200
     assert activity.json()["data"][0]["project_id"] == project_id
     assert activity.json()["data"][0]["active_viewer_count"] == 1
+
+    shared_timeline = client.get(f"/api/projects/{project_id}/timeline", headers=headers)
+    assert shared_timeline.status_code == 200
+    assert shared_timeline.json()["data"]["members"][1]["clerk_user_id"] == peer_id
+    assert shared_timeline.json()["data"]["invites"][0]["status"] == "accepted"
