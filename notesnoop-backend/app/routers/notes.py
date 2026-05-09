@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
+from ..embeddings import embed_text_sync, vector_literal
 from ..schemas import FlagRequest, NoteCreate, NoteLinkPerson, NoteProjectSet, NoteUpdate
 from ..services import consume_ai_quota, derive_title, enqueue_ai_if_allowed
 
@@ -348,8 +349,15 @@ def home(workspace_id: str, user: CurrentUser = Depends(current_user)):
 
 @router.get("/workspaces/{workspace_id}/search")
 def search(workspace_id: str, q: str = "", user: CurrentUser = Depends(current_user)):
+    query = q.strip()
+    query_embedding = None
+    if query:
+        try:
+            query_embedding = embed_text_sync(query)
+        except Exception:
+            query_embedding = None
     with transaction(user.clerk_user_id) as cur:
-        if not q.strip():
+        if not query:
             rows = many(
                 cur,
                 """
@@ -362,20 +370,76 @@ def search(workspace_id: str, q: str = "", user: CurrentUser = Depends(current_u
                 """,
                 (user.clerk_user_id, workspace_id),
             )
+            meta = {"semantic_enabled": False, "semantic_excluded": 0}
         else:
-            rows = many(
+            keyword_rows = many(
                 cur,
                 """
-                SELECT *
+                SELECT *, 'keyword' AS search_source, ts_rank(search_vector, plainto_tsquery('english', %s)) AS search_score
                 FROM notes
                 WHERE workspace_id = %s
                   AND search_vector @@ plainto_tsquery('english', %s)
-                ORDER BY ts_rank(search_vector, plainto_tsquery('english', %s)) DESC, created_at DESC
+                ORDER BY search_score DESC, created_at DESC
                 LIMIT 50
                 """,
-                (workspace_id, q, q),
+                (query, workspace_id, query),
             )
-        return {"data": rows}
+            semantic_rows = []
+            if query_embedding:
+                literal = vector_literal(query_embedding.vector)
+                semantic_rows = many(
+                    cur,
+                    """
+                    SELECT n.*,
+                           'semantic' AS search_source,
+                           (1 - (e.embedding <=> %s::vector)) AS search_score
+                    FROM embeddings e
+                    JOIN notes n ON n.id = e.note_id
+                    WHERE n.workspace_id = %s
+                      AND e.model_version = %s
+                    ORDER BY e.embedding <=> %s::vector
+                    LIMIT 50
+                    """,
+                    (literal, workspace_id, query_embedding.model, literal),
+                )
+            rows = _merge_search_rows(keyword_rows, semantic_rows)
+            excluded = one(
+                cur,
+                """
+                SELECT count(*) AS count
+                FROM notes n
+                WHERE n.workspace_id = %s
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM embeddings e
+                    WHERE e.note_id = n.id
+                  )
+                """,
+                (workspace_id,),
+            )
+            meta = {
+                "semantic_enabled": bool(query_embedding),
+                "semantic_excluded": int(excluded["count"] if excluded else 0),
+            }
+        return {"data": rows, "meta": meta}
+
+
+def _merge_search_rows(keyword_rows: list[dict], semantic_rows: list[dict]) -> list[dict]:
+    by_id: dict[str, dict] = {}
+    for row in keyword_rows:
+        by_id[str(row["id"])] = row
+    for row in semantic_rows:
+        key = str(row["id"])
+        if key in by_id:
+            by_id[key]["search_source"] = "keyword+semantic"
+            by_id[key]["search_score"] = max(float(by_id[key].get("search_score") or 0), float(row.get("search_score") or 0))
+        else:
+            by_id[key] = row
+    return sorted(
+        by_id.values(),
+        key=lambda row: (float(row.get("search_score") or 0), row.get("created_at")),
+        reverse=True,
+    )[:50]
 
 
 def get_note_payload(cur, note_id: str) -> dict | None:

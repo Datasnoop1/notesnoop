@@ -56,6 +56,10 @@ def _as_user(cur, user_id: str) -> None:
     cur.execute("SET notesnoop.current_user_id = %s", (user_id,))
 
 
+def _test_vector(value: float = 0.001) -> str:
+    return "[" + ",".join([str(value)] * 1024) + "]"
+
+
 def test_rls_workspace_project_and_personal_isolation(conn):
     suffix = uuid.uuid4().hex[:8]
     u_admin = f"u_admin_{suffix}"
@@ -146,6 +150,26 @@ def test_rls_workspace_project_and_personal_isolation(conn):
             "INSERT INTO notesnoop.note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
             (note_b, project_b, u_other),
         )
+        for note_id, workspace_id, label in (
+            (note_a, ws_a, "a"),
+            (note_personal, ws_a, "personal"),
+            (note_b, ws_b, "b"),
+        ):
+            cur.execute(
+                """
+                INSERT INTO notesnoop.embeddings (
+                  note_id,
+                  workspace_id,
+                  embedding,
+                  model_version,
+                  provider,
+                  embedding_dimension,
+                  embedding_text_sha256
+                )
+                VALUES (%s, %s, %s::vector, 'qwen3-embedding:0.6b', 'lexical_hash', 1024, %s)
+                """,
+                (note_id, workspace_id, _test_vector(), f"hash-{label}-{suffix}"),
+            )
         conn.commit()
 
         _as_user(cur, u_member)
@@ -153,18 +177,25 @@ def test_rls_workspace_project_and_personal_isolation(conn):
             str(note_a),
             str(note_personal),
         }
+        assert set(_fetch_ids(cur, "SELECT note_id FROM notesnoop.embeddings ORDER BY note_id")) == {
+            str(note_a),
+            str(note_personal),
+        }
         conn.commit()
 
         _as_user(cur, u_nonmember)
         assert _fetch_ids(cur, "SELECT id FROM notesnoop.notes ORDER BY title") == []
+        assert _fetch_ids(cur, "SELECT note_id FROM notesnoop.embeddings ORDER BY note_id") == []
         conn.commit()
 
         _as_user(cur, u_admin)
         assert set(_fetch_ids(cur, "SELECT id FROM notesnoop.notes ORDER BY title")) == {str(note_a)}
+        assert set(_fetch_ids(cur, "SELECT note_id FROM notesnoop.embeddings ORDER BY note_id")) == {str(note_a)}
         conn.commit()
 
         _as_user(cur, u_other)
         assert _fetch_ids(cur, "SELECT id FROM notesnoop.notes ORDER BY title") == [str(note_b)]
+        assert _fetch_ids(cur, "SELECT note_id FROM notesnoop.embeddings ORDER BY note_id") == [str(note_b)]
         conn.commit()
 
 
@@ -224,6 +255,7 @@ def test_workspace_scoped_tables_have_rls_policies(conn):
         "note_projects",
         "people",
         "note_people_links",
+        "embeddings",
         "flags",
         "review_queue",
         "ai_jobs",

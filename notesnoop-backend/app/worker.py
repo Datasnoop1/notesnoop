@@ -9,6 +9,7 @@ from typing import Any
 
 from psycopg2.extras import RealDictCursor
 
+from .embeddings import embed_text, note_embedding_text, upsert_note_embedding
 from .db import get_conn, put_conn
 from .ollama_client import extract_entities
 
@@ -158,6 +159,7 @@ async def _process_extract(job: dict) -> None:
         [person["name"] for person in people],
         [project["name"] for project in projects if project["kind"] != "personal"],
     )
+    embedding = await embed_text(note_embedding_text(note))
 
     conn = get_conn()
     try:
@@ -227,6 +229,8 @@ async def _process_extract(job: dict) -> None:
                     """,
                     (note_id, project["id"], target_user_id),
                 )
+
+            upsert_note_embedding(cur, note, embedding)
 
             cur.execute(
                 """

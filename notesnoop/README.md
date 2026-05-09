@@ -13,6 +13,11 @@ uses its own `notesnoop` Postgres schema and its own services.
 - Inbound provider: Postmark Inbound first, with the webhook adapter shaped so
   Mailgun can map into the same internal envelope.
 - Beta cohort: operator follow-up item at beta-ready handoff.
+- M3 embedding model/dimension: `qwen3-embedding:0.6b` at 1024 dimensions.
+  NoteSnoop calls Ollama Cloud's `/api/embed` endpoint when available. The
+  deterministic `lexical_hash` provider is only a local/staging fallback for
+  indexing and semantic-search tests when Cloud embeddings are unavailable;
+  it can be disabled with `NOTESNOOP_EMBEDDING_ALLOW_LEXICAL_FALLBACK=false`.
 
 ## Migrations
 
