@@ -16,6 +16,7 @@ on:
       - master
       - main
       - "codex/notesnoop-*"
+      - "codex/staging-notesnoop-*"
     paths:
       - "notesnoop/**"
       - "notesnoop-backend/**"
@@ -79,6 +80,10 @@ jobs:
           --health-retries 5
     env:
       NOTESNOOP_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/notesnoop_ci
+      NOTESNOOP_DATABASE_URL: postgresql://notesnoop_app:notesnoop_app_ci@localhost:5432/notesnoop_ci
+      NOTESNOOP_WORKER_DATABASE_URL: postgresql://notesnoop_worker:notesnoop_worker_ci@localhost:5432/notesnoop_ci
+      NOTESNOOP_POSTGRES_APP_PASSWORD: notesnoop_app_ci
+      NOTESNOOP_POSTGRES_WORKER_PASSWORD: notesnoop_worker_ci
       PGPASSWORD: postgres
     steps:
       - uses: actions/checkout@v4
