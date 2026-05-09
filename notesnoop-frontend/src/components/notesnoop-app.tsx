@@ -64,6 +64,11 @@ type SearchFilters = {
   flagged_only?: boolean;
 };
 
+type MemoryGraphState = {
+  nodes: any[];
+  edges: any[];
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_NOTESNOOP_API_URL || "";
 const DEV_AUTH = process.env.NEXT_PUBLIC_NOTESNOOP_DEV_AUTH === "true";
 const NOTE_KIND_LABELS: Record<string, string> = {
@@ -90,6 +95,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const { getToken, isSignedIn, isLoaded } = useAuth();
   const [state, setState] = useState<ApiState | null>(null);
   const [home, setHome] = useState<HomeState | null>(null);
+  const [memoryGraph, setMemoryGraph] = useState<MemoryGraphState>({ nodes: [], edges: [] });
   const [notes, setNotes] = useState<any[]>([]);
   const [requestedWorkspaceId, setRequestedWorkspaceId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -203,13 +209,15 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const refreshWorkspaceData = useCallback(async () => {
     if (!workspaceId) return;
     const projectQuery = activeProject ? `?project_id=${activeProject}` : "";
-    const [homeRes, notesRes, peopleRes, projectsRes] = await Promise.all([
+    const [homeRes, graphRes, notesRes, peopleRes, projectsRes] = await Promise.all([
       api(`/api/workspaces/${workspaceId}/home${projectQuery}`),
+      api(`/api/workspaces/${workspaceId}/memory-graph${projectQuery}`),
       api(`/api/workspaces/${workspaceId}/notes${activeProject ? `?project_id=${activeProject}` : ""}`),
       api(`/api/workspaces/${workspaceId}/people`),
       api(`/api/workspaces/${workspaceId}/projects`),
     ]);
     setHome(homeRes.data);
+    setMemoryGraph(graphRes.data?.nodes ? graphRes.data : { nodes: [], edges: [] });
     setNotes(notesRes.data);
     setState((prev) => (prev ? { ...prev, people: peopleRes.data, projects: projectsRes.data } : prev));
   }, [activeProject, api, workspaceId]);
@@ -544,6 +552,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setSelectedMemory(null);
     setSheetOpen(false);
     setHome(null);
+    setMemoryGraph({ nodes: [], edges: [] });
     setNotes([]);
     setReviewCount(0);
     if (typeof window !== "undefined") {
@@ -682,6 +691,10 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         title: project.name,
         subtitle: project.latest_signal || project.summary || (project.mention_count ? `${project.mention_count} captured memories` : "Waiting for enough project memory"),
       }));
+  const graphKinds = ["note", "person", "project", "task", "meeting", "report", "workflow", "company"];
+  const graphSummary = graphKinds
+    .map((kind) => ({ kind, count: memoryGraph.nodes.filter((node) => node.kind === kind).length }))
+    .filter((item) => item.count > 0);
   const memorySections = [
     {
       id: "tasks",
@@ -997,6 +1010,34 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                     <p className="dashboard-empty memory-empty">{activeMemorySection.empty}</p>
                   )}
                 </div>
+              </section>
+
+              <section className="dashboard-panel memory-map-panel">
+                <div className="panel-head">
+                  <h2>Memory map</h2>
+                  <Workflow size={18} />
+                </div>
+                {memoryGraph.nodes.length ? (
+                  <>
+                    <div className="graph-kind-grid">
+                      {graphSummary.map((item) => (
+                        <span key={item.kind}>
+                          <strong>{item.count}</strong>
+                          {item.kind}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="graph-edge-list">
+                      {memoryGraph.edges.slice(0, 6).map((edge, index) => (
+                        <span key={`${edge.from_kind}-${edge.from_id}-${edge.to_kind}-${edge.to_id}-${index}`}>
+                          {edge.from_kind} <strong>{edge.relation}</strong> {edge.to_kind}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="dashboard-empty">Links appear here once notes connect to people, projects, tasks, meetings, reports, workflows, or companies.</p>
+                )}
               </section>
 
               <section className="dashboard-panel attention-panel">

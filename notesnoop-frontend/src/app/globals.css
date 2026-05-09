@@ -443,6 +443,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border-color: #bdd7d0;
   background: #f7fbf8;
 }
+.memory-map-panel {
+  grid-column: span 8;
+}
 .capture-panel {
   grid-column: span 8;
   border-color: #bdd7d0;
@@ -652,6 +655,41 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 }
 .memory-empty {
   min-height: 132px;
+}
+.graph-kind-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.graph-kind-grid span {
+  border: 1px solid var(--line);
+  background: #fffefb;
+  border-radius: 8px;
+  padding: 9px;
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.graph-kind-grid strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+.graph-edge-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+.graph-edge-list span {
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  text-transform: capitalize;
+}
+.graph-edge-list strong {
+  color: var(--teal);
 }
 .dashboard-empty {
   margin: 0;
@@ -1008,7 +1046,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .dashboard-panel, .attention-panel, .recent-memory {
     grid-column: span 1;
   }
-  .capture-panel, .memory-system-panel {
+  .capture-panel, .memory-system-panel, .memory-map-panel {
     grid-column: span 2;
   }
   .memory-tabs {
@@ -1082,11 +1120,14 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
     grid-template-columns: 1fr;
     gap: 10px;
   }
-  .dashboard-panel, .attention-panel, .capture-panel, .recent-memory, .memory-system-panel {
+  .dashboard-panel, .attention-panel, .capture-panel, .recent-memory, .memory-system-panel, .memory-map-panel {
     grid-column: 1;
   }
   .memory-tabs, .memory-card-grid {
     grid-template-columns: 1fr;
+  }
+  .graph-kind-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .memory-tabs button {
     min-height: 48px;

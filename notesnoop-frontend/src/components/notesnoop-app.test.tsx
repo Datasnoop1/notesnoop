@@ -134,6 +134,22 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
         },
       });
     }
+    if (url.includes("/api/workspaces/workspace-1/memory-graph")) {
+      return json({
+        data: {
+          nodes: [
+            { id: "note-1", kind: "note", title: "Apollo update" },
+            { id: "person-1", kind: "person", title: "Morgan Lee" },
+            { id: "project-1", kind: "project", title: "Apollo" },
+            { id: "note-task-1", kind: "task", title: "Send Apollo follow-up" },
+          ],
+          edges: [
+            { from_kind: "note", from_id: "note-1", to_kind: "person", to_id: "person-1", relation: "mentions" },
+            { from_kind: "task", from_id: "note-task-1", to_kind: "note", to_id: "note-1", relation: "sourced_from" },
+          ],
+        },
+      });
+    }
     if (url.includes("/api/workspaces/workspace-1/notes") && init?.method === "POST") {
       return json({ data: { ...note, title: "Fresh note", body: JSON.parse(String(init.body)).body } });
     }
@@ -196,6 +212,8 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Capture" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Memory system" })).toBeInTheDocument();
+    expect(within(dashboard).getByRole("heading", { name: "Memory map" })).toBeInTheDocument();
+    expect(within(dashboard).getByText("sourced_from")).toBeInTheDocument();
     expect(within(dashboard).getByRole("tab", { name: /Open tasks1/i })).toHaveAttribute("aria-selected", "true");
     expect(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByRole("button", { name: /Mark task done/i }));
