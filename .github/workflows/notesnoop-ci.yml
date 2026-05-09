@@ -1,0 +1,103 @@
+name: NoteSnoop CI
+
+on:
+  pull_request:
+    paths:
+      - "notesnoop/**"
+      - "notesnoop-backend/**"
+      - "notesnoop-worker/**"
+      - "notesnoop-frontend/**"
+      - "scripts/nightly_health_report.py"
+      - "scripts/deploy_staging.sh"
+      - "scripts/ollama_delegate.py"
+      - ".github/workflows/notesnoop-ci.yml"
+  push:
+    branches:
+      - master
+      - main
+      - "codex/notesnoop-*"
+    paths:
+      - "notesnoop/**"
+      - "notesnoop-backend/**"
+      - "notesnoop-worker/**"
+      - "notesnoop-frontend/**"
+      - "scripts/nightly_health_report.py"
+      - "scripts/deploy_staging.sh"
+      - "scripts/ollama_delegate.py"
+      - ".github/workflows/notesnoop-ci.yml"
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r notesnoop-backend/requirements.txt
+      - name: Compile backend
+        run: python -m compileall -q notesnoop-backend/app notesnoop/migrate.py scripts/nightly_health_report.py scripts/ollama_delegate.py
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: notesnoop-frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: notesnoop-frontend
+        run: npm ci
+      - name: Lint frontend
+        working-directory: notesnoop-frontend
+        run: npm run lint
+      - name: Build frontend
+        working-directory: notesnoop-frontend
+        run: npm run build
+
+  migrations-and-rls:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NOTESNOOP_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/notesnoop_ci
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install psycopg2-binary pytest
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Create database
+        run: createdb -h localhost -U postgres notesnoop_ci
+
+      - name: Replay NoteSnoop migrations
+        run: |
+          python notesnoop/migrate.py up --target=ci
+          python notesnoop/migrate.py status --target=ci
+
+      - name: Run RLS regression suite
+        run: pytest notesnoop/tests -q

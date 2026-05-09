@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+import re
+
+from fastapi import HTTPException
+
+from .auth import CurrentUser
+from .config import get_settings
+from .db import many, one, transaction
+from .schemas import BootstrapRequest
+
+
+def derive_title(body: str, title: str | None) -> tuple[str, bool]:
+    if title and title.strip():
+        return title.strip()[:200], False
+    first = next((line.strip() for line in body.splitlines() if line.strip()), "")
+    if not first:
+        return "[Untitled note]", True
+    return first[:80], True
+
+
+def inbound_address_for(user_id: str) -> str:
+    local = re.sub(r"[^a-z0-9]+", "-", user_id.lower()).strip("-") or "user"
+    return f"{local[:48]}@{get_settings().inbound_domain}"
+
+
+def _consume_bucket(cur, key: str, capacity: float, refill_per_second: float) -> tuple[bool, int]:
+    cur.execute(
+        """
+        INSERT INTO rate_limit_buckets (key, tokens, last_refill)
+        VALUES (%s, %s, now())
+        ON CONFLICT (key) DO NOTHING
+        """,
+        (key, capacity),
+    )
+    row = one(
+        cur,
+        """
+        SELECT tokens,
+               EXTRACT(EPOCH FROM (now() - last_refill)) AS elapsed
+        FROM rate_limit_buckets
+        WHERE key = %s
+        FOR UPDATE
+        """,
+        (key,),
+    )
+    tokens = min(capacity, float(row["tokens"]) + float(row["elapsed"]) * refill_per_second)
+    if tokens < 1.0:
+        retry_after = max(1, int((1.0 - tokens) / refill_per_second))
+        cur.execute(
+            "UPDATE rate_limit_buckets SET tokens = %s, last_refill = now() WHERE key = %s",
+            (tokens, key),
+        )
+        return False, retry_after
+    cur.execute(
+        "UPDATE rate_limit_buckets SET tokens = %s, last_refill = now() WHERE key = %s",
+        (tokens - 1.0, key),
+    )
+    return True, 0
+
+
+def consume_ai_quota(cur, workspace_id: str, user_id: str) -> tuple[bool, int]:
+    user_ok, user_retry = _consume_bucket(cur, f"user:{user_id}:ai", 10.0, 5.0 / 60.0)
+    workspace_ok, workspace_retry = _consume_bucket(cur, f"workspace:{workspace_id}:ai", 60.0, 30.0 / 60.0)
+    if user_ok and workspace_ok:
+        return True, 0
+    return False, max(user_retry, workspace_retry, 1)
+
+
+def enqueue_ai_if_allowed(cur, workspace_id: str, note_id: str, user_id: str, project_ids: list[str]) -> bool:
+    row = one(
+        cur,
+        """
+        SELECT w.ai_mode,
+               bool_or(p.kind = 'personal') AS has_personal,
+               bool_or(p.ai_mode = 'manual') AS has_manual_project
+        FROM workspaces w
+        JOIN projects p ON p.workspace_id = w.id
+        WHERE w.id = %s AND p.id = ANY(%s::uuid[])
+        GROUP BY w.ai_mode
+        """,
+        (workspace_id, project_ids),
+    )
+    if not row or row["ai_mode"] != "on" or row["has_personal"] or row["has_manual_project"]:
+        cur.execute(
+            "UPDATE notes SET ai_processing_status = 'skipped' WHERE id = %s",
+            (note_id,),
+        )
+        return False
+    ok, _retry_after = consume_ai_quota(cur, workspace_id, user_id)
+    if not ok:
+        return False
+    cur.execute(
+        """
+        INSERT INTO ai_jobs (workspace_id, kind, note_id, target_user_id, priority, idempotency_key)
+        VALUES (%s, 'extract', %s, %s, 10, %s)
+        ON CONFLICT (idempotency_key) DO NOTHING
+        """,
+        (workspace_id, note_id, user_id, f"note:{note_id}:extract"),
+    )
+    cur.execute("UPDATE notes SET ai_processing_status = 'processing' WHERE id = %s", (note_id,))
+    return True
+
+
+def bootstrap_workspace(user: CurrentUser, payload: BootstrapRequest) -> dict:
+    settings = get_settings()
+    workspace_name = payload.workspace_name or "My NoteSnoop workspace"
+    with transaction(user.clerk_user_id) as cur:
+        cur.execute(
+            """
+            INSERT INTO user_profiles (clerk_user_id, email, display_name, avatar_url, timezone)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (clerk_user_id) DO UPDATE
+              SET email = COALESCE(EXCLUDED.email, user_profiles.email),
+                  display_name = COALESCE(EXCLUDED.display_name, user_profiles.display_name),
+                  avatar_url = COALESCE(EXCLUDED.avatar_url, user_profiles.avatar_url),
+                  timezone = EXCLUDED.timezone
+            """,
+            (user.clerk_user_id, user.email, user.display_name, user.avatar_url, payload.timezone),
+        )
+        existing = one(
+            cur,
+            """
+            SELECT w.id
+            FROM workspaces w
+            JOIN workspace_members wm ON wm.workspace_id = w.id
+            WHERE wm.clerk_user_id = %s
+            ORDER BY w.created_at
+            LIMIT 1
+            """,
+            (user.clerk_user_id,),
+        )
+        if existing:
+            return get_bootstrap_state(cur, user.clerk_user_id, str(existing["id"]))
+
+        cur.execute(
+            """
+            INSERT INTO workspaces (clerk_org_id, name, inbox_mode)
+            VALUES (%s, %s, %s)
+            RETURNING id
+            """,
+            (f"personal:{user.clerk_user_id}", workspace_name, payload.inbox_mode),
+        )
+        workspace_id = str(cur.fetchone()["id"])
+        cur.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role, email_ai_mode, morning_briefing_optin)
+            VALUES (%s, %s, 'admin', %s, %s)
+            """,
+            (workspace_id, user.clerk_user_id, settings.email_ai_default, payload.morning_briefing_optin),
+        )
+        default_projects = [
+            ("Personal", "personal", "#7c3aed", False),
+            ("Inbox", "inbox", "#0f766e", payload.inbox_mode == "shared"),
+        ]
+        for name, kind, color, shared in default_projects:
+            cur.execute(
+                """
+                INSERT INTO projects (workspace_id, name, kind, color_hex, shared, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (workspace_id, name, kind, color, shared, user.clerk_user_id),
+            )
+            project_id = str(cur.fetchone()["id"])
+            cur.execute(
+                "INSERT INTO project_members (project_id, clerk_user_id) VALUES (%s, %s)",
+                (project_id, user.clerk_user_id),
+            )
+        cur.execute(
+            """
+            INSERT INTO people (workspace_id, name, clerk_user_id, created_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (workspace_id, user.display_name or "You", user.clerk_user_id, user.clerk_user_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO inbound_email_addresses (clerk_user_id, address)
+            VALUES (%s, %s)
+            ON CONFLICT (address) DO NOTHING
+            """,
+            (user.clerk_user_id, inbound_address_for(user.clerk_user_id)),
+        )
+        return get_bootstrap_state(cur, user.clerk_user_id, workspace_id)
+
+
+def get_bootstrap_state(cur, user_id: str, workspace_id: str) -> dict:
+    workspace = one(
+        cur,
+        """
+        SELECT w.*, wm.role, wm.email_ai_mode, wm.morning_briefing_optin
+        FROM workspaces w
+        JOIN workspace_members wm ON wm.workspace_id = w.id
+        WHERE w.id = %s AND wm.clerk_user_id = %s
+        """,
+        (workspace_id, user_id),
+    )
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    projects = many(cur, "SELECT * FROM projects WHERE workspace_id = %s ORDER BY kind, created_at", (workspace_id,))
+    people = many(cur, "SELECT * FROM people WHERE workspace_id = %s ORDER BY created_at", (workspace_id,))
+    inbound = one(cur, "SELECT address FROM inbound_email_addresses WHERE clerk_user_id = %s ORDER BY created_at LIMIT 1", (user_id,))
+    return {
+        "workspace": workspace,
+        "projects": projects,
+        "people": people,
+        "inbound_address": inbound["address"] if inbound else inbound_address_for(user_id),
+    }

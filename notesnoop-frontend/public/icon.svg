@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="NoteSnoop">
+  <rect width="128" height="128" rx="28" fill="#10201c"/>
+  <path d="M34 29h45l15 15v55H34z" fill="#f7f3ea"/>
+  <path d="M79 29v18h18" fill="#d6eee7"/>
+  <path d="M47 57h35M47 70h29M47 83h22" stroke="#26413b" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="91" cy="91" r="16" fill="#e85d4f"/>
+  <path d="M101 101 89 89" stroke="#10201c" stroke-width="6" stroke-linecap="round"/>
+</svg>
