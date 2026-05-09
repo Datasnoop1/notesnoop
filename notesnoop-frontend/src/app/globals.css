@@ -618,4 +618,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   }
   .quick-mode .topbar { display: none; }
   .quick-mode .composer { margin-top: 18px; }
+  .quick-mode .composer-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .quick-mode .composer-actions button { width: 100%; }
 }
