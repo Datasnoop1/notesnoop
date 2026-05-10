@@ -200,7 +200,8 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
             cur,
             """
             SELECT t.*,
-                   min(pe.name) AS assignee_name
+                   min(pe.name) AS assignee_name,
+                   min(pe.id::text) AS assignee_id
             FROM tasks t
             JOIN task_projects tp ON tp.task_id = t.id
             LEFT JOIN task_people tpe ON tpe.task_id = t.id AND tpe.relation = 'assignee'

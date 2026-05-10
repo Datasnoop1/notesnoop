@@ -831,6 +831,35 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .assignee-chip.warn { border-color: #e1cf94; background: #fffaf0; color: #6b5300; }
 .assignee-chip.warn.active { background: #6b5300; color: white; border-color: #6b5300; }
 .assignee-chip.warn.active strong { color: rgba(255, 255, 255, 0.78); }
+.workload-section .workload-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.workload-chip {
+  border: 1px solid var(--line);
+  background: #fffefb;
+  border-radius: 8px;
+  padding: 5px 10px;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 100px;
+}
+.workload-chip strong {
+  font-size: 13px;
+  color: var(--ink);
+}
+.workload-chip small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.workload-chip.workload-warn {
+  border-color: #e1cf94;
+  background: #fffaf0;
+}
+.workload-chip.workload-warn strong { color: #6b5300; }
 .memory-row-body {
   display: -webkit-box;
   -webkit-line-clamp: 2;

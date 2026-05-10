@@ -4008,6 +4008,42 @@ function TimelinePanel({
           ))}
         </div>
       )}
+      {kind === "project" && Array.isArray(timeline.tasks) && timeline.tasks.length > 0 && (() => {
+        const buckets: Record<string, { name: string; count: number; blocked: number }> = {};
+        let unassigned = 0;
+        for (const task of timeline.tasks) {
+          if (task.status === "done" || task.status === "archived") continue;
+          const id = task.assignee_id ? String(task.assignee_id) : null;
+          if (!id) {
+            unassigned += 1;
+            continue;
+          }
+          if (!buckets[id]) buckets[id] = { name: String(task.assignee_name || "Unknown"), count: 0, blocked: 0 };
+          buckets[id].count += 1;
+          if (task.status === "blocked") buckets[id].blocked += 1;
+        }
+        const owners = Object.values(buckets).sort((a, b) => b.count - a.count);
+        if (owners.length === 0 && unassigned === 0) return null;
+        return (
+          <div className="mini-section workload-section">
+            <strong>Team workload</strong>
+            <div className="workload-grid">
+              {owners.map((owner) => (
+                <span key={owner.name} className="workload-chip">
+                  <strong>{owner.name}</strong>
+                  <small>{owner.count} open{owner.blocked > 0 ? ` - ${owner.blocked} blocked` : ""}</small>
+                </span>
+              ))}
+              {unassigned > 0 && (
+                <span className="workload-chip workload-warn">
+                  <strong>Unassigned</strong>
+                  <small>{unassigned} open</small>
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       {!!timeline.tasks?.length && (
         <div className="mini-section">
           <strong>Tasks</strong>
