@@ -204,6 +204,97 @@ def test_company_detail_surfaces_tasks_and_meetings_linked_to_company(client):
     assert any(m["title"] == "Northstar weekly" for m in (data.get("meetings") or []))
 
 
+def test_end_to_end_capture_review_accept_dashboard_happy_path(client):
+    """Drive the full happy path: capture note, seed review queue, accept the
+    candidate, then verify the materialized task lives in the dashboard /home
+    payload and in the company's tasks list. Closes the user's directive to
+    "make sure all functionality actually works".
+    """
+    from app.db import transaction
+
+    user_id = f"e2e_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "E2E workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    apollo = client.post(
+        f"/api/workspaces/{workspace_id}/projects",
+        json={"name": "Apollo", "color_hex": "#e85d4f"},
+        headers=headers,
+    )
+    morgan = client.post(
+        f"/api/workspaces/{workspace_id}/people",
+        json={"name": "Morgan Lee"},
+        headers=headers,
+    )
+    northstar = client.post(
+        f"/api/workspaces/{workspace_id}/companies",
+        json={"name": "Northstar Advisory"},
+        headers=headers,
+    )
+    project_id = apollo.json()["data"]["id"]
+    person_id = morgan.json()["data"]["id"]
+    company_id = northstar.json()["data"]["id"]
+
+    note = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={
+            "body": "Apollo follow-up — Morgan to send the diligence pack to Northstar by Friday.",
+            "project_ids": [project_id],
+        },
+        headers=headers,
+    )
+    note_id = note.json()["data"]["id"]
+
+    client.post(
+        f"/api/notes/{note_id}/people",
+        json={"person_id": person_id, "state": "confirmed", "source": "user"},
+        headers=headers,
+    )
+    with transaction(user_id) as cur:
+        cur.execute(
+            "INSERT INTO company_notes (company_id, note_id, workspace_id, linked_by) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (company_id, note_id, workspace_id, user_id),
+        )
+        cur.execute(
+            "INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload) VALUES (%s, %s, 'task', %s, 'ai_suggestion', %s::jsonb) RETURNING id",
+            (
+                workspace_id,
+                user_id,
+                note_id,
+                '{"title":"Send Apollo diligence pack","status":"todo","confidence":0.88,"summary":"Morgan owns this by Friday.","person_names":["Morgan Lee"],"company_names":["Northstar Advisory"]}',
+            ),
+        )
+        review_id = str(cur.fetchone()["id"])
+
+    accept = client.post(f"/api/review-queue/{review_id}/accept", headers=headers, json={})
+    assert accept.status_code == 200, accept.text
+    accepted = accept.json()["data"]
+    assert accepted["state"] == "accepted"
+    assert accepted.get("entity_kind") == "task"
+    task_id = accepted["entity_id"]
+
+    task_payload = client.get(f"/api/tasks/{task_id}", headers=headers)
+    assert task_payload.status_code == 200
+    task_data = task_payload.json()["data"]
+    assert task_data["title"] == "Send Apollo diligence pack"
+    # AI-driven materialization writes linked_via='ai' on every link it created.
+    for collection in (task_data["projects"], task_data["people"], task_data["companies"]):
+        assert all(row.get("linked_via") == "ai" for row in collection)
+
+    home = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    home_data = home.json()["data"]
+    open_titles = [t["title"] for t in home_data.get("open_tasks", [])]
+    assert "Send Apollo diligence pack" in open_titles
+    accepted_open = next(t for t in home_data["open_tasks"] if t["title"] == "Send Apollo diligence pack")
+    assert accepted_open["assignee_name"] == "Morgan Lee"
+
+    company_detail = client.get(f"/api/companies/{company_id}", headers=headers)
+    company_tasks = [t["title"] for t in company_detail.json()["data"].get("tasks", [])]
+    assert "Send Apollo diligence pack" in company_tasks
+
+
 def test_review_queue_exposes_source_people_and_source_companies(client):
     """Verify slice D's backend addition: source-note people + companies are surfaced
     on the review-queue list so the Review Sheet can pre-seed its pickers.
