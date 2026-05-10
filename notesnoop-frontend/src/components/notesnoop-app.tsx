@@ -1427,6 +1427,22 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
     return counts;
   }, [home?.open_tasks]);
+  const personOpenTaskCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const task of (home?.open_tasks || []) as any[]) {
+      const directAssignee = task.assignee_id ? String(task.assignee_id) : null;
+      if (directAssignee) {
+        counts[directAssignee] = (counts[directAssignee] || 0) + 1;
+        continue;
+      }
+      const peopleRows = Array.isArray(task.people) ? task.people : [];
+      const assignee = peopleRows.find((person: any) => person.relation === "assignee");
+      if (assignee?.id) {
+        counts[String(assignee.id)] = (counts[String(assignee.id)] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [home?.open_tasks]);
   const dashboardReviewItems = home?.pending_review || [];
   const visibleReviewItems = reviewSheetOpen ? reviewItems : dashboardReviewItems;
   const dashboardReviewCount = reviewCount || dashboardReviewItems.length;
@@ -1780,16 +1796,20 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         {(state?.people || []).length > 0 && (
           <>
             <div className="sidebar-label">People</div>
-            {dashboardPeople.slice(0, 5).map((person) => (
-              <button
-                key={person.id}
-                className={`nav-item ${personTimeline?.person?.id === person.id ? "active" : ""}`}
-                onClick={() => openPerson(person)}
-                aria-label={`Open ${person.name} timeline`}
-              >
-                <UserRound size={15} /> {person.name}
-              </button>
-            ))}
+            {dashboardPeople.slice(0, 5).map((person) => {
+              const count = personOpenTaskCounts[person.id] || 0;
+              return (
+                <button
+                  key={person.id}
+                  className={`nav-item ${personTimeline?.person?.id === person.id ? "active" : ""}`}
+                  onClick={() => openPerson(person)}
+                  aria-label={`Open ${person.name} timeline`}
+                >
+                  <UserRound size={15} /> {person.name}
+                  {count > 0 && <span className="sidebar-count" aria-label={`${count} tasks assigned`}>{count}</span>}
+                </button>
+              );
+            })}
           </>
         )}
         {(companies || []).length > 0 && (
