@@ -621,34 +621,16 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     window.localStorage.setItem("notesnoop_tasks_view_mode", tasksViewMode);
   }, [tasksViewMode]);
 
-  useEffect(() => {
-    if (!paletteOpen) {
-      setPaletteQuery("");
-      setPaletteResults([]);
-      setPaletteIndex(0);
-      setPaletteLoading(false);
-      if (paletteDebounceRef.current) {
-        window.clearTimeout(paletteDebounceRef.current);
-        paletteDebounceRef.current = null;
-      }
-      return;
-    }
-    const handle = window.setTimeout(() => paletteInputRef.current?.focus(), 30);
-    return () => window.clearTimeout(handle);
-  }, [paletteOpen]);
-
   const runPaletteSearch = useCallback(
     async (rawQuery: string) => {
       if (!workspaceId) return;
       const trimmed = rawQuery.trim();
-      if (!trimmed) {
-        setPaletteResults([]);
-        setPaletteLoading(false);
-        return;
-      }
       setPaletteLoading(true);
       try {
-        const res = await api(`/api/workspaces/${workspaceId}/search?q=${encodeURIComponent(trimmed)}`);
+        const url = trimmed
+          ? `/api/workspaces/${workspaceId}/search?q=${encodeURIComponent(trimmed)}`
+          : `/api/workspaces/${workspaceId}/search?q=`;
+        const res = await api(url);
         const noteRows = (res.data || []).slice(0, 8).map((note: any) => ({
           kind: "note",
           id: note.id,
@@ -679,18 +661,33 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         window.clearTimeout(paletteDebounceRef.current);
         paletteDebounceRef.current = null;
       }
-      if (!nextQuery.trim()) {
-        setPaletteResults([]);
-        setPaletteLoading(false);
-        return;
-      }
       paletteDebounceRef.current = window.setTimeout(() => {
         runPaletteSearch(nextQuery).catch(() => undefined);
         paletteDebounceRef.current = null;
-      }, 180);
+      }, nextQuery.trim() ? 180 : 0);
     },
     [runPaletteSearch],
   );
+
+  const runPaletteSearchRef = useRef(runPaletteSearch);
+  useEffect(() => { runPaletteSearchRef.current = runPaletteSearch; }, [runPaletteSearch]);
+
+  useEffect(() => {
+    if (!paletteOpen) {
+      setPaletteQuery("");
+      setPaletteResults([]);
+      setPaletteIndex(0);
+      setPaletteLoading(false);
+      if (paletteDebounceRef.current) {
+        window.clearTimeout(paletteDebounceRef.current);
+        paletteDebounceRef.current = null;
+      }
+      return;
+    }
+    const handle = window.setTimeout(() => paletteInputRef.current?.focus(), 30);
+    runPaletteSearchRef.current("").catch(() => undefined);
+    return () => window.clearTimeout(handle);
+  }, [paletteOpen]);
 
   useEffect(() => {
     refreshWorkspaceData().catch((err) => setToast(err.message));
@@ -3873,12 +3870,15 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               {!paletteLoading && !paletteResults.length && paletteQuery.trim() && (
                 <div className="palette-empty">No matches.</div>
               )}
-              {!paletteQuery.trim() && (
+              {!paletteQuery.trim() && !paletteResults.length && !paletteLoading && (
                 <div className="palette-empty palette-hint">
                   Type to search across notes, people, companies, projects, tasks, meetings, reports.
                   <br />
                   <span className="muted">Use <span className="palette-kbd">↑</span> <span className="palette-kbd">↓</span> to navigate, <span className="palette-kbd">Enter</span> to open.</span>
                 </div>
+              )}
+              {!paletteQuery.trim() && paletteResults.length > 0 && (
+                <div className="palette-section-label">Recently opened</div>
               )}
               {paletteResults.map((row, idx) => (
                 <button

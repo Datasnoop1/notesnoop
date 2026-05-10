@@ -2865,6 +2865,14 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .palette-row:hover, .palette-row.active {
   background: #f1f6f1;
 }
+.palette-section-label {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 6px 12px 2px;
+  font-weight: 600;
+}
 .palette-kind {
   font-size: 10px;
   letter-spacing: 0.04em;
