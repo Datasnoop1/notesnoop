@@ -1786,6 +1786,26 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   font-size: 11px;
   color: var(--muted);
 }
+.task-row-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.task-row-done {
+  border: 1px solid #b3d7b6;
+  background: #f4faf4;
+  color: #1f4d27;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.task-row-done:hover { background: #e6f1e6; }
 .share-panel {
   border: 1px solid var(--line);
   background: #f7fbf8;

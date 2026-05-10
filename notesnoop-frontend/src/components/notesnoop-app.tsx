@@ -2066,13 +2066,26 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                         </div>
                         <div className="attention-grid">
                           {overdueTasks.map((task: any) => (
-                            <button key={`overdue-${task.id}`} className="dashboard-row warning" type="button" onClick={() => openMemoryItem("tasks", task)}>
-                              <span className="row-icon warning"><CalendarDays size={15} /></span>
-                              <span>
-                                <strong>{task.title}</strong>
-                                <small>Due {new Date(task.due_at).toLocaleDateString()}{task.assignee_name ? ` - ${task.assignee_name}` : ""}</small>
-                              </span>
-                            </button>
+                            <div key={`overdue-${task.id}`} className="task-row-with-action">
+                              <button className="dashboard-row warning" type="button" onClick={() => openMemoryItem("tasks", task)}>
+                                <span className="row-icon warning"><CalendarDays size={15} /></span>
+                                <span>
+                                  <strong>{task.title}</strong>
+                                  <small>Due {new Date(task.due_at).toLocaleDateString()}{task.assignee_name ? ` - ${task.assignee_name}` : ""}</small>
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                className="task-row-done"
+                                aria-label={`Mark ${task.title} done`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  updateTaskStatus(task.id, "done");
+                                }}
+                              >
+                                <CheckCircle2 size={14} /> Done
+                              </button>
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -2085,13 +2098,26 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                         </div>
                         <div className="attention-grid">
                           {dueTodayTasks.map((task: any) => (
-                            <button key={`due-today-${task.id}`} className="dashboard-row" type="button" onClick={() => openMemoryItem("tasks", task)}>
-                              <span className="row-icon"><CalendarDays size={15} /></span>
-                              <span>
-                                <strong>{task.title}</strong>
-                                <small>Today{task.assignee_name ? ` - ${task.assignee_name}` : ""}</small>
-                              </span>
-                            </button>
+                            <div key={`due-today-${task.id}`} className="task-row-with-action">
+                              <button className="dashboard-row" type="button" onClick={() => openMemoryItem("tasks", task)}>
+                                <span className="row-icon"><CalendarDays size={15} /></span>
+                                <span>
+                                  <strong>{task.title}</strong>
+                                  <small>Today{task.assignee_name ? ` - ${task.assignee_name}` : ""}</small>
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                className="task-row-done"
+                                aria-label={`Mark ${task.title} done`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  updateTaskStatus(task.id, "done");
+                                }}
+                              >
+                                <CheckCircle2 size={14} /> Done
+                              </button>
+                            </div>
                           ))}
                         </div>
                       </div>
