@@ -217,15 +217,7 @@ def create_task(workspace_id: str, payload: TaskCreate, user: CurrentUser = Depe
         task = dict(cur.fetchone())
         _link_many(cur, "task_projects", "task_id", "project_id", task["id"], workspace_id, payload.project_ids or [], user.clerk_user_id)
         _link_many(cur, "task_companies", "task_id", "company_id", task["id"], workspace_id, payload.company_ids or [], user.clerk_user_id)
-        for person_id in _dedupe(payload.person_ids or []):
-            cur.execute(
-                """
-                INSERT INTO task_people (task_id, person_id, workspace_id, relation, linked_by)
-                VALUES (%s, %s, %s, 'assignee', %s)
-                ON CONFLICT DO NOTHING
-                """,
-                (task["id"], person_id, workspace_id, user.clerk_user_id),
-            )
+        _apply_task_people(cur, str(task["id"]), workspace_id, payload.person_ids or [], payload.assignee_id, user.clerk_user_id, replace=False)
         _link_many(cur, "task_notes", "task_id", "note_id", task["id"], workspace_id, payload.note_ids or [], user.clerk_user_id)
         return {"data": _task_payload(cur, str(task["id"]))}
 
@@ -284,17 +276,8 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
             _replace_links(cur, "task_projects", "task_id", "project_id", task_id, workspace_id, payload.project_ids, user.clerk_user_id)
         if payload.company_ids is not None:
             _replace_links(cur, "task_companies", "task_id", "company_id", task_id, workspace_id, payload.company_ids, user.clerk_user_id)
-        if payload.person_ids is not None:
-            cur.execute("DELETE FROM task_people WHERE task_id = %s", (task_id,))
-            for person_id in _dedupe(payload.person_ids):
-                cur.execute(
-                    """
-                    INSERT INTO task_people (task_id, person_id, workspace_id, relation, linked_by)
-                    VALUES (%s, %s, %s, 'assignee', %s)
-                    ON CONFLICT DO NOTHING
-                    """,
-                    (task_id, person_id, workspace_id, user.clerk_user_id),
-                )
+        if payload.person_ids is not None or "assignee_id" in payload.model_fields_set:
+            _apply_task_people(cur, task_id, workspace_id, payload.person_ids or [], payload.assignee_id, user.clerk_user_id, replace=True)
         if payload.note_ids is not None:
             _replace_links(cur, "task_notes", "task_id", "note_id", task_id, workspace_id, payload.note_ids, user.clerk_user_id)
         return {"data": _task_payload(cur, task_id)}
@@ -1776,15 +1759,55 @@ def _replace_links(cur, table: str, left_column: str, right_column: str, left_id
     _link_many(cur, table, left_column, right_column, left_id, workspace_id, right_ids, user_id, linked_via=linked_via)
 
 
+def _apply_task_people(
+    cur,
+    task_id: str,
+    workspace_id: str,
+    person_ids: list[str],
+    assignee_id: str | None,
+    user_id: str,
+    *,
+    replace: bool,
+) -> None:
+    """Set task↔people links with a single explicit assignee + watchers.
+
+    If `assignee_id` is provided, that person gets relation='assignee' and any
+    additional person_ids get relation='watcher'. If no assignee_id is given,
+    the first id in person_ids gets 'assignee' (preserving legacy behaviour)
+    and the rest become 'watcher'.
+    """
+    deduped = _dedupe([pid for pid in (person_ids or []) if pid])
+    primary = assignee_id or (deduped[0] if deduped else None)
+    if primary and primary not in deduped:
+        deduped.insert(0, primary)
+    if replace:
+        cur.execute("DELETE FROM task_people WHERE task_id = %s", (task_id,))
+    for person_id in deduped:
+        relation = "assignee" if person_id == primary else "watcher"
+        cur.execute(
+            """
+            INSERT INTO task_people (task_id, person_id, workspace_id, relation, linked_by, linked_via)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (task_id, person_id, relation) DO UPDATE
+              SET linked_by = EXCLUDED.linked_by,
+                  linked_via = EXCLUDED.linked_via
+            """,
+            (task_id, person_id, workspace_id, relation, user_id, "manual"),
+        )
+
+
 def _task_payload(cur, task_id: str) -> dict | None:
     task = one(cur, "SELECT * FROM tasks WHERE id = %s", (task_id,))
     if not task:
         return None
     task["projects"] = many(cur, "SELECT p.*, tp.linked_via FROM projects p JOIN task_projects tp ON tp.project_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
-    task["people"] = many(cur, "SELECT p.*, tp.relation, tp.linked_via FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
+    task["people"] = many(cur, "SELECT p.*, tp.relation, tp.linked_via FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s ORDER BY tp.relation = 'assignee' DESC, p.name", (task_id,))
     task["companies"] = many(cur, "SELECT c.*, tc.linked_via FROM companies c JOIN task_companies tc ON tc.company_id = c.id WHERE tc.task_id = %s ORDER BY c.name", (task_id,))
     task["notes"] = many(cur, "SELECT n.* FROM notes n JOIN task_notes tn ON tn.note_id = n.id WHERE tn.task_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (task_id,))
     task["reminders"] = many(cur, "SELECT * FROM task_reminders WHERE task_id = %s ORDER BY coalesce(snoozed_until, remind_at), created_at DESC", (task_id,))
+    assignee_row = one(cur, "SELECT p.id, p.name FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s AND tp.relation = 'assignee' LIMIT 1", (task_id,))
+    task["assignee_id"] = str(assignee_row["id"]) if assignee_row else None
+    task["assignee_name"] = (assignee_row or {}).get("name")
     return task
 
 

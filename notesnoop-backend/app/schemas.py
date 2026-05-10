@@ -130,6 +130,7 @@ class TaskCreate(BaseModel):
     person_ids: list[str] | None = None
     company_ids: list[str] | None = None
     note_ids: list[str] | None = None
+    assignee_id: str | None = None
 
 
 class TaskUpdate(BaseModel):
@@ -142,6 +143,7 @@ class TaskUpdate(BaseModel):
     person_ids: list[str] | None = None
     company_ids: list[str] | None = None
     note_ids: list[str] | None = None
+    assignee_id: str | None = None
 
 
 class TaskReminderUpdate(BaseModel):

@@ -3382,6 +3382,12 @@ function MemoryDetailSheet({
   const [draftProjectIds, setDraftProjectIds] = useState<string[]>(relationIds(item.projects));
   const [draftPersonIds, setDraftPersonIds] = useState<string[]>(relationIds(item.people));
   const [draftCompanyIds, setDraftCompanyIds] = useState<string[]>(relationIds(item.companies));
+  const initialAssignee = useMemo(() => {
+    if (item.assignee_id) return String(item.assignee_id);
+    const assigneePerson = (item.people || []).find((person: any) => person.relation === "assignee");
+    return assigneePerson ? String(assigneePerson.id) : "";
+  }, [item.assignee_id, item.people]);
+  const [draftAssigneeId, setDraftAssigneeId] = useState<string>(initialAssignee);
   useEffect(() => {
     setDraftTitle(title);
     setDraftBody(body);
@@ -3390,7 +3396,8 @@ function MemoryDetailSheet({
     setDraftProjectIds(relationIds(item.projects));
     setDraftPersonIds(relationIds(item.people));
     setDraftCompanyIds(relationIds(item.companies));
-  }, [body, item.companies, item.due_at, item.id, item.occurred_at, item.people, item.projects, item.status, title]);
+    setDraftAssigneeId(initialAssignee);
+  }, [body, initialAssignee, item.companies, item.due_at, item.id, item.occurred_at, item.people, item.projects, item.status, title]);
   if (!memory) return null;
   const projects = item.projects || [];
   const people = item.people || [];
@@ -3441,6 +3448,9 @@ function MemoryDetailSheet({
       payload.person_ids = draftPersonIds;
     }
     if (["tasks", "meetings", "reports", "workflows"].includes(sectionId)) payload.company_ids = draftCompanyIds;
+    if (sectionId === "tasks") {
+      payload.assignee_id = draftAssigneeId || null;
+    }
     await onUpdateMemory(sectionId, item.id, payload);
   }
   function snoozeUntilTomorrow() {
@@ -3538,19 +3548,44 @@ function MemoryDetailSheet({
                 ))}
               </div>
             )}
+            {isTask && !!editablePeople.length && (
+              <label className="relation-assignee" aria-label="Task assignee">
+                <span>Assigned to</span>
+                <select
+                  value={draftAssigneeId}
+                  onChange={(event) => {
+                    const next = event.target.value;
+                    setDraftAssigneeId(next);
+                    if (next && !draftPersonIds.includes(next)) {
+                      setDraftPersonIds((current) => [...current, next]);
+                    }
+                  }}
+                >
+                  <option value="">Nobody yet</option>
+                  {editablePeople.map((person) => (
+                    <option key={person.id} value={person.id}>{person.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             {!!editablePeople.length && (
               <div className="relation-editor" role="group" aria-label="Linked people">
-                <strong>People</strong>
-                {editablePeople.map((person) => (
+                <strong>{isTask ? "Watchers" : "People"}</strong>
+                {editablePeople.map((person) => {
+                  const isAssignee = isTask && person.id === draftAssigneeId;
+                  return (
                   <label key={person.id} className={draftPersonIds.includes(person.id) ? "relation-chip active" : "relation-chip"}>
                     <input
                       type="checkbox"
                       checked={draftPersonIds.includes(person.id)}
                       onChange={() => setDraftPersonIds((current) => toggleId(current, person.id))}
+                      disabled={isAssignee}
                     />
                     {person.name}
+                    {isAssignee && <span className="mini-relation-tag">assignee</span>}
                   </label>
-                ))}
+                );
+                })}
               </div>
             )}
             {["tasks", "meetings", "reports", "workflows"].includes(sectionId) && !!editableCompanies.length && (
