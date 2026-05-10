@@ -1960,18 +1960,30 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                       <div className="pipeline-bucket">
                         <span className="pipeline-bucket-label">Failed</span>
                         {pipelineRecentFailed.map((note: any) => (
-                          <button
-                            key={`pipe-fail-${note.id}`}
-                            type="button"
-                            className="dashboard-row pipeline-row pipeline-row-failed"
-                            onClick={() => openNote(note.id)}
-                          >
-                            <span className="row-icon warning"><X size={14} /></span>
-                            <span>
-                              <strong>{note.title || "Untitled"}</strong>
-                              <small>{note.ai_processing_error ? String(note.ai_processing_error).slice(0, 80) : "Retry from note view"}</small>
-                            </span>
-                          </button>
+                          <div key={`pipe-fail-${note.id}`} className="pipeline-row-with-action">
+                            <button
+                              type="button"
+                              className="dashboard-row pipeline-row pipeline-row-failed"
+                              onClick={() => openNote(note.id)}
+                            >
+                              <span className="row-icon warning"><X size={14} /></span>
+                              <span>
+                                <strong>{note.title || "Untitled"}</strong>
+                                <small>{note.ai_processing_error ? String(note.ai_processing_error).slice(0, 80) : "Click to open"}</small>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              className="pipeline-retry"
+                              aria-label={`Retry extraction for ${note.title || "note"}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                processWithAI(note.id);
+                              }}
+                            >
+                              <Sparkles size={13} /> Retry
+                            </button>
+                          </div>
                         ))}
                       </div>
                     )}

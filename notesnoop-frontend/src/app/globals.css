@@ -591,6 +591,26 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border-color: #d8a3a0;
   background: #fbf3f2;
 }
+.pipeline-row-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.pipeline-retry {
+  border: 1px solid #d8a3a0;
+  background: #fff;
+  color: #6b1818;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pipeline-retry:hover { background: #fbf3f2; }
 .relationships-panel {
   grid-column: span 6;
 }
