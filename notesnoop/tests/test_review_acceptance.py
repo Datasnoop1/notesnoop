@@ -121,3 +121,46 @@ def test_accept_matched_review_does_not_create_or_rewrite_payload(monkeypatch):
     assert "INSERT INTO people" not in _sql(cur)
     assert "SET payload = %s::jsonb" not in _sql(cur)
     assert _params_for(cur, "INSERT INTO note_people_links")[0] == ("note-1", "person-existing", 0.91, "ai", "owner-1")
+
+
+def test_accept_structured_task_review_materializes_edited_payload(monkeypatch):
+    review = {
+        "id": "review-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "task",
+        "entity_id": "note-1",
+        "reason": "ai_suggestion",
+        "payload": {
+            "title": "Send Apollo follow-up",
+            "status": "todo",
+            "confidence": 0.86,
+            "project_ids": ["project-1"],
+        },
+    }
+    cur = FakeCursor([review])
+    calls = []
+
+    def fake_materialize(cursor, loaded_review, payload, user_id):
+        calls.append((cursor, loaded_review, payload, user_id))
+        return "task-created"
+
+    monkeypatch.setattr(graph, "transaction", lambda _user_id: fake_transaction(cur))
+    monkeypatch.setattr(graph, "_materialize_review_candidate", fake_materialize)
+
+    result = graph.accept_review(
+        "review-1",
+        ReviewDecision(payload={"title": "Send Apollo diligence pack", "due_at": "2026-05-20"}),
+        CurrentUser(clerk_user_id="owner-1"),
+    )
+
+    assert result == {"data": {"state": "accepted", "entity_kind": "task", "entity_id": "task-created"}}
+    assert calls[0][1]["id"] == review["id"]
+    assert calls[0][2]["title"] == "Send Apollo diligence pack"
+    assert calls[0][2]["status"] == "todo"
+    assert calls[0][2]["due_at"] == "2026-05-20"
+    assert calls[0][2]["project_ids"] == ["project-1"]
+    assert calls[0][3] == "owner-1"
+    payload_updates = _params_for(cur, "SET payload = %s::jsonb")
+    assert len(payload_updates) == 2
+    assert json.loads(payload_updates[-1][0])["materialized_id"] == "task-created"
+    assert _params_for(cur, "INSERT INTO calibration_events")[0] == ("workspace-1", 0.86)

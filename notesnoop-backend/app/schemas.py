@@ -203,6 +203,8 @@ class EmailBlockRequest(BaseModel):
 
 class ReviewDecision(BaseModel):
     confidence: float | None = None
+    payload: dict[str, Any] | None = None
+    materialize: bool = True
 
 
 class PersonMergeRequest(BaseModel):

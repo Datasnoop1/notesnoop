@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -182,6 +183,42 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     )
     assert graph_only_task.status_code == 200
     graph_only_task_id = graph_only_task.json()["data"]["id"]
+    review_payload = {
+        "candidate_key": f"task:{note_id}:action_item:reviewed",
+        "source_note_id": note_id,
+        "source_kind": "action_item",
+        "title": "AI suggested Apollo follow-up",
+        "description": "Original AI wording.",
+        "status": "todo",
+        "priority": 3,
+        "confidence": 0.84,
+        "project_ids": [project_id],
+        "person_ids": [person_id],
+    }
+    with psycopg2.connect(DATABASE_URL) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """
+                INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
+                VALUES (%s, %s, 'task', %s, 'ai_suggestion', %s::jsonb)
+                RETURNING id
+                """,
+                (workspace_id, user_id, note_id, json.dumps(review_payload)),
+            )
+            task_review_id = str(cur.fetchone()["id"])
+    accepted_task_review = client.post(
+        f"/api/review-queue/{task_review_id}/accept",
+        json={"payload": {"title": "Edited Apollo follow-up", "due_at": "2026-05-20"}},
+        headers=headers,
+    )
+    assert accepted_task_review.status_code == 200
+    accepted_task_id = accepted_task_review.json()["data"]["entity_id"]
+    reviewed_tasks = client.get(f"/api/workspaces/{workspace_id}/tasks", headers=headers)
+    assert reviewed_tasks.status_code == 200
+    accepted_task = next(row for row in reviewed_tasks.json()["data"] if row["id"] == accepted_task_id)
+    assert accepted_task["title"] == "Edited Apollo follow-up"
+    assert accepted_task["ai_review_state"] == "accepted"
+    assert accepted_task["source_confidence"] == 0.84
     company = client.post(
         f"/api/workspaces/{workspace_id}/companies",
         json={

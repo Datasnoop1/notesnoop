@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
 from ..schemas import PersonMergeRequest, ReviewDecision
+from ..worker import _materialize_review_candidate
 
 
 router = APIRouter(prefix="/api", tags=["graph"])
@@ -564,8 +565,10 @@ def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
             if existing:
                 raise HTTPException(status_code=409, detail="Review item is already decided")
             raise HTTPException(status_code=404, detail="Review item not found")
-        data = review.get("payload") or {}
+        data = {**(review.get("payload") or {}), **(payload.payload or {})}
         confidence = payload.confidence or data.get("confidence") or 0.75
+        if payload.payload:
+            _update_review_payload(cur, review_id, data)
         person_id = data.get("matched_person_id") or data.get("person_id")
         if review["entity_kind"] == "person" and not person_id:
             person_id = _create_review_person(cur, review, data, user.clerk_user_id)
@@ -613,12 +616,23 @@ def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
                 user.clerk_user_id,
                 project_id=str(project_id),
             )
+        materialized_id = None
+        if review["entity_kind"] in {"task", "meeting", "report", "workflow", "company"} and payload.materialize:
+            materialized_id = _materialize_review_candidate(cur, review, data, user.clerk_user_id)
+            if not materialized_id:
+                raise HTTPException(status_code=422, detail="Review candidate could not be materialized")
+            data = {**data, "materialized_id": materialized_id}
+            _update_review_payload(cur, review_id, data)
         cur.execute("UPDATE review_queue SET state = 'accepted' WHERE id = %s", (review_id,))
         cur.execute(
             "INSERT INTO calibration_events (workspace_id, confidence, user_decision) VALUES (%s, %s, 'accepted')",
             (review["workspace_id"], confidence),
         )
-        return {"data": {"state": "accepted"}}
+        response = {"state": "accepted"}
+        if materialized_id:
+            response["entity_kind"] = review["entity_kind"]
+            response["entity_id"] = materialized_id
+        return {"data": response}
 
 
 @router.post("/review-queue/{review_id}/reject")

@@ -123,6 +123,21 @@ def wait_for_note_processed(client: SmokeClient, note_id: str, timeout_s: int = 
     return last or {}
 
 
+def accept_review_for_note(client: SmokeClient, workspace_id: str, note_id: str, kind: str) -> dict[str, Any]:
+    rows = data(client.get(f"/api/workspaces/{workspace_id}/review-queue?limit=100")) or []
+    review = next(
+        (
+            item
+            for item in rows
+            if item.get("entity_id") == note_id and item.get("entity_kind") == kind and item.get("state", "open") == "open"
+        ),
+        None,
+    )
+    if not review:
+        raise AssertionError(f"missing {kind} review for note {note_id}")
+    return data(client.post(f"/api/review-queue/{review['id']}/accept", {"payload": review.get("payload") or {}}))
+
+
 def run(base_url: str, basic_auth: str | None) -> None:
     suffix = uuid.uuid4().hex[:8]
     owner = SmokeClient(
@@ -213,18 +228,23 @@ def run(base_url: str, basic_auth: str | None) -> None:
     )
     for memory_note in [task_memory_note, call_memory_note, report_memory_note]:
         wait_for_note_processed(owner, memory_note["id"], timeout_s=60)
+    accepted_task = accept_review_for_note(owner, workspace_id, task_memory_note["id"], "task")
+    accepted_meeting = accept_review_for_note(owner, workspace_id, call_memory_note["id"], "meeting")
+    accepted_report = accept_review_for_note(owner, workspace_id, report_memory_note["id"], "report")
     materialized_home = data(owner.get(f"/api/workspaces/{workspace_id}/home"))
     assert_true(
-        any(item.get("source_note_id") == task_memory_note["id"] for item in materialized_home["open_tasks"]),
-        "AI worker materializes task memories into task graph",
+        accepted_task.get("entity_id") and any(item.get("source_note_id") == task_memory_note["id"] for item in materialized_home["open_tasks"]),
+        "AI task review accepts into task graph",
     )
     assert_true(
-        any(item.get("note_id") == call_memory_note["id"] or item.get("source_note_id") == call_memory_note["id"] for item in materialized_home["meetings_calls"]),
-        "AI worker materializes call memories into meeting graph",
+        accepted_meeting.get("entity_id")
+        and any(item.get("note_id") == call_memory_note["id"] or item.get("source_note_id") == call_memory_note["id"] for item in materialized_home["meetings_calls"]),
+        "AI meeting review accepts into meeting graph",
     )
     assert_true(
-        any(item.get("note_id") == report_memory_note["id"] or item.get("source_note_id") == report_memory_note["id"] for item in materialized_home["reports_briefs"]),
-        "AI worker materializes report memories into report graph",
+        accepted_report.get("entity_id")
+        and any(item.get("note_id") == report_memory_note["id"] or item.get("source_note_id") == report_memory_note["id"] for item in materialized_home["reports_briefs"]),
+        "AI report review accepts into report graph",
     )
 
     task = data(

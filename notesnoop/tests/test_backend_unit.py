@@ -323,6 +323,18 @@ def test_ai_processing_error_migration_adds_note_failure_context():
     assert "ADD COLUMN IF NOT EXISTS ai_processing_error TEXT" in migration.sql
 
 
+def test_structured_memory_review_guardrails_migration_adds_provenance():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0022_structured_memory_review_guardrails.sql")
+
+    assert migration.filename == "0022_structured_memory_review_guardrails.sql"
+    assert "'task','meeting','report','workflow','company'" in migration.sql
+    assert "ADD COLUMN IF NOT EXISTS ai_review_state TEXT NOT NULL DEFAULT 'accepted'" in migration.sql
+    assert "ADD COLUMN IF NOT EXISTS ai_review_id UUID REFERENCES review_queue" in migration.sql
+    assert "ADD COLUMN IF NOT EXISTS source_payload JSONB" in migration.sql
+    assert "idx_notesnoop_review_queue_candidate_key" in migration.sql
+    assert "datasnoop" not in migration.sql.lower()
+
+
 def test_project_scoped_memory_rls_migration_replaces_workspace_wide_access():
     migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0015_project_scoped_memory_rls.sql")
 
@@ -722,6 +734,7 @@ def test_worker_matching_claim_finish_and_process_extract(monkeypatch):
                 {"name": "Personal", "confidence": 0.95},
                 {"name": "", "confidence": 0.99},
             ],
+            "tasks": [{"title": "Send Apollo follow-up", "confidence": 0.86, "due_date": "2026-05-15"}],
         }
 
     async def fake_embed(_text):
@@ -775,6 +788,11 @@ def test_worker_matching_claim_finish_and_process_extract(monkeypatch):
     assert review_params
     assert isinstance(review_params[0][-1], str)
     assert json.loads(review_params[0][-1])["name"] == "New Person"
+    review_payloads = [json.loads(params[-1]) for params in review_params]
+    task_payload = next(payload for payload in review_payloads if payload.get("title") == "Send Apollo follow-up")
+    assert task_payload["candidate_key"].startswith("task:note-1:action_item")
+    assert task_payload["due_at"] == "2026-05-15"
+    assert "INSERT INTO tasks" not in executed_sql
 
 
 def test_worker_materializes_ai_memory_idempotently():
@@ -811,8 +829,49 @@ def test_worker_materializes_ai_memory_idempotently():
     task_inserts = [params for sql, params in cur.executed if "INSERT INTO tasks" in sql]
     assert len(task_inserts) == 1
     assert task_inserts[0][1] == "follow up with legal"
-    assert task_inserts[0][3] == "2026-05-15T12:00:00+00:00"
-    assert task_inserts[0][-1] == "action_item"
+    assert task_inserts[0][5] == "2026-05-15T12:00:00+00:00"
+    assert task_inserts[0][8] == "action_item"
+    assert task_inserts[0][9] is None
+
+
+def test_worker_materializes_accepted_structured_review_candidate():
+    review = {
+        "id": "review-task-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "task",
+        "entity_id": "note-1",
+    }
+    payload = {
+        "title": "Send edited Apollo pack",
+        "description": "Edited by reviewer",
+        "status": "doing",
+        "priority": 1,
+        "due_at": "2026-05-20",
+        "source_kind": "action_item",
+        "confidence": 0.86,
+        "project_ids": ["project-1"],
+        "person_ids": ["person-1"],
+    }
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": "note-1", "workspace_id": "workspace-1", "body": "Original note", "note_kind": "note"},
+            {"id": "task-1"},
+        ],
+    )
+
+    task_id = worker._materialize_review_candidate(cur, review, payload, "owner-1")
+
+    assert task_id == "task-1"
+    task_params = next(params for sql, params in cur.executed if "INSERT INTO tasks" in sql)
+    assert task_params[1] == "Send edited Apollo pack"
+    assert task_params[2] == "Edited by reviewer"
+    assert task_params[3] == "doing"
+    assert task_params[4] == 1
+    assert task_params[9] == "review-task-1"
+    assert task_params[10] == 0.86
+    assert json.loads(task_params[11])["title"] == "Send edited Apollo pack"
+    assert "INSERT INTO task_projects" in "\n".join(sql for sql, _params in cur.executed)
+    assert "INSERT INTO task_people" in "\n".join(sql for sql, _params in cur.executed)
 
 
 def test_worker_materializes_full_memory_graph_from_ai_payload():

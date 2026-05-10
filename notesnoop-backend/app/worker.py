@@ -222,6 +222,25 @@ def _unpack_context(context: tuple) -> tuple[dict, list[dict], list[dict], list[
 
 
 def _insert_review(cur, note: dict, target_user_id: str, entity_kind: str, payload: dict[str, Any], reason: str = "ai_suggestion"):
+    candidate_key = payload.get("candidate_key")
+    if candidate_key:
+        cur.execute(
+            """
+            SELECT id
+            FROM review_queue
+            WHERE workspace_id = %s
+              AND target_user_id = %s
+              AND entity_kind = %s
+              AND entity_id = %s
+              AND reason = %s
+              AND state IN ('open','accepted')
+              AND payload->>'candidate_key' = %s
+            LIMIT 1
+            """,
+            (note["workspace_id"], target_user_id, entity_kind, note["id"], reason, candidate_key),
+        )
+        if cur.fetchone():
+            return
     cur.execute(
         """
         INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
@@ -446,6 +465,10 @@ def _materialize_company(
     target_user_id: str,
     project_ids: list[str],
     person_ids: list[str],
+    source_kind: str = "ai_company",
+    review_id: str | None = None,
+    source_confidence: float | None = None,
+    source_payload: dict[str, Any] | None = None,
 ) -> str | None:
     name = _memory_item_title(item, "")
     if not name:
@@ -454,16 +477,36 @@ def _materialize_company(
     description = _memory_item_description(item)
     cur.execute(
         """
-        INSERT INTO companies (workspace_id, name, domain, description, created_by)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO companies (
+          workspace_id, name, domain, description, created_by, source_note_id, source_kind,
+          ai_review_state, ai_review_id, source_confidence, source_payload
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'accepted', %s, %s, %s::jsonb)
         ON CONFLICT (workspace_id, lower(name))
         DO UPDATE
           SET domain = COALESCE(EXCLUDED.domain, companies.domain),
               description = COALESCE(EXCLUDED.description, companies.description),
+              source_note_id = COALESCE(companies.source_note_id, EXCLUDED.source_note_id),
+              source_kind = COALESCE(companies.source_kind, EXCLUDED.source_kind),
+              ai_review_state = 'accepted',
+              ai_review_id = COALESCE(EXCLUDED.ai_review_id, companies.ai_review_id),
+              source_confidence = COALESCE(EXCLUDED.source_confidence, companies.source_confidence),
+              source_payload = COALESCE(EXCLUDED.source_payload, companies.source_payload),
               updated_at = now()
         RETURNING id
         """,
-        (note["workspace_id"], name, domain, description, target_user_id),
+        (
+            note["workspace_id"],
+            name,
+            domain,
+            description,
+            target_user_id,
+            note["id"],
+            source_kind,
+            review_id,
+            source_confidence,
+            json.dumps(source_payload) if source_payload else None,
+        ),
     )
     row = cur.fetchone()
     if not row:
@@ -483,6 +526,9 @@ def _materialize_meeting(
     project_ids: list[str],
     person_ids: list[str],
     source_kind: str,
+    review_id: str | None = None,
+    source_confidence: float | None = None,
+    source_payload: dict[str, Any] | None = None,
 ) -> str | None:
     title = _memory_item_title(item, "Captured conversation")
     occurred_at = note.get("occurred_at")
@@ -490,15 +536,22 @@ def _materialize_meeting(
         occurred_at = _coerce_due_at(item.get("occurred_at") or item.get("occurred_date")) or occurred_at
     cur.execute(
         """
-        INSERT INTO meetings (workspace_id, title, occurred_at, summary, created_by, source_note_id, source_kind)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO meetings (
+          workspace_id, title, occurred_at, summary, created_by, source_note_id, source_kind,
+          ai_review_state, ai_review_id, source_confidence, source_payload
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'accepted', %s, %s, %s::jsonb)
         ON CONFLICT (source_note_id, source_kind)
           WHERE source_note_id IS NOT NULL
         DO UPDATE
           SET updated_at = now(),
               title = COALESCE(NULLIF(EXCLUDED.title, ''), meetings.title),
               summary = COALESCE(EXCLUDED.summary, meetings.summary),
-              occurred_at = COALESCE(EXCLUDED.occurred_at, meetings.occurred_at)
+              occurred_at = COALESCE(EXCLUDED.occurred_at, meetings.occurred_at),
+              ai_review_state = 'accepted',
+              ai_review_id = COALESCE(EXCLUDED.ai_review_id, meetings.ai_review_id),
+              source_confidence = COALESCE(EXCLUDED.source_confidence, meetings.source_confidence),
+              source_payload = COALESCE(EXCLUDED.source_payload, meetings.source_payload)
         RETURNING id
         """,
         (
@@ -509,6 +562,9 @@ def _materialize_meeting(
             target_user_id,
             note["id"],
             source_kind,
+            review_id,
+            source_confidence,
+            json.dumps(source_payload) if source_payload else None,
         ),
     )
     row = cur.fetchone()
@@ -538,27 +594,45 @@ def _materialize_report(
     task_ids: list[str],
     company_ids: list[str],
     source_kind: str,
+    review_id: str | None = None,
+    source_confidence: float | None = None,
+    source_payload: dict[str, Any] | None = None,
 ) -> str | None:
     title = _memory_item_title(item, "Captured brief")
+    status = "draft"
+    if isinstance(item, dict) and item.get("status") in {"draft", "published", "archived"}:
+        status = item["status"]
     cur.execute(
         """
-        INSERT INTO reports (workspace_id, title, body, status, created_by, source_note_id, source_kind)
-        VALUES (%s, %s, %s, 'draft', %s, %s, %s)
+        INSERT INTO reports (
+          workspace_id, title, body, status, created_by, source_note_id, source_kind,
+          ai_review_state, ai_review_id, source_confidence, source_payload
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'accepted', %s, %s, %s::jsonb)
         ON CONFLICT (source_note_id, source_kind)
           WHERE source_note_id IS NOT NULL
         DO UPDATE
           SET updated_at = now(),
               title = COALESCE(NULLIF(EXCLUDED.title, ''), reports.title),
-              body = COALESCE(EXCLUDED.body, reports.body)
+              body = COALESCE(EXCLUDED.body, reports.body),
+              status = EXCLUDED.status,
+              ai_review_state = 'accepted',
+              ai_review_id = COALESCE(EXCLUDED.ai_review_id, reports.ai_review_id),
+              source_confidence = COALESCE(EXCLUDED.source_confidence, reports.source_confidence),
+              source_payload = COALESCE(EXCLUDED.source_payload, reports.source_payload)
         RETURNING id
         """,
         (
             note["workspace_id"],
             title,
             _memory_item_description(item, str(note.get("body") or "")),
+            status,
             target_user_id,
             note["id"],
             source_kind,
+            review_id,
+            source_confidence,
+            json.dumps(source_payload) if source_payload else None,
         ),
     )
     row = cur.fetchone()
@@ -604,22 +678,49 @@ def _materialize_workflow(
     project_ids: list[str],
     person_ids: list[str],
     task_ids: list[str],
+    source_kind: str = "ai_workflow",
+    review_id: str | None = None,
+    source_confidence: float | None = None,
+    source_payload: dict[str, Any] | None = None,
 ) -> str | None:
     name = _memory_item_title(item, "")
     if not name:
         return None
+    status = "active"
+    if isinstance(item, dict) and item.get("status") in {"draft", "active", "paused", "retired"}:
+        status = item["status"]
     cur.execute(
         """
-        INSERT INTO workflows (workspace_id, name, description, status, created_by)
-        VALUES (%s, %s, %s, 'active', %s)
+        INSERT INTO workflows (
+          workspace_id, name, description, status, created_by, source_note_id, source_kind,
+          ai_review_state, ai_review_id, source_confidence, source_payload
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'accepted', %s, %s, %s::jsonb)
         ON CONFLICT (workspace_id, lower(name))
         DO UPDATE
           SET description = COALESCE(EXCLUDED.description, workflows.description),
-              status = CASE WHEN workflows.status = 'retired' THEN workflows.status ELSE 'active' END,
+              status = CASE WHEN workflows.status = 'retired' THEN workflows.status ELSE EXCLUDED.status END,
+              source_note_id = COALESCE(workflows.source_note_id, EXCLUDED.source_note_id),
+              source_kind = COALESCE(workflows.source_kind, EXCLUDED.source_kind),
+              ai_review_state = 'accepted',
+              ai_review_id = COALESCE(EXCLUDED.ai_review_id, workflows.ai_review_id),
+              source_confidence = COALESCE(EXCLUDED.source_confidence, workflows.source_confidence),
+              source_payload = COALESCE(EXCLUDED.source_payload, workflows.source_payload),
               updated_at = now()
         RETURNING id
         """,
-        (note["workspace_id"], name, _memory_item_description(item, str(note.get("body") or "")[:1000]), target_user_id),
+        (
+            note["workspace_id"],
+            name,
+            _memory_item_description(item, str(note.get("body") or "")[:1000]),
+            status,
+            target_user_id,
+            note["id"],
+            source_kind,
+            review_id,
+            source_confidence,
+            json.dumps(source_payload) if source_payload else None,
+        ),
     )
     row = cur.fetchone()
     if not row:
@@ -641,30 +742,56 @@ def _materialize_task(
     project_ids: list[str],
     person_ids: list[str],
     due_at: Any = None,
+    description: str | None = None,
+    status: str = "todo",
+    priority: int = 3,
+    review_id: str | None = None,
+    source_confidence: float | None = None,
+    source_payload: dict[str, Any] | None = None,
 ) -> str | None:
     if not title:
         return None
     task_due_at = _coerce_due_at(due_at)
+    if status not in {"todo", "doing", "blocked", "done", "archived"}:
+        status = "todo"
+    try:
+        priority = max(1, min(5, int(priority)))
+    except (TypeError, ValueError):
+        priority = 3
     cur.execute(
         """
-        INSERT INTO tasks (workspace_id, title, description, status, priority, due_at, created_by, source_note_id, source_kind)
-        VALUES (%s, %s, %s, 'todo', 3, %s, %s, %s, %s)
+        INSERT INTO tasks (
+          workspace_id, title, description, status, priority, due_at, created_by, source_note_id, source_kind,
+          ai_review_state, ai_review_id, source_confidence, source_payload
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'accepted', %s, %s, %s::jsonb)
         ON CONFLICT (source_note_id, source_kind, lower(title))
           WHERE source_note_id IS NOT NULL
         DO UPDATE
           SET updated_at = now(),
-              description = COALESCE(tasks.description, EXCLUDED.description),
-              due_at = COALESCE(tasks.due_at, EXCLUDED.due_at)
+              description = COALESCE(EXCLUDED.description, tasks.description),
+              status = EXCLUDED.status,
+              priority = EXCLUDED.priority,
+              due_at = COALESCE(EXCLUDED.due_at, tasks.due_at),
+              ai_review_state = 'accepted',
+              ai_review_id = COALESCE(EXCLUDED.ai_review_id, tasks.ai_review_id),
+              source_confidence = COALESCE(EXCLUDED.source_confidence, tasks.source_confidence),
+              source_payload = COALESCE(EXCLUDED.source_payload, tasks.source_payload)
         RETURNING id
         """,
         (
             note["workspace_id"],
             title,
-            str(note.get("body") or "")[:2000],
+            (description if description is not None else str(note.get("body") or "")[:2000]),
+            status,
+            priority,
             task_due_at,
             target_user_id,
             note["id"],
             source_kind,
+            review_id,
+            source_confidence,
+            json.dumps(source_payload) if source_payload else None,
         ),
     )
     row = cur.fetchone()
@@ -682,6 +809,303 @@ def _materialize_task(
     _link_memory_projects(cur, "task_projects", "task_id", task_id, note["workspace_id"], project_ids, target_user_id)
     _link_task_people(cur, task_id, note["workspace_id"], person_ids, target_user_id)
     return task_id
+
+
+def _item_confidence(item: Any, default: float = 0.75) -> float:
+    if isinstance(item, dict):
+        try:
+            return max(0.0, min(1.0, float(item.get("confidence") or default)))
+        except (TypeError, ValueError):
+            return default
+    return default
+
+
+def _candidate_key(kind: str, note_id: str, source_kind: str, title: str) -> str:
+    return f"{kind}:{note_id}:{source_kind}:{title.casefold()[:160]}"
+
+
+def _base_candidate(
+    kind: str,
+    note: dict,
+    title: str,
+    source_kind: str,
+    item: Any,
+    project_ids: list[str],
+    person_ids: list[str],
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "candidate_key": _candidate_key(kind, str(note["id"]), source_kind, title),
+        "source_note_id": str(note["id"]),
+        "note_id": str(note["id"]),
+        "source_kind": source_kind,
+        "confidence": _item_confidence(item),
+        "project_ids": project_ids,
+        "person_ids": person_ids,
+    }
+    if isinstance(item, dict):
+        payload.update({key: value for key, value in item.items() if value not in (None, "")})
+    return payload
+
+
+def _structured_memory_candidates(
+    note: dict,
+    data: dict[str, Any],
+    project_ids: list[str],
+    person_ids: list[str],
+) -> list[tuple[str, dict[str, Any]]]:
+    note_id = str(note["id"])
+    note_kind = str(note.get("note_kind") or "note").lower()
+    candidates: list[tuple[str, dict[str, Any]]] = []
+
+    seen_company_names: set[str] = set()
+    for item in data.get("companies", []):
+        name = _memory_item_title(item, "")
+        key = name.casefold()
+        if not name or key in seen_company_names:
+            continue
+        seen_company_names.add(key)
+        payload = _base_candidate("company", note, name, f"ai_company:{key[:80]}", item, project_ids, person_ids)
+        payload["name"] = name
+        payload["description"] = payload.get("description") or payload.get("summary")
+        candidates.append(("company", payload))
+
+    seen_task_titles: set[str] = set()
+    for item in data.get("tasks", []):
+        title = _materialize_title(item)
+        key = title.casefold()
+        if not title or key in seen_task_titles:
+            continue
+        seen_task_titles.add(key)
+        payload = _base_candidate("task", note, title, "action_item", item, project_ids, person_ids)
+        payload["title"] = title
+        payload["description"] = payload.get("description") or payload.get("summary") or str(note.get("body") or "")[:2000]
+        payload["status"] = payload.get("status") or "todo"
+        payload["priority"] = payload.get("priority") or 3
+        payload["due_at"] = payload.get("due_at") or payload.get("due_date")
+        candidates.append(("task", payload))
+
+    if note_kind == "task":
+        title = _note_title(note, "Task")
+        key = title.casefold()
+        if key not in seen_task_titles:
+            candidates.append(
+                (
+                    "task",
+                    {
+                        "candidate_key": _candidate_key("task", note_id, "note_task", title),
+                        "source_note_id": note_id,
+                        "note_id": note_id,
+                        "source_kind": "note_task",
+                        "confidence": 0.9,
+                        "title": title,
+                        "description": str(note.get("body") or "")[:2000],
+                        "status": "todo",
+                        "priority": 3,
+                        "project_ids": project_ids,
+                        "person_ids": person_ids,
+                    },
+                )
+            )
+
+    seen_meeting_titles: set[str] = set()
+    if note_kind not in {"meeting", "call"}:
+        for item in data.get("meetings", []):
+            title = _memory_item_title(item, "")
+            key = title.casefold()
+            if not title or key in seen_meeting_titles:
+                continue
+            seen_meeting_titles.add(key)
+            payload = _base_candidate("meeting", note, title, f"ai_meeting:{key[:80]}", item, project_ids, person_ids)
+            payload["title"] = title
+            payload["summary"] = payload.get("summary") or payload.get("description") or str(note.get("body") or "")[:4000]
+            candidates.append(("meeting", payload))
+
+    if note_kind in {"meeting", "call"}:
+        title = _note_title(note, "Meeting")
+        candidates.append(
+            (
+                "meeting",
+                {
+                    "candidate_key": _candidate_key("meeting", note_id, note_kind, title),
+                    "source_note_id": note_id,
+                    "note_id": note_id,
+                    "source_kind": note_kind,
+                    "confidence": 0.9,
+                    "title": title,
+                    "summary": str(note.get("body") or "")[:4000],
+                    "occurred_at": note.get("occurred_at").isoformat() if hasattr(note.get("occurred_at"), "isoformat") else note.get("occurred_at"),
+                    "project_ids": project_ids,
+                    "person_ids": person_ids,
+                },
+            )
+        )
+
+    seen_workflows: set[str] = set()
+    for item in data.get("workflows", []):
+        name = _memory_item_title(item, "")
+        key = name.casefold()
+        if not name or key in seen_workflows:
+            continue
+        seen_workflows.add(key)
+        payload = _base_candidate("workflow", note, name, f"ai_workflow:{key[:80]}", item, project_ids, person_ids)
+        payload["name"] = name
+        payload["description"] = payload.get("description") or payload.get("summary") or str(note.get("body") or "")[:1000]
+        payload["status"] = payload.get("status") or "active"
+        payload.setdefault("task_ids", [])
+        candidates.append(("workflow", payload))
+
+    seen_reports: set[str] = set()
+    if note_kind != "report":
+        for item in data.get("reports", []):
+            title = _memory_item_title(item, "")
+            key = title.casefold()
+            if not title or key in seen_reports:
+                continue
+            seen_reports.add(key)
+            payload = _base_candidate("report", note, title, f"ai_report:{key[:80]}", item, project_ids, person_ids)
+            payload["title"] = title
+            payload["body"] = payload.get("body") or payload.get("summary") or payload.get("description") or str(note.get("body") or "")
+            payload["status"] = payload.get("status") or "draft"
+            payload.setdefault("task_ids", [])
+            payload.setdefault("company_ids", [])
+            candidates.append(("report", payload))
+
+    if note_kind == "report":
+        title = _note_title(note, "Report")
+        candidates.append(
+            (
+                "report",
+                {
+                    "candidate_key": _candidate_key("report", note_id, "report", title),
+                    "source_note_id": note_id,
+                    "note_id": note_id,
+                    "source_kind": "report",
+                    "confidence": 0.9,
+                    "title": title,
+                    "body": str(note.get("body") or ""),
+                    "status": "draft",
+                    "project_ids": project_ids,
+                    "person_ids": person_ids,
+                    "task_ids": [],
+                    "company_ids": [],
+                },
+            )
+        )
+
+    return candidates
+
+
+def _enqueue_structured_memory_reviews(
+    cur,
+    note: dict,
+    data: dict[str, Any],
+    target_user_id: str,
+    person_ids: list[str] | None = None,
+) -> dict[str, int]:
+    note_id = str(note["id"])
+    project_ids = _linked_project_ids(cur, note_id)
+    person_ids = person_ids or _linked_person_ids(cur, note_id)
+    created = {"tasks": 0, "meetings": 0, "reports": 0, "workflows": 0, "companies": 0}
+    for kind, payload in _structured_memory_candidates(note, data, project_ids, person_ids):
+        _insert_review(cur, note, target_user_id, kind, payload)
+        plural = f"{kind}s" if kind != "company" else "companies"
+        created[plural] += 1
+    return created
+
+
+def _id_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item]
+
+
+def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], target_user_id: str) -> str | None:
+    kind = str(review.get("entity_kind") or "")
+    cur.execute("SELECT * FROM notes WHERE id = %s AND workspace_id = %s", (review["entity_id"], review["workspace_id"]))
+    note_row = cur.fetchone()
+    if not note_row:
+        return None
+    note = dict(note_row)
+    project_ids = _id_list(payload.get("project_ids")) or _linked_project_ids(cur, str(note["id"]))
+    person_ids = _id_list(payload.get("person_ids")) or _linked_person_ids(cur, str(note["id"]))
+    source_kind = str(payload.get("source_kind") or f"review_{kind}")
+    confidence = _item_confidence(payload)
+    review_id = str(review["id"])
+
+    if kind == "task":
+        title = _memory_item_title(payload, "")
+        return _materialize_task(
+            cur,
+            note,
+            title,
+            source_kind,
+            target_user_id,
+            project_ids,
+            person_ids,
+            payload.get("due_at") or payload.get("due_date"),
+            description=payload.get("description") or payload.get("summary") or payload.get("body"),
+            status=str(payload.get("status") or "todo"),
+            priority=payload.get("priority") or 3,
+            review_id=review_id,
+            source_confidence=confidence,
+            source_payload=payload,
+        )
+    if kind == "meeting":
+        return _materialize_meeting(
+            cur,
+            note,
+            payload,
+            target_user_id,
+            project_ids,
+            person_ids,
+            source_kind,
+            review_id=review_id,
+            source_confidence=confidence,
+            source_payload=payload,
+        )
+    if kind == "report":
+        return _materialize_report(
+            cur,
+            note,
+            payload,
+            target_user_id,
+            project_ids,
+            person_ids,
+            _id_list(payload.get("task_ids")),
+            _id_list(payload.get("company_ids")),
+            source_kind,
+            review_id=review_id,
+            source_confidence=confidence,
+            source_payload=payload,
+        )
+    if kind == "workflow":
+        return _materialize_workflow(
+            cur,
+            note,
+            payload,
+            target_user_id,
+            project_ids,
+            person_ids,
+            _id_list(payload.get("task_ids")),
+            source_kind=source_kind,
+            review_id=review_id,
+            source_confidence=confidence,
+            source_payload=payload,
+        )
+    if kind == "company":
+        return _materialize_company(
+            cur,
+            note,
+            payload,
+            target_user_id,
+            project_ids,
+            person_ids,
+            source_kind=source_kind,
+            review_id=review_id,
+            source_confidence=confidence,
+            source_payload=payload,
+        )
+    return None
 
 
 def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id: str, person_ids: list[str] | None = None) -> dict[str, int]:
@@ -890,7 +1314,7 @@ async def _process_extract(job: dict) -> None:
                 )
 
             person_ids = _linked_person_ids(cur, note_id)
-            _materialize_ai_memory(cur, note, data, target_user_id, person_ids)
+            _enqueue_structured_memory_reviews(cur, note, data, target_user_id, person_ids)
             upsert_note_embedding(cur, note, embedding)
 
             cur.execute(

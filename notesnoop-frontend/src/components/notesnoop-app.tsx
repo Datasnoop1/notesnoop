@@ -88,6 +88,41 @@ const NOTE_KIND_LABELS: Record<string, string> = {
   task: "Task",
   report: "Report",
 };
+const STRUCTURED_REVIEW_KINDS = new Set(["task", "meeting", "report", "workflow", "company"]);
+const STRUCTURED_REVIEW_FIELDS: Record<string, { key: string; label: string; multiline?: boolean }[]> = {
+  task: [
+    { key: "title", label: "Task title" },
+    { key: "status", label: "Task status" },
+    { key: "due_at", label: "Task due date" },
+    { key: "assignee_name", label: "Task assignee" },
+    { key: "summary", label: "Task summary", multiline: true },
+  ],
+  meeting: [
+    { key: "title", label: "Meeting title" },
+    { key: "occurred_at", label: "Meeting date" },
+    { key: "attendees", label: "Meeting attendees" },
+    { key: "summary", label: "Meeting summary", multiline: true },
+  ],
+  report: [
+    { key: "title", label: "Report title" },
+    { key: "status", label: "Report status" },
+    { key: "period_start", label: "Report period start" },
+    { key: "period_end", label: "Report period end" },
+    { key: "summary", label: "Report summary", multiline: true },
+  ],
+  workflow: [
+    { key: "name", label: "Workflow name" },
+    { key: "status", label: "Workflow status" },
+    { key: "owner_name", label: "Workflow owner" },
+    { key: "description", label: "Workflow description", multiline: true },
+  ],
+  company: [
+    { key: "name", label: "Company name" },
+    { key: "domain", label: "Company domain" },
+    { key: "role", label: "Company role" },
+    { key: "summary", label: "Company summary", multiline: true },
+  ],
+};
 
 function inputDate(value?: string | null) {
   if (!value) return "";
@@ -147,6 +182,25 @@ function memoryBriefKind(sectionId: string): MemoryBriefKind {
     companies: "company",
   };
   return map[sectionId] || "task";
+}
+
+function reviewPayloadValue(value: any) {
+  if (Array.isArray(value)) return value.join(", ");
+  if (value === null || value === undefined) return "";
+  return String(value);
+}
+
+function nextReviewPayload(current: any, key: string, value: string) {
+  if (Array.isArray(current?.[key])) {
+    return {
+      ...current,
+      [key]: value
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean),
+    };
+  }
+  return { ...current, [key]: value };
 }
 
 export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boolean; initialRoute?: RouteTarget }) {
@@ -1026,10 +1080,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
-  async function decideReview(reviewId: string, decision: "accept" | "reject") {
+  async function decideReview(reviewId: string, decision: "accept" | "reject", payload?: any) {
     await api(`/api/review-queue/${reviewId}/${decision}`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(decision === "accept" && payload ? { payload } : {}),
     });
     setReviewItems((current) => current.filter((item) => item.id !== reviewId));
     setToast(decision === "accept" ? "Suggestion accepted." : "Suggestion rejected.");
@@ -2111,10 +2165,31 @@ function ReviewSheet({
   items: any[];
   reviewCount: number;
   onClose: () => void;
-  onDecide: (reviewId: string, decision: "accept" | "reject") => Promise<void>;
+  onDecide: (reviewId: string, decision: "accept" | "reject", payload?: any) => Promise<void>;
 }) {
+  const reviewItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
+  const [payloadDrafts, setPayloadDrafts] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    if (!open) return;
+    setPayloadDrafts((current) => {
+      const next: Record<string, any> = {};
+      for (const item of reviewItems) {
+        next[item.id] = current[item.id] || { ...(item.payload || {}) };
+      }
+      return next;
+    });
+  }, [open, reviewItems]);
+
   if (!open) return null;
-  const reviewItems = Array.isArray(items) ? items : [];
+
+  function updatePayload(itemId: string, key: string, value: string) {
+    setPayloadDrafts((current) => ({
+      ...current,
+      [itemId]: nextReviewPayload(current[itemId] || {}, key, value),
+    }));
+  }
+
   return (
     <div className="sheet-backdrop review-backdrop" onClick={onClose}>
       <aside className="review-sheet" onClick={(e) => e.stopPropagation()}>
@@ -2126,31 +2201,59 @@ function ReviewSheet({
           </button>
         </div>
         <div className="review-sheet-list">
-          {reviewItems.slice(0, 5).map((item) => (
-            <article key={item.id}>
-              <strong>{item.payload?.name || item.payload?.title || item.entity_kind}</strong>
-              <span>
-                {item.entity_kind}
-                {item.payload?.confidence || item.confidence ? ` - ${Math.round(Number(item.payload?.confidence || item.confidence) * 100)}%` : ""}
-              </span>
-              {item.source_note_title && <small>{item.source_note_title}</small>}
-              {item.source_snippet && <p>{item.source_snippet}</p>}
-              {!!item.projects?.length && (
-                <div className="review-projects">
-                  {item.projects.slice(0, 3).map((project: any) => (
-                    <span key={project.id}>
-                      <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
-                      {project.name}
-                    </span>
-                  ))}
+          {reviewItems.slice(0, 5).map((item) => {
+            const draft = payloadDrafts[item.id] || item.payload || {};
+            const isStructured = STRUCTURED_REVIEW_KINDS.has(item.entity_kind);
+            const fields = STRUCTURED_REVIEW_FIELDS[item.entity_kind] || [];
+            return (
+              <article key={item.id}>
+                <strong>{draft.name || draft.title || item.payload?.name || item.payload?.title || item.entity_kind}</strong>
+                <span>
+                  {item.entity_kind}
+                  {item.payload?.confidence || item.confidence ? ` - ${Math.round(Number(item.payload?.confidence || item.confidence) * 100)}%` : ""}
+                </span>
+                {item.source_note_title && <small>{item.source_note_title}</small>}
+                {item.source_snippet && <p>{item.source_snippet}</p>}
+                {isStructured && (
+                  <div className="sheet-editor">
+                    {fields.map((field) => (
+                      <label key={field.key}>
+                        {field.label}
+                        {field.multiline ? (
+                          <textarea
+                            value={reviewPayloadValue(draft[field.key])}
+                            onChange={(event) => updatePayload(item.id, field.key, event.target.value)}
+                            rows={2}
+                            aria-label={field.label}
+                          />
+                        ) : (
+                          <input
+                            value={reviewPayloadValue(draft[field.key])}
+                            onChange={(event) => updatePayload(item.id, field.key, event.target.value)}
+                            aria-label={field.label}
+                          />
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {!!item.projects?.length && (
+                  <div className="review-projects">
+                    {item.projects.slice(0, 3).map((project: any) => (
+                      <span key={project.id}>
+                        <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                        {project.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <button onClick={() => onDecide(item.id, "accept", isStructured ? draft : undefined)}><Check size={15} /> Accept</button>
+                  <button onClick={() => onDecide(item.id, "reject")}><X size={15} /> Reject</button>
                 </div>
-              )}
-              <div>
-                <button onClick={() => onDecide(item.id, "accept")}><Check size={15} /> Accept</button>
-                <button onClick={() => onDecide(item.id, "reject")}><X size={15} /> Reject</button>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
           {!reviewItems.length && <p className="muted">Caught up.</p>}
         </div>
       </aside>

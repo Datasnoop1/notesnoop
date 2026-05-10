@@ -120,10 +120,11 @@ function streamResponse() {
   );
 }
 
-function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<string, unknown> } = {}) {
+function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<string, unknown>; pendingItems?: any[] } = {}) {
   const calls: string[] = [];
   const responsePeople = options.people ?? people;
   const responseNotes = options.notes ?? [note, taskNote, meetingNote, reportNote];
+  const responsePending = options.pendingItems ?? pending;
   const memoryResults = [
     { id: "task-1", kind: "task", title: "Send Apollo diligence follow-up", subtitle: "Ask Morgan for the revised timeline." },
     { id: "company-1", kind: "company", title: "Northstar", subtitle: "northstar.example" },
@@ -147,7 +148,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/workspaces/workspace-1/home")) {
       return json({
         data: {
-          pending_review: pending,
+          pending_review: responsePending,
           recent_projects: [projects[2]],
           recent_people: responsePeople,
           flagged: [{ id: "flag-1", label: "Apollo update", target_kind: "note", note_id: "note-1" }],
@@ -177,13 +178,13 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     }
     if (url.includes("/api/workspaces/workspace-1/review-queue")) {
       return json({
-        data: pending.map((item) => ({
+        data: responsePending.map((item) => ({
           ...item,
           source_note_title: "Apollo update",
           source_snippet: "Morgan mentioned Apollo follow-up.",
           projects: [projects[2]],
         })),
-        meta: { count: pending.length },
+        meta: { count: responsePending.length },
       });
     }
     if (url.includes("/api/workspaces/workspace-1/search")) {
@@ -271,7 +272,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/notes/note-1") && init?.method === "PATCH") {
       return json({ data: { ...note, title: JSON.parse(String(init.body)).title, body: JSON.parse(String(init.body)).body } });
     }
-    if (url.includes("/api/review-queue/count")) return json({ data: { count: pending.length } });
+    if (url.includes("/api/review-queue/count")) return json({ data: { count: responsePending.length } });
     if (url.includes("/api/collaborator-activity/")) return json({ data: [] });
     if (url.includes("/api/workspaces/workspace-1/settings")) {
       return json({ data: { workspace: { ...workspace, morning_briefing_optin: true }, projects, people, inbound_address: "dev@in.notesnoop.app" } });
@@ -279,6 +280,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/review-queue/review-1/accept")) return json({ data: { accepted: true } });
     if (url.includes("/api/review-queue/review-2/accept")) return json({ data: { accepted: true } });
     if (url.includes("/api/review-queue/review-2/reject")) return json({ data: { rejected: true } });
+    if (url.includes("/api/review-queue/")) return json({ data: { accepted: true } });
     if (url.includes("/api/notes/note-1")) return json({ data: note });
     return json({ data: {} });
   });
@@ -468,6 +470,50 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Accept/i })[0]);
 
     await waitFor(() => expect(calls.some((call) => call.includes("POST /api/review-queue/review-1/accept"))).toBe(true));
+  });
+
+  it("edits and accepts a structured task review item with payload", async () => {
+    const taskReview = {
+      id: "review-task-1",
+      entity_kind: "task",
+      payload: {
+        title: "Send Apollo follow-up",
+        status: "todo",
+        due_at: "2026-05-15",
+        assignee_name: "Morgan Lee",
+        summary: "Ask Morgan for the revised diligence timeline.",
+        confidence: 0.86,
+      },
+    };
+    const { fetchMock } = installFetch({ pendingItems: [taskReview] });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Review \(1\)/i }));
+    const reviewSheet = document.querySelector(".review-sheet") as HTMLElement;
+    expect(await within(reviewSheet).findByLabelText("Task title")).toHaveValue("Send Apollo follow-up");
+    expect(within(reviewSheet).getByLabelText("Task status")).toHaveValue("todo");
+    expect(within(reviewSheet).getByLabelText("Task due date")).toHaveValue("2026-05-15");
+    fireEvent.change(within(reviewSheet).getByLabelText("Task title"), { target: { value: "Send Apollo diligence pack" } });
+    fireEvent.change(within(reviewSheet).getByLabelText("Task due date"), { target: { value: "2026-05-20" } });
+    fireEvent.change(within(reviewSheet).getByLabelText("Task summary"), { target: { value: "Send the final pack after Morgan confirms timing." } });
+    fireEvent.click(within(reviewSheet).getByRole("button", { name: /Accept/i }));
+
+    await waitFor(() => {
+      const acceptCall = fetchMock.mock.calls.find(([input, init]) => (
+        String(input).includes("/api/review-queue/review-task-1/accept") && init?.method === "POST"
+      ));
+      expect(acceptCall).toBeTruthy();
+      expect(JSON.parse(String(acceptCall?.[1]?.body))).toEqual({
+        payload: {
+          title: "Send Apollo diligence pack",
+          status: "todo",
+          due_at: "2026-05-20",
+          assignee_name: "Morgan Lee",
+          summary: "Send the final pack after Morgan confirms timing.",
+          confidence: 0.86,
+        },
+      });
+    });
   });
 
   it("exercises note sheet actions for edit, linking, briefs, AI, flag, and email block", async () => {
