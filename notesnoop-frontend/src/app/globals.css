@@ -3417,6 +3417,36 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .notif-row:hover { background: #f1f6f1; }
 .notif-row-title { font-size: 13px; font-weight: 500; }
 .notif-row-meta { font-size: 11px; color: var(--muted); }
+
+.project-description-display {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+.project-description-display p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.project-description-display p.muted { color: var(--muted); font-style: italic; }
+.project-description-editor {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+.project-description-editor textarea {
+  font-size: 12px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  resize: vertical;
+  background: #fff;
+}
 .palette-title {
   font-size: 14px;
   font-weight: 500;

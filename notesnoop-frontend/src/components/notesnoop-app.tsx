@@ -1503,6 +1503,22 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
+  async function updateProjectDescription(projectId: string, description: string | null) {
+    try {
+      const res = await api(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ description }),
+      });
+      setToast("Project updated.");
+      await refreshWorkspaceData();
+      if (projectTimeline?.project?.id === projectId) {
+        await openProject(res.data || projectTimeline.project);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not update project");
+    }
+  }
+
   async function setProjectStatus(projectId: string, status: "active" | "closed") {
     try {
       const res = await api(`/api/projects/${projectId}`, {
@@ -3374,6 +3390,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   onCreateTask={createTaskForAnchor}
                   onRename={projectTimeline.project?.kind === "user" ? (next) => renameProject(projectTimeline.project.id, next) : undefined}
                   onSetProjectStatus={projectTimeline.project?.kind === "user" ? (status) => setProjectStatus(projectTimeline.project.id, status) : undefined}
+                  onUpdateProjectDescription={projectTimeline.project?.kind === "user" ? (desc) => updateProjectDescription(projectTimeline.project.id, desc) : undefined}
                   onBack={closeProjectTimeline}
                 />
               ) : (
@@ -4492,6 +4509,56 @@ function personSourceBadgeClass(source?: string, state?: string): string {
   return "";
 }
 
+function ProjectDescriptionEditor({
+  description,
+  onSave,
+}: {
+  description: string;
+  onSave: (description: string | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(description);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { setValue(description); }, [description]);
+
+  if (!editing) {
+    return (
+      <div className="project-description-display">
+        {description ? <p>{description}</p> : <p className="muted">No description yet — what is this project about?</p>}
+        <button type="button" className="person-contact-edit-btn" onClick={() => setEditing(true)}>
+          <Settings size={13} /> {description ? "Edit description" : "Add description"}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="project-description-editor"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setSaving(true);
+        onSave(value.trim() || null).finally(() => {
+          setSaving(false);
+          setEditing(false);
+        });
+      }}
+    >
+      <textarea
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        rows={3}
+        placeholder="One or two sentences: deal thesis, scope, why this exists."
+        aria-label="Project description"
+      />
+      <div className="person-contact-actions">
+        <button type="button" onClick={() => { setEditing(false); setValue(description); }}>Cancel</button>
+        <button type="submit" disabled={saving}>Save</button>
+      </div>
+    </form>
+  );
+}
+
 function PersonContactEditor({
   person,
   onSave,
@@ -5197,6 +5264,7 @@ function TimelinePanel({
   onGenerateReport,
   onBack,
   onSetProjectStatus,
+  onUpdateProjectDescription,
   onUpdateProfile,
 }: {
   timeline: any;
@@ -5211,6 +5279,7 @@ function TimelinePanel({
   onCreateTask?: (input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null }) => Promise<void>;
   onRename?: (nextName: string) => Promise<void>;
   onSetProjectStatus?: (status: "active" | "closed") => Promise<void>;
+  onUpdateProjectDescription?: (description: string | null) => Promise<void>;
   onUpdateProfile?: (updates: Record<string, string | null>) => Promise<void>;
   inviteEmail?: string;
   onInviteEmailChange?: (email: string) => void;
@@ -5313,6 +5382,9 @@ function TimelinePanel({
         {!!profile.top_projects?.length && <p>{profile.top_projects.join(" - ")}</p>}
         {kind === "person" && onUpdateProfile && timeline.person && (
           <PersonContactEditor person={timeline.person} onSave={onUpdateProfile} />
+        )}
+        {kind === "project" && onUpdateProjectDescription && timeline.project && (
+          <ProjectDescriptionEditor description={String(timeline.project.description || "")} onSave={onUpdateProjectDescription} />
         )}
       </div>
       {kind === "person" && (

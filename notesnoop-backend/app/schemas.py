@@ -56,6 +56,7 @@ class ProjectUpdate(BaseModel):
     color_hex: str | None = Field(default=None, max_length=16)
     ai_mode: str | None = Field(default=None, pattern="^(on|manual)$")
     status: str | None = Field(default=None, pattern="^(active|closed)$")
+    description: str | None = None
 
 
 class PersonUpdate(BaseModel):

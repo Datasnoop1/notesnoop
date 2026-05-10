@@ -211,7 +211,8 @@ def update_project(project_id: str, payload: ProjectUpdate, user: CurrentUser = 
                 color_hex = %s,
                 ai_mode = %s,
                 status = %s,
-                closed_at = {closed_at_sql}
+                closed_at = {closed_at_sql},
+                description = %s
             WHERE id = %s
             RETURNING *
             """,
@@ -220,6 +221,7 @@ def update_project(project_id: str, payload: ProjectUpdate, user: CurrentUser = 
                 payload.color_hex if "color_hex" in payload.model_fields_set else project.get("color_hex"),
                 payload.ai_mode if payload.ai_mode is not None else project.get("ai_mode"),
                 next_status,
+                payload.description if "description" in payload.model_fields_set else project.get("description"),
                 project_id,
             ),
         )
