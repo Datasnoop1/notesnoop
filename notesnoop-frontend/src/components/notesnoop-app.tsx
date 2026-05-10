@@ -1461,6 +1461,24 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     .slice()
     .sort((a, b) => new Date(a.attention_at || a.remind_at || a.due_at).getTime() - new Date(b.attention_at || b.remind_at || b.due_at).getTime())
     .slice(0, 3);
+  const overdueTasks = useMemo(() => {
+    const list: any[] = [];
+    for (const task of openTasks) {
+      if (!task.due_at || task.status === "done" || task.status === "archived") continue;
+      const days = daysSinceNow(task.due_at);
+      if (days !== null && days >= 1) list.push(task);
+    }
+    return list.slice().sort((a: any, b: any) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime()).slice(0, 6);
+  }, [openTasks]);
+  const dueTodayTasks = useMemo(() => {
+    const list: any[] = [];
+    for (const task of openTasks) {
+      if (!task.due_at || task.status === "done" || task.status === "archived") continue;
+      const days = daysSinceNow(task.due_at);
+      if (days === 0) list.push(task);
+    }
+    return list.slice(0, 6);
+  }, [openTasks]);
   const meetingsCalls = (
     home?.meetings_calls?.length
       ? home.meetings_calls
@@ -2038,8 +2056,46 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   <h2>Needs attention</h2>
                   <Bell size={18} />
                 </div>
-                {dashboardReviewItems.length || dashboardFlagged.length || upcomingReminders.length ? (
+                {dashboardReviewItems.length || dashboardFlagged.length || upcomingReminders.length || overdueTasks.length || dueTodayTasks.length ? (
                   <div className="attention-groups">
+                    {overdueTasks.length > 0 && (
+                      <div className="attention-group">
+                        <div className="attention-group-head">
+                          <span className="attention-group-label" style={{ color: "#6b1818" }}>Overdue</span>
+                          <strong style={{ background: "#fbf3f2", borderColor: "#d8a3a0", color: "#6b1818" }}>{overdueTasks.length}</strong>
+                        </div>
+                        <div className="attention-grid">
+                          {overdueTasks.map((task: any) => (
+                            <button key={`overdue-${task.id}`} className="dashboard-row warning" type="button" onClick={() => openMemoryItem("tasks", task)}>
+                              <span className="row-icon warning"><CalendarDays size={15} /></span>
+                              <span>
+                                <strong>{task.title}</strong>
+                                <small>Due {new Date(task.due_at).toLocaleDateString()}{task.assignee_name ? ` - ${task.assignee_name}` : ""}</small>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {dueTodayTasks.length > 0 && (
+                      <div className="attention-group">
+                        <div className="attention-group-head">
+                          <span className="attention-group-label">Due today</span>
+                          <strong>{dueTodayTasks.length}</strong>
+                        </div>
+                        <div className="attention-grid">
+                          {dueTodayTasks.map((task: any) => (
+                            <button key={`due-today-${task.id}`} className="dashboard-row" type="button" onClick={() => openMemoryItem("tasks", task)}>
+                              <span className="row-icon"><CalendarDays size={15} /></span>
+                              <span>
+                                <strong>{task.title}</strong>
+                                <small>Today{task.assignee_name ? ` - ${task.assignee_name}` : ""}</small>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {upcomingReminders.length > 0 && (
                       <div className="attention-group">
                         <div className="attention-group-head">

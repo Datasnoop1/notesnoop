@@ -358,7 +358,7 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Loose ends" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
     expect(within(dashboard).getByText("Reminders")).toBeInTheDocument();
-    expect(within(dashboard).getByText(/^Due /i)).toBeInTheDocument();
+    expect(within(dashboard).getAllByText(/^Due /i).length).toBeGreaterThan(0);
     // Memory map is hidden until graph has 12+ nodes; relation labels appear in graph view, not asserted here.
     fireEvent.change(within(dashboard).getByLabelText("Ask memory question"), { target: { value: "What is blocked on Apollo?" } });
     fireEvent.click(within(dashboard).getByRole("button", { name: /^Ask$/i }));
