@@ -2777,3 +2777,115 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
     grid-template-columns: 1fr;
   }
 }
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(16, 32, 28, .32);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+}
+.palette {
+  width: min(640px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(16, 32, 28, .22);
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  max-height: 70vh;
+}
+.palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.palette-input-row input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  outline: none;
+  color: inherit;
+}
+.palette-kbd {
+  display: inline-block;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 2px 6px;
+  background: #f1efe8;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+}
+.palette-results {
+  overflow: auto;
+  padding: 6px;
+  display: grid;
+  gap: 2px;
+}
+.palette-empty {
+  padding: 24px 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+.palette-hint { line-height: 1.6; }
+.palette-row {
+  display: grid;
+  grid-template-columns: 78px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.palette-row:hover, .palette-row.active {
+  background: #f1f6f1;
+}
+.palette-kind {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-weight: 600;
+  text-align: center;
+  background: #ecf2ee;
+  color: #2a5a4a;
+  border: 1px solid #d2e2d8;
+}
+.palette-kind-note { background: #eef2ff; color: #2c3a73; border-color: #c7d2fe; }
+.palette-kind-task { background: #fff4e6; color: #6b3b15; border-color: #f4d9b6; }
+.palette-kind-meeting { background: #eef2ff; color: #29367a; border-color: #c7d2fe; }
+.palette-kind-report { background: #f4edf7; color: #5d326f; border-color: #dec7e7; }
+.palette-kind-workflow { background: #edf7f3; color: #17453e; border-color: #bdd7d0; }
+.palette-kind-company { background: #fef3f0; color: #6a2f24; border-color: #f5cdc1; }
+.palette-kind-person { background: #f4efe8; color: #5a4423; border-color: #e3d4bb; }
+.palette-kind-project { background: #eaf3ec; color: #1f4a30; border-color: #c7dccd; }
+.palette-title {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-subtitle {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

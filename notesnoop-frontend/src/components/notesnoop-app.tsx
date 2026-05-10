@@ -237,6 +237,20 @@ function memoryBriefKind(sectionId: string): MemoryBriefKind {
   return map[sectionId] || "task";
 }
 
+function paletteKindLabel(kind: string): string {
+  const map: Record<string, string> = {
+    note: "Note",
+    task: "Task",
+    meeting: "Meeting",
+    report: "Report",
+    workflow: "Workflow",
+    company: "Company",
+    person: "Person",
+    project: "Project",
+  };
+  return map[kind] || kind;
+}
+
 function isMemoryRouteKind(kind: RouteTarget["kind"]): kind is MemoryRouteKind {
   return kind in MEMORY_ROUTE_PATHS;
 }
@@ -345,7 +359,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [quickCompanyName, setQuickCompanyName] = useState("");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState("");
+  const [paletteResults, setPaletteResults] = useState<any[]>([]);
+  const [paletteLoading, setPaletteLoading] = useState(false);
+  const [paletteIndex, setPaletteIndex] = useState(0);
   const searchDebounceRef = useRef<number | null>(null);
+  const paletteDebounceRef = useRef<number | null>(null);
+  const paletteInputRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const appliedRouteRef = useRef("");
   const openProjectRef = useRef<((project: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
@@ -497,6 +518,94 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+        return;
+      }
+      if (event.key === "Escape" && paletteOpen) {
+        event.preventDefault();
+        setPaletteOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [paletteOpen]);
+
+  useEffect(() => {
+    if (!paletteOpen) {
+      setPaletteQuery("");
+      setPaletteResults([]);
+      setPaletteIndex(0);
+      setPaletteLoading(false);
+      if (paletteDebounceRef.current) {
+        window.clearTimeout(paletteDebounceRef.current);
+        paletteDebounceRef.current = null;
+      }
+      return;
+    }
+    const handle = window.setTimeout(() => paletteInputRef.current?.focus(), 30);
+    return () => window.clearTimeout(handle);
+  }, [paletteOpen]);
+
+  const runPaletteSearch = useCallback(
+    async (rawQuery: string) => {
+      if (!workspaceId) return;
+      const trimmed = rawQuery.trim();
+      if (!trimmed) {
+        setPaletteResults([]);
+        setPaletteLoading(false);
+        return;
+      }
+      setPaletteLoading(true);
+      try {
+        const res = await api(`/api/workspaces/${workspaceId}/search?q=${encodeURIComponent(trimmed)}`);
+        const noteRows = (res.data || []).slice(0, 8).map((note: any) => ({
+          kind: "note",
+          id: note.id,
+          title: note.title || note.summary || (note.body || "").slice(0, 80) || "Untitled note",
+          subtitle: note.note_kind ? NOTE_KIND_LABELS[note.note_kind] || note.note_kind : "Note",
+        }));
+        const memoryRows = (res.meta?.memory_results || []).map((row: any) => ({
+          kind: row.kind,
+          id: row.id,
+          title: row.title || "Untitled",
+          subtitle: row.subtitle || "",
+        }));
+        setPaletteResults([...memoryRows, ...noteRows]);
+        setPaletteIndex(0);
+      } catch (err) {
+        setPaletteResults([]);
+      } finally {
+        setPaletteLoading(false);
+      }
+    },
+    [api, workspaceId],
+  );
+
+  const schedulePaletteSearch = useCallback(
+    (nextQuery: string) => {
+      setPaletteQuery(nextQuery);
+      if (paletteDebounceRef.current) {
+        window.clearTimeout(paletteDebounceRef.current);
+        paletteDebounceRef.current = null;
+      }
+      if (!nextQuery.trim()) {
+        setPaletteResults([]);
+        setPaletteLoading(false);
+        return;
+      }
+      paletteDebounceRef.current = window.setTimeout(() => {
+        runPaletteSearch(nextQuery).catch(() => undefined);
+        paletteDebounceRef.current = null;
+      }, 180);
+    },
+    [runPaletteSearch],
+  );
 
   useEffect(() => {
     refreshWorkspaceData().catch((err) => setToast(err.message));
@@ -2064,16 +2173,20 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     ))}
                   {!!askResult.citations?.length && (
                     <div className="citation-row" role="group" aria-label="Answer citations">
-                      {askResult.citations.slice(0, 6).map((citation: any) => (
+                      {askResult.citations.slice(0, 16).map((citation: any) => (
                         <button
                           key={`${citation.kind}-${citation.id}-${citation.label}`}
                           type="button"
                           onClick={() => citation.kind === "note" ? openNote(citation.id) : openGraphNode(citation)}
+                          aria-label={`Open ${citation.kind} ${citation.title || citation.label}`}
                         >
                           <span>{citation.label}</span>
-                          {citation.title}
+                          {citation.title || citation.kind}
                         </button>
                       ))}
+                      {askResult.citations.length > 16 && (
+                        <span className="muted">+{askResult.citations.length - 16} more</span>
+                      )}
                     </div>
                   )}
                   <div className="sheet-actions ask-actions">
@@ -3165,6 +3278,78 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         api={api}
         refresh={refreshWorkspaceData}
       />
+
+      {paletteOpen && (
+        <div
+          className="palette-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Quick switcher"
+          onClick={() => setPaletteOpen(false)}
+        >
+          <div className="palette" onClick={(e) => e.stopPropagation()}>
+            <div className="palette-input-row">
+              <Search size={16} />
+              <input
+                ref={paletteInputRef}
+                value={paletteQuery}
+                onChange={(e) => schedulePaletteSearch(e.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault();
+                    setPaletteIndex((i) => Math.min(i + 1, Math.max(paletteResults.length - 1, 0)));
+                  } else if (event.key === "ArrowUp") {
+                    event.preventDefault();
+                    setPaletteIndex((i) => Math.max(i - 1, 0));
+                  } else if (event.key === "Enter") {
+                    const target = paletteResults[paletteIndex];
+                    if (target) {
+                      setPaletteOpen(false);
+                      openGraphNode(target).catch((err) => setToast(err instanceof Error ? err.message : "Could not open"));
+                    }
+                  }
+                }}
+                placeholder="Jump to a note, person, project, task..."
+                aria-label="Quick switcher search"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <span className="palette-kbd">Esc</span>
+            </div>
+            <div className="palette-results" role="listbox" aria-label="Quick switcher results">
+              {paletteLoading && !paletteResults.length && <div className="palette-empty">Searching...</div>}
+              {!paletteLoading && !paletteResults.length && paletteQuery.trim() && (
+                <div className="palette-empty">No matches.</div>
+              )}
+              {!paletteQuery.trim() && (
+                <div className="palette-empty palette-hint">
+                  Type to search across notes, people, companies, projects, tasks, meetings, reports.
+                  <br />
+                  <span className="muted">Use <span className="palette-kbd">↑</span> <span className="palette-kbd">↓</span> to navigate, <span className="palette-kbd">Enter</span> to open.</span>
+                </div>
+              )}
+              {paletteResults.map((row, idx) => (
+                <button
+                  key={`${row.kind}-${row.id}`}
+                  type="button"
+                  className={`palette-row ${idx === paletteIndex ? "active" : ""}`}
+                  role="option"
+                  aria-selected={idx === paletteIndex}
+                  onMouseEnter={() => setPaletteIndex(idx)}
+                  onClick={() => {
+                    setPaletteOpen(false);
+                    openGraphNode(row).catch((err) => setToast(err instanceof Error ? err.message : "Could not open"));
+                  }}
+                >
+                  <span className={`palette-kind palette-kind-${row.kind}`}>{paletteKindLabel(row.kind)}</span>
+                  <span className="palette-title">{row.title}</span>
+                  {row.subtitle && <span className="palette-subtitle">{row.subtitle}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 

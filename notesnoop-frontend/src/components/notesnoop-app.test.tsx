@@ -725,6 +725,28 @@ describe("NoteSnoopApp", () => {
     });
   });
 
+  it("opens the Cmd-K palette, searches, and routes to a memory item", async () => {
+    const { calls } = installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByPlaceholderText(/Search notes/i);
+
+    fireEvent.keyDown(window, { key: "k", code: "KeyK", metaKey: true });
+    const paletteInput = await screen.findByPlaceholderText(/Jump to a note, person, project, task/i);
+    fireEvent.change(paletteInput, { target: { value: "Apollo" } });
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo"))).toBe(true);
+    });
+
+    const taskRow = await screen.findByRole("option", { name: /Send Apollo follow-up/i });
+    fireEvent.click(taskRow);
+
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText(/Jump to a note, person, project, task/i)).not.toBeInTheDocument();
+    });
+  });
+
   it("registers the quick-capture service worker on localhost", async () => {
     const register = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "serviceWorker", {
