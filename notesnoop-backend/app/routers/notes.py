@@ -993,7 +993,7 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
         results.extend(
             many(
                 cur,
-                """
+                f"""
                 SELECT 'person' AS kind,
                        p.id,
                        p.name AS title,
@@ -1024,7 +1024,7 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
     results.extend(
         many(
             cur,
-            """
+            f"""
             SELECT 'project' AS kind,
                    p.id,
                    p.name AS title,
