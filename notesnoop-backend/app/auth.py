@@ -20,6 +20,7 @@ class CurrentUser:
 
 _jwks_cache: dict = {}
 _jwks_fetched_at = 0.0
+_clerk_user_cache: dict[str, tuple[float, dict]] = {}
 
 
 def _jwks_url() -> str:
@@ -78,6 +79,52 @@ def _verify_clerk_token(token: str) -> dict:
         raise HTTPException(status_code=503, detail="Unable to verify Clerk token") from exc
 
 
+def _email_from_clerk_user(data: dict) -> str | None:
+    primary_id = data.get("primary_email_address_id")
+    email_addresses = data.get("email_addresses") or []
+    if isinstance(email_addresses, list):
+        primary = next((item for item in email_addresses if item.get("id") == primary_id), None)
+        candidate = primary or next((item for item in email_addresses if item.get("email_address")), None)
+        if candidate:
+            return candidate.get("email_address")
+    return data.get("email_address") or data.get("email")
+
+
+def _fetch_clerk_user_profile(user_id: str) -> dict:
+    settings = get_settings()
+    if not settings.clerk_secret_key:
+        return {}
+    now = time.monotonic()
+    cached = _clerk_user_cache.get(user_id)
+    if cached and now - cached[0] < 900:
+        return cached[1]
+    try:
+        resp = httpx.get(
+            f"https://api.clerk.com/v1/users/{user_id}",
+            headers={"Authorization": f"Bearer {settings.clerk_secret_key}"},
+            timeout=5,
+        )
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in {401, 403, 404}:
+            return {}
+        raise HTTPException(status_code=503, detail="Unable to load Clerk user profile") from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail="Unable to load Clerk user profile") from exc
+    data = resp.json()
+    if not isinstance(data, dict):
+        return {}
+    profile = {
+        "email": _email_from_clerk_user(data),
+        "display_name": data.get("full_name")
+        or " ".join(part for part in [data.get("first_name"), data.get("last_name")] if part).strip()
+        or data.get("username"),
+        "avatar_url": data.get("image_url") or data.get("profile_image_url"),
+    }
+    _clerk_user_cache[user_id] = (now, profile)
+    return profile
+
+
 def current_user(
     request: Request,
     authorization: str | None = Header(default=None),
@@ -97,11 +144,18 @@ def current_user(
         raise HTTPException(status_code=401, detail="Missing bearer token")
     payload = _verify_clerk_token(authorization.split(" ", 1)[1].strip())
     email = payload.get("email") or payload.get("primary_email_address") or payload.get("email_address")
+    display_name = payload.get("name") or payload.get("given_name")
+    avatar_url = payload.get("picture") or payload.get("image_url")
+    if not (email and display_name):
+        profile = _fetch_clerk_user_profile(payload["sub"])
+        email = email or profile.get("email")
+        display_name = display_name or profile.get("display_name")
+        avatar_url = avatar_url or profile.get("avatar_url")
     return CurrentUser(
         clerk_user_id=payload["sub"],
         email=email,
-        display_name=payload.get("name") or payload.get("given_name"),
-        avatar_url=payload.get("picture") or payload.get("image_url"),
+        display_name=display_name,
+        avatar_url=avatar_url,
     )
 
 

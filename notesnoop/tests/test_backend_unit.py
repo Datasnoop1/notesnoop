@@ -79,11 +79,13 @@ def test_auth_jwks_clerk_token_and_dev_user_paths(monkeypatch):
         clerk_jwks_url="https://clerk.test/jwks",
         clerk_issuer="https://issuer.test/",
         clerk_authorized_party="notesnoop.app",
+        clerk_secret_key="sk_test_secret",
         dev_auth=False,
     )
     monkeypatch.setattr(auth, "get_settings", lambda: settings)
     auth._jwks_cache = {}
     auth._jwks_fetched_at = 0
+    auth._clerk_user_cache = {}
 
     assert auth._jwks_url() == "https://clerk.test/jwks"
     settings.clerk_jwks_url = ""
@@ -124,6 +126,34 @@ def test_auth_jwks_clerk_token_and_dev_user_paths(monkeypatch):
     user = auth.current_user(request, authorization="Bearer token")
     assert user.clerk_user_id == "user_1"
     assert user.email == "user@example.test"
+
+    def profile_get(url, **_kwargs):
+        if "/v1/users/user_2" in url:
+            return SimpleNamespace(
+                raise_for_status=lambda: None,
+                json=lambda: {
+                    "id": "user_2",
+                    "first_name": "Fallback",
+                    "last_name": "User",
+                    "image_url": "https://example.test/fallback.png",
+                    "primary_email_address_id": "email_1",
+                    "email_addresses": [{"id": "email_1", "email_address": "fallback@example.test"}],
+                },
+            )
+        return response
+
+    monkeypatch.setattr(auth.httpx, "get", profile_get)
+    monkeypatch.setattr(
+        auth.jwt,
+        "decode",
+        lambda *_args, **_kwargs: {
+            "sub": "user_2",
+            "azp": "notesnoop.app",
+        },
+    )
+    fallback_user = auth.current_user(request, authorization="Bearer token")
+    assert fallback_user.email == "fallback@example.test"
+    assert fallback_user.display_name == "Fallback User"
 
     settings.dev_auth = True
     dev_user = auth.current_user(

@@ -32,6 +32,7 @@ class Settings(BaseModel):
     clerk_issuer: str = Field(default_factory=lambda: os.getenv("NOTESNOOP_CLERK_ISSUER") or os.getenv("CLERK_ISSUER", ""))
     clerk_jwks_url: str = Field(default_factory=lambda: os.getenv("NOTESNOOP_CLERK_JWKS_URL") or os.getenv("CLERK_JWKS_URL", ""))
     clerk_authorized_party: str = Field(default_factory=lambda: os.getenv("NOTESNOOP_CLERK_AUTHORIZED_PARTY") or os.getenv("CLERK_AUTHORIZED_PARTY", ""))
+    clerk_secret_key: str = Field(default_factory=lambda: os.getenv("NOTESNOOP_CLERK_SECRET_KEY") or os.getenv("CLERK_SECRET_KEY", ""))
 
 
 @lru_cache(maxsize=1)
