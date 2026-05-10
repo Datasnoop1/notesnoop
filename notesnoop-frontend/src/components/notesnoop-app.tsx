@@ -1706,6 +1706,18 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
     return counts;
   }, [home?.open_tasks]);
+  const companyOpenTaskCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const task of (home?.open_tasks || []) as any[]) {
+      const companies = Array.isArray(task.companies) ? task.companies : [];
+      for (const company of companies) {
+        const id = company?.id ? String(company.id) : null;
+        if (!id) continue;
+        counts[id] = (counts[id] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [home?.open_tasks]);
   const personOpenTaskCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const task of (home?.open_tasks || []) as any[]) {
@@ -2157,16 +2169,20 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         {(companies || []).length > 0 && (
           <>
             <div className="sidebar-label">Companies</div>
-            {companies.slice(0, 5).map((company: any) => (
-              <button
-                key={company.id}
-                className="nav-item"
-                onClick={() => openMemoryItem("companies", company)}
-                aria-label={`Open ${company.name}`}
-              >
-                <Building2 size={15} /> {company.name}
-              </button>
-            ))}
+            {companies.slice(0, 5).map((company: any) => {
+              const count = companyOpenTaskCounts[company.id] || 0;
+              return (
+                <button
+                  key={company.id}
+                  className="nav-item"
+                  onClick={() => openMemoryItem("companies", company)}
+                  aria-label={`Open ${company.name}`}
+                >
+                  <Building2 size={15} /> {company.name}
+                  {count > 0 && <span className="sidebar-count" aria-label={`${count} open tasks`}>{count}</span>}
+                </button>
+              );
+            })}
           </>
         )}
         {sidebarWorkflows.length > 0 && (
