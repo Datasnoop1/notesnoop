@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
@@ -9,6 +11,7 @@ from ..schemas import (
     CompanyUpdate,
     MeetingCreate,
     MeetingUpdate,
+    ProjectReportGenerateRequest,
     ReportCreate,
     ReportUpdate,
     TaskCreate,
@@ -16,6 +19,7 @@ from ..schemas import (
     WorkflowCreate,
     WorkflowUpdate,
 )
+from ..ollama_client import generate_project_report
 
 
 router = APIRouter(prefix="/api", tags=["memory"])
@@ -891,6 +895,152 @@ def project_summary(project_id: str, user: CurrentUser = Depends(current_user)):
             (project_id,),
         )
         return {"data": build_project_summary(project, notes, tasks, meetings, reports)}
+
+
+@router.post("/projects/{project_id}/reports/generate")
+def generate_project_memory_report(project_id: str, payload: ProjectReportGenerateRequest, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        project = one(cur, "SELECT * FROM projects WHERE id = %s", (project_id,))
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if project.get("kind") == "personal":
+            raise HTTPException(status_code=403, detail="Personal projects cannot generate shareable reports")
+        workspace_id = str(project["workspace_id"])
+        notes = many(
+            cur,
+            """
+            SELECT n.id, n.title, n.body, n.note_kind, n.occurred_at, n.created_at
+            FROM notes n
+            JOIN note_projects np ON np.note_id = n.id
+            WHERE np.project_id = %s
+            ORDER BY coalesce(n.occurred_at, n.created_at) DESC, n.id
+            LIMIT 40
+            """,
+            (project_id,),
+        )
+        tasks = many(
+            cur,
+            """
+            SELECT t.id, t.title, t.description, t.status, t.priority, t.due_at, t.created_at
+            FROM tasks t
+            JOIN task_projects tp ON tp.task_id = t.id
+            WHERE tp.project_id = %s
+              AND t.status <> 'archived'
+            ORDER BY
+              CASE t.status WHEN 'blocked' THEN 1 WHEN 'doing' THEN 2 WHEN 'todo' THEN 3 WHEN 'done' THEN 4 ELSE 5 END,
+              t.priority,
+              t.due_at NULLS LAST,
+              t.created_at DESC
+            LIMIT 60
+            """,
+            (project_id,),
+        )
+        meetings = many(
+            cur,
+            """
+            SELECT m.id, m.title, m.summary, m.location, m.occurred_at, m.created_at
+            FROM meetings m
+            JOIN meeting_projects mp ON mp.meeting_id = m.id
+            WHERE mp.project_id = %s
+            ORDER BY coalesce(m.occurred_at, m.created_at) DESC, m.id
+            LIMIT 25
+            """,
+            (project_id,),
+        )
+        prior_reports = many(
+            cur,
+            """
+            SELECT r.id, r.title, r.body, r.status, r.created_at
+            FROM reports r
+            JOIN report_projects rp ON rp.report_id = r.id
+            WHERE rp.project_id = %s
+            ORDER BY r.created_at DESC, r.id
+            LIMIT 10
+            """,
+            (project_id,),
+        )
+        people = many(
+            cur,
+            """
+            SELECT DISTINCT p.id, p.name, p.company, p.role, p.email
+            FROM people p
+            LEFT JOIN note_people_links npl ON npl.person_id = p.id
+            LEFT JOIN note_projects np ON np.note_id = npl.note_id
+            LEFT JOIN task_people tp ON tp.person_id = p.id
+            LEFT JOIN task_projects tpr ON tpr.task_id = tp.task_id
+            LEFT JOIN meeting_people mp ON mp.person_id = p.id
+            LEFT JOIN meeting_projects mpr ON mpr.meeting_id = mp.meeting_id
+            WHERE p.workspace_id = %s
+              AND (
+                np.project_id = %s
+                OR tpr.project_id = %s
+                OR mpr.project_id = %s
+              )
+            ORDER BY p.name
+            LIMIT 40
+            """,
+            (workspace_id, project_id, project_id, project_id),
+        )
+        companies = many(
+            cur,
+            """
+            SELECT DISTINCT c.id, c.name, c.domain, c.description
+            FROM companies c
+            LEFT JOIN company_projects cp ON cp.company_id = c.id
+            LEFT JOIN company_people cpe ON cpe.company_id = c.id
+            LEFT JOIN people p ON p.id = cpe.person_id
+            LEFT JOIN note_people_links npl ON npl.person_id = p.id
+            LEFT JOIN note_projects np ON np.note_id = npl.note_id
+            WHERE c.workspace_id = %s
+              AND (cp.project_id = %s OR np.project_id = %s)
+            ORDER BY c.name
+            LIMIT 40
+            """,
+            (workspace_id, project_id, project_id),
+        )
+
+    project_context = {**project, "people": people, "companies": companies}
+    generated = asyncio.run(generate_project_report(project_context, notes, tasks, meetings, prior_reports, payload.variant))
+    title = (payload.title or generated.get("title") or f"{project.get('name') or 'Project'} report").strip()[:240]
+    body = str(generated.get("body") or "").strip()
+    if not body:
+        raise HTTPException(status_code=502, detail="Report generation returned an empty body")
+
+    note_ids = [str(note["id"]) for note in notes]
+    task_ids = [str(task["id"]) for task in tasks]
+    person_ids = [str(person["id"]) for person in people]
+    company_ids = [str(company["id"]) for company in companies]
+    with transaction(user.clerk_user_id) as cur:
+        project = one(cur, "SELECT * FROM projects WHERE id = %s", (project_id,))
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        cur.execute(
+            """
+            INSERT INTO reports (workspace_id, title, body, status, created_by)
+            VALUES (%s, %s, %s, 'draft', %s)
+            RETURNING *
+            """,
+            (project["workspace_id"], title, body, user.clerk_user_id),
+        )
+        report = dict(cur.fetchone())
+        report_id = str(report["id"])
+        _link_many(cur, "report_projects", "report_id", "project_id", report_id, str(project["workspace_id"]), [project_id], user.clerk_user_id)
+        _link_many(cur, "report_notes", "report_id", "note_id", report_id, str(project["workspace_id"]), note_ids, user.clerk_user_id)
+        _link_many(cur, "report_tasks", "report_id", "task_id", report_id, str(project["workspace_id"]), task_ids, user.clerk_user_id)
+        _link_many(cur, "report_people", "report_id", "person_id", report_id, str(project["workspace_id"]), person_ids, user.clerk_user_id)
+        _link_many(cur, "report_companies", "report_id", "company_id", report_id, str(project["workspace_id"]), company_ids, user.clerk_user_id)
+        created = _report_payload(cur, report_id)
+        if created is not None:
+            created["generation_confidence"] = generated.get("confidence")
+            created["source_counts"] = {
+                "notes": len(note_ids),
+                "tasks": len(task_ids),
+                "meetings": len(meetings),
+                "reports": len(prior_reports),
+                "people": len(person_ids),
+                "companies": len(company_ids),
+            }
+        return {"data": created}
 
 
 def build_project_summary(

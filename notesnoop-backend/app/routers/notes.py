@@ -934,6 +934,22 @@ def get_note_payload(cur, note_id: str) -> dict | None:
         """,
         (note_id,),
     )
+    note["review_suggestions"] = many(
+        cur,
+        """
+        SELECT rq.id,
+               rq.entity_kind,
+               rq.reason,
+               rq.payload,
+               rq.created_at
+        FROM review_queue rq
+        WHERE rq.entity_id = %s
+          AND rq.state = 'open'
+        ORDER BY rq.created_at DESC
+        LIMIT 20
+        """,
+        (note_id,),
+    )
     note["project_nudge"] = _project_nudge(cur, note)
     return note
 

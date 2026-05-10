@@ -803,6 +803,26 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setToast(`${variant === "full" ? "Full" : "Quick"} brief copied.`);
   }
 
+  async function generateProjectReport(project: any) {
+    if (!project?.id) return;
+    setBusy(true);
+    try {
+      const res = await api(`/api/projects/${project.id}/reports/generate`, {
+        method: "POST",
+        body: JSON.stringify({ variant: "full" }),
+      });
+      await refreshWorkspaceData();
+      if (activeProject === project.id) await openProject(project);
+      setActiveMemoryTab("reports");
+      setSelectedMemory({ sectionId: "reports", item: res.data });
+      setToast("Project report generated from memory.");
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not generate report");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function decideReview(reviewId: string, decision: "accept" | "reject") {
     await api(`/api/review-queue/${reviewId}/${decision}`, {
       method: "POST",
@@ -1084,6 +1104,11 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                 <p>{activeProjectRecord ? "Open loops, people, and notes in this project." : "Open loops, recent movement, and capture."}</p>
               </div>
               <div className="dashboard-actions">
+                {activeProjectRecord && (
+                  <button type="button" onClick={() => generateProjectReport(activeProjectRecord)} disabled={busy}>
+                    <FileText size={16} /> Generate report
+                  </button>
+                )}
                 <button type="button" onClick={openReviewQueue}>
                   <Bell size={16} /> Review{dashboardReviewCount ? ` (${dashboardReviewCount})` : ""}
                 </button>
@@ -1487,6 +1512,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                   inviteEmail={inviteEmail}
                   onInviteEmailChange={setInviteEmail}
                   onInvite={inviteProjectMember}
+                  onGenerateReport={generateProjectReport}
                   onBack={() => setProjectTimeline(null)}
                 />
               ) : (
@@ -1561,6 +1587,10 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         onBlockSender={() => selectedNote && blockSender(selectedNote)}
         onUpdate={updateNote}
         onSetProjects={setNoteProjects}
+        onReviewDecision={async (reviewId, decision) => {
+          await decideReview(reviewId, decision);
+          if (selectedNote) await openNote(selectedNote.id);
+        }}
         onSuggestionQueued={() => setToast("Suggestion sent to Review.")}
         createProject={async (name) => {
           if (!workspaceId) throw new Error("Workspace is not ready");
@@ -1758,6 +1788,9 @@ function MemoryDetailSheet({
   const projects = item.projects || [];
   const people = item.people || [];
   const notes = item.notes || [];
+  const tasks = item.tasks || [];
+  const companies = item.companies || [];
+  const sourceCounts = item.source_counts || null;
   const isTask = sectionId === "tasks";
   const sourceNoteFallback = Boolean(item.note_id && item.id === item.note_id && ["meetings", "reports"].includes(sectionId));
   const canEdit = ["tasks", "meetings", "reports", "workflows", "companies"].includes(sectionId) && !sourceNoteFallback;
@@ -1807,7 +1840,18 @@ function MemoryDetailSheet({
           <span>{kindLabel[sectionId] || "Memory"}</span>
           {item.status && <span>{item.status}</span>}
           {(item.due_at || item.occurred_at || item.created_at) && <span>{new Date(item.due_at || item.occurred_at || item.created_at).toLocaleDateString()}</span>}
+          {typeof item.generation_confidence === "number" && <span>{Math.round(item.generation_confidence * 100)}% grounded</span>}
         </div>
+        {sourceCounts && (
+          <div className="source-count-grid" aria-label="Report sources">
+            {Object.entries(sourceCounts).map(([key, value]) => (
+              <span key={key}>
+                <strong>{String(value)}</strong>
+                {key}
+              </span>
+            ))}
+          </div>
+        )}
         {canEdit && (
           <div className="memory-edit-grid">
             <input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} aria-label="Memory title" />
@@ -1857,6 +1901,25 @@ function MemoryDetailSheet({
             ))}
           </div>
         )}
+        {!!companies.length && (
+          <div className="mini-section">
+            <strong>Companies</strong>
+            {companies.map((company: any) => (
+              <span key={company.id}>{[company.name, company.domain].filter(Boolean).join(" - ")}</span>
+            ))}
+          </div>
+        )}
+        {!!tasks.length && (
+          <div className="timeline-list">
+            {tasks.slice(0, 5).map((task: any) => (
+              <article key={task.id}>
+                <strong>{task.title}</strong>
+                <span>{task.status || "todo"}{task.due_at ? ` - due ${new Date(task.due_at).toLocaleDateString()}` : ""}</span>
+                {task.description && <p>{task.description}</p>}
+              </article>
+            ))}
+          </div>
+        )}
         {!!notes.length && (
           <div className="timeline-list">
             {notes.slice(0, 5).map((note: any) => (
@@ -1891,6 +1954,7 @@ function TimelinePanel({
   inviteEmail = "",
   onInviteEmailChange,
   onInvite,
+  onGenerateReport,
   onBack,
 }: {
   timeline: any;
@@ -1903,6 +1967,7 @@ function TimelinePanel({
   inviteEmail?: string;
   onInviteEmailChange?: (email: string) => void;
   onInvite?: (project: any, email: string) => Promise<void>;
+  onGenerateReport?: (project: any) => Promise<void>;
   onBack: () => void;
 }) {
   const [mergeTargetId, setMergeTargetId] = useState("");
@@ -1912,6 +1977,9 @@ function TimelinePanel({
       <div className="timeline-actions">
         <button onClick={onCopy}><Copy size={16} /> Brief</button>
         <button onClick={onFlag}><Flag size={16} /> Flag</button>
+        {kind === "project" && onGenerateReport && (
+          <button onClick={() => onGenerateReport(timeline.project)}><FileText size={16} /> Generate report</button>
+        )}
         <button onClick={onBack}><X size={16} /> Close</button>
       </div>
       {kind === "person" && (
@@ -2038,6 +2106,7 @@ function LinkedSheet({
   onBlockSender,
   onUpdate,
   onSetProjects,
+  onReviewDecision,
   onSuggestionQueued,
   createProject,
   api,
@@ -2055,6 +2124,7 @@ function LinkedSheet({
   onBlockSender: () => void;
   onUpdate: (noteId: string, title: string, body: string, noteKind: string, occurredAt: string) => Promise<void>;
   onSetProjects: (note: any, projectIds: string[], confirmPersonalMove?: boolean) => Promise<void>;
+  onReviewDecision: (reviewId: string, decision: "accept" | "reject") => Promise<void>;
   onSuggestionQueued: () => void;
   createProject: (name: string) => Promise<any>;
   api: (path: string, init?: RequestInit) => Promise<any>;
@@ -2166,6 +2236,24 @@ function LinkedSheet({
           <div className="ai-error">
             <strong>AI processing failed</strong>
             <span>{note.ai_processing_error}</span>
+          </div>
+        )}
+        {!!note.review_suggestions?.length && (
+          <div className="suggestion-panel">
+            <strong>AI suggestions</strong>
+            {note.review_suggestions.map((suggestion: any) => (
+              <article key={suggestion.id}>
+                <span>
+                  {suggestion.entity_kind}
+                  {suggestion.payload?.confidence ? ` - ${Math.round(Number(suggestion.payload.confidence) * 100)}%` : ""}
+                </span>
+                <p>{suggestion.payload?.name || suggestion.payload?.title || suggestion.reason}</p>
+                <div>
+                  <button type="button" onClick={() => onReviewDecision(suggestion.id, "accept")}><Check size={15} /> Accept</button>
+                  <button type="button" onClick={() => onReviewDecision(suggestion.id, "reject")}><X size={15} /> Reject</button>
+                </div>
+              </article>
+            ))}
           </div>
         )}
         <div className="inline-create">

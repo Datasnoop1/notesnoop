@@ -644,6 +644,28 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   opacity: .55;
   cursor: not-allowed;
 }
+.source-count-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.source-count-grid span {
+  min-height: 54px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7fbf8;
+  color: var(--muted);
+  padding: 8px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  text-transform: capitalize;
+}
+.source-count-grid strong {
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1;
+}
 .task-card-actions,
 .memory-status-actions {
   display: flex;
@@ -1018,6 +1040,49 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border-color: #e3b6ad;
   background: #fff5f2;
   color: #7b2e24;
+}
+.suggestion-panel {
+  border: 1px solid #bdd7d0;
+  background: #f7fbf8;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.suggestion-panel article {
+  border-top: 1px solid #d8e5e0;
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+.suggestion-panel article:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.suggestion-panel span {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+.suggestion-panel p {
+  margin: 0;
+  color: var(--ink);
+}
+.suggestion-panel div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.suggestion-panel button {
+  border: 1px solid var(--line);
+  background: #fffdf8;
+  color: var(--ink);
+  border-radius: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .email-meta {
   border: 1px solid var(--line);

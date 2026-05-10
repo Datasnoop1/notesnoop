@@ -193,6 +193,18 @@ def test_ollama_extraction_payload_and_validation(monkeypatch):
     )
     assert [item["title"] for item in actions] == ["We need to send the deck", "confirm pricing"]
 
+    report = ollama_client.deterministic_project_report(
+        {"name": "Apollo"},
+        [{"title": "IC memo", "body": "Apollo needs pricing detail."}],
+        [{"title": "Confirm pricing", "status": "blocked", "priority": 1, "due_at": None}],
+        [{"title": "Partner call", "summary": "Discussed timing."}],
+        [],
+    )
+    assert report["title"] == "Apollo report"
+    assert "## Executive summary" in report["body"]
+    assert "Confirm pricing" in report["body"]
+    assert report["confidence"] > 0.5
+
     class RateLimitedResponse:
         status_code = 429
 

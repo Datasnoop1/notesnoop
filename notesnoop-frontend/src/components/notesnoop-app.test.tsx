@@ -46,6 +46,7 @@ const note = {
   raw_email_metadata: { sender: "sender@example.test", subject: "Forwarded diligence note" },
   ai_processing_status: "skipped",
   project_nudge: { inbox_only: true, matched_projects: [projects[2]], can_create_project: true },
+  review_suggestions: [{ id: "review-2", entity_kind: "project", reason: "ai_suggestion", payload: { name: "Apollo", confidence: 0.79 } }],
 };
 const taskNote = {
   ...note,
@@ -194,6 +195,23 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/projects/project-1/invites")) {
       return json({ data: { id: "invite-created", email: JSON.parse(String(init?.body)).email, status: "pending" } });
     }
+    if (url.includes("/api/projects/project-1/reports/generate")) {
+      return json({
+        data: {
+          id: "report-generated",
+          title: "Apollo generated report",
+          body: "# Apollo generated report\n\n## Executive summary\n- Grounded in memory.",
+          status: "draft",
+          projects: [projects[2]],
+          people,
+          notes: [note],
+          tasks: [{ id: "task-1", title: "Send diligence pack", status: "todo" }],
+          companies: [{ id: "company-1", name: "Northstar" }],
+          generation_confidence: 0.82,
+          source_counts: { notes: 1, tasks: 1, meetings: 0, reports: 0, people: 2, companies: 1 },
+        },
+      });
+    }
     if (url.includes("/api/projects/project-1/timeline")) return json({ data: projectTimeline });
     if (url.includes("/api/people/person-1/timeline")) return json({ data: personTimeline });
     if (url.includes("/api/people/person-1/merge")) return json({ data: { undo_id: "undo-1" } });
@@ -216,6 +234,8 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
       return json({ data: { workspace: { ...workspace, morning_briefing_optin: true }, projects, people, inbound_address: "dev@in.notesnoop.app" } });
     }
     if (url.includes("/api/review-queue/review-1/accept")) return json({ data: { accepted: true } });
+    if (url.includes("/api/review-queue/review-2/accept")) return json({ data: { accepted: true } });
+    if (url.includes("/api/review-queue/review-2/reject")) return json({ data: { rejected: true } });
     if (url.includes("/api/notes/note-1")) return json({ data: note });
     return json({ data: {} });
   });
@@ -320,6 +340,22 @@ describe("NoteSnoopApp", () => {
     await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/companies"))).toBe(true));
   });
 
+  it("generates a grounded project report from project memory", async () => {
+    const { calls } = installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    fireEvent.click(within(dashboard).getByRole("button", { name: /Open project Apollo/i }));
+    expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: /Generate report/i })[0]);
+
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/projects/project-1/reports/generate"))).toBe(true));
+    expect(await screen.findByText("Project report generated from memory.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Apollo generated report" })).toBeInTheDocument();
+    expect(screen.getByText("82% grounded")).toBeInTheDocument();
+    expect(screen.getByDisplayValue(/Grounded in memory/i)).toBeInTheDocument();
+  });
+
   it("saves a quick capture note and opens the linked-entities sheet", async () => {
     installFetch();
     render(<NoteSnoopApp quickCapture />);
@@ -357,6 +393,8 @@ describe("NoteSnoopApp", () => {
     expect(noteRow).toBeTruthy();
     fireEvent.click(noteRow!);
     expect(await screen.findByText("From sender@example.test")).toBeInTheDocument();
+    expect(await screen.findByText("AI suggestions")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Accept/i }));
 
     fireEvent.change(screen.getAllByRole("combobox").at(-1)!, { target: { value: "person-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Link selected person" }));
@@ -377,6 +415,7 @@ describe("NoteSnoopApp", () => {
       expect(calls.some((call) => call.includes("POST /api/notes/note-1/people"))).toBe(true);
       expect(calls.some((call) => call.includes("GET /api/briefs/note/note-1?variant=quick"))).toBe(true);
       expect(calls.some((call) => call.includes("GET /api/briefs/note/note-1?variant=full"))).toBe(true);
+      expect(calls.some((call) => call.includes("POST /api/review-queue/review-2/accept"))).toBe(true);
       expect(calls.some((call) => call.includes("PATCH /api/notes/note-1"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/email-blocks"))).toBe(true);
     });

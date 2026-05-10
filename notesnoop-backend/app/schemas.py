@@ -138,6 +138,11 @@ class ReportCreate(BaseModel):
     task_ids: list[str] | None = None
 
 
+class ProjectReportGenerateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=240)
+    variant: str = Field(default="full", pattern="^(quick|full)$")
+
+
 class ReportUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=240)
     body: str | None = None
