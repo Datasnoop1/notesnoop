@@ -2411,6 +2411,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         onClose={() => setReviewSheetOpen(false)}
         onDecide={decideReview}
         onOpenSource={openNote}
+        allProjects={state?.projects || []}
+        allPeople={state?.people || []}
+        allCompanies={companies}
       />
 
       <MemoryDetailSheet
@@ -2565,6 +2568,9 @@ function ReviewSheet({
   onClose,
   onDecide,
   onOpenSource,
+  allProjects,
+  allPeople,
+  allCompanies,
 }: {
   open: boolean;
   items: any[];
@@ -2577,6 +2583,9 @@ function ReviewSheet({
     options?: { openAfterAccept?: boolean },
   ) => Promise<void>;
   onOpenSource: (noteId: string) => void;
+  allProjects: any[];
+  allPeople: any[];
+  allCompanies: any[];
 }) {
   const reviewItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
   const [payloadDrafts, setPayloadDrafts] = useState<Record<string, any>>({});
@@ -2587,11 +2596,45 @@ function ReviewSheet({
     setPayloadDrafts((current) => {
       const next: Record<string, any> = {};
       for (const item of reviewItems) {
-        next[item.id] = current[item.id] || { ...(item.payload || {}) };
+        if (current[item.id]) {
+          next[item.id] = current[item.id];
+          continue;
+        }
+        const payload = item.payload || {};
+        const seededProjects = Array.isArray(payload.project_ids) && payload.project_ids.length
+          ? payload.project_ids
+          : Array.isArray(item.projects)
+            ? item.projects.map((project: any) => String(project.id))
+            : [];
+        const seededPeople = Array.isArray(payload.person_ids) && payload.person_ids.length
+          ? payload.person_ids
+          : Array.isArray(item.source_people)
+            ? item.source_people.map((person: any) => String(person.id))
+            : [];
+        const seededCompanies = Array.isArray(payload.company_ids) && payload.company_ids.length
+          ? payload.company_ids
+          : Array.isArray(item.source_companies)
+            ? item.source_companies.map((company: any) => String(company.id))
+            : [];
+        next[item.id] = {
+          ...payload,
+          project_ids: seededProjects,
+          person_ids: seededPeople,
+          company_ids: seededCompanies,
+        };
       }
       return next;
     });
   }, [open, reviewItems]);
+
+  function toggleLinkId(itemId: string, field: "project_ids" | "person_ids" | "company_ids", id: string) {
+    setPayloadDrafts((current) => {
+      const draft = current[itemId] || {};
+      const arr: string[] = Array.isArray(draft[field]) ? draft[field] : [];
+      const next = arr.includes(id) ? arr.filter((existing) => existing !== id) : [...arr, id];
+      return { ...current, [itemId]: { ...draft, [field]: next } };
+    });
+  }
 
   const kindCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -2712,7 +2755,72 @@ function ReviewSheet({
                     ))}
                   </div>
                 )}
-                {!!item.projects?.length && (
+                {isStructured && (
+                  <div className="review-link-pickers">
+                    {!!allProjects.length && (
+                      <div className="review-link-row" aria-label="Linked projects">
+                        <span className="review-link-label">Projects</span>
+                        <div className="review-link-chips">
+                          {allProjects.slice(0, 8).map((project) => {
+                            const active = Array.isArray(draft.project_ids) && draft.project_ids.includes(project.id);
+                            return (
+                              <button
+                                key={project.id}
+                                type="button"
+                                className={active ? "review-link-chip active" : "review-link-chip"}
+                                onClick={() => toggleLinkId(item.id, "project_ids", project.id)}
+                              >
+                                <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                                {project.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {!!allPeople.length && (
+                      <div className="review-link-row" aria-label="Linked people">
+                        <span className="review-link-label">People</span>
+                        <div className="review-link-chips">
+                          {allPeople.slice(0, 8).map((person) => {
+                            const active = Array.isArray(draft.person_ids) && draft.person_ids.includes(person.id);
+                            return (
+                              <button
+                                key={person.id}
+                                type="button"
+                                className={active ? "review-link-chip active" : "review-link-chip"}
+                                onClick={() => toggleLinkId(item.id, "person_ids", person.id)}
+                              >
+                                {person.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {!!allCompanies.length && (
+                      <div className="review-link-row" aria-label="Linked companies">
+                        <span className="review-link-label">Companies</span>
+                        <div className="review-link-chips">
+                          {allCompanies.slice(0, 8).map((company) => {
+                            const active = Array.isArray(draft.company_ids) && draft.company_ids.includes(company.id);
+                            return (
+                              <button
+                                key={company.id}
+                                type="button"
+                                className={active ? "review-link-chip active" : "review-link-chip"}
+                                onClick={() => toggleLinkId(item.id, "company_ids", company.id)}
+                              >
+                                {company.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!isStructured && !!item.projects?.length && (
                   <div className="review-projects">
                     {item.projects.slice(0, 3).map((project: any) => (
                       <span key={project.id}>

@@ -609,7 +609,7 @@ describe("NoteSnoopApp", () => {
         String(input).includes("/api/review-queue/review-task-1/accept") && init?.method === "POST"
       ));
       expect(acceptCall).toBeTruthy();
-      expect(JSON.parse(String(acceptCall?.[1]?.body))).toEqual({
+      expect(JSON.parse(String(acceptCall?.[1]?.body))).toMatchObject({
         payload: {
           title: "Send Apollo diligence pack",
           status: "todo",
@@ -619,6 +619,10 @@ describe("NoteSnoopApp", () => {
           confidence: 0.86,
         },
       });
+      const acceptedPayload = JSON.parse(String(acceptCall?.[1]?.body)).payload;
+      expect(Array.isArray(acceptedPayload.project_ids)).toBe(true);
+      expect(Array.isArray(acceptedPayload.person_ids)).toBe(true);
+      expect(Array.isArray(acceptedPayload.company_ids)).toBe(true);
     });
   });
 

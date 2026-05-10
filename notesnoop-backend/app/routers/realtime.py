@@ -78,7 +78,26 @@ def list_review_queue(
                        DISTINCT jsonb_build_object('id', p.id, 'name', p.name, 'color_hex', p.color_hex)
                      ) FILTER (WHERE p.id IS NOT NULL),
                      '[]'::jsonb
-                   ) AS projects
+                   ) AS projects,
+                   coalesce(
+                     (
+                       SELECT jsonb_agg(DISTINCT jsonb_build_object('id', pe.id, 'name', pe.name))
+                       FROM note_people_links npl
+                       JOIN people pe ON pe.id = npl.person_id
+                       WHERE npl.note_id = n.id
+                         AND npl.state IN ('confirmed','auto_linked')
+                     ),
+                     '[]'::jsonb
+                   ) AS source_people,
+                   coalesce(
+                     (
+                       SELECT jsonb_agg(DISTINCT jsonb_build_object('id', co.id, 'name', co.name))
+                       FROM company_notes cn
+                       JOIN companies co ON co.id = cn.company_id
+                       WHERE cn.note_id = n.id
+                     ),
+                     '[]'::jsonb
+                   ) AS source_companies
             FROM review_queue rq
             LEFT JOIN notes n ON n.id = rq.entity_id
             LEFT JOIN note_projects np ON np.note_id = n.id
