@@ -681,6 +681,54 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .memory-empty {
   min-height: 132px;
 }
+.reminder-panel {
+  border: 1px solid #d9c68e;
+  background: #fff8dc;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+.reminder-panel > strong {
+  color: #624a0e;
+}
+.reminder-panel article {
+  border-top: 1px solid #eadba9;
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+.reminder-panel article:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+.reminder-panel span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  font-weight: 700;
+}
+.reminder-panel small {
+  color: #624a0e;
+  text-transform: capitalize;
+}
+.reminder-panel div {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.reminder-panel button {
+  border: 1px solid #e1cf94;
+  background: #fffdf2;
+  color: #624a0e;
+  border-radius: 8px;
+  min-height: 32px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .graph-canvas {
   position: relative;
   min-height: 260px;

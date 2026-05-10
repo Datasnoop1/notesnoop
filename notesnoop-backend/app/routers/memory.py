@@ -133,7 +133,8 @@ def list_tasks(workspace_id: str, project_id: str | None = None, user: CurrentUs
                 SELECT t.*,
                        coalesce(json_agg(DISTINCT p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS projects,
                        coalesce(json_agg(DISTINCT pe.*) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people,
-                       coalesce(json_agg(DISTINCT n.*) FILTER (WHERE n.id IS NOT NULL), '[]') AS notes
+                       coalesce(json_agg(DISTINCT n.*) FILTER (WHERE n.id IS NOT NULL), '[]') AS notes,
+                       coalesce(json_agg(DISTINCT tr.*) FILTER (WHERE tr.id IS NOT NULL), '[]') AS reminders
                 FROM tasks t
                 LEFT JOIN task_projects tp ON tp.task_id = t.id
                 LEFT JOIN projects p ON p.id = tp.project_id
@@ -141,6 +142,7 @@ def list_tasks(workspace_id: str, project_id: str | None = None, user: CurrentUs
                 LEFT JOIN people pe ON pe.id = tpe.person_id
                 LEFT JOIN task_notes tn ON tn.task_id = t.id
                 LEFT JOIN notes n ON n.id = tn.note_id
+                LEFT JOIN task_reminders tr ON tr.task_id = t.id AND tr.state IN ('pending','snoozed')
                 WHERE {where}
                 GROUP BY t.id
                 ORDER BY

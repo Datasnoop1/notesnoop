@@ -567,6 +567,34 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setToast("Memory updated.");
   }
 
+  async function updateReminder(reminderId: string, payload: Record<string, unknown>) {
+    const res = await api(`/api/task-reminders/${reminderId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    const reminder = res.data;
+    setSelectedMemory((current) => {
+      if (!current || current.sectionId !== "tasks") return current;
+      const reminders = Array.isArray(current.item.reminders)
+        ? current.item.reminders
+        : current.item.reminder_id
+          ? [{
+              id: current.item.reminder_id,
+              remind_at: current.item.remind_at,
+              state: current.item.reminder_state,
+              snoozed_until: current.item.snoozed_until,
+              attention_at: current.item.attention_at,
+            }]
+          : [];
+      const visible = ["pending", "snoozed"].includes(reminder.state);
+      const nextReminders = reminders.filter((item: any) => item.id !== reminder.id);
+      if (visible) nextReminders.push(reminder);
+      return { ...current, item: { ...current.item, reminders: nextReminders } };
+    });
+    await refreshWorkspaceData();
+    setToast(payload.state === "dismissed" ? "Reminder dismissed." : payload.state === "snoozed" ? "Reminder snoozed." : "Reminder updated.");
+  }
+
   async function openMemoryItem(sectionId: string, item: any) {
     if (!workspaceId) return;
     if (sectionId === "intel") {
@@ -1661,6 +1689,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         onClose={() => setSelectedMemory(null)}
         onTaskStatusChange={updateTaskStatus}
         onUpdateMemory={updateMemoryItem}
+        onUpdateReminder={updateReminder}
         onOpenNote={openNote}
         onOpenProject={(projectId) => {
           const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
@@ -1855,6 +1884,7 @@ function MemoryDetailSheet({
   onClose,
   onTaskStatusChange,
   onUpdateMemory,
+  onUpdateReminder,
   onOpenNote,
   onOpenProject,
 }: {
@@ -1862,6 +1892,7 @@ function MemoryDetailSheet({
   onClose: () => void;
   onTaskStatusChange: (taskId: string, status: "todo" | "doing" | "blocked" | "done") => Promise<void>;
   onUpdateMemory: (sectionId: string, itemId: string, payload: Record<string, unknown>) => Promise<void>;
+  onUpdateReminder: (reminderId: string, payload: Record<string, unknown>) => Promise<void>;
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenProject: (projectId: string) => void;
 }) {
@@ -1885,6 +1916,17 @@ function MemoryDetailSheet({
   const notes = item.notes || [];
   const tasks = item.tasks || [];
   const companies = item.companies || [];
+  const reminders = Array.isArray(item.reminders) && item.reminders.length
+    ? item.reminders
+    : item.reminder_id
+      ? [{
+          id: item.reminder_id,
+          remind_at: item.remind_at,
+          state: item.reminder_state || "pending",
+          snoozed_until: item.snoozed_until,
+          attention_at: item.attention_at,
+        }]
+      : [];
   const sourceCounts = item.source_counts || null;
   const isTask = sectionId === "tasks";
   const sourceNoteFallback = Boolean(item.note_id && item.id === item.note_id && ["meetings", "reports"].includes(sectionId));
@@ -1913,6 +1955,12 @@ function MemoryDetailSheet({
       if (draftStatus) payload.status = draftStatus;
     }
     await onUpdateMemory(sectionId, item.id, payload);
+  }
+  function snoozeUntilTomorrow() {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(9, 0, 0, 0);
+    return tomorrow.toISOString();
   }
   const kindLabel: Record<string, string> = {
     tasks: "Task",
@@ -1973,6 +2021,33 @@ function MemoryDetailSheet({
             <button disabled={item.status === "doing"} onClick={() => onTaskStatusChange(item.id, "doing")}>Doing</button>
             <button disabled={item.status === "blocked"} onClick={() => onTaskStatusChange(item.id, "blocked")}>Blocked</button>
             <button disabled={item.status === "done"} onClick={() => onTaskStatusChange(item.id, "done")}><CheckCircle2 size={15} /> Done</button>
+          </div>
+        )}
+        {isTask && !!reminders.length && (
+          <div className="reminder-panel">
+            <strong>Reminders</strong>
+            {reminders.map((reminder: any) => (
+              <article key={reminder.id}>
+                <span>
+                  <Bell size={15} />
+                  {new Date(reminder.snoozed_until || reminder.remind_at || reminder.attention_at).toLocaleString()}
+                </span>
+                <small>{reminder.state || "pending"}</small>
+                <div>
+                  <button type="button" onClick={() => onUpdateReminder(reminder.id, { state: "snoozed", snoozed_until: snoozeUntilTomorrow() })}>
+                    <CalendarDays size={15} /> Snooze 1 day
+                  </button>
+                  {reminder.state === "snoozed" && (
+                    <button type="button" onClick={() => onUpdateReminder(reminder.id, { state: "pending" })}>
+                      <Bell size={15} /> Resume
+                    </button>
+                  )}
+                  <button type="button" onClick={() => onUpdateReminder(reminder.id, { state: "dismissed" })}>
+                    <X size={15} /> Dismiss
+                  </button>
+                </div>
+              </article>
+            ))}
           </div>
         )}
         {!!projects.length && (

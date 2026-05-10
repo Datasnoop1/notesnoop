@@ -60,6 +60,7 @@ const taskNote = {
   note_kind: "task",
   status: "todo",
   due_at: "2026-05-15T12:00:00Z",
+  reminders: [{ id: "reminder-1", remind_at: "2026-05-15T12:00:00Z", state: "pending", attention_at: "2026-05-15T12:00:00Z" }],
   raw_email_metadata: undefined,
   project_nudge: undefined,
 };
@@ -245,6 +246,9 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/briefs/")) return json({ data: { markdown: "Brief markdown" } });
     if (url.includes("/api/flags")) return json({ data: { flagged: true } });
     if (url.includes("/api/notes/note-1/process-with-ai")) return json({ data: { queued: true } });
+    if (url.includes("/api/task-reminders/reminder-1") && init?.method === "PATCH") {
+      return json({ data: { id: "reminder-1", remind_at: "2026-05-15T12:00:00Z", ...JSON.parse(String(init.body)) } });
+    }
     if (url.includes("/api/tasks/") && init?.method === "PATCH") {
       return json({ data: { ...taskNote, status: JSON.parse(String(init.body)).status } });
     }
@@ -295,6 +299,10 @@ describe("NoteSnoopApp", () => {
     expect(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByRole("button", { name: /Mark task done/i }));
     await waitFor(() => expect(calls.some((call) => call.includes("PATCH /api/tasks/note-task-1"))).toBe(true));
+    fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up"));
+    expect(await screen.findByText("Reminders")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /Snooze 1 day/i }));
+    await waitFor(() => expect(calls.some((call) => call.includes("PATCH /api/task-reminders/reminder-1"))).toBe(true));
     fireEvent.click(within(dashboard).getByRole("tab", { name: /Meetings\/calls1/i }));
     expect(within(screen.getByRole("tabpanel", { name: "Meetings/calls" })).getByText("Morgan kickoff call")).toBeInTheDocument();
     fireEvent.click(within(dashboard).getByRole("tab", { name: /Reports\/briefs1/i }));
