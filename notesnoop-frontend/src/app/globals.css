@@ -1869,6 +1869,35 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   cursor: pointer;
 }
 .profile-name-edit-row button:disabled { opacity: 0.55; cursor: not-allowed; }
+.reminder-add-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.reminder-add-row input {
+  min-height: 32px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  flex: 1 1 200px;
+}
+.reminder-add-row button {
+  border: 1px solid var(--line);
+  background: #173832;
+  color: white;
+  border-radius: 6px;
+  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+.reminder-add-row button:disabled { opacity: 0.55; cursor: not-allowed; }
 .share-panel {
   border: 1px solid var(--line);
   background: #f7fbf8;

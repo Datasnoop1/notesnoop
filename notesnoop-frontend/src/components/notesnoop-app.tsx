@@ -3085,6 +3085,20 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           if (project) openProject(project);
         }}
         onOpenMemory={openMemoryItem}
+        onCreateReminder={async (taskId, remindAt) => {
+          try {
+            await api(`/api/tasks/${taskId}/reminders`, {
+              method: "POST",
+              body: JSON.stringify({ remind_at: remindAt }),
+            });
+            setToast("Reminder set.");
+            if (selectedMemory?.sectionId === "tasks" && selectedMemory.item?.id === taskId) {
+              await openMemoryItem("tasks", selectedMemory.item);
+            }
+          } catch (err) {
+            setToast(err instanceof Error ? err.message : "Could not set reminder");
+          }
+        }}
         onCreateTaskForCompany={async (companyId, title, dueAt, assigneeId) => {
           if (!workspaceId) return;
           const body: Record<string, unknown> = { title, company_ids: [companyId] };
@@ -3805,6 +3819,7 @@ function MemoryDetailSheet({
   onOpenProject,
   onOpenMemory,
   onCreateTaskForCompany,
+  onCreateReminder,
 }: {
   memory: { sectionId: string; item: any } | null;
   allProjects: any[];
@@ -3822,6 +3837,7 @@ function MemoryDetailSheet({
   onOpenProject: (projectId: string) => void;
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
   onCreateTaskForCompany?: (companyId: string, title: string, dueAt: string | null, assigneeId: string | null) => Promise<void>;
+  onCreateReminder?: (taskId: string, remindAt: string) => Promise<void>;
 }) {
   const sectionId = memory?.sectionId || "";
   const item = memory?.item || {};
@@ -3831,6 +3847,7 @@ function MemoryDetailSheet({
   const [draftBody, setDraftBody] = useState(body);
   const [draftStatus, setDraftStatus] = useState(item.status || "");
   const [draftPriority, setDraftPriority] = useState<string>(item.priority ? String(item.priority) : "3");
+  const [newReminderAt, setNewReminderAt] = useState<string>("");
   const [draftDate, setDraftDate] = useState(inputDate(item.due_at || item.occurred_at || null));
   const [draftProjectIds, setDraftProjectIds] = useState<string[]>(relationIds(item.projects));
   const [draftPersonIds, setDraftPersonIds] = useState<string[]>(relationIds(item.people));
@@ -4155,6 +4172,28 @@ function MemoryDetailSheet({
                 </div>
               </article>
             ))}
+          </div>
+        )}
+        {isTask && item.id && onCreateReminder && reminders.length === 0 && (
+          <div className="reminder-add-row">
+            <span>Set a custom reminder</span>
+            <input
+              type="datetime-local"
+              value={newReminderAt}
+              onChange={(event) => setNewReminderAt(event.target.value)}
+              aria-label="Reminder time"
+            />
+            <button
+              type="button"
+              disabled={!newReminderAt}
+              onClick={async () => {
+                if (!newReminderAt) return;
+                await onCreateReminder(String(item.id), new Date(newReminderAt).toISOString());
+                setNewReminderAt("");
+              }}
+            >
+              <Bell size={15} /> Add reminder
+            </button>
           </div>
         )}
         {!!projects.length && (

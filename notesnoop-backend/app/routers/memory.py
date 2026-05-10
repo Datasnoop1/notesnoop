@@ -333,6 +333,37 @@ def list_task_reminders(workspace_id: str, project_id: str | None = None, user: 
         }
 
 
+@router.post("/tasks/{task_id}/reminders")
+def create_task_reminder(task_id: str, payload: TaskReminderUpdate, user: CurrentUser = Depends(current_user)):
+    """Explicitly create a reminder on a task. The DB trigger auto-syncs a
+    reminder from a task's due_at, so this endpoint is for the "remind me
+    about X next Tuesday at 9am" flow where the user wants a different
+    remind_at than the task's due date.
+    """
+    if not payload.remind_at:
+        raise HTTPException(status_code=422, detail="remind_at is required to create a reminder")
+    with transaction(user.clerk_user_id) as cur:
+        task = one(cur, "SELECT * FROM tasks WHERE id = %s", (task_id,))
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        cur.execute(
+            """
+            INSERT INTO task_reminders (workspace_id, task_id, remind_at, channel, state, created_by)
+            VALUES (%s, %s, %s, 'in_app', 'pending', %s)
+            ON CONFLICT (task_id, channel) WHERE state = 'pending'
+            DO UPDATE
+              SET workspace_id = EXCLUDED.workspace_id,
+                  remind_at = EXCLUDED.remind_at,
+                  snoozed_until = NULL,
+                  updated_at = now()
+            RETURNING id
+            """,
+            (task["workspace_id"], task_id, payload.remind_at, user.clerk_user_id),
+        )
+        reminder_id = str(cur.fetchone()["id"])
+        return {"data": _task_reminder_payload(cur, reminder_id)}
+
+
 @router.patch("/task-reminders/{reminder_id}")
 def update_task_reminder(reminder_id: str, payload: TaskReminderUpdate, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
