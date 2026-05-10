@@ -136,7 +136,19 @@ def list_tasks(workspace_id: str, project_id: str | None = None, user: CurrentUs
         params: list = [workspace_id]
         where = "t.workspace_id = %s"
         if project_id:
-            where += " AND EXISTS (SELECT 1 FROM task_projects tp WHERE tp.task_id = t.id AND tp.project_id = %s)"
+            where += """
+              AND (
+                EXISTS (SELECT 1 FROM task_projects scoped_tp WHERE scoped_tp.task_id = t.id AND scoped_tp.project_id = %s)
+                OR EXISTS (
+                  SELECT 1
+                  FROM task_companies scoped_tc
+                  JOIN company_projects scoped_cp ON scoped_cp.company_id = scoped_tc.company_id
+                  WHERE scoped_tc.task_id = t.id
+                    AND scoped_cp.project_id = %s
+                )
+              )
+            """
+            params.append(project_id)
             params.append(project_id)
         return {
             "data": many(
@@ -145,6 +157,7 @@ def list_tasks(workspace_id: str, project_id: str | None = None, user: CurrentUs
                 SELECT t.*,
                        coalesce(json_agg(DISTINCT p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS projects,
                        coalesce(json_agg(DISTINCT pe.*) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people,
+                       coalesce(json_agg(DISTINCT c.*) FILTER (WHERE c.id IS NOT NULL), '[]') AS companies,
                        coalesce(json_agg(DISTINCT n.*) FILTER (WHERE n.id IS NOT NULL), '[]') AS notes,
                        coalesce(json_agg(DISTINCT tr.*) FILTER (WHERE tr.id IS NOT NULL), '[]') AS reminders
                 FROM tasks t
@@ -152,6 +165,8 @@ def list_tasks(workspace_id: str, project_id: str | None = None, user: CurrentUs
                 LEFT JOIN projects p ON p.id = tp.project_id
                 LEFT JOIN task_people tpe ON tpe.task_id = t.id
                 LEFT JOIN people pe ON pe.id = tpe.person_id
+                LEFT JOIN task_companies tc ON tc.task_id = t.id
+                LEFT JOIN companies c ON c.id = tc.company_id
                 LEFT JOIN task_notes tn ON tn.task_id = t.id
                 LEFT JOIN notes n ON n.id = tn.note_id
                 LEFT JOIN task_reminders tr ON tr.task_id = t.id AND tr.state IN ('pending','snoozed')
@@ -180,6 +195,7 @@ def create_task(workspace_id: str, payload: TaskCreate, user: CurrentUser = Depe
         _ensure_workspace_access(cur, workspace_id)
         _validate_project_ids(cur, workspace_id, payload.project_ids or [])
         _validate_person_ids(cur, workspace_id, payload.person_ids or [])
+        _validate_company_ids(cur, workspace_id, payload.company_ids or [])
         _validate_note_ids(cur, workspace_id, payload.note_ids or [])
         completed_at_sql = "now()" if payload.status == "done" else "NULL"
         cur.execute(
@@ -200,6 +216,7 @@ def create_task(workspace_id: str, payload: TaskCreate, user: CurrentUser = Depe
         )
         task = dict(cur.fetchone())
         _link_many(cur, "task_projects", "task_id", "project_id", task["id"], workspace_id, payload.project_ids or [], user.clerk_user_id)
+        _link_many(cur, "task_companies", "task_id", "company_id", task["id"], workspace_id, payload.company_ids or [], user.clerk_user_id)
         for person_id in _dedupe(payload.person_ids or []):
             cur.execute(
                 """
@@ -224,6 +241,8 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
             _validate_project_ids(cur, workspace_id, payload.project_ids)
         if payload.person_ids is not None:
             _validate_person_ids(cur, workspace_id, payload.person_ids)
+        if payload.company_ids is not None:
+            _validate_company_ids(cur, workspace_id, payload.company_ids)
         if payload.note_ids is not None:
             _validate_note_ids(cur, workspace_id, payload.note_ids)
 
@@ -263,6 +282,8 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
         )
         if payload.project_ids is not None:
             _replace_links(cur, "task_projects", "task_id", "project_id", task_id, workspace_id, payload.project_ids, user.clerk_user_id)
+        if payload.company_ids is not None:
+            _replace_links(cur, "task_companies", "task_id", "company_id", task_id, workspace_id, payload.company_ids, user.clerk_user_id)
         if payload.person_ids is not None:
             cur.execute("DELETE FROM task_people WHERE task_id = %s", (task_id,))
             for person_id in _dedupe(payload.person_ids):
@@ -366,7 +387,19 @@ def list_meetings(workspace_id: str, project_id: str | None = None, user: Curren
         params: list = [workspace_id]
         where = "m.workspace_id = %s"
         if project_id:
-            where += " AND EXISTS (SELECT 1 FROM meeting_projects mp WHERE mp.meeting_id = m.id AND mp.project_id = %s)"
+            where += """
+              AND (
+                EXISTS (SELECT 1 FROM meeting_projects scoped_mp WHERE scoped_mp.meeting_id = m.id AND scoped_mp.project_id = %s)
+                OR EXISTS (
+                  SELECT 1
+                  FROM meeting_companies scoped_mc
+                  JOIN company_projects scoped_cp ON scoped_cp.company_id = scoped_mc.company_id
+                  WHERE scoped_mc.meeting_id = m.id
+                    AND scoped_cp.project_id = %s
+                )
+              )
+            """
+            params.append(project_id)
             params.append(project_id)
         return {
             "data": many(
@@ -374,12 +407,15 @@ def list_meetings(workspace_id: str, project_id: str | None = None, user: Curren
                 f"""
                 SELECT m.*,
                        coalesce(json_agg(DISTINCT p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS projects,
-                       coalesce(json_agg(DISTINCT pe.*) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people
+                       coalesce(json_agg(DISTINCT pe.*) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people,
+                       coalesce(json_agg(DISTINCT c.*) FILTER (WHERE c.id IS NOT NULL), '[]') AS companies
                 FROM meetings m
                 LEFT JOIN meeting_projects mp ON mp.meeting_id = m.id
                 LEFT JOIN projects p ON p.id = mp.project_id
                 LEFT JOIN meeting_people mpe ON mpe.meeting_id = m.id
                 LEFT JOIN people pe ON pe.id = mpe.person_id
+                LEFT JOIN meeting_companies mc ON mc.meeting_id = m.id
+                LEFT JOIN companies c ON c.id = mc.company_id
                 WHERE {where}
                 GROUP BY m.id
                 ORDER BY coalesce(m.occurred_at, m.created_at) DESC
@@ -396,6 +432,7 @@ def create_meeting(workspace_id: str, payload: MeetingCreate, user: CurrentUser 
         _ensure_workspace_access(cur, workspace_id)
         _validate_project_ids(cur, workspace_id, payload.project_ids or [])
         _validate_person_ids(cur, workspace_id, payload.person_ids or [])
+        _validate_company_ids(cur, workspace_id, payload.company_ids or [])
         _validate_note_ids(cur, workspace_id, payload.note_ids or [])
         cur.execute(
             """
@@ -415,6 +452,7 @@ def create_meeting(workspace_id: str, payload: MeetingCreate, user: CurrentUser 
         meeting = dict(cur.fetchone())
         _link_many(cur, "meeting_projects", "meeting_id", "project_id", meeting["id"], workspace_id, payload.project_ids or [], user.clerk_user_id)
         _link_many(cur, "meeting_people", "meeting_id", "person_id", meeting["id"], workspace_id, payload.person_ids or [], user.clerk_user_id)
+        _link_many(cur, "meeting_companies", "meeting_id", "company_id", meeting["id"], workspace_id, payload.company_ids or [], user.clerk_user_id)
         _link_many(cur, "meeting_notes", "meeting_id", "note_id", meeting["id"], workspace_id, payload.note_ids or [], user.clerk_user_id)
         return {"data": _meeting_payload(cur, str(meeting["id"]))}
 
@@ -430,6 +468,8 @@ def update_meeting(meeting_id: str, payload: MeetingUpdate, user: CurrentUser = 
             _validate_project_ids(cur, workspace_id, payload.project_ids)
         if payload.person_ids is not None:
             _validate_person_ids(cur, workspace_id, payload.person_ids)
+        if payload.company_ids is not None:
+            _validate_company_ids(cur, workspace_id, payload.company_ids)
         if payload.note_ids is not None:
             _validate_note_ids(cur, workspace_id, payload.note_ids)
         cur.execute(
@@ -454,6 +494,8 @@ def update_meeting(meeting_id: str, payload: MeetingUpdate, user: CurrentUser = 
             _replace_links(cur, "meeting_projects", "meeting_id", "project_id", meeting_id, workspace_id, payload.project_ids, user.clerk_user_id)
         if payload.person_ids is not None:
             _replace_links(cur, "meeting_people", "meeting_id", "person_id", meeting_id, workspace_id, payload.person_ids, user.clerk_user_id)
+        if payload.company_ids is not None:
+            _replace_links(cur, "meeting_companies", "meeting_id", "company_id", meeting_id, workspace_id, payload.company_ids, user.clerk_user_id)
         if payload.note_ids is not None:
             _replace_links(cur, "meeting_notes", "meeting_id", "note_id", meeting_id, workspace_id, payload.note_ids, user.clerk_user_id)
         return {"data": _meeting_payload(cur, meeting_id)}
@@ -724,6 +766,7 @@ def save_ask_memory_task(workspace_id: str, payload: MemoryAskSaveTaskRequest, u
         task = dict(cur.fetchone())
         task_id = str(task["id"])
         _link_many(cur, "task_projects", "task_id", "project_id", task_id, workspace_id, source_ids["project"], user.clerk_user_id)
+        _link_many(cur, "task_companies", "task_id", "company_id", task_id, workspace_id, source_ids["company"], user.clerk_user_id)
         for person_id in source_ids["person"]:
             cur.execute(
                 """
@@ -743,7 +786,19 @@ def list_workflows(workspace_id: str, project_id: str | None = None, user: Curre
         params: list = [workspace_id]
         where = "w.workspace_id = %s"
         if project_id:
-            where += " AND EXISTS (SELECT 1 FROM workflow_projects wp WHERE wp.workflow_id = w.id AND wp.project_id = %s)"
+            where += """
+              AND (
+                EXISTS (SELECT 1 FROM workflow_projects scoped_wp WHERE scoped_wp.workflow_id = w.id AND scoped_wp.project_id = %s)
+                OR EXISTS (
+                  SELECT 1
+                  FROM workflow_companies scoped_wc
+                  JOIN company_projects scoped_cp ON scoped_cp.company_id = scoped_wc.company_id
+                  WHERE scoped_wc.workflow_id = w.id
+                    AND scoped_cp.project_id = %s
+                )
+              )
+            """
+            params.append(project_id)
             params.append(project_id)
         return {
             "data": many(
@@ -753,12 +808,15 @@ def list_workflows(workspace_id: str, project_id: str | None = None, user: Curre
                        count(DISTINCT wt.task_id) AS task_count,
                        count(DISTINCT wt.task_id) FILTER (WHERE t.status IN ('todo','doing','blocked')) AS open_task_count,
                        coalesce(json_agg(DISTINCT p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS projects,
-                       coalesce(json_agg(DISTINCT pe.*) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people
+                       coalesce(json_agg(DISTINCT pe.*) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people,
+                       coalesce(json_agg(DISTINCT c.*) FILTER (WHERE c.id IS NOT NULL), '[]') AS companies
                 FROM workflows w
                 LEFT JOIN workflow_projects wp ON wp.workflow_id = w.id
                 LEFT JOIN projects p ON p.id = wp.project_id
                 LEFT JOIN workflow_people wpe ON wpe.workflow_id = w.id
                 LEFT JOIN people pe ON pe.id = wpe.person_id
+                LEFT JOIN workflow_companies wc ON wc.workflow_id = w.id
+                LEFT JOIN companies c ON c.id = wc.company_id
                 LEFT JOIN workflow_tasks wt ON wt.workflow_id = w.id
                 LEFT JOIN tasks t ON t.id = wt.task_id
                 WHERE {where}
@@ -779,6 +837,7 @@ def create_workflow(workspace_id: str, payload: WorkflowCreate, user: CurrentUse
         _ensure_workspace_access(cur, workspace_id)
         _validate_project_ids(cur, workspace_id, payload.project_ids or [])
         _validate_person_ids(cur, workspace_id, payload.person_ids or [])
+        _validate_company_ids(cur, workspace_id, payload.company_ids or [])
         _validate_note_ids(cur, workspace_id, payload.note_ids or [])
         _validate_task_ids(cur, workspace_id, payload.task_ids or [])
         cur.execute(
@@ -796,6 +855,7 @@ def create_workflow(workspace_id: str, payload: WorkflowCreate, user: CurrentUse
         )
         workflow = dict(cur.fetchone())
         _link_many(cur, "workflow_projects", "workflow_id", "project_id", workflow["id"], workspace_id, payload.project_ids or [], user.clerk_user_id)
+        _link_many(cur, "workflow_companies", "workflow_id", "company_id", workflow["id"], workspace_id, payload.company_ids or [], user.clerk_user_id)
         for person_id in _dedupe(payload.person_ids or []):
             cur.execute(
                 """
@@ -831,6 +891,8 @@ def update_workflow(workflow_id: str, payload: WorkflowUpdate, user: CurrentUser
             _validate_project_ids(cur, workspace_id, payload.project_ids)
         if payload.person_ids is not None:
             _validate_person_ids(cur, workspace_id, payload.person_ids)
+        if payload.company_ids is not None:
+            _validate_company_ids(cur, workspace_id, payload.company_ids)
         if payload.note_ids is not None:
             _validate_note_ids(cur, workspace_id, payload.note_ids)
         if payload.task_ids is not None:
@@ -853,6 +915,8 @@ def update_workflow(workflow_id: str, payload: WorkflowUpdate, user: CurrentUser
         )
         if payload.project_ids is not None:
             _replace_links(cur, "workflow_projects", "workflow_id", "project_id", workflow_id, workspace_id, payload.project_ids, user.clerk_user_id)
+        if payload.company_ids is not None:
+            _replace_links(cur, "workflow_companies", "workflow_id", "company_id", workflow_id, workspace_id, payload.company_ids, user.clerk_user_id)
         if payload.person_ids is not None:
             cur.execute("DELETE FROM workflow_people WHERE workflow_id = %s", (workflow_id,))
             for person_id in _dedupe(payload.person_ids):
@@ -919,12 +983,22 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             SELECT DISTINCT t.id, t.title, t.status, t.due_at, t.created_at
             FROM tasks t
             LEFT JOIN task_projects tp ON tp.task_id = t.id
+            LEFT JOIN task_companies tc ON tc.task_id = t.id
             WHERE t.workspace_id = %s
-              AND (%s::uuid IS NULL OR tp.project_id = %s::uuid)
+              AND (
+                %s::uuid IS NULL
+                OR tp.project_id = %s::uuid
+                OR EXISTS (
+                  SELECT 1
+                  FROM company_projects cpr
+                  WHERE cpr.company_id = tc.company_id
+                    AND cpr.project_id = %s::uuid
+                )
+              )
             ORDER BY t.created_at DESC
             LIMIT 80
             """,
-            (workspace_id, project_id, project_id),
+            (workspace_id, project_id, project_id, project_id),
         )
         meetings = many(
             cur,
@@ -932,12 +1006,22 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             SELECT DISTINCT m.id, m.title, coalesce(m.occurred_at, m.created_at) AS happened_at
             FROM meetings m
             LEFT JOIN meeting_projects mp ON mp.meeting_id = m.id
+            LEFT JOIN meeting_companies mc ON mc.meeting_id = m.id
             WHERE m.workspace_id = %s
-              AND (%s::uuid IS NULL OR mp.project_id = %s::uuid)
+              AND (
+                %s::uuid IS NULL
+                OR mp.project_id = %s::uuid
+                OR EXISTS (
+                  SELECT 1
+                  FROM company_projects cpr
+                  WHERE cpr.company_id = mc.company_id
+                    AND cpr.project_id = %s::uuid
+                )
+              )
             ORDER BY happened_at DESC
             LIMIT 60
             """,
-            (workspace_id, project_id, project_id),
+            (workspace_id, project_id, project_id, project_id),
         )
         reports = many(
             cur,
@@ -958,12 +1042,22 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             SELECT DISTINCT w.id, w.name AS title, w.status, w.updated_at
             FROM workflows w
             LEFT JOIN workflow_projects wp ON wp.workflow_id = w.id
+            LEFT JOIN workflow_companies wc ON wc.workflow_id = w.id
             WHERE w.workspace_id = %s
-              AND (%s::uuid IS NULL OR wp.project_id = %s::uuid)
+              AND (
+                %s::uuid IS NULL
+                OR wp.project_id = %s::uuid
+                OR EXISTS (
+                  SELECT 1
+                  FROM company_projects cpr
+                  WHERE cpr.company_id = wc.company_id
+                    AND cpr.project_id = %s::uuid
+                )
+              )
             ORDER BY w.updated_at DESC
             LIMIT 60
             """,
-            (workspace_id, project_id, project_id),
+            (workspace_id, project_id, project_id, project_id),
         )
         companies = many(
             cur,
@@ -1074,6 +1168,10 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             FROM task_projects
             WHERE task_id = ANY(%s::uuid[]) AND project_id = ANY(%s::uuid[])
             UNION ALL
+            SELECT 'task', task_id::text, 'company', company_id::text, 'at_company'
+            FROM task_companies
+            WHERE task_id = ANY(%s::uuid[]) AND company_id = ANY(%s::uuid[])
+            UNION ALL
             SELECT 'meeting', meeting_id::text, 'note', note_id::text, 'sourced_from'
             FROM meeting_notes
             WHERE meeting_id = ANY(%s::uuid[]) AND note_id = ANY(%s::uuid[])
@@ -1085,6 +1183,10 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             SELECT 'meeting', meeting_id::text, 'project', project_id::text, 'filed_in'
             FROM meeting_projects
             WHERE meeting_id = ANY(%s::uuid[]) AND project_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'meeting', meeting_id::text, 'company', company_id::text, 'involves'
+            FROM meeting_companies
+            WHERE meeting_id = ANY(%s::uuid[]) AND company_id = ANY(%s::uuid[])
             UNION ALL
             SELECT 'report', report_id::text, 'note', note_id::text, 'sourced_from'
             FROM report_notes
@@ -1134,6 +1236,10 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             FROM workflow_projects
             WHERE workflow_id = ANY(%s::uuid[]) AND project_id = ANY(%s::uuid[])
             UNION ALL
+            SELECT 'workflow', workflow_id::text, 'company', company_id::text, 'runs_with'
+            FROM workflow_companies
+            WHERE workflow_id = ANY(%s::uuid[]) AND company_id = ANY(%s::uuid[])
+            UNION ALL
             SELECT 'company', company_id::text, 'note', note_id::text, 'sourced_from'
             FROM company_notes
             WHERE company_id = ANY(%s::uuid[]) AND note_id = ANY(%s::uuid[])
@@ -1152,9 +1258,11 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
                 task_ids, note_ids,
                 task_ids, person_ids,
                 task_ids, project_ids,
+                task_ids, company_ids,
                 meeting_ids, note_ids,
                 meeting_ids, person_ids,
                 meeting_ids, project_ids,
+                meeting_ids, company_ids,
                 report_ids, note_ids,
                 report_ids, person_ids,
                 report_ids, project_ids,
@@ -1167,6 +1275,7 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
                 workflow_ids, task_ids,
                 workflow_ids, person_ids,
                 workflow_ids, project_ids,
+                workflow_ids, company_ids,
                 company_ids, note_ids,
                 company_ids, person_ids,
                 company_ids, project_ids,
@@ -1653,6 +1762,7 @@ def _task_payload(cur, task_id: str) -> dict | None:
         return None
     task["projects"] = many(cur, "SELECT p.* FROM projects p JOIN task_projects tp ON tp.project_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
     task["people"] = many(cur, "SELECT p.*, tp.relation FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
+    task["companies"] = many(cur, "SELECT c.* FROM companies c JOIN task_companies tc ON tc.company_id = c.id WHERE tc.task_id = %s ORDER BY c.name", (task_id,))
     task["notes"] = many(cur, "SELECT n.* FROM notes n JOIN task_notes tn ON tn.note_id = n.id WHERE tn.task_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (task_id,))
     task["reminders"] = many(cur, "SELECT * FROM task_reminders WHERE task_id = %s ORDER BY coalesce(snoozed_until, remind_at), created_at DESC", (task_id,))
     return task
@@ -1697,6 +1807,7 @@ def _meeting_payload(cur, meeting_id: str) -> dict | None:
         return None
     meeting["projects"] = many(cur, "SELECT p.* FROM projects p JOIN meeting_projects mp ON mp.project_id = p.id WHERE mp.meeting_id = %s ORDER BY p.name", (meeting_id,))
     meeting["people"] = many(cur, "SELECT p.*, mp.attendance_status FROM people p JOIN meeting_people mp ON mp.person_id = p.id WHERE mp.meeting_id = %s ORDER BY p.name", (meeting_id,))
+    meeting["companies"] = many(cur, "SELECT c.* FROM companies c JOIN meeting_companies mc ON mc.company_id = c.id WHERE mc.meeting_id = %s ORDER BY c.name", (meeting_id,))
     meeting["notes"] = many(cur, "SELECT n.* FROM notes n JOIN meeting_notes mn ON mn.note_id = n.id WHERE mn.meeting_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (meeting_id,))
     return meeting
 
@@ -1722,6 +1833,7 @@ def _workflow_payload(cur, workflow_id: str) -> dict | None:
         return None
     workflow["projects"] = many(cur, "SELECT p.* FROM projects p JOIN workflow_projects wp ON wp.project_id = p.id WHERE wp.workflow_id = %s ORDER BY p.name", (workflow_id,))
     workflow["people"] = many(cur, "SELECT p.*, wp.relation FROM people p JOIN workflow_people wp ON wp.person_id = p.id WHERE wp.workflow_id = %s ORDER BY p.name", (workflow_id,))
+    workflow["companies"] = many(cur, "SELECT c.* FROM companies c JOIN workflow_companies wc ON wc.company_id = c.id WHERE wc.workflow_id = %s ORDER BY c.name", (workflow_id,))
     workflow["notes"] = many(cur, "SELECT n.* FROM notes n JOIN workflow_notes wn ON wn.note_id = n.id WHERE wn.workflow_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (workflow_id,))
     workflow["tasks"] = many(cur, "SELECT t.* FROM tasks t JOIN workflow_tasks wt ON wt.task_id = t.id WHERE wt.workflow_id = %s ORDER BY wt.position, t.created_at DESC", (workflow_id,))
     return workflow

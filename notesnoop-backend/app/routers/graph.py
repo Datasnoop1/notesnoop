@@ -856,6 +856,7 @@ def _copy_memory_object_brief(cur, kind: str, entity_id: str, full: bool) -> dic
             "project_link": ("task_projects", "task_id"),
             "people_link": ("task_people", "task_id", "relation"),
             "note_link": ("task_notes", "task_id"),
+            "company_link": ("task_companies", "task_id"),
         },
         "meeting": {
             "table": "meetings",
@@ -865,6 +866,7 @@ def _copy_memory_object_brief(cur, kind: str, entity_id: str, full: bool) -> dic
             "project_link": ("meeting_projects", "meeting_id"),
             "people_link": ("meeting_people", "meeting_id", "attendance_status"),
             "note_link": ("meeting_notes", "meeting_id"),
+            "company_link": ("meeting_companies", "meeting_id"),
         },
         "report": {
             "table": "reports",
@@ -889,6 +891,7 @@ def _copy_memory_object_brief(cur, kind: str, entity_id: str, full: bool) -> dic
             "people_link": ("workflow_people", "workflow_id", "relation"),
             "note_link": ("workflow_notes", "workflow_id"),
             "task_link": ("workflow_tasks", "workflow_id"),
+            "company_link": ("workflow_companies", "workflow_id"),
         },
         "company": {
             "table": "companies",

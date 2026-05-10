@@ -2578,7 +2578,7 @@ function MemoryDetailSheet({
       payload.project_ids = draftProjectIds;
       payload.person_ids = draftPersonIds;
     }
-    if (sectionId === "reports") payload.company_ids = draftCompanyIds;
+    if (["tasks", "meetings", "reports", "workflows"].includes(sectionId)) payload.company_ids = draftCompanyIds;
     await onUpdateMemory(sectionId, item.id, payload);
   }
   function snoozeUntilTomorrow() {
@@ -2691,7 +2691,7 @@ function MemoryDetailSheet({
                 ))}
               </div>
             )}
-            {sectionId === "reports" && !!editableCompanies.length && (
+            {["tasks", "meetings", "reports", "workflows"].includes(sectionId) && !!editableCompanies.length && (
               <div className="relation-editor" role="group" aria-label="Linked companies">
                 <strong>Companies</strong>
                 {editableCompanies.map((company) => (

@@ -7,6 +7,7 @@ import logging
 import os
 import signal
 import sys
+import uuid
 from datetime import date, datetime, time, timezone
 from typing import Any
 
@@ -201,6 +202,76 @@ def _best_match(name: str, rows: list[dict], key: str = "name") -> tuple[dict | 
     return scored[0][1], scored[0][0]
 
 
+def _dedupe_strings(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        clean = str(value or "").strip()
+        key = clean.casefold()
+        if clean and key not in seen:
+            seen.add(key)
+            deduped.append(clean)
+    return deduped
+
+
+def _looks_like_uuid(value: Any) -> bool:
+    try:
+        uuid.UUID(str(value))
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _item_company_names(item: Any) -> list[str]:
+    if not isinstance(item, dict):
+        return []
+    names: list[str] = []
+    for key in ("company_name", "company"):
+        value = item.get(key)
+        if isinstance(value, str):
+            names.append(value)
+    for key in ("company_names", "companies"):
+        value = item.get(key)
+        if not isinstance(value, list):
+            continue
+        for entry in value:
+            if isinstance(entry, dict):
+                names.append(str(entry.get("name") or ""))
+            else:
+                names.append(str(entry or ""))
+    return _dedupe_strings(names)
+
+
+def _resolve_company_ids_from_payload(cur, workspace_id: str, payload: dict[str, Any]) -> list[str]:
+    resolved: list[str] = []
+    raw_ids = _id_list(payload.get("company_ids"))
+    valid_ids = [value for value in raw_ids if _looks_like_uuid(value)]
+    invalid_ids = [value for value in raw_ids if not _looks_like_uuid(value)]
+    if valid_ids:
+        cur.execute(
+            """
+            SELECT id
+            FROM companies
+            WHERE workspace_id = %s
+              AND id = ANY(%s::uuid[])
+            """,
+            (workspace_id, valid_ids),
+        )
+        rows = cur.fetchall()
+        db_ids = [str(row["id"]) for row in rows]
+        resolved.extend(db_ids or valid_ids)
+
+    names = _dedupe_strings([*invalid_ids, *_item_company_names(payload)])
+    if names:
+        cur.execute("SELECT id, name FROM companies WHERE workspace_id = %s ORDER BY name", (workspace_id,))
+        companies = [dict(row) for row in cur.fetchall()]
+        for name in names:
+            company, score = _best_match(name, companies)
+            if company and score >= 0.90:
+                resolved.append(str(company["id"]))
+    return _dedupe_strings(resolved)
+
+
 def _load_context(cur, note_id: str) -> tuple[dict, list[dict], list[dict], list[dict]]:
     cur.execute("SELECT * FROM notes WHERE id = %s", (note_id,))
     note = dict(cur.fetchone())
@@ -348,6 +419,18 @@ def _link_task_people(cur, task_id: str, workspace_id: str, person_ids: list[str
         )
 
 
+def _link_task_companies(cur, task_id: str, workspace_id: str, company_ids: list[str], linked_by: str) -> None:
+    for company_id in company_ids:
+        cur.execute(
+            """
+            INSERT INTO task_companies (task_id, company_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (task_id, company_id, workspace_id, linked_by),
+        )
+
+
 def _link_meeting_people(cur, meeting_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
     for person_id in person_ids:
         cur.execute(
@@ -357,6 +440,18 @@ def _link_meeting_people(cur, meeting_id: str, workspace_id: str, person_ids: li
             ON CONFLICT DO NOTHING
             """,
             (meeting_id, person_id, workspace_id, linked_by),
+        )
+
+
+def _link_meeting_companies(cur, meeting_id: str, workspace_id: str, company_ids: list[str], linked_by: str) -> None:
+    for company_id in company_ids:
+        cur.execute(
+            """
+            INSERT INTO meeting_companies (meeting_id, company_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (meeting_id, company_id, workspace_id, linked_by),
         )
 
 
@@ -428,6 +523,18 @@ def _link_workflow_note(cur, workflow_id: str, note_id: str, workspace_id: str, 
         """,
         (workflow_id, note_id, workspace_id, linked_by),
     )
+
+
+def _link_workflow_companies(cur, workflow_id: str, workspace_id: str, company_ids: list[str], linked_by: str) -> None:
+    for company_id in company_ids:
+        cur.execute(
+            """
+            INSERT INTO workflow_companies (workflow_id, company_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (workflow_id, company_id, workspace_id, linked_by),
+        )
 
 
 def _link_workflow_tasks(cur, workflow_id: str, workspace_id: str, task_ids: list[str], linked_by: str) -> None:
@@ -526,6 +633,7 @@ def _materialize_meeting(
     project_ids: list[str],
     person_ids: list[str],
     source_kind: str,
+    company_ids: list[str] | None = None,
     review_id: str | None = None,
     source_confidence: float | None = None,
     source_payload: dict[str, Any] | None = None,
@@ -581,6 +689,7 @@ def _materialize_meeting(
     )
     _link_memory_projects(cur, "meeting_projects", "meeting_id", meeting_id, str(note["workspace_id"]), project_ids, target_user_id)
     _link_meeting_people(cur, meeting_id, str(note["workspace_id"]), person_ids, target_user_id)
+    _link_meeting_companies(cur, meeting_id, str(note["workspace_id"]), company_ids or [], target_user_id)
     return meeting_id
 
 
@@ -710,6 +819,7 @@ def _materialize_workflow(
     project_ids: list[str],
     person_ids: list[str],
     task_ids: list[str],
+    company_ids: list[str] | None = None,
     source_kind: str = "ai_workflow",
     review_id: str | None = None,
     source_confidence: float | None = None,
@@ -760,6 +870,7 @@ def _materialize_workflow(
     workflow_id = str(row["id"])
     _link_memory_projects(cur, "workflow_projects", "workflow_id", workflow_id, str(note["workspace_id"]), project_ids, target_user_id)
     _link_workflow_people(cur, workflow_id, str(note["workspace_id"]), person_ids, target_user_id)
+    _link_workflow_companies(cur, workflow_id, str(note["workspace_id"]), company_ids or [], target_user_id)
     _link_workflow_note(cur, workflow_id, str(note["id"]), str(note["workspace_id"]), target_user_id)
     _link_workflow_tasks(cur, workflow_id, str(note["workspace_id"]), task_ids, target_user_id)
     return workflow_id
@@ -774,6 +885,7 @@ def _materialize_task(
     project_ids: list[str],
     person_ids: list[str],
     due_at: Any = None,
+    company_ids: list[str] | None = None,
     description: str | None = None,
     status: str = "todo",
     priority: int = 3,
@@ -840,6 +952,7 @@ def _materialize_task(
     )
     _link_memory_projects(cur, "task_projects", "task_id", task_id, note["workspace_id"], project_ids, target_user_id)
     _link_task_people(cur, task_id, note["workspace_id"], person_ids, target_user_id)
+    _link_task_companies(cur, task_id, note["workspace_id"], company_ids or [], target_user_id)
     return task_id
 
 
@@ -893,6 +1006,69 @@ def _ai_source_payload(
     return payload
 
 
+def _enrich_company_links_from_context(
+    cur,
+    note: dict,
+    data: dict[str, Any],
+    target_user_id: str,
+    project_ids: list[str],
+    person_ids: list[str],
+    companies: list[dict],
+    job_id: str | None = None,
+) -> list[str]:
+    linked_ids: list[str] = []
+    name_to_id: dict[str, str] = {}
+
+    for item in data.get("companies", []):
+        if not isinstance(item, dict):
+            continue
+        name = _memory_item_title(item, "")
+        if not name:
+            continue
+        company, match_score = _best_match(name, companies)
+        confidence = _item_confidence(item)
+        effective_confidence = min(confidence, match_score) if company else confidence
+        if company and effective_confidence >= 0.90:
+            company_id = str(company["id"])
+            item["_skip_company_candidate"] = True
+            item["matched_company_id"] = company_id
+            item["company_ids"] = [company_id]
+            name_to_id[name.casefold()] = company_id
+            linked_ids.append(company_id)
+            _link_company_note(cur, company_id, str(note["id"]), str(note["workspace_id"]), target_user_id)
+            _link_company_projects(cur, company_id, str(note["workspace_id"]), project_ids, target_user_id)
+            _link_company_people(cur, company_id, str(note["workspace_id"]), person_ids, target_user_id)
+            if job_id:
+                _record_calibration(cur, job_id, note, effective_confidence, "accepted")
+        elif company and effective_confidence >= 0.70:
+            item["matched_company_id"] = str(company["id"])
+
+    linked_ids = _dedupe_strings(linked_ids)
+    for collection in ("tasks", "meetings", "workflows", "reports"):
+        for item in data.get(collection, []):
+            if not isinstance(item, dict):
+                continue
+            item_ids = [value for value in _id_list(item.get("company_ids")) if _looks_like_uuid(value)]
+            for name in _item_company_names(item):
+                company_id = name_to_id.get(name.casefold())
+                if not company_id:
+                    company, score = _best_match(name, companies)
+                    if company and score >= 0.90:
+                        company_id = str(company["id"])
+                if company_id:
+                    item_ids.append(company_id)
+                    if company_id not in linked_ids:
+                        linked_ids.append(company_id)
+                        _link_company_note(cur, company_id, str(note["id"]), str(note["workspace_id"]), target_user_id)
+                        _link_company_projects(cur, company_id, str(note["workspace_id"]), project_ids, target_user_id)
+                        _link_company_people(cur, company_id, str(note["workspace_id"]), person_ids, target_user_id)
+            if not item_ids and len(linked_ids) == 1:
+                item_ids = [linked_ids[0]]
+            if item_ids:
+                item["company_ids"] = _dedupe_strings(item_ids)
+    return _dedupe_strings(linked_ids)
+
+
 def _structured_memory_candidates(
     note: dict,
     data: dict[str, Any],
@@ -905,6 +1081,8 @@ def _structured_memory_candidates(
 
     seen_company_names: set[str] = set()
     for item in data.get("companies", []):
+        if isinstance(item, dict) and item.get("_skip_company_candidate"):
+            continue
         name = _memory_item_title(item, "")
         key = name.casefold()
         if not name or key in seen_company_names:
@@ -1072,8 +1250,10 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
     if not note_row:
         return None
     note = dict(note_row)
+    workspace_id = str(note["workspace_id"])
     project_ids = _id_list(payload.get("project_ids")) or _linked_project_ids(cur, str(note["id"]))
     person_ids = _id_list(payload.get("person_ids")) or _linked_person_ids(cur, str(note["id"]))
+    company_ids = _resolve_company_ids_from_payload(cur, workspace_id, payload)
     source_kind = str(payload.get("source_kind") or f"review_{kind}")
     confidence = _item_confidence(payload)
     review_id = str(review["id"])
@@ -1092,6 +1272,7 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
             description=payload.get("description") or payload.get("summary") or payload.get("body"),
             status=str(payload.get("status") or "todo"),
             priority=payload.get("priority") or 3,
+            company_ids=company_ids,
             review_id=review_id,
             source_confidence=confidence,
             source_payload=payload,
@@ -1105,6 +1286,7 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
             project_ids,
             person_ids,
             source_kind,
+            company_ids=company_ids,
             review_id=review_id,
             source_confidence=confidence,
             source_payload=payload,
@@ -1118,7 +1300,7 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
             project_ids,
             person_ids,
             _id_list(payload.get("task_ids")),
-            _id_list(payload.get("company_ids")),
+            company_ids,
             _id_list(payload.get("meeting_ids")),
             _id_list(payload.get("workflow_ids")),
             _id_list(payload.get("report_ids")),
@@ -1136,6 +1318,7 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
             project_ids,
             person_ids,
             _id_list(payload.get("task_ids")),
+            company_ids=company_ids,
             source_kind=source_kind,
             review_id=review_id,
             source_confidence=confidence,
@@ -1212,6 +1395,7 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             description=source_payload.get("description") or source_payload.get("summary"),
             status=str(source_payload.get("status") or "todo"),
             priority=source_payload.get("priority") or 3,
+            company_ids=company_ids,
             source_confidence=_item_confidence(item),
             source_payload=source_payload,
         )
@@ -1232,6 +1416,7 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
                 project_ids,
                 person_ids,
                 description=str(note.get("body") or "")[:2000],
+                company_ids=company_ids,
                 source_confidence=0.9,
                 source_payload=payload,
             )
@@ -1257,6 +1442,7 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
                 project_ids,
                 person_ids,
                 source_kind,
+                company_ids=company_ids,
                 source_confidence=_item_confidence(item),
                 source_payload=_ai_source_payload("meeting", note, title, source_kind, item, project_ids, person_ids),
             )
@@ -1275,6 +1461,7 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             project_ids,
             person_ids,
             note_kind,
+            company_ids=company_ids,
             source_confidence=0.9,
             source_payload=_ai_source_payload("meeting", note, title, note_kind, item, project_ids, person_ids),
         )
@@ -1299,6 +1486,7 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             project_ids,
             person_ids,
             task_ids,
+            company_ids=company_ids,
             source_kind=source_kind,
             source_confidence=_item_confidence(item),
             source_payload=_ai_source_payload("workflow", note, name, source_kind, item, project_ids, person_ids),
@@ -1401,7 +1589,7 @@ async def _process_extract(job: dict) -> None:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SET LOCAL search_path = public")
-            note, people, projects, _companies = _unpack_context(_load_context(cur, note_id))
+            note, people, projects, companies = _unpack_context(_load_context(cur, note_id))
             target_user_id = str(job["target_user_id"] or note["created_by"])
             for item in data.get("people", []):
                 name = str(item.get("name", "")).strip()
@@ -1467,6 +1655,17 @@ async def _process_extract(job: dict) -> None:
                 )
 
             person_ids = _linked_person_ids(cur, note_id)
+            project_ids = _linked_project_ids(cur, note_id)
+            _enrich_company_links_from_context(
+                cur,
+                note,
+                data,
+                target_user_id,
+                project_ids,
+                person_ids,
+                companies,
+                str(job["id"]),
+            )
             _enqueue_structured_memory_reviews(cur, note, data, target_user_id, person_ids)
             upsert_note_embedding(cur, note, embedding)
 

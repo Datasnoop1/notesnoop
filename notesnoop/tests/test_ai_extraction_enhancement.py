@@ -221,6 +221,9 @@ def test_materializing_review_candidate_stores_source_payload_and_context_links(
             {"id": "note-audit-1", "workspace_id": "workspace-1", "body": "Original messy note", "note_kind": "note"},
             {"id": "report-1"},
         ],
+        fetchall_values=[
+            [{"id": "company-northstar", "name": "company-northstar"}],
+        ],
     )
 
     report_id = worker._materialize_review_candidate(cur, review, payload, "owner-1")

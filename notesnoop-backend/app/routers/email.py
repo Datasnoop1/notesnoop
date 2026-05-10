@@ -86,7 +86,12 @@ def send_test_email(workspace_id: str, user: CurrentUser = Depends(current_user)
             "recipient": recipient,
             "sender": "test@notesnoop.app",
             "subject": "NoteSnoop test email",
-            "body": "This is a test inbound email for NoteSnoop. It lands in Inbox and follows your Email AI setting.",
+            "body": (
+                "Forwarded messy work note for NoteSnoop.\n\n"
+                "Apollo / Northstar Advisory: Morgan asked us to send the diligence pack by Friday. "
+                "Todo: follow up with Jordan on the security review. "
+                "Meeting note: partner sync covered blockers, owners, and next actions."
+            ),
             "raw": {},
         }
         try:

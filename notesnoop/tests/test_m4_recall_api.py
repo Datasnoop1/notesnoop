@@ -232,6 +232,12 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     )
     assert company.status_code == 200
     company_id = company.json()["data"]["id"]
+    linked_company_task = client.patch(
+        f"/api/tasks/{graph_only_task_id}",
+        json={"company_ids": [company_id]},
+        headers=headers,
+    )
+    assert linked_company_task.status_code == 200
     workflow = client.post(
         f"/api/workspaces/{workspace_id}/workflows",
         json={
@@ -239,6 +245,7 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
             "description": "Tracks the board prep loop.",
             "project_ids": [project_id],
             "person_ids": [person_id],
+            "company_ids": [company_id],
             "task_ids": [graph_only_task_id],
         },
         headers=headers,
@@ -252,6 +259,7 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
             "summary": "Reviewed diligence ownership across Morgan and Jordan.",
             "project_ids": [project_id],
             "person_ids": [person_id, suggested_person_id],
+            "company_ids": [company_id],
             "note_ids": [note_id],
         },
         headers=headers,
@@ -261,15 +269,18 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     task_detail = client.get(f"/api/tasks/{graph_only_task_id}", headers=headers)
     assert task_detail.status_code == 200
     assert {row["id"] for row in task_detail.json()["data"]["people"]} == {person_id}
+    assert {row["id"] for row in task_detail.json()["data"]["companies"]} == {company_id}
     company_detail = client.get(f"/api/companies/{company_id}", headers=headers)
     assert company_detail.status_code == 200
     assert {row["id"] for row in company_detail.json()["data"]["projects"]} == {project_id}
     meeting_detail = client.get(f"/api/meetings/{meeting_id}", headers=headers)
     assert meeting_detail.status_code == 200
     assert {row["id"] for row in meeting_detail.json()["data"]["people"]} == {person_id, suggested_person_id}
+    assert {row["id"] for row in meeting_detail.json()["data"]["companies"]} == {company_id}
     workflow_detail = client.get(f"/api/workflows/{workflow_id}", headers=headers)
     assert workflow_detail.status_code == 200
     assert {row["id"] for row in workflow_detail.json()["data"]["tasks"]} == {graph_only_task_id}
+    assert {row["id"] for row in workflow_detail.json()["data"]["companies"]} == {company_id}
     report = client.post(
         f"/api/workspaces/{workspace_id}/reports",
         json={
@@ -312,6 +323,7 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     assert "Project-only Apollo board prep" in task_brief_markdown
     assert "Projects: Apollo" in task_brief_markdown
     assert "People: Morgan Lee" in task_brief_markdown
+    assert "Companies: Northstar Advisory" in task_brief_markdown
     company_brief = client.get(f"/api/briefs/company/{company_id}", headers=headers)
     assert company_brief.status_code == 200
     assert "Northstar Advisory" in company_brief.json()["data"]["markdown"]
@@ -395,7 +407,10 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     assert ("workflow", workflow_id) in graph_nodes
     assert ("task", graph_only_task_id, "filed_in", "project", project_id) in graph_edges
     assert ("task", graph_only_task_id, "assignee", "person", person_id) in graph_edges
+    assert ("task", graph_only_task_id, "at_company", "company", company_id) in graph_edges
+    assert ("meeting", meeting_id, "involves", "company", company_id) in graph_edges
     assert ("workflow", workflow_id, "contains", "task", graph_only_task_id) in graph_edges
+    assert ("workflow", workflow_id, "runs_with", "company", company_id) in graph_edges
     assert ("report", report_id, "cites", "meeting", meeting_id) in graph_edges
     assert ("report", report_id, "covers", "workflow", workflow_id) in graph_edges
     assert ("report", followup_report_id, "builds_on", "report", report_id) in graph_edges

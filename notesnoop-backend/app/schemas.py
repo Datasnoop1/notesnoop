@@ -128,6 +128,7 @@ class TaskCreate(BaseModel):
     due_at: datetime | None = None
     project_ids: list[str] | None = None
     person_ids: list[str] | None = None
+    company_ids: list[str] | None = None
     note_ids: list[str] | None = None
 
 
@@ -139,6 +140,7 @@ class TaskUpdate(BaseModel):
     due_at: datetime | None = None
     project_ids: list[str] | None = None
     person_ids: list[str] | None = None
+    company_ids: list[str] | None = None
     note_ids: list[str] | None = None
 
 
@@ -155,6 +157,7 @@ class MeetingCreate(BaseModel):
     summary: str | None = None
     project_ids: list[str] | None = None
     person_ids: list[str] | None = None
+    company_ids: list[str] | None = None
     note_ids: list[str] | None = None
 
 
@@ -165,6 +168,7 @@ class MeetingUpdate(BaseModel):
     summary: str | None = None
     project_ids: list[str] | None = None
     person_ids: list[str] | None = None
+    company_ids: list[str] | None = None
     note_ids: list[str] | None = None
 
 
@@ -211,6 +215,7 @@ class WorkflowCreate(BaseModel):
     status: str = Field(default="active", pattern="^(draft|active|paused|retired)$")
     project_ids: list[str] | None = None
     person_ids: list[str] | None = None
+    company_ids: list[str] | None = None
     note_ids: list[str] | None = None
     task_ids: list[str] | None = None
 
@@ -221,6 +226,7 @@ class WorkflowUpdate(BaseModel):
     status: str | None = Field(default=None, pattern="^(draft|active|paused|retired)$")
     project_ids: list[str] | None = None
     person_ids: list[str] | None = None
+    company_ids: list[str] | None = None
     note_ids: list[str] | None = None
     task_ids: list[str] | None = None
 

@@ -298,6 +298,8 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
           id: url.split("/api/tasks/")[1]?.split("?")[0] || "note-task-1",
           projects: projects.filter((project) => payload.project_ids?.includes(project.id)),
           people: people.filter((person) => payload.person_ids?.includes(person.id)),
+          companies: [{ id: "company-1", name: "Northstar", domain: "northstar.example" }]
+            .filter((company) => payload.company_ids?.includes(company.id)),
           notes: [note],
         },
       });
@@ -390,6 +392,7 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Quick brief/i }));
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Full brief/i }));
     fireEvent.click(within(memorySheet).getByLabelText("Jordan Kim"));
+    fireEvent.click(within(memorySheet).getByLabelText("Northstar"));
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Save memory/i }));
     await waitFor(() => {
       const relationPatch = fetchMock.mock.calls.find(([input, init]) => (
@@ -400,6 +403,7 @@ describe("NoteSnoopApp", () => {
       expect(JSON.parse(String(relationPatch?.[1]?.body))).toMatchObject({
         project_ids: ["project-1"],
         person_ids: ["person-1", "person-2"],
+        company_ids: ["company-1"],
       });
     });
     fireEvent.click(await screen.findByRole("button", { name: /Snooze 1 day/i }));

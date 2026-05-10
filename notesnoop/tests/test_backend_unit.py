@@ -954,7 +954,56 @@ def test_worker_materializes_full_memory_graph_from_ai_payload():
     assert "INSERT INTO workflow_notes" in executed_sql
     assert "INSERT INTO workflow_tasks" in executed_sql
     assert "INSERT INTO reports" in executed_sql
+    assert "INSERT INTO task_companies" in executed_sql
+    assert "INSERT INTO meeting_companies" in executed_sql
+    assert "INSERT INTO workflow_companies" in executed_sql
     assert "INSERT INTO report_companies" in executed_sql
+
+
+def test_worker_resolves_email_company_mentions_into_review_links():
+    note = {
+        "id": "email-note-1",
+        "workspace_id": "workspace-1",
+        "title": "Forwarded diligence note",
+        "body": "Northstar email: todo send security pack.",
+        "note_kind": "email",
+        "occurred_at": "2026-05-09T10:00:00Z",
+        "created_by": "creator-1",
+    }
+    data = {
+        "companies": [{"name": "Northstar Advisory", "confidence": 0.95}],
+        "tasks": [{"title": "Send security pack", "company_names": ["Northstar Advisory"], "confidence": 0.9}],
+        "meetings": [{"title": "Northstar partner sync", "company_names": ["Northstar Advisory"], "confidence": 0.86}],
+        "workflows": [{"name": "Security review loop", "company_names": ["Northstar Advisory"], "confidence": 0.83}],
+        "reports": [{"title": "Security brief", "company_names": ["Northstar Advisory"], "confidence": 0.82}],
+    }
+    cur = FakeCursor(fetchall_values=[
+        [{"id": "company-1", "name": "Northstar Advisory"}],
+    ])
+
+    linked = worker._enrich_company_links_from_context(
+        cur,
+        note,
+        data,
+        "creator-1",
+        ["project-1"],
+        ["person-1"],
+        [{"id": "company-1", "name": "Northstar Advisory"}],
+        "job-1",
+    )
+    candidates = worker._structured_memory_candidates(note, data, ["project-1"], ["person-1"])
+    by_kind = {kind: payload for kind, payload in candidates}
+
+    assert linked == ["company-1"]
+    assert "company" not in by_kind
+    assert by_kind["task"]["company_ids"] == ["company-1"]
+    assert by_kind["meeting"]["company_ids"] == ["company-1"]
+    assert by_kind["workflow"]["company_ids"] == ["company-1"]
+    assert by_kind["report"]["company_ids"] == ["company-1"]
+    executed_sql = "\n".join(sql for sql, _params in cur.executed)
+    assert "INSERT INTO company_notes" in executed_sql
+    assert "INSERT INTO company_projects" in executed_sql
+    assert "INSERT INTO company_people" in executed_sql
 
 
 def test_worker_personal_skip_and_failure_paths(monkeypatch):
