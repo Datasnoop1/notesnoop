@@ -81,6 +81,13 @@ type HomeState = {
     tasks_done?: number;
     reviews_accepted?: number;
   };
+  week_counts?: {
+    new_notes?: number;
+    tasks_done?: number;
+    reviews_accepted?: number;
+    notes_archived?: number;
+    projects_closed?: number;
+  };
 };
 
 type SearchFilters = {
@@ -2341,6 +2348,22 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   if (reviewsAccepted > 0) parts.push(`${reviewsAccepted} review${reviewsAccepted === 1 ? "" : "s"} accepted`);
                   if (parts.length === 0) return null;
                   return <p className="dashboard-today">Today: {parts.join(" - ")}</p>;
+                })()}
+                {(() => {
+                  const weekCounts = home?.week_counts || {};
+                  const parts: string[] = [];
+                  const newNotes = Number(weekCounts.new_notes || 0);
+                  const tasksDone = Number(weekCounts.tasks_done || 0);
+                  const reviewsAccepted = Number(weekCounts.reviews_accepted || 0);
+                  const notesArchived = Number(weekCounts.notes_archived || 0);
+                  const projectsClosed = Number(weekCounts.projects_closed || 0);
+                  if (newNotes > 0) parts.push(`${newNotes} note${newNotes === 1 ? "" : "s"}`);
+                  if (tasksDone > 0) parts.push(`${tasksDone} task${tasksDone === 1 ? "" : "s"} done`);
+                  if (reviewsAccepted > 0) parts.push(`${reviewsAccepted} review${reviewsAccepted === 1 ? "" : "s"} accepted`);
+                  if (notesArchived > 0) parts.push(`${notesArchived} archived`);
+                  if (projectsClosed > 0) parts.push(`${projectsClosed} project${projectsClosed === 1 ? "" : "s"} closed`);
+                  if (parts.length === 0) return null;
+                  return <p className="dashboard-week">Past 7 days: {parts.join(" - ")}</p>;
                 })()}
               </div>
               <div className="dashboard-actions">

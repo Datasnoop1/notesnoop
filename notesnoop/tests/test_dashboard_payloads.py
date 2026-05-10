@@ -388,6 +388,31 @@ def test_review_queue_exposes_source_people_and_source_companies(client):
     assert any(c["id"] == company_id for c in row.get("source_companies") or [])
 
 
+def test_home_week_counts_aggregate_last_seven_days(client):
+    """Verify /home returns week_counts aggregating last 7 days of activity."""
+    user_id = f"week_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Week workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    # Capture three notes in the past 7 days (just-created counts)
+    for n in range(3):
+        client.post(
+            f"/api/workspaces/{workspace_id}/notes",
+            json={"body": f"Week note {n}"},
+            headers=headers,
+        )
+
+    home = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    assert home.status_code == 200
+    week = home.json()["data"].get("week_counts")
+    assert isinstance(week, dict)
+    assert week.get("new_notes", 0) >= 3
+    for key in ("tasks_done", "reviews_accepted", "notes_archived", "projects_closed"):
+        assert key in week
+
+
 def test_project_close_and_reopen_filters_recent_projects(client):
     """Closing a project hides it from /home recent_projects; reopening brings it back."""
     user_id = f"proj_close_user_{uuid.uuid4().hex[:10]}"

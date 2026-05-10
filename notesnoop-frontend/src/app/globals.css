@@ -357,6 +357,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   margin: 6px 0 0 !important;
   font-weight: 500;
 }
+.dashboard-week {
+  font-size: 12px;
+  color: #4a5a52;
+  background: #f4f7f4;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 12px;
+  display: inline-block;
+  margin: 6px 0 0 6px !important;
+  font-weight: 500;
+}
 .dashboard-head h1 {
   margin: 4px 0;
   font-size: 32px;

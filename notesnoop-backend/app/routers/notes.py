@@ -985,6 +985,63 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             "tasks_done": int((today_row or {}).get("tasks_done") or 0),
             "reviews_accepted": int((today_row or {}).get("reviews_accepted") or 0),
         }
+        week_row = one(
+            cur,
+            """
+            SELECT
+              (SELECT count(*) FROM notes n
+                 WHERE n.workspace_id = %s
+                   AND n.created_at >= now() - INTERVAL '7 days'
+                   AND (
+                     %s::uuid IS NULL
+                     OR EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s::uuid)
+                   )
+              ) AS new_notes,
+              (SELECT count(*) FROM tasks t
+                 WHERE t.workspace_id = %s
+                   AND t.status = 'done'
+                   AND t.updated_at >= now() - INTERVAL '7 days'
+                   AND (
+                     %s::uuid IS NULL
+                     OR EXISTS (SELECT 1 FROM task_projects tp WHERE tp.task_id = t.id AND tp.project_id = %s::uuid)
+                   )
+              ) AS tasks_done,
+              (SELECT count(*) FROM calibration_events ce
+                 WHERE ce.workspace_id = %s
+                   AND ce.user_decision = 'accepted'
+                   AND ce.created_at >= now() - INTERVAL '7 days'
+              ) AS reviews_accepted,
+              (SELECT count(*) FROM notes n
+                 WHERE n.workspace_id = %s
+                   AND n.archived_at IS NOT NULL
+                   AND n.archived_at >= now() - INTERVAL '7 days'
+                   AND (
+                     %s::uuid IS NULL
+                     OR EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s::uuid)
+                   )
+              ) AS notes_archived,
+              (SELECT count(*) FROM projects p
+                 WHERE p.workspace_id = %s
+                   AND p.status = 'closed'
+                   AND p.closed_at >= now() - INTERVAL '7 days'
+                   AND (%s::uuid IS NULL OR p.id = %s::uuid)
+              ) AS projects_closed
+            """,
+            (
+                workspace_id, project_id, project_id,
+                workspace_id, project_id, project_id,
+                workspace_id,
+                workspace_id, project_id, project_id,
+                workspace_id, project_id, project_id,
+            ),
+        )
+        week_counts = {
+            "new_notes": int((week_row or {}).get("new_notes") or 0),
+            "tasks_done": int((week_row or {}).get("tasks_done") or 0),
+            "reviews_accepted": int((week_row or {}).get("reviews_accepted") or 0),
+            "notes_archived": int((week_row or {}).get("notes_archived") or 0),
+            "projects_closed": int((week_row or {}).get("projects_closed") or 0),
+        }
         pipeline_recent_received = many(
             cur,
             """
@@ -1080,6 +1137,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                 "pipeline_recent_received": pipeline_recent_received,
                 "loose_ends": loose_ends,
                 "today_counts": today_counts,
+                "week_counts": week_counts,
             }
         }
 
