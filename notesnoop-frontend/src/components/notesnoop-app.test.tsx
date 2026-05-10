@@ -54,6 +54,8 @@ const taskNote = {
   title: "Send Apollo follow-up",
   body: "Ask Morgan for the revised diligence timeline.",
   note_kind: "task",
+  status: "todo",
+  due_at: "2026-05-15T12:00:00Z",
   raw_email_metadata: undefined,
   project_nudge: undefined,
 };
@@ -262,6 +264,8 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Capture" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Memory system" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Memory map" })).toBeInTheDocument();
+    expect(within(dashboard).getByRole("group", { name: "Interactive memory graph" })).toBeInTheDocument();
+    expect(within(dashboard).getByText(/Reminder due/i)).toBeInTheDocument();
     expect(within(dashboard).getByText("sourced_from")).toBeInTheDocument();
     expect(within(dashboard).getByRole("tab", { name: /Open tasks1/i })).toHaveAttribute("aria-selected", "true");
     expect(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up")).toBeInTheDocument();

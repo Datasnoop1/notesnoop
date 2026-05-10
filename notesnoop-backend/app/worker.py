@@ -201,14 +201,24 @@ def _best_match(name: str, rows: list[dict], key: str = "name") -> tuple[dict | 
     return scored[0][1], scored[0][0]
 
 
-def _load_context(cur, note_id: str) -> tuple[dict, list[dict], list[dict]]:
+def _load_context(cur, note_id: str) -> tuple[dict, list[dict], list[dict], list[dict]]:
     cur.execute("SELECT * FROM notes WHERE id = %s", (note_id,))
     note = dict(cur.fetchone())
     cur.execute("SELECT * FROM people WHERE workspace_id = %s ORDER BY name", (note["workspace_id"],))
     people = [dict(row) for row in cur.fetchall()]
     cur.execute("SELECT * FROM projects WHERE workspace_id = %s ORDER BY name", (note["workspace_id"],))
     projects = [dict(row) for row in cur.fetchall()]
-    return note, people, projects
+    cur.execute("SELECT * FROM companies WHERE workspace_id = %s ORDER BY name", (note["workspace_id"],))
+    companies = [dict(row) for row in cur.fetchall()]
+    return note, people, projects, companies
+
+
+def _unpack_context(context: tuple) -> tuple[dict, list[dict], list[dict], list[dict]]:
+    if len(context) == 3:
+        note, people, projects = context
+        return note, people, projects, []
+    note, people, projects, companies = context
+    return note, people, projects, companies
 
 
 def _insert_review(cur, note: dict, target_user_id: str, entity_kind: str, payload: dict[str, Any], reason: str = "ai_suggestion"):
@@ -343,6 +353,285 @@ def _link_report_people(cur, report_id: str, workspace_id: str, person_ids: list
         )
 
 
+def _link_company_people(cur, company_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
+    for person_id in person_ids:
+        cur.execute(
+            """
+            INSERT INTO company_people (company_id, person_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (company_id, person_id, workspace_id, linked_by),
+        )
+
+
+def _link_company_projects(cur, company_id: str, workspace_id: str, project_ids: list[str], linked_by: str) -> None:
+    for project_id in project_ids:
+        cur.execute(
+            """
+            INSERT INTO company_projects (company_id, project_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (company_id, project_id, workspace_id, linked_by),
+        )
+
+
+def _link_company_note(cur, company_id: str, note_id: str, workspace_id: str, linked_by: str) -> None:
+    cur.execute(
+        """
+        INSERT INTO company_notes (company_id, note_id, workspace_id, linked_by)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
+        """,
+        (company_id, note_id, workspace_id, linked_by),
+    )
+
+
+def _link_workflow_people(cur, workflow_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
+    for person_id in person_ids:
+        cur.execute(
+            """
+            INSERT INTO workflow_people (workflow_id, person_id, workspace_id, relation, linked_by)
+            VALUES (%s, %s, %s, 'participant', %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (workflow_id, person_id, workspace_id, linked_by),
+        )
+
+
+def _link_workflow_note(cur, workflow_id: str, note_id: str, workspace_id: str, linked_by: str) -> None:
+    cur.execute(
+        """
+        INSERT INTO workflow_notes (workflow_id, note_id, workspace_id, linked_by)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
+        """,
+        (workflow_id, note_id, workspace_id, linked_by),
+    )
+
+
+def _link_workflow_tasks(cur, workflow_id: str, workspace_id: str, task_ids: list[str], linked_by: str) -> None:
+    for position, task_id in enumerate(task_ids, start=1):
+        cur.execute(
+            """
+            INSERT INTO workflow_tasks (workflow_id, task_id, workspace_id, position, linked_by)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (workflow_id, task_id, workspace_id, position, linked_by),
+        )
+
+
+def _memory_item_title(item: Any, default: str) -> str:
+    title = _materialize_title(item)
+    if not title and isinstance(item, dict):
+        title = _materialize_title(item.get("name") or item.get("summary"))
+    return title or default
+
+
+def _memory_item_description(item: Any, fallback: str = "") -> str | None:
+    if isinstance(item, dict):
+        value = item.get("description") or item.get("summary") or item.get("body") or fallback
+    else:
+        value = fallback
+    text = " ".join(str(value or "").split())
+    return text[:4000] if text else None
+
+
+def _materialize_company(
+    cur,
+    note: dict,
+    item: Any,
+    target_user_id: str,
+    project_ids: list[str],
+    person_ids: list[str],
+) -> str | None:
+    name = _memory_item_title(item, "")
+    if not name:
+        return None
+    domain = item.get("domain") if isinstance(item, dict) else None
+    description = _memory_item_description(item)
+    cur.execute(
+        """
+        INSERT INTO companies (workspace_id, name, domain, description, created_by)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (workspace_id, lower(name))
+        DO UPDATE
+          SET domain = COALESCE(EXCLUDED.domain, companies.domain),
+              description = COALESCE(EXCLUDED.description, companies.description),
+              updated_at = now()
+        RETURNING id
+        """,
+        (note["workspace_id"], name, domain, description, target_user_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    company_id = str(row["id"])
+    _link_company_note(cur, company_id, str(note["id"]), str(note["workspace_id"]), target_user_id)
+    _link_company_projects(cur, company_id, str(note["workspace_id"]), project_ids, target_user_id)
+    _link_company_people(cur, company_id, str(note["workspace_id"]), person_ids, target_user_id)
+    return company_id
+
+
+def _materialize_meeting(
+    cur,
+    note: dict,
+    item: Any,
+    target_user_id: str,
+    project_ids: list[str],
+    person_ids: list[str],
+    source_kind: str,
+) -> str | None:
+    title = _memory_item_title(item, "Captured conversation")
+    occurred_at = note.get("occurred_at")
+    if isinstance(item, dict):
+        occurred_at = _coerce_due_at(item.get("occurred_at") or item.get("occurred_date")) or occurred_at
+    cur.execute(
+        """
+        INSERT INTO meetings (workspace_id, title, occurred_at, summary, created_by, source_note_id, source_kind)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (source_note_id, source_kind)
+          WHERE source_note_id IS NOT NULL
+        DO UPDATE
+          SET updated_at = now(),
+              title = COALESCE(NULLIF(EXCLUDED.title, ''), meetings.title),
+              summary = COALESCE(EXCLUDED.summary, meetings.summary),
+              occurred_at = COALESCE(EXCLUDED.occurred_at, meetings.occurred_at)
+        RETURNING id
+        """,
+        (
+            note["workspace_id"],
+            title,
+            occurred_at,
+            _memory_item_description(item, str(note.get("body") or "")[:4000]),
+            target_user_id,
+            note["id"],
+            source_kind,
+        ),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    meeting_id = str(row["id"])
+    cur.execute(
+        """
+        INSERT INTO meeting_notes (meeting_id, note_id, workspace_id, linked_by)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
+        """,
+        (meeting_id, note["id"], note["workspace_id"], target_user_id),
+    )
+    _link_memory_projects(cur, "meeting_projects", "meeting_id", meeting_id, str(note["workspace_id"]), project_ids, target_user_id)
+    _link_meeting_people(cur, meeting_id, str(note["workspace_id"]), person_ids, target_user_id)
+    return meeting_id
+
+
+def _materialize_report(
+    cur,
+    note: dict,
+    item: Any,
+    target_user_id: str,
+    project_ids: list[str],
+    person_ids: list[str],
+    task_ids: list[str],
+    company_ids: list[str],
+    source_kind: str,
+) -> str | None:
+    title = _memory_item_title(item, "Captured brief")
+    cur.execute(
+        """
+        INSERT INTO reports (workspace_id, title, body, status, created_by, source_note_id, source_kind)
+        VALUES (%s, %s, %s, 'draft', %s, %s, %s)
+        ON CONFLICT (source_note_id, source_kind)
+          WHERE source_note_id IS NOT NULL
+        DO UPDATE
+          SET updated_at = now(),
+              title = COALESCE(NULLIF(EXCLUDED.title, ''), reports.title),
+              body = COALESCE(EXCLUDED.body, reports.body)
+        RETURNING id
+        """,
+        (
+            note["workspace_id"],
+            title,
+            _memory_item_description(item, str(note.get("body") or "")),
+            target_user_id,
+            note["id"],
+            source_kind,
+        ),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    report_id = str(row["id"])
+    cur.execute(
+        """
+        INSERT INTO report_notes (report_id, note_id, workspace_id, linked_by)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
+        """,
+        (report_id, note["id"], note["workspace_id"], target_user_id),
+    )
+    _link_memory_projects(cur, "report_projects", "report_id", report_id, str(note["workspace_id"]), project_ids, target_user_id)
+    _link_report_people(cur, report_id, str(note["workspace_id"]), person_ids, target_user_id)
+    for task_id in task_ids:
+        cur.execute(
+            """
+            INSERT INTO report_tasks (report_id, task_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (report_id, task_id, note["workspace_id"], target_user_id),
+        )
+    for company_id in company_ids:
+        cur.execute(
+            """
+            INSERT INTO report_companies (report_id, company_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (report_id, company_id, note["workspace_id"], target_user_id),
+        )
+    return report_id
+
+
+def _materialize_workflow(
+    cur,
+    note: dict,
+    item: Any,
+    target_user_id: str,
+    project_ids: list[str],
+    person_ids: list[str],
+    task_ids: list[str],
+) -> str | None:
+    name = _memory_item_title(item, "")
+    if not name:
+        return None
+    cur.execute(
+        """
+        INSERT INTO workflows (workspace_id, name, description, status, created_by)
+        VALUES (%s, %s, %s, 'active', %s)
+        ON CONFLICT (workspace_id, lower(name))
+        DO UPDATE
+          SET description = COALESCE(EXCLUDED.description, workflows.description),
+              status = CASE WHEN workflows.status = 'retired' THEN workflows.status ELSE 'active' END,
+              updated_at = now()
+        RETURNING id
+        """,
+        (note["workspace_id"], name, _memory_item_description(item, str(note.get("body") or "")[:1000]), target_user_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    workflow_id = str(row["id"])
+    _link_memory_projects(cur, "workflow_projects", "workflow_id", workflow_id, str(note["workspace_id"]), project_ids, target_user_id)
+    _link_workflow_people(cur, workflow_id, str(note["workspace_id"]), person_ids, target_user_id)
+    _link_workflow_note(cur, workflow_id, str(note["id"]), str(note["workspace_id"]), target_user_id)
+    _link_workflow_tasks(cur, workflow_id, str(note["workspace_id"]), task_ids, target_user_id)
+    return workflow_id
+
+
 def _materialize_task(
     cur,
     note: dict,
@@ -397,14 +686,27 @@ def _materialize_task(
 
 def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id: str, person_ids: list[str] | None = None) -> dict[str, int]:
     note_id = str(note["id"])
-    workspace_id = str(note["workspace_id"])
     note_kind = str(note.get("note_kind") or "note").lower()
-    created = {"tasks": 0, "meetings": 0, "reports": 0}
+    created = {"tasks": 0, "meetings": 0, "reports": 0, "workflows": 0, "companies": 0}
     project_ids = _linked_project_ids(cur, note_id)
     person_ids = person_ids or _linked_person_ids(cur, note_id)
 
     cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"memory:{note_id}",))
 
+    company_ids: list[str] = []
+    seen_company_names: set[str] = set()
+    for item in data.get("companies", []):
+        name = _memory_item_title(item, "")
+        key = name.casefold()
+        if not name or key in seen_company_names:
+            continue
+        seen_company_names.add(key)
+        company_id = _materialize_company(cur, note, item, target_user_id, project_ids, person_ids)
+        if company_id:
+            company_ids.append(company_id)
+            created["companies"] += 1
+
+    task_ids: list[str] = []
     seen_task_titles: set[str] = set()
     for item in data.get("tasks", []):
         title = _materialize_title(item)
@@ -412,76 +714,69 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
         if not title or key in seen_task_titles:
             continue
         seen_task_titles.add(key)
-        if _materialize_task(cur, note, title, "action_item", target_user_id, project_ids, person_ids, item.get("due_at") or item.get("due_date")):
+        due_at = (item.get("due_at") or item.get("due_date")) if isinstance(item, dict) else None
+        task_id = _materialize_task(cur, note, title, "action_item", target_user_id, project_ids, person_ids, due_at)
+        if task_id:
+            task_ids.append(task_id)
             created["tasks"] += 1
 
     if note_kind == "task":
         title = _note_title(note, "Task")
-        if title.casefold() not in seen_task_titles and _materialize_task(cur, note, title, "note_task", target_user_id, project_ids, person_ids):
-            created["tasks"] += 1
+        if title.casefold() not in seen_task_titles:
+            task_id = _materialize_task(cur, note, title, "note_task", target_user_id, project_ids, person_ids)
+            if task_id:
+                task_ids.append(task_id)
+                created["tasks"] += 1
+
+    seen_meeting_titles: set[str] = set()
+    if note_kind not in {"meeting", "call"}:
+        for item in data.get("meetings", []):
+            title = _memory_item_title(item, "")
+            key = title.casefold()
+            if not title or key in seen_meeting_titles:
+                continue
+            seen_meeting_titles.add(key)
+            if _materialize_meeting(cur, note, item, target_user_id, project_ids, person_ids, f"ai_meeting:{key[:80]}"):
+                created["meetings"] += 1
 
     if note_kind in {"meeting", "call"}:
-        cur.execute(
-            """
-            INSERT INTO meetings (workspace_id, title, occurred_at, summary, created_by, source_note_id, source_kind)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (source_note_id, source_kind)
-              WHERE source_note_id IS NOT NULL
-            DO UPDATE
-              SET updated_at = now(),
-                  summary = COALESCE(meetings.summary, EXCLUDED.summary),
-                  occurred_at = COALESCE(meetings.occurred_at, EXCLUDED.occurred_at)
-            RETURNING id
-            """,
-            (
-                workspace_id,
-                _note_title(note, "Meeting"),
-                note.get("occurred_at"),
-                str(note.get("body") or "")[:4000],
-                target_user_id,
-                note_id,
-                note_kind,
-            ),
-        )
-        meeting_id = str(cur.fetchone()["id"])
-        cur.execute(
-            """
-            INSERT INTO meeting_notes (meeting_id, note_id, workspace_id, linked_by)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT DO NOTHING
-            """,
-            (meeting_id, note_id, workspace_id, target_user_id),
-        )
-        _link_memory_projects(cur, "meeting_projects", "meeting_id", meeting_id, workspace_id, project_ids, target_user_id)
-        _link_meeting_people(cur, meeting_id, workspace_id, person_ids, target_user_id)
-        created["meetings"] += 1
+        if _materialize_meeting(cur, note, {"title": _note_title(note, "Meeting"), "summary": str(note.get("body") or "")[:4000]}, target_user_id, project_ids, person_ids, note_kind):
+            created["meetings"] += 1
+
+    seen_workflows: set[str] = set()
+    for item in data.get("workflows", []):
+        name = _memory_item_title(item, "")
+        key = name.casefold()
+        if not name or key in seen_workflows:
+            continue
+        seen_workflows.add(key)
+        if _materialize_workflow(cur, note, item, target_user_id, project_ids, person_ids, task_ids):
+            created["workflows"] += 1
+
+    seen_reports: set[str] = set()
+    if note_kind != "report":
+        for item in data.get("reports", []):
+            title = _memory_item_title(item, "")
+            key = title.casefold()
+            if not title or key in seen_reports:
+                continue
+            seen_reports.add(key)
+            if _materialize_report(cur, note, item, target_user_id, project_ids, person_ids, task_ids, company_ids, f"ai_report:{key[:80]}"):
+                created["reports"] += 1
 
     if note_kind == "report":
-        cur.execute(
-            """
-            INSERT INTO reports (workspace_id, title, body, status, created_by, source_note_id, source_kind)
-            VALUES (%s, %s, %s, 'draft', %s, %s, 'report')
-            ON CONFLICT (source_note_id, source_kind)
-              WHERE source_note_id IS NOT NULL
-            DO UPDATE
-              SET updated_at = now(),
-                  body = COALESCE(reports.body, EXCLUDED.body)
-            RETURNING id
-            """,
-            (workspace_id, _note_title(note, "Report"), note.get("body"), target_user_id, note_id),
-        )
-        report_id = str(cur.fetchone()["id"])
-        cur.execute(
-            """
-            INSERT INTO report_notes (report_id, note_id, workspace_id, linked_by)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT DO NOTHING
-            """,
-            (report_id, note_id, workspace_id, target_user_id),
-        )
-        _link_memory_projects(cur, "report_projects", "report_id", report_id, workspace_id, project_ids, target_user_id)
-        _link_report_people(cur, report_id, workspace_id, person_ids, target_user_id)
-        created["reports"] += 1
+        if _materialize_report(
+            cur,
+            note,
+            {"title": _note_title(note, "Report"), "summary": str(note.get("body") or "")},
+            target_user_id,
+            project_ids,
+            person_ids,
+            task_ids,
+            company_ids,
+            "report",
+        ):
+            created["reports"] += 1
 
     return created
 
@@ -492,7 +787,7 @@ async def _process_extract(job: dict) -> None:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SET LOCAL search_path = public")
-            note, people, projects = _load_context(cur, note_id)
+            note, people, projects, companies = _unpack_context(_load_context(cur, note_id))
             if note["is_personal"]:
                 cur.execute("UPDATE notes SET ai_processing_status = 'skipped', ai_processing_error = NULL WHERE id = %s", (note_id,))
                 conn.commit()
@@ -521,6 +816,7 @@ async def _process_extract(job: dict) -> None:
         note["body"],
         [person["name"] for person in people],
         [project["name"] for project in projects if project["kind"] != "personal"],
+        [company["name"] for company in companies],
     )
     embedding = await embed_text(note_embedding_text(note))
 
@@ -528,7 +824,7 @@ async def _process_extract(job: dict) -> None:
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SET LOCAL search_path = public")
-            note, people, projects = _load_context(cur, note_id)
+            note, people, projects, _companies = _unpack_context(_load_context(cur, note_id))
             target_user_id = str(job["target_user_id"] or note["created_by"])
             for item in data.get("people", []):
                 name = str(item.get("name", "")).strip()

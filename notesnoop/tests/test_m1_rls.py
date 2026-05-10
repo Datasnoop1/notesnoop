@@ -278,6 +278,7 @@ def test_workspace_scoped_tables_have_rls_policies(conn):
         "task_people",
         "task_projects",
         "task_notes",
+        "task_reminders",
         "workflow_projects",
         "workflow_people",
         "workflow_notes",

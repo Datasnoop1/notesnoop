@@ -26,10 +26,10 @@ REPORT_ALLOW_DETERMINISTIC_FALLBACK = os.getenv("NOTESNOOP_REPORT_ALLOW_DETERMIN
 }
 
 
-EXTRACTION_SYSTEM = """You extract existing project/person mentions and explicit action items from messy professional notes.
+EXTRACTION_SYSTEM = """You extract durable memory from messy professional notes.
 Return strict JSON only:
-{"people":[{"name":"...", "confidence":0.0, "span":[0,10]}], "projects":[{"name":"...", "confidence":0.0, "span":[0,10]}], "tasks":[{"title":"...", "due_date":"YYYY-MM-DD or null", "confidence":0.0, "span":[0,10]}]}
-Do not invent names or tasks. Only include tasks/action items that are explicit in the note. Confidence must be 0..1. Use character spans when obvious; otherwise [0,0]."""
+{"people":[{"name":"...", "confidence":0.0, "span":[0,10]}], "projects":[{"name":"...", "confidence":0.0, "span":[0,10]}], "companies":[{"name":"...", "domain":null, "confidence":0.0, "span":[0,10]}], "tasks":[{"title":"...", "due_date":"YYYY-MM-DD or null", "confidence":0.0, "span":[0,10]}], "meetings":[{"title":"...", "summary":"...", "occurred_date":"YYYY-MM-DD or null", "confidence":0.0}], "workflows":[{"name":"...", "description":"...", "confidence":0.0}], "reports":[{"title":"...", "summary":"...", "confidence":0.0}]}
+Do not invent names, tasks, dates, or facts. Only include explicit items in the note. Confidence must be 0..1. Use character spans when obvious; otherwise [0,0]."""
 
 PROJECT_REPORT_SYSTEM = """You turn NoteSnoop project memory into a concise professional report.
 Return strict JSON only:
@@ -119,11 +119,51 @@ def deterministic_extract_tasks(note_body: str) -> list[dict[str, Any]]:
     return tasks
 
 
-def deterministic_extract_entities(note_body: str, known_people: list[str], known_projects: list[str]) -> dict[str, Any]:
+def deterministic_extract_meetings(note_body: str) -> list[dict[str, Any]]:
+    text = " ".join(note_body.split())
+    if not re.search(r"\b(meeting|call|sync|standup|demo|workshop)\b", text, re.IGNORECASE):
+        return []
+    title_match = re.search(r"(?im)^\s*(?:meeting|call|sync|standup|demo|workshop)\s*[:\-]\s*(.+)$", note_body)
+    title = title_match.group(1).strip() if title_match else "Captured conversation"
+    return [{"title": _clean_action_title(title) or "Captured conversation", "summary": text[:360], "occurred_date": None, "confidence": 0.74}]
+
+
+def deterministic_extract_reports(note_body: str) -> list[dict[str, Any]]:
+    text = " ".join(note_body.split())
+    if not re.search(r"\b(report|brief|summary|memo)\b", text, re.IGNORECASE):
+        return []
+    title_match = re.search(r"(?im)^\s*(?:report|brief|summary|memo)\s*[:\-]\s*(.+)$", note_body)
+    title = title_match.group(1).strip() if title_match else "Captured brief"
+    return [{"title": _clean_action_title(title) or "Captured brief", "summary": text[:900], "confidence": 0.72}]
+
+
+def deterministic_extract_workflows(note_body: str) -> list[dict[str, Any]]:
+    workflows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in re.finditer(r"(?im)^\s*(?:workflow|process|loop)\s*[:\-]\s*(.+)$", note_body):
+        name = _clean_action_title(match.group(1))
+        key = name.casefold()
+        if len(name) < 3 or key in seen:
+            continue
+        seen.add(key)
+        workflows.append({"name": name, "description": " ".join(note_body.split())[:500], "confidence": 0.78})
+    return workflows
+
+
+def deterministic_extract_entities(
+    note_body: str,
+    known_people: list[str],
+    known_projects: list[str],
+    known_companies: list[str] | None = None,
+) -> dict[str, Any]:
     return {
         "people": _exact_mentions(note_body, known_people),
         "projects": _exact_mentions(note_body, known_projects),
+        "companies": _exact_mentions(note_body, known_companies or []),
         "tasks": deterministic_extract_tasks(note_body),
+        "meetings": deterministic_extract_meetings(note_body),
+        "workflows": deterministic_extract_workflows(note_body),
+        "reports": deterministic_extract_reports(note_body),
     }
 
 
@@ -198,17 +238,27 @@ def deterministic_project_report(
     }
 
 
-async def extract_entities(note_body: str, known_people: list[str], known_projects: list[str]) -> dict[str, Any]:
+async def extract_entities(
+    note_body: str,
+    known_people: list[str],
+    known_projects: list[str],
+    known_companies: list[str] | None = None,
+) -> dict[str, Any]:
     if _is_cloud_host() and not OLLAMA_API_KEY:
         raise RuntimeError("OLLAMA_API_KEY is not configured")
     prompt = {
         "note": note_body[:12000],
         "known_people": known_people[:200],
         "known_projects": known_projects[:200],
+        "known_companies": (known_companies or [])[:200],
         "instructions": [
             "Prefer matching known_people and known_projects.",
+            "Prefer matching known_companies when organizations are mentioned.",
             "Unknown people may be returned as people mentions, but never create entities yourself.",
             "Return explicit tasks/action items when the note says need, follow up, todo, or action item.",
+            "Return meetings only when the note explicitly describes a meeting, call, sync, demo, workshop, or standup.",
+            "Return workflows only when the note explicitly describes a recurring process, workflow, or loop.",
+            "Return reports only when the note explicitly identifies itself as a report, brief, summary, or memo.",
             "If an action item has an explicit due date, return due_date as YYYY-MM-DD; otherwise null.",
             "Only return JSON. No markdown.",
         ],
@@ -235,20 +285,25 @@ async def extract_entities(note_body: str, known_people: list[str], known_projec
     except Exception as exc:
         if ALLOW_DETERMINISTIC_FALLBACK and _is_transient_error(exc):
             logger.warning("using deterministic extraction fallback after transient Ollama failure: %s", exc)
-            return deterministic_extract_entities(note_body, known_people, known_projects)
+            return deterministic_extract_entities(note_body, known_people, known_projects, known_companies)
         raise
     data = json.loads(content)
     if not isinstance(data, dict):
         raise ValueError("Ollama extraction response must be a JSON object")
     data.setdefault("people", [])
     data.setdefault("projects", [])
-    data.setdefault("tasks", [])
-    if not isinstance(data["people"], list) or not isinstance(data["projects"], list) or not isinstance(data["tasks"], list):
+    for key in ("people", "projects", "companies", "tasks", "meetings", "workflows", "reports"):
+        data.setdefault(key, [])
+    if not all(isinstance(data[key], list) for key in ("people", "projects", "companies", "tasks", "meetings", "workflows", "reports")):
         raise ValueError("Ollama extraction response has invalid entity lists")
     existing_task_titles = {str(item.get("title", "")).strip().casefold() for item in data["tasks"] if isinstance(item, dict)}
     for task in deterministic_extract_tasks(note_body):
         if task["title"].casefold() not in existing_task_titles:
             data["tasks"].append(task)
+    existing_company_names = {str(item.get("name", "")).strip().casefold() for item in data["companies"] if isinstance(item, dict)}
+    for company in _exact_mentions(note_body, known_companies or []):
+        if company["name"].casefold() not in existing_company_names:
+            data["companies"].append(company)
     return data
 
 

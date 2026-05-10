@@ -473,6 +473,41 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             """,
             (workspace_id, project_id, project_id),
         )
+        reminders = many(
+            cur,
+            """
+            SELECT t.*,
+                   tr.id AS reminder_id,
+                   tr.remind_at,
+                   tr.state AS reminder_state,
+                   tr.snoozed_until,
+                   coalesce(tr.snoozed_until, tr.remind_at) AS attention_at,
+                   coalesce(jsonb_agg(DISTINCT jsonb_build_object('id', p.id, 'name', p.name, 'color_hex', p.color_hex))
+                     FILTER (WHERE p.id IS NOT NULL), '[]'::jsonb) AS projects,
+                   coalesce(jsonb_agg(DISTINCT jsonb_build_object('id', pe.id, 'name', pe.name, 'company', pe.company, 'role', pe.role))
+                     FILTER (WHERE pe.id IS NOT NULL), '[]'::jsonb) AS people,
+                   min(p.name) AS project_name,
+                   min(pe.name) AS assignee_name
+            FROM task_reminders tr
+            JOIN tasks t ON t.id = tr.task_id
+            LEFT JOIN task_projects tp ON tp.task_id = t.id
+            LEFT JOIN projects p ON p.id = tp.project_id
+            LEFT JOIN task_people tpe ON tpe.task_id = t.id AND tpe.relation = 'assignee'
+            LEFT JOIN people pe ON pe.id = tpe.person_id
+            WHERE tr.workspace_id = %s
+              AND tr.state IN ('pending','snoozed')
+              AND t.status IN ('todo','doing','blocked')
+              AND (%s::uuid IS NULL OR tp.project_id = %s::uuid)
+            GROUP BY t.id, tr.id
+            ORDER BY
+              CASE WHEN coalesce(tr.snoozed_until, tr.remind_at) <= now() THEN 0 ELSE 1 END,
+              coalesce(tr.snoozed_until, tr.remind_at),
+              t.priority,
+              t.created_at DESC
+            LIMIT 8
+            """,
+            (workspace_id, project_id, project_id),
+        )
         meetings_calls = many(
             cur,
             """
@@ -698,6 +733,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                     (workspace_id, project_id, project_id),
                 ),
                 "open_tasks": open_tasks,
+                "reminders": reminders,
                 "meetings_calls": meetings_calls,
                 "reports_briefs": reports_briefs,
                 "workflows": workflows,

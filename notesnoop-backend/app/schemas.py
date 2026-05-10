@@ -105,6 +105,12 @@ class TaskUpdate(BaseModel):
     note_ids: list[str] | None = None
 
 
+class TaskReminderUpdate(BaseModel):
+    remind_at: datetime | None = None
+    state: str | None = Field(default=None, pattern="^(pending|sent|dismissed|snoozed)$")
+    snoozed_until: datetime | None = None
+
+
 class MeetingCreate(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     occurred_at: datetime | None = None

@@ -15,6 +15,7 @@ from ..schemas import (
     ReportCreate,
     ReportUpdate,
     TaskCreate,
+    TaskReminderUpdate,
     TaskUpdate,
     WorkflowCreate,
     WorkflowUpdate,
@@ -262,6 +263,78 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
         if payload.note_ids is not None:
             _replace_links(cur, "task_notes", "task_id", "note_id", task_id, workspace_id, payload.note_ids, user.clerk_user_id)
         return {"data": _task_payload(cur, task_id)}
+
+
+@router.get("/workspaces/{workspace_id}/reminders")
+def list_task_reminders(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        params: list = [workspace_id]
+        where = "tr.workspace_id = %s AND tr.state IN ('pending','snoozed')"
+        if project_id:
+            where += " AND EXISTS (SELECT 1 FROM task_projects tp WHERE tp.task_id = tr.task_id AND tp.project_id = %s)"
+            params.append(project_id)
+        return {
+            "data": many(
+                cur,
+                f"""
+                SELECT tr.*,
+                       t.title AS task_title,
+                       t.description AS task_description,
+                       t.status AS task_status,
+                       t.priority,
+                       t.due_at,
+                       coalesce(tr.snoozed_until, tr.remind_at) AS attention_at,
+                       coalesce(json_agg(DISTINCT p.*) FILTER (WHERE p.id IS NOT NULL), '[]') AS projects,
+                       coalesce(json_agg(DISTINCT pe.*) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people
+                FROM task_reminders tr
+                JOIN tasks t ON t.id = tr.task_id
+                LEFT JOIN task_projects tp ON tp.task_id = t.id
+                LEFT JOIN projects p ON p.id = tp.project_id
+                LEFT JOIN task_people tpe ON tpe.task_id = t.id
+                LEFT JOIN people pe ON pe.id = tpe.person_id
+                WHERE {where}
+                GROUP BY tr.id, t.id
+                ORDER BY
+                  CASE WHEN coalesce(tr.snoozed_until, tr.remind_at) <= now() THEN 0 ELSE 1 END,
+                  coalesce(tr.snoozed_until, tr.remind_at),
+                  t.priority,
+                  tr.created_at DESC
+                LIMIT 100
+                """,
+                tuple(params),
+            )
+        }
+
+
+@router.patch("/task-reminders/{reminder_id}")
+def update_task_reminder(reminder_id: str, payload: TaskReminderUpdate, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        reminder = one(cur, "SELECT * FROM task_reminders WHERE id = %s", (reminder_id,))
+        if not reminder:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+        next_state = payload.state or reminder["state"]
+        next_snoozed_until = payload.snoozed_until if "snoozed_until" in payload.model_fields_set else reminder.get("snoozed_until")
+        if next_state == "snoozed" and not next_snoozed_until:
+            raise HTTPException(status_code=422, detail="Snoozed reminders need snoozed_until")
+        if next_state == "pending":
+            next_snoozed_until = None
+        cur.execute(
+            """
+            UPDATE task_reminders
+            SET remind_at = %s,
+                state = %s,
+                snoozed_until = %s,
+                updated_at = now()
+            WHERE id = %s
+            """,
+            (
+                payload.remind_at if "remind_at" in payload.model_fields_set else reminder["remind_at"],
+                next_state,
+                next_snoozed_until,
+                reminder_id,
+            ),
+        )
+        return {"data": _task_reminder_payload(cur, reminder_id)}
 
 
 @router.get("/workspaces/{workspace_id}/meetings")
@@ -1160,7 +1233,31 @@ def _task_payload(cur, task_id: str) -> dict | None:
     task["projects"] = many(cur, "SELECT p.* FROM projects p JOIN task_projects tp ON tp.project_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
     task["people"] = many(cur, "SELECT p.*, tp.relation FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
     task["notes"] = many(cur, "SELECT n.* FROM notes n JOIN task_notes tn ON tn.note_id = n.id WHERE tn.task_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (task_id,))
+    task["reminders"] = many(cur, "SELECT * FROM task_reminders WHERE task_id = %s ORDER BY coalesce(snoozed_until, remind_at), created_at DESC", (task_id,))
     return task
+
+
+def _task_reminder_payload(cur, reminder_id: str) -> dict | None:
+    reminder = one(
+        cur,
+        """
+        SELECT tr.*,
+               t.title AS task_title,
+               t.description AS task_description,
+               t.status AS task_status,
+               t.due_at,
+               coalesce(tr.snoozed_until, tr.remind_at) AS attention_at
+        FROM task_reminders tr
+        JOIN tasks t ON t.id = tr.task_id
+        WHERE tr.id = %s
+        """,
+        (reminder_id,),
+    )
+    if not reminder:
+        return None
+    reminder["projects"] = many(cur, "SELECT p.* FROM projects p JOIN task_projects tp ON tp.project_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (reminder["task_id"],))
+    reminder["people"] = many(cur, "SELECT p.*, tp.relation FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (reminder["task_id"],))
+    return reminder
 
 
 def _company_payload(cur, company_id: str) -> dict | None:

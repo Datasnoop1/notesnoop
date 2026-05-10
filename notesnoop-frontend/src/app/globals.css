@@ -681,6 +681,73 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .memory-empty {
   min-height: 132px;
 }
+.graph-canvas {
+  position: relative;
+  min-height: 260px;
+  border: 1px solid #dfe7dd;
+  border-radius: 8px;
+  background:
+    linear-gradient(#eef4ef 1px, transparent 1px),
+    linear-gradient(90deg, #eef4ef 1px, transparent 1px),
+    #fffefb;
+  background-size: 32px 32px;
+  overflow: hidden;
+}
+.graph-canvas::before,
+.graph-canvas::after {
+  content: "";
+  position: absolute;
+  inset: 22% 14%;
+  border: 1px solid #cbdcd6;
+  border-left-color: transparent;
+  border-right-color: transparent;
+  transform: rotate(12deg);
+  pointer-events: none;
+}
+.graph-canvas::after {
+  inset: 31% 19%;
+  transform: rotate(-18deg);
+}
+.graph-node {
+  position: absolute;
+  width: 118px;
+  min-height: 58px;
+  border: 1px solid #bdd7d0;
+  border-radius: 8px;
+  background: #fffdf8;
+  color: var(--ink);
+  padding: 8px;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  text-align: left;
+  box-shadow: 0 4px 14px rgba(16, 32, 28, .08);
+  cursor: pointer;
+}
+.graph-node:hover {
+  border-color: var(--teal);
+  background: #f7fbf8;
+}
+.graph-node span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.graph-node strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.graph-node:nth-child(1) { left: 42%; top: 39%; }
+.graph-node:nth-child(2) { left: 8%; top: 14%; }
+.graph-node:nth-child(3) { right: 9%; top: 12%; }
+.graph-node:nth-child(4) { left: 13%; bottom: 14%; }
+.graph-node:nth-child(5) { right: 13%; bottom: 15%; }
+.graph-node:nth-child(6) { left: 41%; top: 8%; }
+.graph-node:nth-child(7) { left: 39%; bottom: 8%; }
+.graph-node:nth-child(8) { right: 38%; top: 58%; }
 .graph-kind-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1282,6 +1349,20 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .graph-kind-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .graph-canvas {
+    min-height: 340px;
+  }
+  .graph-node {
+    width: min(42vw, 132px);
+  }
+  .graph-node:nth-child(1) { left: 31%; top: 39%; }
+  .graph-node:nth-child(2) { left: 4%; top: 8%; }
+  .graph-node:nth-child(3) { right: 4%; top: 10%; }
+  .graph-node:nth-child(4) { left: 5%; bottom: 9%; }
+  .graph-node:nth-child(5) { right: 5%; bottom: 10%; }
+  .graph-node:nth-child(6) { left: 31%; top: 23%; }
+  .graph-node:nth-child(7) { left: 31%; bottom: 24%; }
+  .graph-node:nth-child(8) { right: 31%; top: 54%; }
   .memory-tabs button {
     min-height: 48px;
   }

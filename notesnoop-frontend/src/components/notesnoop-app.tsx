@@ -45,6 +45,7 @@ type HomeState = {
   flagged: any[];
   recent_notes: any[];
   open_tasks?: any[];
+  reminders?: any[];
   tasks?: any[];
   meetings_calls?: any[];
   meetings?: any[];
@@ -853,6 +854,11 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const dashboardPeople = home?.recent_people?.length ? home.recent_people : state?.people || [];
   const dashboardTitle = activeProjectRecord ? `${activeProjectRecord.name} dashboard` : "Dashboard";
   const openTasks = (home?.open_tasks?.length ? home.open_tasks : home?.tasks?.length ? home.tasks : dashboardNotes.filter((note) => note.note_kind === "task"));
+  const upcomingReminders = ((home?.reminders?.length ? home.reminders : openTasks) || [])
+    .filter((task) => (task.attention_at || task.remind_at || task.due_at) && task.status !== "done" && task.status !== "archived")
+    .slice()
+    .sort((a, b) => new Date(a.attention_at || a.remind_at || a.due_at).getTime() - new Date(b.attention_at || b.remind_at || b.due_at).getTime())
+    .slice(0, 3);
   const meetingsCalls = (
     home?.meetings_calls?.length
       ? home.meetings_calls
@@ -882,6 +888,13 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     .filter((item) => item.count > 0);
   const graphFocusKind = selectedGraphKind || graphSummary[0]?.kind || null;
   const graphFocusNodes = graphFocusKind ? memoryGraph.nodes.filter((node) => node.kind === graphFocusKind).slice(0, 8) : [];
+  const graphNodeByKey = new Map(memoryGraph.nodes.map((node) => [`${node.kind}:${node.id}`, node]));
+  const graphPreviewNodes = memoryGraph.nodes.slice(0, 8);
+  const graphPreviewEdges = memoryGraph.edges.slice(0, 8).map((edge) => ({
+    ...edge,
+    from: graphNodeByKey.get(`${edge.from_kind}:${edge.from_id}`),
+    to: graphNodeByKey.get(`${edge.to_kind}:${edge.to_id}`),
+  }));
   const memorySections = [
     {
       id: "tasks",
@@ -1275,6 +1288,20 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                 </div>
                 {memoryGraph.nodes.length ? (
                   <>
+                    <div className="graph-canvas" role="group" aria-label="Interactive memory graph">
+                      {graphPreviewNodes.map((node) => (
+                        <button
+                          key={`preview-${node.kind}-${node.id}`}
+                          type="button"
+                          className={`graph-node graph-node-${node.kind}`}
+                          onClick={() => openGraphNode(node)}
+                          aria-label={`Open ${node.kind} ${node.title || node.name || node.id}`}
+                        >
+                          <span>{node.kind}</span>
+                          <strong>{node.title || node.name || node.id}</strong>
+                        </button>
+                      ))}
+                    </div>
                     <div className="graph-kind-grid">
                       {graphSummary.map((item) => (
                         <button
@@ -1299,9 +1326,9 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                       </div>
                     )}
                     <div className="graph-edge-list">
-                      {memoryGraph.edges.slice(0, 6).map((edge, index) => (
+                      {graphPreviewEdges.map((edge, index) => (
                         <span key={`${edge.from_kind}-${edge.from_id}-${edge.to_kind}-${edge.to_id}-${index}`}>
-                          {edge.from_kind} <strong>{edge.relation}</strong> {edge.to_kind}
+                          {edge.from?.title || edge.from?.name || edge.from_kind} <strong>{edge.relation}</strong> {edge.to?.title || edge.to?.name || edge.to_kind}
                         </span>
                       ))}
                     </div>
@@ -1316,8 +1343,17 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                   <h2>Needs attention</h2>
                   <Bell size={18} />
                 </div>
-                {dashboardReviewItems.length || dashboardFlagged.length ? (
+                {dashboardReviewItems.length || dashboardFlagged.length || upcomingReminders.length ? (
                   <div className="dashboard-list">
+                    {upcomingReminders.map((task) => (
+                      <button key={`reminder-${task.id}`} className="dashboard-row" type="button" onClick={() => openMemoryItem("tasks", task)}>
+                        <span className="row-icon"><CalendarDays size={15} /></span>
+                        <span>
+                          <strong>{task.title}</strong>
+                          <small>Reminder due {new Date(task.attention_at || task.remind_at || task.due_at).toLocaleDateString()}</small>
+                        </span>
+                      </button>
+                    ))}
                     {dashboardReviewItems.slice(0, 3).map((item) => (
                       <button key={item.id} className="dashboard-row" type="button" onClick={openReviewQueue}>
                         <span className="row-icon"><Bell size={15} /></span>

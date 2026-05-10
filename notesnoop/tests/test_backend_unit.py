@@ -352,6 +352,18 @@ def test_ops_heartbeat_migration_adds_worker_and_ai_job_health():
     assert "GRANT SELECT, INSERT, UPDATE, DELETE ON ops_heartbeats" in migration.sql
 
 
+def test_task_reminders_migration_adds_first_class_due_reminders():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0019_task_reminders.sql")
+
+    assert migration.filename == "0019_task_reminders.sql"
+    assert "CREATE TABLE IF NOT EXISTS task_reminders" in migration.sql
+    assert "CREATE OR REPLACE FUNCTION sync_task_due_reminder" in migration.sql
+    assert "CREATE TRIGGER trg_tasks_sync_due_reminder" in migration.sql
+    assert "INSERT INTO task_reminders" in migration.sql
+    assert "CREATE POLICY task_reminders_task_access" in migration.sql
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON task_reminders" in migration.sql
+
+
 def test_project_summary_helper_is_deterministic():
     summary = memory.build_project_summary(
         {"id": "project-1", "name": "Apollo"},
@@ -526,7 +538,7 @@ def test_worker_matching_claim_finish_and_process_extract(monkeypatch):
     assert retry_conn.commits == 1
     assert any("state = 'queued'" in sql for sql, _params in retry_conn.cursor_obj.executed)
 
-    async def fake_extract(_body, _people, _projects):
+    async def fake_extract(_body, _people, _projects, _companies=None):
         return {
             "people": [
                 {"name": "Morgan Lee", "confidence": 0.97},
@@ -618,7 +630,7 @@ def test_worker_materializes_ai_memory_idempotently():
         "creator-1",
     )
 
-    assert result == {"tasks": 1, "meetings": 1, "reports": 0}
+    assert result == {"tasks": 1, "meetings": 1, "reports": 0, "workflows": 0, "companies": 0}
     executed_sql = "\n".join(sql for sql, _params in cur.executed)
     assert "ON CONFLICT (source_note_id, source_kind, lower(title))" in executed_sql
     assert "ON CONFLICT (source_note_id, source_kind)" in executed_sql
@@ -632,6 +644,54 @@ def test_worker_materializes_ai_memory_idempotently():
     assert task_inserts[0][1] == "follow up with legal"
     assert task_inserts[0][3] == "2026-05-15T12:00:00+00:00"
     assert task_inserts[0][-1] == "action_item"
+
+
+def test_worker_materializes_full_memory_graph_from_ai_payload():
+    note = {
+        "id": "note-graph-1",
+        "workspace_id": "workspace-1",
+        "title": "Apollo operating note",
+        "body": "Northstar call. Workflow: IC memo loop. Brief: weekly risks.",
+        "note_kind": "note",
+        "occurred_at": "2026-05-09T10:00:00Z",
+        "created_by": "creator-1",
+    }
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": "company-1"},
+            {"id": "task-1"},
+            {"id": "meeting-1"},
+            {"id": "workflow-1"},
+            {"id": "report-1"},
+        ],
+        fetchall_values=[[{"id": "project-1"}], [{"person_id": "person-1"}]],
+    )
+
+    result = worker._materialize_ai_memory(
+        cur,
+        note,
+        {
+            "companies": [{"name": "Northstar", "domain": "northstar.example"}],
+            "tasks": [{"title": "send weekly risk brief", "due_date": "2026-05-15"}],
+            "meetings": [{"title": "Northstar call", "summary": "Discussed diligence risks."}],
+            "workflows": [{"name": "IC memo loop", "description": "Repeat diligence memo review."}],
+            "reports": [{"title": "Weekly risks brief", "summary": "Risks and next actions."}],
+        },
+        "creator-1",
+    )
+
+    assert result == {"tasks": 1, "meetings": 1, "reports": 1, "workflows": 1, "companies": 1}
+    executed_sql = "\n".join(sql for sql, _params in cur.executed)
+    assert "INSERT INTO companies" in executed_sql
+    assert "INSERT INTO company_notes" in executed_sql
+    assert "INSERT INTO company_projects" in executed_sql
+    assert "INSERT INTO company_people" in executed_sql
+    assert "INSERT INTO meetings" in executed_sql
+    assert "INSERT INTO workflows" in executed_sql
+    assert "INSERT INTO workflow_notes" in executed_sql
+    assert "INSERT INTO workflow_tasks" in executed_sql
+    assert "INSERT INTO reports" in executed_sql
+    assert "INSERT INTO report_companies" in executed_sql
 
 
 def test_worker_personal_skip_and_failure_paths(monkeypatch):
