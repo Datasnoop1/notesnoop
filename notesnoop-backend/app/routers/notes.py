@@ -1114,8 +1114,82 @@ def get_note_payload(cur, note_id: str) -> dict | None:
         """,
         (note_id,),
     )
+    note["memory_links"] = _linked_memory_payload(cur, note_id)
     note["project_nudge"] = _project_nudge(cur, note)
     return note
+
+
+def _linked_memory_payload(cur, note_id: str) -> list[dict]:
+    return many(
+        cur,
+        """
+        SELECT *
+        FROM (
+          SELECT 'task' AS kind,
+                 'tasks' AS section_id,
+                 t.id,
+                 t.title,
+                 t.description AS subtitle,
+                 t.status,
+                 t.due_at AS event_at,
+                 t.created_at
+          FROM tasks t
+          JOIN task_notes tn ON tn.task_id = t.id
+          WHERE tn.note_id = %s
+          UNION ALL
+          SELECT 'meeting' AS kind,
+                 'meetings' AS section_id,
+                 m.id,
+                 m.title,
+                 m.summary AS subtitle,
+                 NULL::text AS status,
+                 coalesce(m.occurred_at, m.created_at) AS event_at,
+                 m.created_at
+          FROM meetings m
+          JOIN meeting_notes mn ON mn.meeting_id = m.id
+          WHERE mn.note_id = %s
+          UNION ALL
+          SELECT 'report' AS kind,
+                 'reports' AS section_id,
+                 r.id,
+                 r.title,
+                 r.body AS subtitle,
+                 r.status,
+                 r.created_at AS event_at,
+                 r.created_at
+          FROM reports r
+          JOIN report_notes rn ON rn.report_id = r.id
+          WHERE rn.note_id = %s
+          UNION ALL
+          SELECT 'workflow' AS kind,
+                 'workflows' AS section_id,
+                 w.id,
+                 w.name AS title,
+                 w.description AS subtitle,
+                 w.status,
+                 w.updated_at AS event_at,
+                 w.created_at
+          FROM workflows w
+          JOIN workflow_notes wn ON wn.workflow_id = w.id
+          WHERE wn.note_id = %s
+          UNION ALL
+          SELECT 'company' AS kind,
+                 'companies' AS section_id,
+                 c.id,
+                 c.name AS title,
+                 coalesce(c.domain, c.description) AS subtitle,
+                 NULL::text AS status,
+                 c.updated_at AS event_at,
+                 c.created_at
+          FROM companies c
+          JOIN company_notes cn ON cn.company_id = c.id
+          WHERE cn.note_id = %s
+        ) linked
+        ORDER BY event_at DESC NULLS LAST, created_at DESC
+        LIMIT 40
+        """,
+        (note_id, note_id, note_id, note_id, note_id),
+    )
 
 
 def _validate_project_selection(

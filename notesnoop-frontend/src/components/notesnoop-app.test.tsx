@@ -47,6 +47,10 @@ const note = {
   ai_processing_status: "skipped",
   project_nudge: { inbox_only: true, matched_projects: [projects[2]], can_create_project: true },
   review_suggestions: [{ id: "review-2", entity_kind: "project", reason: "ai_suggestion", payload: { name: "Apollo", confidence: 0.79 } }],
+  memory_links: [
+    { id: "task-1", kind: "task", section_id: "tasks", title: "Prepare Apollo follow-up", subtitle: "Ask Morgan for the revised timeline.", status: "todo" },
+    { id: "company-1", kind: "company", section_id: "companies", title: "Northstar", subtitle: "northstar.example" },
+  ],
 };
 const taskNote = {
   ...note,
@@ -408,6 +412,8 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(noteRow!);
     expect(await screen.findByText("From sender@example.test")).toBeInTheDocument();
     expect(await screen.findByText("AI suggestions")).toBeInTheDocument();
+    expect(await screen.findByText("Structured memory from this note")).toBeInTheDocument();
+    expect(await screen.findByText("Prepare Apollo follow-up")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Accept/i }));
 
     fireEvent.change(screen.getAllByRole("combobox").at(-1)!, { target: { value: "person-1" } });

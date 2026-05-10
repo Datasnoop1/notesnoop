@@ -165,6 +165,7 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
             "description": "Morgan needs the revised diligence timeline.",
             "project_ids": [project_id],
             "person_ids": [person_id],
+            "note_ids": [note_id],
         },
         headers=headers,
     )
@@ -176,6 +177,7 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
             "description": "Apollo diligence counterparty",
             "project_ids": [project_id],
             "person_ids": [person_id],
+            "note_ids": [note_id],
         },
         headers=headers,
     )
@@ -189,6 +191,11 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     memory_results = {(row["kind"], row["title"]) for row in memory_search.json()["meta"]["memory_results"]}
     assert ("task", "Prepare Apollo diligence pack") in memory_results
     assert ("company", "Northstar Advisory") in memory_results
+    note_memory = client.get(f"/api/notes/{note_id}", headers=headers)
+    assert note_memory.status_code == 200
+    linked_memory = {(row["kind"], row["title"]) for row in note_memory.json()["data"]["memory_links"]}
+    assert ("task", "Prepare Apollo diligence pack") in linked_memory
+    assert ("company", "Northstar Advisory") in linked_memory
 
     recent = client.get(f"/api/workspaces/{workspace_id}/search", params={"q": ""}, headers=headers)
     assert recent.status_code == 200

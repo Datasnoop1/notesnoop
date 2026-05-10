@@ -1646,6 +1646,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
           if (selectedNote) await openNote(selectedNote.id);
         }}
         onSuggestionQueued={() => setToast("Suggestion sent to Review.")}
+        onOpenMemory={openMemoryItem}
         createProject={async (name) => {
           if (!workspaceId) throw new Error("Workspace is not ready");
           const res = await api(`/api/workspaces/${workspaceId}/projects`, {
@@ -2199,6 +2200,7 @@ function LinkedSheet({
   onSetProjects,
   onReviewDecision,
   onSuggestionQueued,
+  onOpenMemory,
   createProject,
   api,
   refresh,
@@ -2217,6 +2219,7 @@ function LinkedSheet({
   onSetProjects: (note: any, projectIds: string[], confirmPersonalMove?: boolean) => Promise<void>;
   onReviewDecision: (reviewId: string, decision: "accept" | "reject") => Promise<void>;
   onSuggestionQueued: () => void;
+  onOpenMemory: (sectionId: string, item: any) => Promise<void>;
   createProject: (name: string) => Promise<any>;
   api: (path: string, init?: RequestInit) => Promise<any>;
   refresh: () => Promise<void>;
@@ -2240,6 +2243,7 @@ function LinkedSheet({
   if (!open || !note) return null;
 
   const currentProjectIds = (note.projects || []).map((project: any) => project.id);
+  const structuredMemories = Array.isArray(note.memory_links) ? note.memory_links : [];
 
   async function link() {
     if (!personId) return;
@@ -2345,6 +2349,26 @@ function LinkedSheet({
                 </div>
               </article>
             ))}
+          </div>
+        )}
+        {!!structuredMemories.length && (
+          <div className="structured-memory-panel">
+            <strong>Structured memory from this note</strong>
+            <div>
+              {structuredMemories.map((memory: any) => (
+                <button
+                  key={`${memory.kind}-${memory.id}`}
+                  type="button"
+                  onClick={() => onOpenMemory(memory.section_id, memory)}
+                >
+                  <span>{memory.kind}</span>
+                  <strong>{memory.title}</strong>
+                  {(memory.status || memory.subtitle) && (
+                    <small>{[memory.status, memory.subtitle].filter(Boolean).join(" - ")}</small>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         <div className="inline-create">
