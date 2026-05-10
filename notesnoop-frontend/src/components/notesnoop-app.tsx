@@ -351,6 +351,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     if (typeof window === "undefined") return "cards";
     return (window.localStorage.getItem("notesnoop_tasks_view_mode") as "cards" | "board") || "cards";
   });
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [triageOpen, setTriageOpen] = useState(false);
   const [triageItems, setTriageItems] = useState<any[]>([]);
   const [triageLoading, setTriageLoading] = useState(false);
@@ -519,13 +520,18 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (target?.isContentEditable) return;
-      event.preventDefault();
-      searchInputRef.current?.focus();
+      const inFormField = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable;
+      if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !inFormField) {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+      if (event.key === "?" && !event.metaKey && !event.ctrlKey && !event.altKey && !inFormField) {
+        event.preventDefault();
+        setShortcutsOpen((open) => !open);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -539,14 +545,19 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         setPaletteOpen((open) => !open);
         return;
       }
-      if (event.key === "Escape" && paletteOpen) {
-        event.preventDefault();
-        setPaletteOpen(false);
+      if (event.key === "Escape") {
+        if (paletteOpen) {
+          event.preventDefault();
+          setPaletteOpen(false);
+        } else if (shortcutsOpen) {
+          event.preventDefault();
+          setShortcutsOpen(false);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [paletteOpen]);
+  }, [paletteOpen, shortcutsOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3566,6 +3577,35 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               })}
             </div>
           </aside>
+        </div>
+      )}
+
+      {shortcutsOpen && (
+        <div
+          className="palette-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Keyboard shortcuts"
+          onClick={() => setShortcutsOpen(false)}
+        >
+          <div className="shortcuts-sheet" onClick={(event) => event.stopPropagation()}>
+            <div className="shortcuts-head">
+              <h2>Keyboard shortcuts</h2>
+              <button className="icon-btn" onClick={() => setShortcutsOpen(false)} aria-label="Close shortcuts">
+                <X size={18} />
+              </button>
+            </div>
+            <dl className="shortcuts-grid">
+              <dt><kbd>/</kbd></dt><dd>Focus the search bar</dd>
+              <dt><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>K</kbd></dt><dd>Quick switcher — jump to any note, person, project, task, meeting, report, workflow, or company</dd>
+              <dt><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd></dt><dd>Save note in the composer</dd>
+              <dt><kbd>?</kbd></dt><dd>Show / hide this cheat sheet</dd>
+              <dt><kbd>Esc</kbd></dt><dd>Close the active modal (palette, triage, shortcuts)</dd>
+              <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Navigate results inside the quick switcher</dd>
+              <dt><kbd>Enter</kbd></dt><dd>Open the highlighted result</dd>
+            </dl>
+            <p className="shortcuts-foot">More shortcuts ship as the product grows — kind shortcuts inside detail sheets are coming next.</p>
+          </div>
         </div>
       )}
 

@@ -804,6 +804,22 @@ describe("NoteSnoopApp", () => {
     expect(diligence).toBeInTheDocument();
   });
 
+  it("opens the keyboard shortcuts cheat sheet on ? and closes on Esc", async () => {
+    installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByPlaceholderText(/Search notes/i);
+
+    fireEvent.keyDown(window, { key: "?", shiftKey: true });
+    const dialog = await screen.findByRole("dialog", { name: /Keyboard shortcuts/i });
+    expect(within(dialog).getByText("Save note in the composer")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: /Keyboard shortcuts/i })).not.toBeInTheDocument();
+    });
+  });
+
   it("opens the Cmd-K palette, searches, and routes to a memory item", async () => {
     const { calls } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
