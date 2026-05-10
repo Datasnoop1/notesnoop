@@ -1367,12 +1367,47 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   overflow: auto;
 }
 .review-sheet {
-  width: min(460px, 100%);
-  max-height: 80vh;
+  width: min(560px, 100%);
+  max-height: 90vh;
   background: var(--panel);
   border-left: 1px solid var(--line);
   padding: 18px;
   overflow: auto;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.review-filter-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.review-filter-chip {
+  border: 1px solid var(--line);
+  background: #fffefb;
+  border-radius: 999px;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink);
+}
+.review-filter-chip strong {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.review-filter-chip.active {
+  background: #173832;
+  color: white;
+  border-color: #173832;
+}
+.review-filter-chip.active strong {
+  color: rgba(255, 255, 255, 0.78);
 }
 .review-sheet-list { display: grid; gap: 10px; }
 .review-sheet-list article {
@@ -1383,7 +1418,46 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   display: grid;
   gap: 7px;
 }
-.review-sheet-list article span,
+.review-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.review-card-head strong {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.review-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.evidence-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  background: #fffefb;
+  color: var(--muted);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.evidence-ai { border-color: #bdd7d0; background: #f1f7f5; color: #1f4e44; }
+.evidence-email { border-color: #c8c0e5; background: #f3f1fb; color: #3f2c79; }
+.evidence-manual { border-color: #cccccc; background: #f7f7f7; color: #555; }
+.evidence-collaborator { border-color: #c2d3ec; background: #eef3fb; color: #234a82; }
+.evidence-confidence { border-color: #e1cf94; background: #fff8e1; color: #6b5300; }
+.evidence-kind { border-color: #d1d4d4; background: #f0f3f3; color: #444; }
+.review-reason {
+  font-size: 12px;
+  color: var(--muted);
+}
 .review-sheet-list article small {
   color: var(--muted);
   font-size: 13px;
@@ -1393,7 +1467,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   color: #33423e;
   line-height: 1.45;
 }
-.review-sheet-list article div { display: flex; gap: 8px; flex-wrap: wrap; }
+.review-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.review-projects {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
 .review-projects span {
   border: 1px solid var(--line);
   background: #f7fbf8;
@@ -1405,16 +1488,26 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   gap: 6px;
   color: var(--ink);
 }
-.review-sheet-list article button {
+.review-card-actions button {
   border: 1px solid var(--line);
-  background: #173832;
-  color: white;
+  background: #fffefb;
+  color: var(--ink);
   border-radius: 8px;
   min-height: 34px;
   padding: 0 10px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  cursor: pointer;
+}
+.review-card-actions button.primary {
+  background: #173832;
+  color: white;
+  border-color: #173832;
+}
+.review-card-actions button.ghost {
+  background: transparent;
+  color: var(--muted);
 }
 .linked-sheet p { white-space: pre-wrap; line-height: 1.55; color: #293d38; }
 .memory-detail-sheet {
@@ -1652,7 +1745,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   background: #f7fbf8;
 }
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
-.chip { border: 1px solid var(--line); background: #edf7f3; color: #17453e; border-radius: 999px; padding: 7px 10px; font-size: 13px; }
+.chip { border: 1px solid var(--line); background: #edf7f3; color: #17453e; border-radius: 999px; padding: 7px 10px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.person-chip { background: #f3f0fb; border-color: #d3cbef; color: #2c2358; }
 .project-chip { display: inline-flex; align-items: center; gap: 7px; background: #fff8dc; color: #624a0e; }
 .sheet-editor { display: grid; gap: 9px; }
 .project-nudge {

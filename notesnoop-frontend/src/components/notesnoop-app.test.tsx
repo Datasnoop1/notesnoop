@@ -596,7 +596,7 @@ describe("NoteSnoopApp", () => {
     fireEvent.change(within(reviewSheet).getByLabelText("Task title"), { target: { value: "Send Apollo diligence pack" } });
     fireEvent.change(within(reviewSheet).getByLabelText("Task due date"), { target: { value: "2026-05-20" } });
     fireEvent.change(within(reviewSheet).getByLabelText("Task summary"), { target: { value: "Send the final pack after Morgan confirms timing." } });
-    fireEvent.click(within(reviewSheet).getByRole("button", { name: /Accept/i }));
+    fireEvent.click(within(reviewSheet).getByRole("button", { name: /^Accept$/i }));
 
     await waitFor(() => {
       const acceptCall = fetchMock.mock.calls.find(([input, init]) => (

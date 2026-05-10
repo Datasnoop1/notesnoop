@@ -1282,13 +1282,30 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
-  async function decideReview(reviewId: string, decision: "accept" | "reject", payload?: any) {
-    await api(`/api/review-queue/${reviewId}/${decision}`, {
+  async function decideReview(
+    reviewId: string,
+    decision: "accept" | "reject",
+    payload?: any,
+    options?: { openAfterAccept?: boolean },
+  ) {
+    const res = await api(`/api/review-queue/${reviewId}/${decision}`, {
       method: "POST",
       body: JSON.stringify(decision === "accept" && payload ? { payload } : {}),
     });
     setReviewItems((current) => current.filter((item) => item.id !== reviewId));
     setToast(decision === "accept" ? "Suggestion accepted." : "Suggestion rejected.");
+    if (decision === "accept" && options?.openAfterAccept) {
+      const result = res?.data || res || {};
+      const entityKind = result.entity_kind as MemoryRouteKind | undefined;
+      const entityId = result.entity_id as string | undefined;
+      if (entityKind && entityId && isMemoryRouteKind(entityKind)) {
+        setReviewSheetOpen(false);
+        await refreshWorkspaceData();
+        const section = MEMORY_ROUTE_TO_SECTION[entityKind];
+        openMemoryItem(section, { id: entityId });
+        return;
+      }
+    }
     await refreshWorkspaceData();
   }
 
@@ -2313,6 +2330,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         reviewCount={reviewCount}
         onClose={() => setReviewSheetOpen(false)}
         onDecide={decideReview}
+        onOpenSource={openNote}
       />
 
       <MemoryDetailSheet
@@ -2466,15 +2484,23 @@ function ReviewSheet({
   reviewCount,
   onClose,
   onDecide,
+  onOpenSource,
 }: {
   open: boolean;
   items: any[];
   reviewCount: number;
   onClose: () => void;
-  onDecide: (reviewId: string, decision: "accept" | "reject", payload?: any) => Promise<void>;
+  onDecide: (
+    reviewId: string,
+    decision: "accept" | "reject",
+    payload?: any,
+    options?: { openAfterAccept?: boolean },
+  ) => Promise<void>;
+  onOpenSource: (noteId: string) => void;
 }) {
   const reviewItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
   const [payloadDrafts, setPayloadDrafts] = useState<Record<string, any>>({});
+  const [filterKind, setFilterKind] = useState<string>("all");
 
   useEffect(() => {
     if (!open) return;
@@ -2487,6 +2513,20 @@ function ReviewSheet({
     });
   }, [open, reviewItems]);
 
+  const kindCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const item of reviewItems) {
+      const k = String(item.entity_kind || "other");
+      counts[k] = (counts[k] || 0) + 1;
+    }
+    return counts;
+  }, [reviewItems]);
+
+  const filteredItems = useMemo(() => {
+    if (filterKind === "all") return reviewItems;
+    return reviewItems.filter((item) => item.entity_kind === filterKind);
+  }, [reviewItems, filterKind]);
+
   if (!open) return null;
 
   function updatePayload(itemId: string, key: string, value: string) {
@@ -2495,6 +2535,13 @@ function ReviewSheet({
       [itemId]: nextReviewPayload(current[itemId] || {}, key, value),
     }));
   }
+
+  const filterChips: { id: string; label: string }[] = [
+    { id: "all", label: "All" },
+    ...Object.keys(kindCounts)
+      .sort()
+      .map((id) => ({ id, label: id })),
+  ];
 
   return (
     <div className="sheet-backdrop review-backdrop" onClick={onClose}>
@@ -2506,19 +2553,61 @@ function ReviewSheet({
             <X size={18} />
           </button>
         </div>
+        {!!reviewItems.length && (
+          <div className="review-filter-row" role="tablist" aria-label="Filter review queue by kind">
+            {filterChips.map((chip) => {
+              const count = chip.id === "all" ? reviewItems.length : kindCounts[chip.id] || 0;
+              const active = filterKind === chip.id;
+              return (
+                <button
+                  key={chip.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={active ? "review-filter-chip active" : "review-filter-chip"}
+                  onClick={() => setFilterKind(chip.id)}
+                >
+                  {chip.label}
+                  <strong>{count}</strong>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="review-sheet-list">
-          {reviewItems.slice(0, 5).map((item) => {
+          {filteredItems.map((item) => {
             const draft = payloadDrafts[item.id] || item.payload || {};
             const isStructured = STRUCTURED_REVIEW_KINDS.has(item.entity_kind);
             const fields = STRUCTURED_REVIEW_FIELDS[item.entity_kind] || [];
+            const confidence = Number(item.payload?.confidence || item.confidence || 0);
+            const sourceNoteId = item.entity_id;
+            const sourceNoteKind = item.source_note_kind;
+            const evidenceSource = sourceNoteKind === "email" ? "email" : "ai";
+            const evidenceLabel = sourceNoteKind === "email" ? "From email" : "AI suggestion";
+            const reasonText = item.reason ? humanReviewReason(item.reason) : null;
+            const headlineFallback = item.entity_kind ? `New ${item.entity_kind}` : "Suggestion";
             return (
               <article key={item.id}>
-                <strong>{draft.name || draft.title || item.payload?.name || item.payload?.title || item.entity_kind}</strong>
-                <span>
-                  {item.entity_kind}
-                  {item.payload?.confidence || item.confidence ? ` - ${Math.round(Number(item.payload?.confidence || item.confidence) * 100)}%` : ""}
-                </span>
-                {item.source_note_title && <small>{item.source_note_title}</small>}
+                <header className="review-card-head">
+                  <strong>
+                    {draft.name ||
+                      draft.title ||
+                      item.payload?.name ||
+                      item.payload?.title ||
+                      headlineFallback}
+                  </strong>
+                  <div className="review-badges">
+                    <span className={`evidence-badge evidence-${evidenceSource}`}>{evidenceLabel}</span>
+                    {confidence > 0 && (
+                      <span className="evidence-badge evidence-confidence">
+                        {Math.round(confidence * 100)}%
+                      </span>
+                    )}
+                    <span className="evidence-badge evidence-kind">{item.entity_kind}</span>
+                  </div>
+                </header>
+                {reasonText && <span className="review-reason">{reasonText}</span>}
+                {item.source_note_title && <small>From: {item.source_note_title}</small>}
                 {item.source_snippet && <p>{item.source_snippet}</p>}
                 {isStructured && (
                   <div className="sheet-editor">
@@ -2553,18 +2642,87 @@ function ReviewSheet({
                     ))}
                   </div>
                 )}
-                <div>
-                  <button onClick={() => onDecide(item.id, "accept", isStructured ? draft : undefined)}><Check size={15} /> Accept</button>
-                  <button onClick={() => onDecide(item.id, "reject")}><X size={15} /> Reject</button>
+                <div className="review-card-actions">
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={() => onDecide(item.id, "accept", isStructured ? draft : undefined)}
+                  >
+                    <Check size={15} /> Accept
+                  </button>
+                  {isStructured && (
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => onDecide(item.id, "accept", draft, { openAfterAccept: true })}
+                    >
+                      <Check size={15} /> Accept &amp; open
+                    </button>
+                  )}
+                  <button type="button" onClick={() => onDecide(item.id, "reject")}>
+                    <X size={15} /> Reject
+                  </button>
+                  {sourceNoteId && (
+                    <button
+                      type="button"
+                      className="ghost"
+                      onClick={() => {
+                        onClose();
+                        onOpenSource(sourceNoteId);
+                      }}
+                    >
+                      <FileText size={15} /> Open source note
+                    </button>
+                  )}
                 </div>
               </article>
             );
           })}
           {!reviewItems.length && <p className="muted">Caught up.</p>}
+          {!!reviewItems.length && filteredItems.length === 0 && (
+            <p className="muted">No {filterKind} suggestions right now.</p>
+          )}
         </div>
       </aside>
     </div>
   );
+}
+
+function personSourceLabel(source?: string, state?: string): string | null {
+  const src = (source || "").toLowerCase();
+  if (src === "manual" || src === "user" || src === "human") return "Manual";
+  if (src === "email" || src === "inbound_email") return "Email";
+  if (src === "collaborator_suggestion" || src === "collaborator") return "Collaborator";
+  if (src === "ai" || src === "ai_extraction") return "AI";
+  if (state === "auto_linked") return "AI";
+  if (state === "confirmed") return "Manual";
+  return null;
+}
+
+function personSourceBadgeClass(source?: string, state?: string): string {
+  const label = personSourceLabel(source, state);
+  if (label === "AI") return "evidence-ai";
+  if (label === "Email") return "evidence-email";
+  if (label === "Collaborator") return "evidence-collaborator";
+  if (label === "Manual") return "evidence-manual";
+  return "";
+}
+
+function humanReviewReason(reason: string): string {
+  const map: Record<string, string> = {
+    new_person: "AI thinks this is a new person",
+    person_match: "AI matched to an existing person",
+    project_match: "AI matched to an existing project",
+    new_project: "AI thinks this is a new project",
+    new_task: "AI extracted a task",
+    new_meeting: "AI extracted a meeting",
+    new_report: "AI extracted a report",
+    new_workflow: "AI extracted a workflow",
+    new_company: "AI extracted a company",
+    collaborator_suggestion: "Suggested by a collaborator",
+  };
+  if (map[reason]) return map[reason];
+  return reason.replace(/_/g, " ");
 }
 
 function MemoryDetailSheet({
@@ -3304,9 +3462,19 @@ function LinkedSheet({
               {project.name}
             </span>
           ))}
-          {(note.people || []).map((person: any) => (
-            <span className="chip" key={person.id}>{person.name} {person.confidence ? `${Math.round(person.confidence * 100)}%` : ""}</span>
-          ))}
+          {(note.people || []).map((person: any) => {
+            const sourceLabel = personSourceLabel(person.source, person.state);
+            const sourceClass = personSourceBadgeClass(person.source, person.state);
+            return (
+              <span className="chip person-chip" key={person.id}>
+                {person.name}
+                {sourceLabel && <span className={`evidence-badge ${sourceClass}`}>{sourceLabel}</span>}
+                {person.confidence && person.source !== "manual" ? (
+                  <span className="evidence-badge evidence-confidence">{Math.round(person.confidence * 100)}%</span>
+                ) : null}
+              </span>
+            );
+          })}
           {note.ai_processing_status === "processing" && <span className="chip">Processing...</span>}
           {note.ai_processing_status === "skipped" && <span className="chip">Manual only</span>}
           {note.ai_processing_status === "failed" && <span className="chip danger-chip">AI failed</span>}
