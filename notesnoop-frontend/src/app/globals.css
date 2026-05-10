@@ -2995,7 +2995,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   font-size: 11px;
   color: var(--muted);
 }
-.task-board-assignee { font-weight: 500; color: #2a4738; }
+.task-board-assignee {
+  font-weight: 500;
+  color: #2a4738;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .task-board-unassigned { color: #8a6a3a; }
 .task-board-priority {
   padding: 1px 6px;
@@ -3475,6 +3481,15 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   font-weight: 600;
   flex-shrink: 0;
   letter-spacing: 0.02em;
+}
+.notif-row-meta .person-avatar {
+  vertical-align: -2px;
+  margin-right: 2px;
+}
+.memory-profile-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
 }
 .palette-title {
   font-size: 14px;

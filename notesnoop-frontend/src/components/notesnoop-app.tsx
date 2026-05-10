@@ -3750,7 +3750,11 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                       >
                         <span className="notif-row-title">{task.title || "Untitled task"}</span>
                         <span className="notif-row-meta">
-                          {task.assignee_name || "Unassigned"} - Due {humanRelativeTime(task.due_at || task.due_date)}
+                          {task.assignee_name ? (
+                            <>
+                              <PersonAvatar name={task.assignee_name} size={14} /> {task.assignee_name}
+                            </>
+                          ) : "Unassigned"} - Due {humanRelativeTime(task.due_at || task.due_date)}
                         </span>
                       </button>
                     ))}
@@ -3976,7 +3980,11 @@ function TaskStatusBoard({
                   >
                     <div className="task-board-card-title">{task.title || "Untitled task"}</div>
                     <div className="task-board-card-meta">
-                      {task.assignee_name && <span className="task-board-assignee">{task.assignee_name}</span>}
+                      {task.assignee_name && (
+                        <span className="task-board-assignee">
+                          <PersonAvatar name={task.assignee_name} size={16} /> {task.assignee_name}
+                        </span>
+                      )}
                       {!task.assignee_name && <span className="task-board-unassigned">Unassigned</span>}
                       {priorityLabel && (
                         <span className={`task-board-priority${priorityTone ? ` task-board-priority-${priorityTone}` : ""}`}>{priorityLabel}</span>
@@ -5436,7 +5444,11 @@ function TimelinePanel({
         <button onClick={onBack}><X size={16} /> Close</button>
       </div>
       <div className="memory-profile-card">
-        <div>
+        <div className="memory-profile-head">
+          {kind === "person" && timeline.person?.name && (
+            <PersonAvatar name={String(timeline.person.name)} size={44} />
+          )}
+          <div>
           <span>{kind === "project" ? "Project profile" : "Person profile"}</span>
           {onRename ? (
             <ProfileNameEditor
@@ -5450,6 +5462,7 @@ function TimelinePanel({
             {profile.last_touch_at ? `Last touch ${new Date(profile.last_touch_at).toLocaleDateString()}` : "No dated touch yet"}
             {profile.next_action ? ` - Next: ${profile.next_action}` : ""}
           </small>
+          </div>
         </div>
         <div className="profile-stat-grid">
           {profileStats.map(([label, value]) => (
