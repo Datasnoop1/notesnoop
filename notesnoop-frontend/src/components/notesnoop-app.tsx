@@ -3150,6 +3150,12 @@ function MemoryCard({
       <span className="memory-card-meta">
         <strong>{owner}</strong>
         {date && <small>{new Date(date).toLocaleDateString()}</small>}
+        {isTask && Number(item.priority) <= 2 && Number(item.priority) >= 1 && (
+          <span className="priority-chip priority-high">P{Number(item.priority)}</span>
+        )}
+        {isTask && Number(item.priority) === 5 && (
+          <span className="priority-chip priority-low">Low</span>
+        )}
       </span>
       <span className="memory-card-title">{title}</span>
       <span className="memory-card-body">{subtitle}</span>
@@ -3718,6 +3724,7 @@ function MemoryDetailSheet({
   const [draftTitle, setDraftTitle] = useState(title);
   const [draftBody, setDraftBody] = useState(body);
   const [draftStatus, setDraftStatus] = useState(item.status || "");
+  const [draftPriority, setDraftPriority] = useState<string>(item.priority ? String(item.priority) : "3");
   const [draftDate, setDraftDate] = useState(inputDate(item.due_at || item.occurred_at || null));
   const [draftProjectIds, setDraftProjectIds] = useState<string[]>(relationIds(item.projects));
   const [draftPersonIds, setDraftPersonIds] = useState<string[]>(relationIds(item.people));
@@ -3735,12 +3742,13 @@ function MemoryDetailSheet({
     setDraftTitle(title);
     setDraftBody(body);
     setDraftStatus(item.status || "");
+    setDraftPriority(item.priority ? String(item.priority) : "3");
     setDraftDate(inputDate(item.due_at || item.occurred_at || null));
     setDraftProjectIds(relationIds(item.projects));
     setDraftPersonIds(relationIds(item.people));
     setDraftCompanyIds(relationIds(item.companies));
     setDraftAssigneeId(initialAssignee);
-  }, [body, initialAssignee, item.companies, item.due_at, item.id, item.occurred_at, item.people, item.projects, item.status, title]);
+  }, [body, initialAssignee, item.companies, item.due_at, item.id, item.occurred_at, item.people, item.priority, item.projects, item.status, title]);
   if (!memory) return null;
   const projects = item.projects || [];
   const people = item.people || [];
@@ -3774,6 +3782,10 @@ function MemoryDetailSheet({
       payload.description = draftBody || null;
       payload.due_at = eventDate(draftDate);
       if (draftStatus) payload.status = draftStatus;
+      const priorityNum = Number(draftPriority);
+      if (!Number.isNaN(priorityNum) && priorityNum >= 1 && priorityNum <= 5) {
+        payload.priority = priorityNum;
+      }
     }
     if (sectionId === "meetings") {
       payload.summary = draftBody || null;
@@ -3873,6 +3885,15 @@ function MemoryDetailSheet({
                 {isTask && ["todo", "doing", "blocked", "done", "archived"].map((status) => <option key={status} value={status}>{status}</option>)}
                 {sectionId === "reports" && ["draft", "published", "archived"].map((status) => <option key={status} value={status}>{status}</option>)}
                 {sectionId === "workflows" && ["draft", "active", "paused", "retired"].map((status) => <option key={status} value={status}>{status}</option>)}
+              </select>
+            )}
+            {isTask && (
+              <select value={draftPriority} onChange={(event) => setDraftPriority(event.target.value)} aria-label="Task priority">
+                <option value="1">P1 - urgent</option>
+                <option value="2">P2 - high</option>
+                <option value="3">P3 - normal</option>
+                <option value="4">P4 - low</option>
+                <option value="5">P5 - someday</option>
               </select>
             )}
             <textarea value={draftBody} onChange={(event) => setDraftBody(event.target.value)} rows={4} aria-label="Memory body" />

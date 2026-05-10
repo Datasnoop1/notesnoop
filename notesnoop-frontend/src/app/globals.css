@@ -1806,6 +1806,28 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   white-space: nowrap;
 }
 .task-row-done:hover { background: #e6f1e6; }
+.priority-chip {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  background: #fffefb;
+  color: var(--muted);
+  font-weight: 700;
+  margin-left: auto;
+}
+.priority-chip.priority-high {
+  background: #fbf3f2;
+  border-color: #d8a3a0;
+  color: #6b1818;
+}
+.priority-chip.priority-low {
+  background: #f0f3f3;
+  border-color: #d1d4d4;
+  color: #555;
+}
 .share-panel {
   border: 1px solid var(--line);
   background: #f7fbf8;
