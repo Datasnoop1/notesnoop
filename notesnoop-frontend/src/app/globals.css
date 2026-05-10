@@ -721,6 +721,48 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .composer-detected-project { background: #f7fbf8; border-color: #bdd7d0; color: #1f4e44; }
 .composer-detected-person { background: #f3f0fb; border-color: #d3cbef; color: #2c2358; }
 .composer-detected-company { background: #fffaf0; border-color: #e1cf94; color: #6b5300; }
+.email-meta-card {
+  border: 1px solid #d3cbef;
+  background: #f3f1fb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.email-meta-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  color: #2c2358;
+}
+.email-meta-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #5b4d8a;
+  font-weight: 600;
+}
+.email-meta-value {
+  word-break: break-word;
+  color: #1a142e;
+}
+.email-meta-subject { font-weight: 600; }
+.email-meta-reply {
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #2c2358;
+  color: white;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  text-decoration: none;
+}
+.email-meta-reply:hover { background: #1a142e; }
 .memory-row-body {
   display: -webkit-box;
   -webkit-line-clamp: 2;

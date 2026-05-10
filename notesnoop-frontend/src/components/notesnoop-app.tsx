@@ -4140,12 +4140,37 @@ function LinkedSheet({
             <p>{note.body}</p>
           </>
         )}
-        {note.raw_email_metadata && (
-          <div className="email-meta">
-            <span>From {note.raw_email_metadata.sender || "unknown sender"}</span>
-            <span>{note.raw_email_metadata.subject || "No subject"}</span>
-          </div>
-        )}
+        {note.raw_email_metadata && (() => {
+          const meta = note.raw_email_metadata;
+          const sender = meta.sender || meta.from || "unknown sender";
+          const subject = meta.subject || "No subject";
+          const receivedAt = meta.received_at || meta.date || note.created_at;
+          const replyAddr = meta.reply_to || meta.sender_email || (typeof sender === "string" ? sender.match(/<([^>]+)>/)?.[1] : null);
+          const replyHref = replyAddr ? `mailto:${encodeURIComponent(replyAddr)}?subject=${encodeURIComponent(`Re: ${subject}`)}` : null;
+          return (
+            <div className="email-meta-card">
+              <div className="email-meta-row">
+                <span className="email-meta-label">From</span>
+                <span className="email-meta-value">{sender}</span>
+              </div>
+              <div className="email-meta-row">
+                <span className="email-meta-label">Subject</span>
+                <span className="email-meta-value email-meta-subject">{subject}</span>
+              </div>
+              {receivedAt && (
+                <div className="email-meta-row">
+                  <span className="email-meta-label">Received</span>
+                  <span className="email-meta-value">{new Date(receivedAt).toLocaleString()}</span>
+                </div>
+              )}
+              {replyHref && (
+                <a className="email-meta-reply" href={replyHref}>
+                  <Send size={13} /> Reply by email
+                </a>
+              )}
+            </div>
+          );
+        })()}
         {!editMode && (() => {
           const status = note.ai_processing_status;
           const summaryParts: string[] = [];
