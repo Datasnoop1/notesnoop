@@ -2778,6 +2778,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
           if (project) openProject(project);
         }}
+        onOpenMemory={openMemoryItem}
       />
 
       <LinkedSheet
@@ -3425,6 +3426,7 @@ function MemoryDetailSheet({
   onDownloadReportMarkdown,
   onOpenNote,
   onOpenProject,
+  onOpenMemory,
 }: {
   memory: { sectionId: string; item: any } | null;
   allProjects: any[];
@@ -3440,6 +3442,7 @@ function MemoryDetailSheet({
   onDownloadReportMarkdown: (item: any) => void;
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenProject: (projectId: string) => void;
+  onOpenMemory: (sectionId: string, item: any) => Promise<void>;
 }) {
   const sectionId = memory?.sectionId || "";
   const item = memory?.item || {};
@@ -3473,6 +3476,7 @@ function MemoryDetailSheet({
   const people = item.people || [];
   const notes = item.notes || [];
   const tasks = item.tasks || [];
+  const meetings = item.meetings || [];
   const companies = item.companies || [];
   const reminders = Array.isArray(item.reminders) && item.reminders.length
     ? item.reminders
@@ -3806,11 +3810,30 @@ function MemoryDetailSheet({
         )}
         {!!tasks.length && (
           <div className="timeline-list">
-            {tasks.slice(0, 5).map((task: any) => (
-              <article key={task.id}>
+            {tasks.slice(0, 6).map((task: any) => (
+              <article key={task.id} onClick={() => onOpenMemory("tasks", task)}>
                 <strong>{task.title}</strong>
-                <span>{task.status || "todo"}{task.due_at ? ` - due ${new Date(task.due_at).toLocaleDateString()}` : ""}</span>
+                <span>
+                  {task.status || "todo"}
+                  {task.due_at ? ` - due ${new Date(task.due_at).toLocaleDateString()}` : ""}
+                  {task.assignee_name ? ` - ${task.assignee_name}` : ""}
+                </span>
                 {task.description && <p>{task.description}</p>}
+              </article>
+            ))}
+          </div>
+        )}
+        {!!meetings.length && (
+          <div className="timeline-list">
+            {meetings.slice(0, 5).map((meeting: any) => (
+              <article key={meeting.id} onClick={() => onOpenMemory("meetings", meeting)}>
+                <strong>{meeting.title}</strong>
+                <span>
+                  {meeting.occurred_at
+                    ? new Date(meeting.occurred_at).toLocaleDateString()
+                    : new Date(meeting.created_at).toLocaleDateString()}
+                </span>
+                {meeting.summary && <p>{String(meeting.summary).slice(0, 200)}</p>}
               </article>
             ))}
           </div>

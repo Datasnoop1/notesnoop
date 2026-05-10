@@ -1841,6 +1841,36 @@ def _company_payload(cur, company_id: str) -> dict | None:
     company["people"] = many(cur, "SELECT p.*, cp.role, cp.linked_via FROM people p JOIN company_people cp ON cp.person_id = p.id WHERE cp.company_id = %s ORDER BY p.name", (company_id,))
     company["projects"] = many(cur, "SELECT p.*, cp.linked_via FROM projects p JOIN company_projects cp ON cp.project_id = p.id WHERE cp.company_id = %s ORDER BY p.name", (company_id,))
     company["notes"] = many(cur, "SELECT n.* FROM notes n JOIN company_notes cn ON cn.note_id = n.id WHERE cn.company_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (company_id,))
+    company["tasks"] = many(
+        cur,
+        """
+        SELECT t.*, asg.name AS assignee_name, asg.id AS assignee_id
+        FROM tasks t
+        JOIN task_companies tc ON tc.task_id = t.id
+        LEFT JOIN task_people tp ON tp.task_id = t.id AND tp.relation = 'assignee'
+        LEFT JOIN people asg ON asg.id = tp.person_id
+        WHERE tc.company_id = %s
+          AND t.status <> 'archived'
+        ORDER BY
+          CASE t.status WHEN 'blocked' THEN 1 WHEN 'doing' THEN 2 WHEN 'todo' THEN 3 WHEN 'done' THEN 4 ELSE 5 END,
+          t.due_at NULLS LAST,
+          t.created_at DESC
+        LIMIT 25
+        """,
+        (company_id,),
+    )
+    company["meetings"] = many(
+        cur,
+        """
+        SELECT m.*
+        FROM meetings m
+        JOIN meeting_companies mc ON mc.meeting_id = m.id
+        WHERE mc.company_id = %s
+        ORDER BY coalesce(m.occurred_at, m.created_at) DESC
+        LIMIT 15
+        """,
+        (company_id,),
+    )
     return company
 
 
