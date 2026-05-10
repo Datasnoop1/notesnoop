@@ -601,7 +601,7 @@ def test_generated_project_report_links_deduped_sources_and_counts(monkeypatch):
     assert insert_params[:4] == ("workspace-1", "Custom report", "Grounded body", "user-1")
     assert insert_params[4] == 0.81
     assert json.loads(insert_params[5])["source_counts"]["total"] == 9
-    assert params_for("INSERT INTO report_projects") == [("report-1", "project-1", "workspace-1", "user-1")]
+    assert params_for("INSERT INTO report_projects") == [("report-1", "project-1", "workspace-1", "user-1", "manual")]
     assert [params[1] for params in params_for("INSERT INTO report_notes")] == ["note-1", "note-2"]
     assert [params[1] for params in params_for("INSERT INTO report_tasks")] == ["task-1"]
     assert [params[1] for params in params_for("INSERT INTO report_meetings")] == ["meeting-1"]

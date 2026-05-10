@@ -3268,6 +3268,24 @@ function humanRelativeTime(value?: string | null): string {
   return `${Math.floor(days / 365)} years ago`;
 }
 
+function linkedViaBadge(value?: string | null): { label: string; className: string } | null {
+  const normalised = (value || "").toLowerCase();
+  if (!normalised) return null;
+  if (normalised === "ai" || normalised === "ai_extraction" || normalised === "review_accept") {
+    return { label: "AI", className: "evidence-ai" };
+  }
+  if (normalised === "email" || normalised === "inbound_email") {
+    return { label: "Email", className: "evidence-email" };
+  }
+  if (normalised === "collaborator" || normalised === "collaborator_suggestion") {
+    return { label: "Collab", className: "evidence-collaborator" };
+  }
+  if (normalised === "manual" || normalised === "user") {
+    return { label: "Manual", className: "evidence-manual" };
+  }
+  return null;
+}
+
 function personSourceLabel(source?: string, state?: string): string | null {
   const src = (source || "").toLowerCase();
   if (src === "manual" || src === "user" || src === "human") return "Manual";
@@ -3619,12 +3637,16 @@ function MemoryDetailSheet({
         {!!projects.length && (
           <div className="mini-section">
             <strong>Projects</strong>
-            {projects.map((project: any) => (
-              <button key={project.id} type="button" onClick={() => onOpenProject(project.id)}>
-                <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
-                {project.name}
-              </button>
-            ))}
+            {projects.map((project: any) => {
+              const provenance = linkedViaBadge(project.linked_via);
+              return (
+                <button key={project.id} type="button" onClick={() => onOpenProject(project.id)}>
+                  <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                  {project.name}
+                  {provenance && <span className={`evidence-badge ${provenance.className}`}>{provenance.label}</span>}
+                </button>
+              );
+            })}
           </div>
         )}
         {!!people.length && (
@@ -3633,10 +3655,12 @@ function MemoryDetailSheet({
             {people.map((person: any) => {
               const role = person.role || person.relation || person.attendance_status;
               const company = person.company;
+              const provenance = linkedViaBadge(person.linked_via);
               return (
                 <span key={`${person.id}-${role || "person"}`} className="mini-relation">
                   <span>{person.name}</span>
                   {role && <span className="mini-relation-tag">{role}</span>}
+                  {provenance && <span className={`evidence-badge ${provenance.className}`}>{provenance.label}</span>}
                   {company && <small>{company}</small>}
                 </span>
               );
@@ -3646,12 +3670,16 @@ function MemoryDetailSheet({
         {!!companies.length && (
           <div className="mini-section">
             <strong>Companies</strong>
-            {companies.map((company: any) => (
-              <span key={company.id} className="mini-relation">
-                <span>{company.name}</span>
-                {company.domain && <small>{company.domain}</small>}
-              </span>
-            ))}
+            {companies.map((company: any) => {
+              const provenance = linkedViaBadge(company.linked_via);
+              return (
+                <span key={company.id} className="mini-relation">
+                  <span>{company.name}</span>
+                  {provenance && <span className={`evidence-badge ${provenance.className}`}>{provenance.label}</span>}
+                  {company.domain && <small>{company.domain}</small>}
+                </span>
+              );
+            })}
           </div>
         )}
         {!!tasks.length && (

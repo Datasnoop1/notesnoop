@@ -434,15 +434,15 @@ def _linked_project_ids(cur, note_id: str) -> list[str]:
     return [str(row["id"]) for row in cur.fetchall()]
 
 
-def _link_memory_projects(cur, table: str, id_column: str, entity_id: str, workspace_id: str, project_ids: list[str], linked_by: str) -> None:
+def _link_memory_projects(cur, table: str, id_column: str, entity_id: str, workspace_id: str, project_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for project_id in project_ids:
         cur.execute(
             f"""
-            INSERT INTO {table} ({id_column}, project_id, workspace_id, linked_by)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO {table} ({id_column}, project_id, workspace_id, linked_by, linked_via)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (entity_id, project_id, workspace_id, linked_by),
+            (entity_id, project_id, workspace_id, linked_by, linked_via),
         )
 
 
@@ -460,87 +460,87 @@ def _linked_person_ids(cur, note_id: str) -> list[str]:
     return [str(row["person_id"]) for row in cur.fetchall()]
 
 
-def _link_task_people(cur, task_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
+def _link_task_people(cur, task_id: str, workspace_id: str, person_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for person_id in person_ids:
         cur.execute(
             """
-            INSERT INTO task_people (task_id, person_id, workspace_id, relation, linked_by)
-            VALUES (%s, %s, %s, 'assignee', %s)
+            INSERT INTO task_people (task_id, person_id, workspace_id, relation, linked_by, linked_via)
+            VALUES (%s, %s, %s, 'assignee', %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (task_id, person_id, workspace_id, linked_by),
+            (task_id, person_id, workspace_id, linked_by, linked_via),
         )
 
 
-def _link_task_companies(cur, task_id: str, workspace_id: str, company_ids: list[str], linked_by: str) -> None:
+def _link_task_companies(cur, task_id: str, workspace_id: str, company_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for company_id in company_ids:
         cur.execute(
             """
-            INSERT INTO task_companies (task_id, company_id, workspace_id, linked_by)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO task_companies (task_id, company_id, workspace_id, linked_by, linked_via)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (task_id, company_id, workspace_id, linked_by),
+            (task_id, company_id, workspace_id, linked_by, linked_via),
         )
 
 
-def _link_meeting_people(cur, meeting_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
+def _link_meeting_people(cur, meeting_id: str, workspace_id: str, person_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for person_id in person_ids:
         cur.execute(
             """
-            INSERT INTO meeting_people (meeting_id, person_id, workspace_id, attendance_status, linked_by)
-            VALUES (%s, %s, %s, 'attended', %s)
+            INSERT INTO meeting_people (meeting_id, person_id, workspace_id, attendance_status, linked_by, linked_via)
+            VALUES (%s, %s, %s, 'attended', %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (meeting_id, person_id, workspace_id, linked_by),
+            (meeting_id, person_id, workspace_id, linked_by, linked_via),
         )
 
 
-def _link_meeting_companies(cur, meeting_id: str, workspace_id: str, company_ids: list[str], linked_by: str) -> None:
+def _link_meeting_companies(cur, meeting_id: str, workspace_id: str, company_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for company_id in company_ids:
         cur.execute(
             """
-            INSERT INTO meeting_companies (meeting_id, company_id, workspace_id, linked_by)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO meeting_companies (meeting_id, company_id, workspace_id, linked_by, linked_via)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (meeting_id, company_id, workspace_id, linked_by),
+            (meeting_id, company_id, workspace_id, linked_by, linked_via),
         )
 
 
-def _link_report_people(cur, report_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
+def _link_report_people(cur, report_id: str, workspace_id: str, person_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for person_id in person_ids:
         cur.execute(
             """
-            INSERT INTO report_people (report_id, person_id, workspace_id, linked_by)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO report_people (report_id, person_id, workspace_id, linked_by, linked_via)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (report_id, person_id, workspace_id, linked_by),
+            (report_id, person_id, workspace_id, linked_by, linked_via),
         )
 
 
-def _link_company_people(cur, company_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
+def _link_company_people(cur, company_id: str, workspace_id: str, person_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for person_id in person_ids:
         cur.execute(
             """
-            INSERT INTO company_people (company_id, person_id, workspace_id, linked_by)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO company_people (company_id, person_id, workspace_id, linked_by, linked_via)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (company_id, person_id, workspace_id, linked_by),
+            (company_id, person_id, workspace_id, linked_by, linked_via),
         )
 
 
-def _link_company_projects(cur, company_id: str, workspace_id: str, project_ids: list[str], linked_by: str) -> None:
+def _link_company_projects(cur, company_id: str, workspace_id: str, project_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for project_id in project_ids:
         cur.execute(
             """
-            INSERT INTO company_projects (company_id, project_id, workspace_id, linked_by)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO company_projects (company_id, project_id, workspace_id, linked_by, linked_via)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (company_id, project_id, workspace_id, linked_by),
+            (company_id, project_id, workspace_id, linked_by, linked_via),
         )
 
 
@@ -555,15 +555,15 @@ def _link_company_note(cur, company_id: str, note_id: str, workspace_id: str, li
     )
 
 
-def _link_workflow_people(cur, workflow_id: str, workspace_id: str, person_ids: list[str], linked_by: str) -> None:
+def _link_workflow_people(cur, workflow_id: str, workspace_id: str, person_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for person_id in person_ids:
         cur.execute(
             """
-            INSERT INTO workflow_people (workflow_id, person_id, workspace_id, relation, linked_by)
-            VALUES (%s, %s, %s, 'participant', %s)
+            INSERT INTO workflow_people (workflow_id, person_id, workspace_id, relation, linked_by, linked_via)
+            VALUES (%s, %s, %s, 'participant', %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (workflow_id, person_id, workspace_id, linked_by),
+            (workflow_id, person_id, workspace_id, linked_by, linked_via),
         )
 
 
@@ -578,15 +578,15 @@ def _link_workflow_note(cur, workflow_id: str, note_id: str, workspace_id: str, 
     )
 
 
-def _link_workflow_companies(cur, workflow_id: str, workspace_id: str, company_ids: list[str], linked_by: str) -> None:
+def _link_workflow_companies(cur, workflow_id: str, workspace_id: str, company_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for company_id in company_ids:
         cur.execute(
             """
-            INSERT INTO workflow_companies (workflow_id, company_id, workspace_id, linked_by)
-            VALUES (%s, %s, %s, %s)
+            INSERT INTO workflow_companies (workflow_id, company_id, workspace_id, linked_by, linked_via)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (workflow_id, company_id, workspace_id, linked_by),
+            (workflow_id, company_id, workspace_id, linked_by, linked_via),
         )
 
 

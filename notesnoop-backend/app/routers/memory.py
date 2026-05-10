@@ -1739,30 +1739,50 @@ def _validate_ids(cur, table: str, workspace_id: str, ids: list[str], detail: st
         raise HTTPException(status_code=422, detail=detail)
 
 
-def _link_many(cur, table: str, left_column: str, right_column: str, left_id, workspace_id: str, right_ids: list[str], user_id: str) -> None:
+_LINK_TABLES_WITH_PROVENANCE = {
+    "task_people", "task_projects", "task_companies",
+    "meeting_people", "meeting_projects", "meeting_companies",
+    "workflow_people", "workflow_projects", "workflow_companies",
+    "report_people", "report_projects",
+    "company_people", "company_projects",
+}
+
+
+def _link_many(cur, table: str, left_column: str, right_column: str, left_id, workspace_id: str, right_ids: list[str], user_id: str, linked_via: str = "manual") -> None:
+    has_provenance = table in _LINK_TABLES_WITH_PROVENANCE
     for right_id in _dedupe(right_ids):
-        cur.execute(
-            f"""
-            INSERT INTO {table} ({left_column}, {right_column}, workspace_id, linked_by)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT DO NOTHING
-            """,
-            (left_id, right_id, workspace_id, user_id),
-        )
+        if has_provenance:
+            cur.execute(
+                f"""
+                INSERT INTO {table} ({left_column}, {right_column}, workspace_id, linked_by, linked_via)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (left_id, right_id, workspace_id, user_id, linked_via),
+            )
+        else:
+            cur.execute(
+                f"""
+                INSERT INTO {table} ({left_column}, {right_column}, workspace_id, linked_by)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (left_id, right_id, workspace_id, user_id),
+            )
 
 
-def _replace_links(cur, table: str, left_column: str, right_column: str, left_id, workspace_id: str, right_ids: list[str], user_id: str) -> None:
+def _replace_links(cur, table: str, left_column: str, right_column: str, left_id, workspace_id: str, right_ids: list[str], user_id: str, linked_via: str = "manual") -> None:
     cur.execute(f"DELETE FROM {table} WHERE {left_column} = %s", (left_id,))
-    _link_many(cur, table, left_column, right_column, left_id, workspace_id, right_ids, user_id)
+    _link_many(cur, table, left_column, right_column, left_id, workspace_id, right_ids, user_id, linked_via=linked_via)
 
 
 def _task_payload(cur, task_id: str) -> dict | None:
     task = one(cur, "SELECT * FROM tasks WHERE id = %s", (task_id,))
     if not task:
         return None
-    task["projects"] = many(cur, "SELECT p.* FROM projects p JOIN task_projects tp ON tp.project_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
-    task["people"] = many(cur, "SELECT p.*, tp.relation FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
-    task["companies"] = many(cur, "SELECT c.* FROM companies c JOIN task_companies tc ON tc.company_id = c.id WHERE tc.task_id = %s ORDER BY c.name", (task_id,))
+    task["projects"] = many(cur, "SELECT p.*, tp.linked_via FROM projects p JOIN task_projects tp ON tp.project_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
+    task["people"] = many(cur, "SELECT p.*, tp.relation, tp.linked_via FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
+    task["companies"] = many(cur, "SELECT c.*, tc.linked_via FROM companies c JOIN task_companies tc ON tc.company_id = c.id WHERE tc.task_id = %s ORDER BY c.name", (task_id,))
     task["notes"] = many(cur, "SELECT n.* FROM notes n JOIN task_notes tn ON tn.note_id = n.id WHERE tn.task_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (task_id,))
     task["reminders"] = many(cur, "SELECT * FROM task_reminders WHERE task_id = %s ORDER BY coalesce(snoozed_until, remind_at), created_at DESC", (task_id,))
     return task
@@ -1795,8 +1815,8 @@ def _company_payload(cur, company_id: str) -> dict | None:
     company = one(cur, "SELECT * FROM companies WHERE id = %s", (company_id,))
     if not company:
         return None
-    company["people"] = many(cur, "SELECT p.*, cp.role FROM people p JOIN company_people cp ON cp.person_id = p.id WHERE cp.company_id = %s ORDER BY p.name", (company_id,))
-    company["projects"] = many(cur, "SELECT p.* FROM projects p JOIN company_projects cp ON cp.project_id = p.id WHERE cp.company_id = %s ORDER BY p.name", (company_id,))
+    company["people"] = many(cur, "SELECT p.*, cp.role, cp.linked_via FROM people p JOIN company_people cp ON cp.person_id = p.id WHERE cp.company_id = %s ORDER BY p.name", (company_id,))
+    company["projects"] = many(cur, "SELECT p.*, cp.linked_via FROM projects p JOIN company_projects cp ON cp.project_id = p.id WHERE cp.company_id = %s ORDER BY p.name", (company_id,))
     company["notes"] = many(cur, "SELECT n.* FROM notes n JOIN company_notes cn ON cn.note_id = n.id WHERE cn.company_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (company_id,))
     return company
 
@@ -1805,9 +1825,9 @@ def _meeting_payload(cur, meeting_id: str) -> dict | None:
     meeting = one(cur, "SELECT * FROM meetings WHERE id = %s", (meeting_id,))
     if not meeting:
         return None
-    meeting["projects"] = many(cur, "SELECT p.* FROM projects p JOIN meeting_projects mp ON mp.project_id = p.id WHERE mp.meeting_id = %s ORDER BY p.name", (meeting_id,))
-    meeting["people"] = many(cur, "SELECT p.*, mp.attendance_status FROM people p JOIN meeting_people mp ON mp.person_id = p.id WHERE mp.meeting_id = %s ORDER BY p.name", (meeting_id,))
-    meeting["companies"] = many(cur, "SELECT c.* FROM companies c JOIN meeting_companies mc ON mc.company_id = c.id WHERE mc.meeting_id = %s ORDER BY c.name", (meeting_id,))
+    meeting["projects"] = many(cur, "SELECT p.*, mp.linked_via FROM projects p JOIN meeting_projects mp ON mp.project_id = p.id WHERE mp.meeting_id = %s ORDER BY p.name", (meeting_id,))
+    meeting["people"] = many(cur, "SELECT p.*, mp.attendance_status, mp.linked_via FROM people p JOIN meeting_people mp ON mp.person_id = p.id WHERE mp.meeting_id = %s ORDER BY p.name", (meeting_id,))
+    meeting["companies"] = many(cur, "SELECT c.*, mc.linked_via FROM companies c JOIN meeting_companies mc ON mc.company_id = c.id WHERE mc.meeting_id = %s ORDER BY c.name", (meeting_id,))
     meeting["notes"] = many(cur, "SELECT n.* FROM notes n JOIN meeting_notes mn ON mn.note_id = n.id WHERE mn.meeting_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (meeting_id,))
     return meeting
 
@@ -1816,8 +1836,8 @@ def _report_payload(cur, report_id: str) -> dict | None:
     report = one(cur, "SELECT * FROM reports WHERE id = %s", (report_id,))
     if not report:
         return None
-    report["projects"] = many(cur, "SELECT p.* FROM projects p JOIN report_projects rp ON rp.project_id = p.id WHERE rp.report_id = %s ORDER BY p.name", (report_id,))
-    report["people"] = many(cur, "SELECT p.* FROM people p JOIN report_people rp ON rp.person_id = p.id WHERE rp.report_id = %s ORDER BY p.name", (report_id,))
+    report["projects"] = many(cur, "SELECT p.*, rp.linked_via FROM projects p JOIN report_projects rp ON rp.project_id = p.id WHERE rp.report_id = %s ORDER BY p.name", (report_id,))
+    report["people"] = many(cur, "SELECT p.*, rp.linked_via FROM people p JOIN report_people rp ON rp.person_id = p.id WHERE rp.report_id = %s ORDER BY p.name", (report_id,))
     report["companies"] = many(cur, "SELECT c.* FROM companies c JOIN report_companies rc ON rc.company_id = c.id WHERE rc.report_id = %s ORDER BY c.name", (report_id,))
     report["notes"] = many(cur, "SELECT n.* FROM notes n JOIN report_notes rn ON rn.note_id = n.id WHERE rn.report_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (report_id,))
     report["tasks"] = many(cur, "SELECT t.* FROM tasks t JOIN report_tasks rt ON rt.task_id = t.id WHERE rt.report_id = %s ORDER BY t.created_at DESC", (report_id,))
@@ -1831,9 +1851,9 @@ def _workflow_payload(cur, workflow_id: str) -> dict | None:
     workflow = one(cur, "SELECT * FROM workflows WHERE id = %s", (workflow_id,))
     if not workflow:
         return None
-    workflow["projects"] = many(cur, "SELECT p.* FROM projects p JOIN workflow_projects wp ON wp.project_id = p.id WHERE wp.workflow_id = %s ORDER BY p.name", (workflow_id,))
-    workflow["people"] = many(cur, "SELECT p.*, wp.relation FROM people p JOIN workflow_people wp ON wp.person_id = p.id WHERE wp.workflow_id = %s ORDER BY p.name", (workflow_id,))
-    workflow["companies"] = many(cur, "SELECT c.* FROM companies c JOIN workflow_companies wc ON wc.company_id = c.id WHERE wc.workflow_id = %s ORDER BY c.name", (workflow_id,))
+    workflow["projects"] = many(cur, "SELECT p.*, wp.linked_via FROM projects p JOIN workflow_projects wp ON wp.project_id = p.id WHERE wp.workflow_id = %s ORDER BY p.name", (workflow_id,))
+    workflow["people"] = many(cur, "SELECT p.*, wp.relation, wp.linked_via FROM people p JOIN workflow_people wp ON wp.person_id = p.id WHERE wp.workflow_id = %s ORDER BY p.name", (workflow_id,))
+    workflow["companies"] = many(cur, "SELECT c.*, wc.linked_via FROM companies c JOIN workflow_companies wc ON wc.company_id = c.id WHERE wc.workflow_id = %s ORDER BY c.name", (workflow_id,))
     workflow["notes"] = many(cur, "SELECT n.* FROM notes n JOIN workflow_notes wn ON wn.note_id = n.id WHERE wn.workflow_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (workflow_id,))
     workflow["tasks"] = many(cur, "SELECT t.* FROM tasks t JOIN workflow_tasks wt ON wt.task_id = t.id WHERE wt.workflow_id = %s ORDER BY wt.position, t.created_at DESC", (workflow_id,))
     return workflow
