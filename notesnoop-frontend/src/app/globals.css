@@ -3442,6 +3442,40 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .notif-row:hover { background: #f1f6f1; }
 .notif-row-title { font-size: 13px; font-weight: 500; }
 .notif-row-meta { font-size: 11px; color: var(--muted); }
+.notif-row-split {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 4px 4px 8px;
+}
+.notif-row-split:hover { background: #f1f6f1; }
+.notif-row-open {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+}
+.notif-row-done {
+  background: #e6f0ea;
+  border: 1px solid #c2dcc8;
+  color: #1f5a3a;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.notif-row-done:hover { background: #d6e8dd; }
 
 .project-description-display {
   margin-top: 10px;

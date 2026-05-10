@@ -3739,24 +3739,35 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   <section className="notif-section">
                     <h4>Overdue tasks ({overdueTasks.length})</h4>
                     {overdueTasks.map((task: any) => (
-                      <button
-                        key={`notif-overdue-${task.id}`}
-                        type="button"
-                        className="notif-row"
-                        onClick={() => {
-                          setNotifOpen(false);
-                          openMemoryItem("tasks", task).catch(() => undefined);
-                        }}
-                      >
-                        <span className="notif-row-title">{task.title || "Untitled task"}</span>
-                        <span className="notif-row-meta">
-                          {task.assignee_name ? (
-                            <>
-                              <PersonAvatar name={task.assignee_name} size={14} /> {task.assignee_name}
-                            </>
-                          ) : "Unassigned"} - Due {humanRelativeTime(task.due_at || task.due_date)}
-                        </span>
-                      </button>
+                      <div key={`notif-overdue-${task.id}`} className="notif-row notif-row-split">
+                        <button
+                          type="button"
+                          className="notif-row-open"
+                          onClick={() => {
+                            setNotifOpen(false);
+                            openMemoryItem("tasks", task).catch(() => undefined);
+                          }}
+                        >
+                          <span className="notif-row-title">{task.title || "Untitled task"}</span>
+                          <span className="notif-row-meta">
+                            {task.assignee_name ? (
+                              <>
+                                <PersonAvatar name={task.assignee_name} size={14} /> {task.assignee_name}
+                              </>
+                            ) : "Unassigned"} - Due {humanRelativeTime(task.due_at || task.due_date)}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="notif-row-done"
+                          aria-label={`Mark ${task.title || "task"} done`}
+                          onClick={() => {
+                            updateTaskStatus(task.id, "done").catch(() => undefined);
+                          }}
+                        >
+                          <Check size={13} /> Done
+                        </button>
+                      </div>
                     ))}
                   </section>
                 )}
