@@ -1540,6 +1540,19 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
 
   const composerSection = (
     <section className={`composer ${quickCapture ? "" : "dashboard-composer"}`}>
+      {state?.inbound_address && (
+        <div className="composer-inbound-hint">
+          <span><Send size={13} /> Forward email to</span>
+          <button
+            type="button"
+            onClick={() => navigator.clipboard.writeText(String(state.inbound_address))}
+            aria-label="Copy inbound email address"
+          >
+            <Copy size={12} /> {state.inbound_address}
+          </button>
+          <small>Anything you forward lands here as a note.</small>
+        </div>
+      )}
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Optional title" />
       <div className="context-picker" aria-label="Memory context">
         <select value={noteKind} onChange={(e) => setNoteKind(e.target.value)} aria-label="Memory type">
@@ -2197,7 +2210,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                                 <span className="pipeline-pill pipeline-pill-email">Email</span>
                               )}
                             </span>
-                            <small>{kindLabel}{note.body ? ` - ${note.body}` : ""}</small>
+                            <small className="memory-row-body">{kindLabel}{note.body ? ` - ${truncateInline(note.body, 140)}` : ""}</small>
                           </span>
                         </button>
                       );
@@ -2308,6 +2321,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 )}
               </section>
 
+              {memoryGraph.nodes.length >= 12 && (
               <section className="dashboard-panel memory-map-panel">
                 <div className="panel-head">
                   <h2>Memory map</h2>
@@ -2372,6 +2386,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   <p className="dashboard-empty">Links appear here once notes connect to people, projects, tasks, meetings, reports, workflows, or companies.</p>
                 )}
               </section>
+              )}
             </div>
           </section>
         )}
@@ -3003,6 +3018,13 @@ function ReviewSheet({
       </aside>
     </div>
   );
+}
+
+function truncateInline(text: string, max: number): string {
+  if (!text) return "";
+  const collapsed = String(text).replace(/\s+/g, " ").trim();
+  if (collapsed.length <= max) return collapsed;
+  return `${collapsed.slice(0, max - 1).trimEnd()}…`;
 }
 
 function pipelineStatusForNote(note: any): { label: string; tone: string } | null {

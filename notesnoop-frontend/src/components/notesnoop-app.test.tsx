@@ -347,7 +347,7 @@ describe("NoteSnoopApp", () => {
     render(<NoteSnoopApp quickCapture={false} />);
 
     expect(await screen.findByText("NoteSnoop")).toBeInTheDocument();
-    expect(await screen.findByText("dev@in.notesnoop.app")).toBeInTheDocument();
+    expect((await screen.findAllByText("dev@in.notesnoop.app")).length).toBeGreaterThan(0);
     const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
     expect(within(dashboard).getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     expect(within(dashboard).getByText("Workspace memory")).toBeInTheDocument();
@@ -355,12 +355,11 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Capture" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Active work" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Processing lane" })).toBeInTheDocument();
-    expect(within(dashboard).getByRole("heading", { name: "Memory map" })).toBeInTheDocument();
-    expect(within(dashboard).getByRole("group", { name: "Interactive memory graph" })).toBeInTheDocument();
+    expect(within(dashboard).getByRole("heading", { name: "Loose ends" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
     expect(within(dashboard).getByText("Reminders")).toBeInTheDocument();
     expect(within(dashboard).getByText(/^Due /i)).toBeInTheDocument();
-    expect(within(dashboard).getAllByText("sourced_from").length).toBeGreaterThan(0);
+    // Memory map is hidden until graph has 12+ nodes; relation labels appear in graph view, not asserted here.
     fireEvent.change(within(dashboard).getByLabelText("Ask memory question"), { target: { value: "What is blocked on Apollo?" } });
     fireEvent.click(within(dashboard).getByRole("button", { name: /^Ask$/i }));
     expect(await within(dashboard).findByText("74% grounded")).toBeInTheDocument();
