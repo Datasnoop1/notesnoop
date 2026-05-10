@@ -2747,6 +2747,12 @@ function ReviewSheet({
   const reviewItems = useMemo(() => (Array.isArray(items) ? items : []), [items]);
   const [payloadDrafts, setPayloadDrafts] = useState<Record<string, any>>({});
   const [filterKind, setFilterKind] = useState<string>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) setSelectedIds(new Set());
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -2823,6 +2829,49 @@ function ReviewSheet({
       .map((id) => ({ id, label: id })),
   ];
 
+  function toggleSelected(itemId: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
+  function selectAllVisible() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const item of filteredItems) next.add(item.id);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  async function bulkDecide(decision: "accept" | "reject") {
+    if (selectedIds.size === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    const ids = Array.from(selectedIds);
+    try {
+      for (const id of ids) {
+        const item = reviewItems.find((candidate) => candidate.id === id);
+        if (!item) continue;
+        const draft = payloadDrafts[id] || item.payload || {};
+        const isStructured = STRUCTURED_REVIEW_KINDS.has(item.entity_kind);
+        if (decision === "accept") {
+          await onDecide(id, "accept", isStructured ? draft : undefined);
+        } else {
+          await onDecide(id, "reject");
+        }
+      }
+    } finally {
+      clearSelection();
+      setBulkBusy(false);
+    }
+  }
+
   return (
     <div className="sheet-backdrop review-backdrop" onClick={onClose}>
       <aside className="review-sheet" onClick={(e) => e.stopPropagation()}>
@@ -2854,6 +2903,40 @@ function ReviewSheet({
             })}
           </div>
         )}
+        {!!reviewItems.length && (
+          <div className="review-bulk-bar" role="toolbar" aria-label="Bulk review actions">
+            {selectedIds.size === 0 ? (
+              <button type="button" className="review-bulk-link" onClick={selectAllVisible}>
+                Select all {filteredItems.length} {filterKind === "all" ? "" : filterKind} suggestions
+              </button>
+            ) : (
+              <>
+                <span className="review-bulk-count">
+                  <strong>{selectedIds.size}</strong> selected
+                </span>
+                <button
+                  type="button"
+                  className="review-bulk-action primary"
+                  disabled={bulkBusy}
+                  onClick={() => bulkDecide("accept")}
+                >
+                  <Check size={14} /> Accept selected
+                </button>
+                <button
+                  type="button"
+                  className="review-bulk-action"
+                  disabled={bulkBusy}
+                  onClick={() => bulkDecide("reject")}
+                >
+                  <X size={14} /> Reject selected
+                </button>
+                <button type="button" className="review-bulk-link" onClick={clearSelection}>
+                  Clear
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <div className="review-sheet-list">
           {filteredItems.map((item) => {
             const draft = payloadDrafts[item.id] || item.payload || {};
@@ -2867,8 +2950,15 @@ function ReviewSheet({
             const reasonText = item.reason ? humanReviewReason(item.reason) : null;
             const headlineFallback = item.entity_kind ? `New ${item.entity_kind}` : "Suggestion";
             return (
-              <article key={item.id}>
+              <article key={item.id} className={selectedIds.has(item.id) ? "review-card-selected" : ""}>
                 <header className="review-card-head">
+                  <label className="review-select" aria-label={`Select ${item.entity_kind} suggestion for bulk action`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(item.id)}
+                      onChange={() => toggleSelected(item.id)}
+                    />
+                  </label>
                   <strong>
                     {draft.name ||
                       draft.title ||
