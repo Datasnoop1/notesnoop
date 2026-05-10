@@ -1549,6 +1549,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                   kind="person"
                   people={state?.people || []}
                   onOpenNote={openNote}
+                  onOpenMemory={openMemoryItem}
                   onCopy={() => copyBrief("person", personTimeline.person)}
                   onFlag={() => flag({ person_id: personTimeline.person.id })}
                   onMerge={mergePerson}
@@ -1560,6 +1561,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                   kind="project"
                   people={state?.people || []}
                   onOpenNote={openNote}
+                  onOpenMemory={openMemoryItem}
                   onCopy={() => copyBrief("project", projectTimeline.project)}
                   onFlag={() => flag({ project_id: projectTimeline.project.id })}
                   onMerge={mergePerson}
@@ -2003,6 +2005,7 @@ function TimelinePanel({
   kind,
   people,
   onOpenNote,
+  onOpenMemory,
   onCopy,
   onFlag,
   onMerge,
@@ -2016,6 +2019,7 @@ function TimelinePanel({
   kind: "person" | "project";
   people: any[];
   onOpenNote: (noteId: string) => Promise<void>;
+  onOpenMemory: (sectionId: string, item: any) => Promise<void>;
   onCopy: () => void;
   onFlag: () => void;
   onMerge: (sourcePersonId: string, targetPersonId: string) => Promise<void>;
@@ -2027,6 +2031,18 @@ function TimelinePanel({
 }) {
   const [mergeTargetId, setMergeTargetId] = useState("");
   const notes = timeline.notes || [];
+  const events = Array.isArray(timeline.events) && timeline.events.length
+    ? timeline.events
+    : notes.map((note: any) => ({
+        id: note.id,
+        note_id: note.id,
+        kind: "note",
+        section_id: "notes",
+        title: note.title,
+        subtitle: note.body,
+        status: note.note_kind || "note",
+        event_at: note.occurred_at || note.created_at,
+      }));
   const profile = timeline.profile || {};
   const profileStats = kind === "project"
     ? [
@@ -2171,15 +2187,33 @@ function TimelinePanel({
           </div>
         </div>
       )}
-      <div className="timeline-list">
-        {notes.map((note: any) => (
-          <article key={note.id} onClick={() => onOpenNote(note.id)}>
-            <strong>{note.title}</strong>
-            <span>{NOTE_KIND_LABELS[note.note_kind || "note"] || "Note"} - {new Date(note.occurred_at || note.created_at).toLocaleDateString()}</span>
-            <p>{note.body}</p>
-          </article>
+      <div className="timeline-event-list" aria-label="Interaction history">
+        <strong>Interaction history</strong>
+        {events.map((event: any) => (
+          <button
+            key={`${event.kind}-${event.id}`}
+            type="button"
+            onClick={() => {
+              if (event.kind === "note" || event.section_id === "notes") {
+                onOpenNote(event.note_id || event.id);
+                return;
+              }
+              onOpenMemory(event.section_id, event);
+            }}
+          >
+            <span className={`event-kind event-kind-${event.kind}`}>{event.kind}</span>
+            <span>
+              <strong>{event.title}</strong>
+              <small>
+                {[event.status, event.project_name || event.person_name, event.event_at ? new Date(event.event_at).toLocaleDateString() : null]
+                  .filter(Boolean)
+                  .join(" - ")}
+              </small>
+              {event.subtitle && <p>{event.subtitle}</p>}
+            </span>
+          </button>
         ))}
-        {!notes.length && <p className="muted">No timeline notes yet.</p>}
+        {!events.length && <p className="muted">No interaction history yet.</p>}
       </div>
     </div>
   );

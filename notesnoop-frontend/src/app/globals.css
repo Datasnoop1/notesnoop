@@ -1092,6 +1092,59 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
+.timeline-event-list {
+  display: grid;
+  gap: 8px;
+}
+.timeline-event-list > strong {
+  color: var(--ink);
+}
+.timeline-event-list button {
+  border: 1px solid var(--line);
+  background: #fffdf8;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 10px;
+  text-align: left;
+}
+.timeline-event-list button:hover {
+  border-color: #91b9ad;
+  background: #f6fbf9;
+}
+.timeline-event-list small {
+  color: var(--muted);
+  display: block;
+  margin-top: 2px;
+}
+.timeline-event-list p {
+  color: var(--muted);
+  margin: 6px 0 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.event-kind {
+  border: 1px solid #d8e5e0;
+  background: #edf7f3;
+  color: #17453e;
+  border-radius: 999px;
+  min-height: 26px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.event-kind-task { background: #fff8dc; color: #624a0e; border-color: #e1cf94; }
+.event-kind-meeting { background: #eef2ff; color: #29367a; border-color: #c7d2fe; }
+.event-kind-report { background: #f4edf7; color: #5d326f; border-color: #dec7e7; }
+.event-kind-workflow { background: #edf7f3; color: #17453e; border-color: #bdd7d0; }
 
 .sheet-backdrop {
   position: fixed;
@@ -1477,6 +1530,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
     grid-template-columns: 1fr;
   }
   .memory-search-grid {
+    grid-template-columns: 1fr;
+  }
+  .timeline-event-list button {
     grid-template-columns: 1fr;
   }
   .quick-task-row,

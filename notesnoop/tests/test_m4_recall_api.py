@@ -203,8 +203,12 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
 
     person_timeline = client.get(f"/api/people/{person_id}/timeline", headers=headers)
     assert person_timeline.status_code == 200
-    assert person_timeline.json()["data"]["notes"][0]["id"] == note_id
-    assert person_timeline.json()["data"]["projects"][0]["id"] == project_id
+    person_timeline_data = person_timeline.json()["data"]
+    assert person_timeline_data["notes"][0]["id"] == note_id
+    assert person_timeline_data["projects"][0]["id"] == project_id
+    person_events = {(row["kind"], row["title"]) for row in person_timeline_data["events"]}
+    assert ("note", "Apollo quarterly launch memo") in person_events
+    assert ("task", "Prepare Apollo diligence pack") in person_events
 
     project_timeline = client.get(f"/api/projects/{project_id}/timeline", headers=headers)
     assert project_timeline.status_code == 200
@@ -213,6 +217,9 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     timeline_people = {row["id"] for row in timeline_data["people"]}
     assert person_id in timeline_people
     assert suggested_person_id in timeline_people
+    project_events = {(row["kind"], row["title"]) for row in timeline_data["events"]}
+    assert ("note", "Apollo quarterly launch memo") in project_events
+    assert ("task", "Prepare Apollo diligence pack") in project_events
 
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

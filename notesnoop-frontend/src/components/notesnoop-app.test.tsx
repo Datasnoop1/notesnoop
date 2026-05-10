@@ -83,11 +83,21 @@ const reportNote = {
 };
 const personTimeline = {
   person: people[0],
+  events: [
+    { id: "meeting-1", kind: "meeting", section_id: "meetings", title: "Morgan kickoff call", subtitle: "Discussed Apollo timeline.", event_at: "2026-05-10T09:00:00Z", project_name: "Apollo" },
+    { id: "task-1", kind: "task", section_id: "tasks", title: "Send Apollo follow-up", subtitle: "Ask Morgan for the revised diligence timeline.", status: "todo", event_at: "2026-05-15T12:00:00Z", project_name: "Apollo" },
+    { id: "note-1", note_id: "note-1", kind: "note", section_id: "notes", title: "Apollo update", subtitle: "Morgan mentioned Apollo follow-up.", status: "email", event_at: "2026-05-09T08:00:00Z" },
+  ],
   projects: [{ ...projects[2], mention_count: 1 }],
   notes: [{ ...note, created_at: "2026-05-09T08:00:00Z" }],
 };
 const projectTimeline = {
   project: projects[2],
+  events: [
+    { id: "report-1", kind: "report", section_id: "reports", title: "Apollo weekly brief", subtitle: "Progress and blockers.", status: "draft", event_at: "2026-05-11T09:00:00Z" },
+    { id: "meeting-1", kind: "meeting", section_id: "meetings", title: "Morgan kickoff call", subtitle: "Discussed Apollo timeline.", event_at: "2026-05-10T09:00:00Z" },
+    { id: "note-1", note_id: "note-1", kind: "note", section_id: "notes", title: "Apollo update", subtitle: "Morgan mentioned Apollo follow-up.", status: "email", event_at: "2026-05-09T08:00:00Z" },
+  ],
   members: [{ clerk_user_id: "dev_user", display_name: "Dev User" }],
   invites: [{ id: "invite-1", email: "pending@example.test", status: "pending" }],
   people: [{ ...people[0], mention_count: 1 }],
@@ -448,6 +458,8 @@ describe("NoteSnoopApp", () => {
     const projectButtons = await screen.findAllByRole("button", { name: /^Apollo$/i });
     fireEvent.click(projectButtons[0]);
     expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    expect(await screen.findByText("Interaction history")).toBeInTheDocument();
+    expect((await screen.findAllByText("Apollo weekly brief")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByPlaceholderText("Invite by email"), { target: { value: "peer@example.test" } });
     fireEvent.click(screen.getByRole("button", { name: /^Share$/i }));
     expect(await screen.findByText("Invite ready for peer@example.test.")).toBeInTheDocument();
@@ -460,6 +472,7 @@ describe("NoteSnoopApp", () => {
     expect(personRow).toBeTruthy();
     fireEvent.click(personRow!);
     expect(await screen.findByRole("heading", { name: "Morgan Lee" })).toBeInTheDocument();
+    expect((await screen.findAllByText("Morgan kickoff call")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getAllByRole("combobox").at(-1)!, { target: { value: "person-2" } });
     fireEvent.click(screen.getByRole("button", { name: /Merge/i }));
     expect(await screen.findByText("People merged.")).toBeInTheDocument();

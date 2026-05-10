@@ -117,8 +117,21 @@ def person_timeline(person_id: str, user: CurrentUser = Depends(current_user)):
             """,
             (person_id,),
         )
+        events = _timeline_events(notes=notes, tasks=tasks, meetings=meetings, reports=reports)
         profile = _person_memory_profile(person, notes, projects, tasks, meetings, reports, companies)
-        return {"data": {"person": person, "profile": profile, "notes": notes, "projects": projects, "tasks": tasks, "meetings": meetings, "reports": reports, "companies": companies}}
+        return {
+            "data": {
+                "person": person,
+                "profile": profile,
+                "events": events,
+                "notes": notes,
+                "projects": projects,
+                "tasks": tasks,
+                "meetings": meetings,
+                "reports": reports,
+                "companies": companies,
+            }
+        }
 
 
 @router.get("/projects/{project_id}/timeline")
@@ -253,11 +266,13 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
             """,
             (project_id,),
         )
+        events = _timeline_events(notes=notes, tasks=tasks, meetings=meetings, reports=reports, workflows=workflows)
         profile = _project_memory_profile(project, notes, people, members, tasks, meetings, reports, workflows, companies)
         return {
             "data": {
                 "project": project,
                 "profile": profile,
+                "events": events,
                 "notes": notes,
                 "people": people,
                 "members": members,
@@ -717,6 +732,103 @@ def _project_memory_profile(
         "companies": [company.get("name") for company in companies[:4] if company.get("name")],
         "next_action": open_tasks[0].get("title") if open_tasks else None,
     }
+
+
+def _timeline_events(
+    notes: list[dict],
+    tasks: list[dict],
+    meetings: list[dict],
+    reports: list[dict],
+    workflows: list[dict] | None = None,
+) -> list[dict]:
+    events: list[dict] = []
+    for note in notes:
+        events.append(
+            {
+                "kind": "note",
+                "section_id": "notes",
+                "id": note["id"],
+                "note_id": note["id"],
+                "title": note.get("title") or "Untitled note",
+                "subtitle": _trim_text(note.get("body")),
+                "status": note.get("note_kind") or "note",
+                "event_at": note.get("occurred_at") or note.get("created_at"),
+                "project_name": _project_names(note.get("projects")),
+                "source": note.get("source"),
+            }
+        )
+    for task in tasks:
+        events.append(
+            {
+                "kind": "task",
+                "section_id": "tasks",
+                "id": task["id"],
+                "note_id": task.get("source_note_id"),
+                "title": task.get("title") or "Untitled task",
+                "subtitle": _trim_text(task.get("description")),
+                "status": task.get("status"),
+                "event_at": task.get("due_at") or task.get("created_at"),
+                "project_name": task.get("project_name"),
+                "person_name": task.get("assignee_name"),
+            }
+        )
+    for meeting in meetings:
+        events.append(
+            {
+                "kind": "meeting",
+                "section_id": "meetings",
+                "id": meeting["id"],
+                "note_id": meeting.get("source_note_id"),
+                "title": meeting.get("title") or "Untitled meeting",
+                "subtitle": _trim_text(meeting.get("summary")),
+                "status": meeting.get("location"),
+                "event_at": meeting.get("occurred_at") or meeting.get("created_at"),
+                "project_name": meeting.get("project_name"),
+            }
+        )
+    for report in reports:
+        events.append(
+            {
+                "kind": "report",
+                "section_id": "reports",
+                "id": report["id"],
+                "note_id": report.get("source_note_id"),
+                "title": report.get("title") or "Untitled report",
+                "subtitle": _trim_text(report.get("body")),
+                "status": report.get("status"),
+                "event_at": report.get("created_at"),
+                "project_name": report.get("project_name"),
+            }
+        )
+    for workflow in workflows or []:
+        events.append(
+            {
+                "kind": "workflow",
+                "section_id": "workflows",
+                "id": workflow["id"],
+                "title": workflow.get("name") or "Untitled workflow",
+                "subtitle": _trim_text(workflow.get("description")),
+                "status": workflow.get("status"),
+                "event_at": workflow.get("updated_at") or workflow.get("created_at"),
+                "project_name": workflow.get("project_name"),
+            }
+        )
+    events.sort(key=lambda event: str(event.get("event_at") or ""), reverse=True)
+    return events[:40]
+
+
+def _trim_text(value: str | None, limit: int = 240) -> str | None:
+    text = " ".join(str(value or "").split())
+    if not text:
+        return None
+    return text if len(text) <= limit else f"{text[:limit - 1]}..."
+
+
+def _project_names(projects) -> str | None:
+    if not isinstance(projects, list):
+        return None
+    names = [project.get("name") for project in projects if isinstance(project, dict) and project.get("name")]
+    return ", ".join(names[:3]) or None
 
 
 def _latest_timestamp(rows: list[dict], *keys: str):
