@@ -2001,6 +2001,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            if (!busy && body.trim()) {
+              saveNote();
+            }
+          }
+        }}
         placeholder="Dump a note. Names, projects, rough thoughts, half-sentences all belong here."
         rows={composerRows}
       />
@@ -2034,7 +2042,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       </div>
       <div className="composer-actions">
         <span>{saveProjectIds.length ? `Saving to ${saveProjectIds.length} project${saveProjectIds.length > 1 ? "s" : ""}` : "Saving to Inbox"}</span>
-        <button onClick={saveNote} disabled={busy || !body.trim()}>
+        <span className="composer-shortcut-hint" aria-hidden="true">⌘/Ctrl + Enter</span>
+        <button onClick={saveNote} disabled={busy || !body.trim()} title="Save (Cmd+Enter)">
           <Send size={17} /> Save
         </button>
       </div>
