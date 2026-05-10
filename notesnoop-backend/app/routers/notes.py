@@ -824,6 +824,44 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             "people_without_company": loose_people_without_company,
             "stale_reviews_count": int((loose_stale_reviews_row or {}).get("count") or 0),
         }
+        today_row = one(
+            cur,
+            """
+            SELECT
+              (SELECT count(*) FROM notes n
+                 WHERE n.workspace_id = %s
+                   AND n.created_at >= date_trunc('day', now())
+                   AND (
+                     %s::uuid IS NULL
+                     OR EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s::uuid)
+                   )
+              ) AS new_notes,
+              (SELECT count(*) FROM tasks t
+                 WHERE t.workspace_id = %s
+                   AND t.status = 'done'
+                   AND t.updated_at >= date_trunc('day', now())
+                   AND (
+                     %s::uuid IS NULL
+                     OR EXISTS (SELECT 1 FROM task_projects tp WHERE tp.task_id = t.id AND tp.project_id = %s::uuid)
+                   )
+              ) AS tasks_done,
+              (SELECT count(*) FROM calibration_events ce
+                 WHERE ce.workspace_id = %s
+                   AND ce.user_decision = 'accepted'
+                   AND ce.created_at >= date_trunc('day', now())
+              ) AS reviews_accepted
+            """,
+            (
+                workspace_id, project_id, project_id,
+                workspace_id, project_id, project_id,
+                workspace_id,
+            ),
+        )
+        today_counts = {
+            "new_notes": int((today_row or {}).get("new_notes") or 0),
+            "tasks_done": int((today_row or {}).get("tasks_done") or 0),
+            "reviews_accepted": int((today_row or {}).get("reviews_accepted") or 0),
+        }
         pipeline_recent_received = many(
             cur,
             """
@@ -917,6 +955,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                 "pipeline_recent_failed": pipeline_recent_failed,
                 "pipeline_recent_received": pipeline_recent_received,
                 "loose_ends": loose_ends,
+                "today_counts": today_counts,
             }
         }
 

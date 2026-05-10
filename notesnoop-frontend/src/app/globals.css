@@ -346,6 +346,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   font-weight: 750;
   text-transform: uppercase;
 }
+.dashboard-today {
+  font-size: 13px;
+  color: var(--teal);
+  background: #edf7f3;
+  border: 1px solid #bdd7d0;
+  border-radius: 999px;
+  padding: 3px 12px;
+  display: inline-block;
+  margin: 6px 0 0 !important;
+  font-weight: 500;
+}
 .dashboard-head h1 {
   margin: 4px 0;
   font-size: 32px;

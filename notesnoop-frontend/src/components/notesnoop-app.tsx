@@ -75,6 +75,11 @@ type HomeState = {
     people_without_company?: any[];
     stale_reviews_count?: number;
   };
+  today_counts?: {
+    new_notes?: number;
+    tasks_done?: number;
+    reviews_accepted?: number;
+  };
 };
 
 type SearchFilters = {
@@ -1788,6 +1793,18 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 <span className="dashboard-kicker">{activeProjectRecord ? "Project memory" : "Workspace memory"}</span>
                 <h1>{dashboardTitle}</h1>
                 <p>{activeProjectRecord ? "Open loops, people, and notes in this project." : "Open loops, recent movement, and capture."}</p>
+                {(() => {
+                  const todayCounts = home?.today_counts || {};
+                  const parts: string[] = [];
+                  const newNotes = Number(todayCounts.new_notes || 0);
+                  const tasksDone = Number(todayCounts.tasks_done || 0);
+                  const reviewsAccepted = Number(todayCounts.reviews_accepted || 0);
+                  if (newNotes > 0) parts.push(`${newNotes} new note${newNotes === 1 ? "" : "s"}`);
+                  if (tasksDone > 0) parts.push(`${tasksDone} task${tasksDone === 1 ? "" : "s"} done`);
+                  if (reviewsAccepted > 0) parts.push(`${reviewsAccepted} review${reviewsAccepted === 1 ? "" : "s"} accepted`);
+                  if (parts.length === 0) return null;
+                  return <p className="dashboard-today">Today: {parts.join(" - ")}</p>;
+                })()}
               </div>
               <div className="dashboard-actions">
                 {activeProjectRecord && (
