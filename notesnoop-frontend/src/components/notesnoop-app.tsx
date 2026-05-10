@@ -847,6 +847,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const visibleReviewItems = reviewSheetOpen ? reviewItems : dashboardReviewItems;
   const dashboardReviewCount = reviewCount || dashboardReviewItems.length;
   const dashboardFlagged = home?.flagged || [];
+  const memorySearchResults = Array.isArray(searchMeta?.memory_results) ? searchMeta.memory_results : [];
   const dashboardNotes = home?.recent_notes?.length ? home.recent_notes : notes;
   const dashboardProjects = home?.recent_projects?.length
     ? home.recent_projects
@@ -1498,6 +1499,23 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                       <span>{item.label || item.target_kind}</span>
                     </button>
                   ))}
+                </div>
+              )}
+              {!!query.trim() && !!memorySearchResults.length && (
+                <div className="memory-search-strip">
+                  <div className="section-head">
+                    <h2>Memory matches</h2>
+                    <Search size={18} />
+                  </div>
+                  <div className="memory-search-grid">
+                    {memorySearchResults.slice(0, 6).map((item: any) => (
+                      <button key={`${item.kind}-${item.id}`} type="button" onClick={() => openGraphNode(item)}>
+                        <span>{item.kind}</span>
+                        <strong>{item.title}</strong>
+                        {item.subtitle && <small>{item.subtitle}</small>}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
               <div className="section-head">

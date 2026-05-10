@@ -109,6 +109,10 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
   const calls: string[] = [];
   const responsePeople = options.people ?? people;
   const responseNotes = options.notes ?? [note, taskNote, meetingNote, reportNote];
+  const memoryResults = [
+    { id: "task-1", kind: "task", title: "Send Apollo diligence follow-up", subtitle: "Ask Morgan for the revised timeline." },
+    { id: "company-1", kind: "company", title: "Northstar", subtitle: "northstar.example" },
+  ];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push(`${init?.method || "GET"} ${url}`);
@@ -165,6 +169,12 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
           projects: [projects[2]],
         })),
         meta: { count: pending.length },
+      });
+    }
+    if (url.includes("/api/workspaces/workspace-1/search")) {
+      return json({
+        data: responseNotes,
+        meta: { semantic_enabled: false, semantic_excluded: 0, memory_results: memoryResults },
       });
     }
     if (url.includes("/api/workspaces/workspace-1/notes") && init?.method === "POST") {
@@ -471,6 +481,8 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add person" }));
     fireEvent.click(screen.getByRole("button", { name: /Send test email/i }));
 
+    expect(await screen.findByText("Memory matches")).toBeInTheDocument();
+    expect((await screen.findAllByText("Northstar")).length).toBeGreaterThan(0);
     await waitFor(() => {
       expect(calls.some((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/projects"))).toBe(true);

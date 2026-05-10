@@ -785,7 +785,7 @@ def search(
                 """,
                 (user.clerk_user_id, *where_params),
             )
-            meta = {"semantic_enabled": False, "semantic_excluded": 0}
+            meta = {"semantic_enabled": False, "semantic_excluded": 0, "memory_results": []}
         else:
             keyword_rows = many(
                 cur,
@@ -835,6 +835,7 @@ def search(
             meta = {
                 "semantic_enabled": bool(query_embedding),
                 "semantic_excluded": int(excluded["count"] if excluded else 0),
+                "memory_results": _memory_search_results(cur, workspace_id, query, project_id, person_id),
                 "filters": {
                     "project_id": project_id,
                     "person_id": person_id,
@@ -844,6 +845,133 @@ def search(
                 },
             }
         return {"data": rows, "meta": meta}
+
+
+def _memory_search_results(cur, workspace_id: str, query: str, project_id: str | None, person_id: str | None) -> list[dict]:
+    pattern = f"%{query}%"
+    project_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.project_id = %s::uuid)"
+    person_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.person_id = %s::uuid)"
+    searches = [
+        (
+            "task",
+            "tasks",
+            "title",
+            "description",
+            "created_at",
+            project_filter.format(link_table="task_projects", id_column="task_id"),
+            person_filter.format(link_table="task_people", id_column="task_id"),
+        ),
+        (
+            "meeting",
+            "meetings",
+            "title",
+            "summary",
+            "coalesce(occurred_at, created_at)",
+            project_filter.format(link_table="meeting_projects", id_column="meeting_id"),
+            person_filter.format(link_table="meeting_people", id_column="meeting_id"),
+        ),
+        (
+            "report",
+            "reports",
+            "title",
+            "body",
+            "created_at",
+            project_filter.format(link_table="report_projects", id_column="report_id"),
+            person_filter.format(link_table="report_people", id_column="report_id"),
+        ),
+        (
+            "workflow",
+            "workflows",
+            "name",
+            "description",
+            "updated_at",
+            project_filter.format(link_table="workflow_projects", id_column="workflow_id"),
+            person_filter.format(link_table="workflow_people", id_column="workflow_id"),
+        ),
+        (
+            "company",
+            "companies",
+            "name",
+            "coalesce(domain, description)",
+            "updated_at",
+            project_filter.format(link_table="company_projects", id_column="company_id"),
+            person_filter.format(link_table="company_people", id_column="company_id"),
+        ),
+    ]
+    results: list[dict] = []
+    for kind, table, title_column, subtitle_column, sort_column, project_sql, person_sql in searches:
+        rows = many(
+            cur,
+            f"""
+            SELECT %s AS kind,
+                   item.id,
+                   item.{title_column} AS title,
+                   left(coalesce({subtitle_column}, ''), 260) AS subtitle,
+                   {sort_column} AS sort_at
+            FROM {table} item
+            WHERE item.workspace_id = %s
+              AND (item.{title_column} ILIKE %s OR coalesce({subtitle_column}, '') ILIKE %s)
+              AND ({project_sql})
+              AND ({person_sql})
+            ORDER BY {sort_column} DESC
+            LIMIT 8
+            """,
+            (kind, workspace_id, pattern, pattern, project_id, project_id, person_id, person_id),
+        )
+        results.extend(rows)
+
+    if not person_id:
+        results.extend(
+            many(
+                cur,
+                """
+                SELECT 'person' AS kind,
+                       p.id,
+                       p.name AS title,
+                       left(concat_ws(' - ', p.role, p.company, p.email), 260) AS subtitle,
+                       p.created_at AS sort_at
+                FROM people p
+                WHERE p.workspace_id = %s
+                  AND (p.name ILIKE %s OR coalesce(p.company, '') ILIKE %s OR coalesce(p.role, '') ILIKE %s OR coalesce(p.email, '') ILIKE %s)
+                  AND (
+                    %s::uuid IS NULL
+                    OR EXISTS (
+                      SELECT 1
+                      FROM note_people_links npl
+                      JOIN note_projects np ON np.note_id = npl.note_id
+                      WHERE npl.person_id = p.id
+                        AND np.project_id = %s::uuid
+                    )
+                  )
+                ORDER BY p.created_at DESC
+                LIMIT 8
+                """,
+                (workspace_id, pattern, pattern, pattern, pattern, project_id, project_id),
+            )
+        )
+
+    results.extend(
+        many(
+            cur,
+            """
+            SELECT 'project' AS kind,
+                   p.id,
+                   p.name AS title,
+                   p.kind AS subtitle,
+                   p.created_at AS sort_at
+            FROM projects p
+            WHERE p.workspace_id = %s
+              AND p.kind <> 'personal'
+              AND p.name ILIKE %s
+              AND (%s::uuid IS NULL OR p.id = %s::uuid)
+            ORDER BY p.created_at DESC
+            LIMIT 8
+            """,
+            (workspace_id, pattern, project_id, project_id),
+        )
+    )
+    results.sort(key=lambda row: str(row.get("sort_at") or ""), reverse=True)
+    return results[:30]
 
 
 def _search_where(

@@ -158,6 +158,38 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     assert filtered.status_code == 200
     assert [row["id"] for row in filtered.json()["data"]] == [note_id]
 
+    task = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={
+            "title": "Prepare Apollo diligence pack",
+            "description": "Morgan needs the revised diligence timeline.",
+            "project_ids": [project_id],
+            "person_ids": [person_id],
+        },
+        headers=headers,
+    )
+    assert task.status_code == 200
+    company = client.post(
+        f"/api/workspaces/{workspace_id}/companies",
+        json={
+            "name": "Northstar Advisory",
+            "description": "Apollo diligence counterparty",
+            "project_ids": [project_id],
+            "person_ids": [person_id],
+        },
+        headers=headers,
+    )
+    assert company.status_code == 200
+    memory_search = client.get(
+        f"/api/workspaces/{workspace_id}/search",
+        params={"q": "diligence", "project_id": project_id, "person_id": person_id},
+        headers=headers,
+    )
+    assert memory_search.status_code == 200
+    memory_results = {(row["kind"], row["title"]) for row in memory_search.json()["meta"]["memory_results"]}
+    assert ("task", "Prepare Apollo diligence pack") in memory_results
+    assert ("company", "Northstar Advisory") in memory_results
+
     recent = client.get(f"/api/workspaces/{workspace_id}/search", params={"q": ""}, headers=headers)
     assert recent.status_code == 200
     assert recent.json()["data"][0]["id"] == note_id

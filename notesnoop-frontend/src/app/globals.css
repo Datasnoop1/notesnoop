@@ -878,6 +878,53 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   gap: 7px;
   text-align: left;
 }
+.memory-search-strip {
+  border: 1px solid #cbded9;
+  background: #f6fbf9;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+  display: grid;
+  gap: 10px;
+}
+.memory-search-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.memory-search-grid button {
+  min-height: 82px;
+  border: 1px solid #d8e5e0;
+  background: #fffefb;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 10px;
+  text-align: left;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+.memory-search-grid button:hover {
+  border-color: #91b9ad;
+  background: #f1f8f5;
+}
+.memory-search-grid span {
+  color: var(--teal);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.memory-search-grid strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.memory-search-grid small {
+  color: var(--muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
 .note-row, .entity-row {
   border-top: 1px solid var(--line);
   padding: 13px 0;
@@ -1388,6 +1435,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
     grid-column: 1;
   }
   .memory-tabs, .memory-card-grid {
+    grid-template-columns: 1fr;
+  }
+  .memory-search-grid {
     grid-template-columns: 1fr;
   }
   .quick-task-row,
