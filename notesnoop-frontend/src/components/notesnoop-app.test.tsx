@@ -304,9 +304,7 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Active projects" })).toBeInTheDocument();
     const dashboardComposer = dashboard.querySelector(".capture-panel .dashboard-composer");
     expect(dashboardComposer).toContainElement(screen.getByPlaceholderText(/Dump a note/i));
-    const contentGrid = document.querySelector(".content-grid");
-    expect(contentGrid).toBeTruthy();
-    expect(Boolean(dashboard.compareDocumentPosition(contentGrid!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(document.querySelector(".content-grid")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Briefing off/i }));
 
@@ -416,10 +414,9 @@ describe("NoteSnoopApp", () => {
     const { calls } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
-    const noteTitleMatches = await screen.findAllByText("Apollo update");
-    const noteRow = noteTitleMatches.map((element) => element.closest(".note-row")).find(Boolean);
-    expect(noteRow).toBeTruthy();
-    fireEvent.click(noteRow!);
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    const noteButtons = await within(dashboard).findAllByRole("button", { name: /Apollo update/i });
+    fireEvent.click(noteButtons[0]);
     expect(await screen.findByText("From sender@example.test")).toBeInTheDocument();
     expect(await screen.findByText("AI suggestions")).toBeInTheDocument();
     expect(await screen.findByText("Structured memory from this note")).toBeInTheDocument();
@@ -467,10 +464,7 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Flag$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Close$/i }));
 
-    const personNameMatches = await screen.findAllByText("Morgan Lee");
-    const personRow = personNameMatches.map((element) => element.closest(".entity-row")).find(Boolean);
-    expect(personRow).toBeTruthy();
-    fireEvent.click(personRow!);
+    fireEvent.click(await screen.findByRole("button", { name: /Open Morgan Lee timeline/i }));
     expect(await screen.findByRole("heading", { name: "Morgan Lee" })).toBeInTheDocument();
     expect((await screen.findAllByText("Morgan kickoff call")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getAllByRole("combobox").at(-1)!, { target: { value: "person-2" } });
@@ -492,8 +486,10 @@ describe("NoteSnoopApp", () => {
     render(<NoteSnoopApp quickCapture={false} />);
 
     fireEvent.change(await screen.findByPlaceholderText(/Search notes/i), { target: { value: "Apollo" } });
+    expect(await screen.findByRole("heading", { name: "Notes" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Filter by person"), { target: { value: "person-1" } });
-    fireEvent.click(screen.getByRole("button", { name: /Flagged/i }));
+    const filters = document.querySelector(".search-filter-row") as HTMLElement;
+    fireEvent.click(within(filters).getByRole("button", { name: /Flagged/i }));
     fireEvent.change(screen.getByPlaceholderText("New project"), { target: { value: "New Deal" } });
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
     fireEvent.change(screen.getByPlaceholderText("Quick-add person"), { target: { value: "Avery Chen" } });

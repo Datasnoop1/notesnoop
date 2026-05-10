@@ -941,6 +941,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     },
   ];
   const activeMemorySection = memorySections.find((section) => section.id === activeMemoryTab) || memorySections[0];
+  const showExplorerGrid = Boolean(query.trim() || personTimeline || projectTimeline);
 
   const composerSection = (
     <section className={`composer ${quickCapture ? "" : "dashboard-composer"}`}>
@@ -1484,7 +1485,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
           </section>
         )}
 
-        {!quickCapture && (
+        {!quickCapture && showExplorerGrid && (
           <div className="content-grid">
             <section className="list-pane">
               {!!home?.flagged?.length && (
