@@ -325,6 +325,36 @@ def run(base_url: str, basic_auth: str | None) -> None:
     )
     ask = data(owner.post(f"/api/workspaces/{workspace_id}/ask", {"query": "What is blocked on Apollo?", "project_id": project["id"]}))
     assert_true(ask["citations"] and ask["source_counts"]["memory"] >= 1, "ask memory returns grounded citations")
+    ask_note_ids = [item["id"] for item in ask["citations"] if item.get("kind") == "note"]
+    ask_task_ids = [item["id"] for item in ask["citations"] if item.get("kind") == "task"]
+    ask_report = data(
+        owner.post(
+            f"/api/workspaces/{workspace_id}/reports",
+            {
+                "title": f"Ask memory brief {suffix}",
+                "body": ask["answer"],
+                "project_ids": [project["id"]],
+                "note_ids": ask_note_ids,
+                "task_ids": ask_task_ids,
+            },
+        )
+    )
+    ask_task = data(
+        owner.post(
+            f"/api/workspaces/{workspace_id}/tasks",
+            {
+                "title": f"Follow up from Ask Memory {suffix}",
+                "description": ask["answer"],
+                "project_ids": [project["id"]],
+                "person_ids": [avery["id"]],
+                "note_ids": ask_note_ids,
+            },
+        )
+    )
+    assert_true(
+        ask_report["id"] and ask_task["id"] and ask_report["projects"],
+        "ask memory answer can be saved as report and follow-up task",
+    )
 
     merge = data(owner.post(f"/api/people/{blair['id']}/merge", {"target_person_id": avery["id"]}))
     owner.post(f"/api/person-merges/{merge['undo_id']}/undo")

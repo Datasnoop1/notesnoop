@@ -873,6 +873,85 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
+  function askCitationIds(kind: string) {
+    return (askResult?.citations || [])
+      .filter((citation: any) => citation.kind === kind && citation.id)
+      .map((citation: any) => citation.id);
+  }
+
+  function askBody() {
+    const sources = (askResult?.citations || [])
+      .slice(0, 12)
+      .map((citation: any) => `- ${citation.label || citation.kind}: ${citation.title || citation.id}`)
+      .join("\n");
+    return [`# ${askQuestion.trim()}`, String(askResult?.answer || "").trim(), sources ? `## Sources\n${sources}` : ""]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  async function saveAskAsReport() {
+    if (!workspaceId || !askResult || !askQuestion.trim()) return;
+    setBusy(true);
+    try {
+      const personId = personTimeline?.person?.id || searchFilters.person_id || undefined;
+      const res = await api(`/api/workspaces/${workspaceId}/reports`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: askQuestion.trim().slice(0, 180),
+          body: askBody(),
+          status: "draft",
+          project_ids: activeProject ? [activeProject] : undefined,
+          person_ids: personId ? [personId] : undefined,
+          note_ids: askCitationIds("note"),
+          task_ids: askCitationIds("task"),
+          company_ids: askCitationIds("company"),
+        }),
+      });
+      await refreshWorkspaceData();
+      setActiveMemoryTab("reports");
+      setSelectedMemory({ sectionId: "reports", item: res.data });
+      setAskResult((current: any) => ({ ...current, saved_report_id: res.data.id }));
+      setToast("Answer saved as report.");
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not save report");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createTaskFromAsk() {
+    if (!workspaceId || !askResult || !askQuestion.trim()) return;
+    setBusy(true);
+    try {
+      const personId = personTimeline?.person?.id || searchFilters.person_id || undefined;
+      const res = await api(`/api/workspaces/${workspaceId}/tasks`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: `Follow up: ${askQuestion.trim()}`.slice(0, 220),
+          description: askBody(),
+          status: "todo",
+          priority: 3,
+          project_ids: activeProject ? [activeProject] : undefined,
+          person_ids: personId ? [personId] : undefined,
+          note_ids: askCitationIds("note"),
+        }),
+      });
+      await refreshWorkspaceData();
+      setActiveMemoryTab("tasks");
+      setSelectedMemory({ sectionId: "tasks", item: res.data });
+      setToast("Follow-up task created.");
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not create task");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyAskAnswer() {
+    await navigator.clipboard.writeText(askBody());
+    setToast("Answer copied.");
+  }
+
   function toggleComposerProject(project: any) {
     setSelectedProjectIds((current) => {
       if (current.includes(project.id)) return current.filter((id) => id !== project.id);
@@ -1510,6 +1589,17 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                       ))}
                     </div>
                   )}
+                  <div className="sheet-actions ask-actions">
+                    <button type="button" onClick={copyAskAnswer}>
+                      <Copy size={16} /> Copy answer
+                    </button>
+                    <button type="button" onClick={saveAskAsReport} disabled={busy || askResult.saved_report_id}>
+                      <FileText size={16} /> {askResult.saved_report_id ? "Report saved" : "Save report"}
+                    </button>
+                    <button type="button" onClick={createTaskFromAsk} disabled={busy}>
+                      <ClipboardList size={16} /> Create task
+                    </button>
+                  </div>
                 </div>
               )}
             </section>

@@ -297,7 +297,7 @@ describe("NoteSnoopApp", () => {
   });
 
   it("renders dashboard-first workspace data and toggles Morning briefing", async () => {
-    const { calls } = installFetch();
+    const { calls, fetchMock } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
     expect(await screen.findByText("NoteSnoop")).toBeInTheDocument();
@@ -316,6 +316,22 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(within(dashboard).getByRole("button", { name: /^Ask$/i }));
     expect(await within(dashboard).findByText("74% grounded")).toBeInTheDocument();
     expect(within(dashboard).getByRole("group", { name: "Answer citations" })).toBeInTheDocument();
+    fireEvent.click(within(dashboard).getByRole("button", { name: /Copy answer/i }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("What is blocked on Apollo?")));
+    fireEvent.click(within(dashboard).getByRole("button", { name: /Save report/i }));
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/reports"))).toBe(true));
+    const reportCall = fetchMock.mock.calls.find(([input, init]) => (
+      String(input).includes("/api/workspaces/workspace-1/reports") && init?.method === "POST"
+    ));
+    expect(JSON.parse(String(reportCall?.[1]?.body))).toMatchObject({
+      title: "What is blocked on Apollo?",
+      status: "draft",
+      note_ids: ["note-1"],
+      task_ids: ["note-task-1"],
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Close memory/i }));
+    fireEvent.click(within(dashboard).getByRole("button", { name: /Create task/i }));
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/tasks"))).toBe(true));
     expect(within(dashboard).getByRole("tab", { name: /Open tasks1/i })).toHaveAttribute("aria-selected", "true");
     expect(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByRole("button", { name: /Mark task done/i }));
