@@ -593,6 +593,9 @@ def _materialize_report(
     person_ids: list[str],
     task_ids: list[str],
     company_ids: list[str],
+    meeting_ids: list[str] | None,
+    workflow_ids: list[str] | None,
+    report_ids: list[str] | None,
     source_kind: str,
     review_id: str | None = None,
     source_confidence: float | None = None,
@@ -666,6 +669,35 @@ def _materialize_report(
             ON CONFLICT DO NOTHING
             """,
             (report_id, company_id, note["workspace_id"], target_user_id),
+        )
+    for meeting_id in meeting_ids or []:
+        cur.execute(
+            """
+            INSERT INTO report_meetings (report_id, meeting_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (report_id, meeting_id, note["workspace_id"], target_user_id),
+        )
+    for workflow_id in workflow_ids or []:
+        cur.execute(
+            """
+            INSERT INTO report_workflows (report_id, workflow_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (report_id, workflow_id, note["workspace_id"], target_user_id),
+        )
+    for source_report_id in report_ids or []:
+        if source_report_id == report_id:
+            continue
+        cur.execute(
+            """
+            INSERT INTO report_reports (report_id, source_report_id, workspace_id, linked_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (report_id, source_report_id, note["workspace_id"], target_user_id),
         )
     return report_id
 
@@ -844,6 +876,20 @@ def _base_candidate(
     }
     if isinstance(item, dict):
         payload.update({key: value for key, value in item.items() if value not in (None, "")})
+    return payload
+
+
+def _ai_source_payload(
+    kind: str,
+    note: dict,
+    title: str,
+    source_kind: str,
+    item: Any,
+    project_ids: list[str],
+    person_ids: list[str],
+) -> dict[str, Any]:
+    payload = _base_candidate(kind, note, title, source_kind, item, project_ids, person_ids)
+    payload["title" if kind != "company" else "name"] = title
     return payload
 
 
@@ -1073,6 +1119,9 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
             person_ids,
             _id_list(payload.get("task_ids")),
             _id_list(payload.get("company_ids")),
+            _id_list(payload.get("meeting_ids")),
+            _id_list(payload.get("workflow_ids")),
+            _id_list(payload.get("report_ids")),
             source_kind,
             review_id=review_id,
             source_confidence=confidence,
@@ -1125,7 +1174,18 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
         if not name or key in seen_company_names:
             continue
         seen_company_names.add(key)
-        company_id = _materialize_company(cur, note, item, target_user_id, project_ids, person_ids)
+        source_kind = f"ai_company:{key[:80]}"
+        company_id = _materialize_company(
+            cur,
+            note,
+            item,
+            target_user_id,
+            project_ids,
+            person_ids,
+            source_kind=source_kind,
+            source_confidence=_item_confidence(item),
+            source_payload=_ai_source_payload("company", note, name, source_kind, item, project_ids, person_ids),
+        )
         if company_id:
             company_ids.append(company_id)
             created["companies"] += 1
@@ -1139,7 +1199,22 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             continue
         seen_task_titles.add(key)
         due_at = (item.get("due_at") or item.get("due_date")) if isinstance(item, dict) else None
-        task_id = _materialize_task(cur, note, title, "action_item", target_user_id, project_ids, person_ids, due_at)
+        source_payload = _ai_source_payload("task", note, title, "action_item", item, project_ids, person_ids)
+        task_id = _materialize_task(
+            cur,
+            note,
+            title,
+            "action_item",
+            target_user_id,
+            project_ids,
+            person_ids,
+            due_at,
+            description=source_payload.get("description") or source_payload.get("summary"),
+            status=str(source_payload.get("status") or "todo"),
+            priority=source_payload.get("priority") or 3,
+            source_confidence=_item_confidence(item),
+            source_payload=source_payload,
+        )
         if task_id:
             task_ids.append(task_id)
             created["tasks"] += 1
@@ -1147,11 +1222,24 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
     if note_kind == "task":
         title = _note_title(note, "Task")
         if title.casefold() not in seen_task_titles:
-            task_id = _materialize_task(cur, note, title, "note_task", target_user_id, project_ids, person_ids)
+            payload = _ai_source_payload("task", note, title, "note_task", {"title": title, "description": str(note.get("body") or "")[:2000], "confidence": 0.9}, project_ids, person_ids)
+            task_id = _materialize_task(
+                cur,
+                note,
+                title,
+                "note_task",
+                target_user_id,
+                project_ids,
+                person_ids,
+                description=str(note.get("body") or "")[:2000],
+                source_confidence=0.9,
+                source_payload=payload,
+            )
             if task_id:
                 task_ids.append(task_id)
                 created["tasks"] += 1
 
+    meeting_ids: list[str] = []
     seen_meeting_titles: set[str] = set()
     if note_kind not in {"meeting", "call"}:
         for item in data.get("meetings", []):
@@ -1160,13 +1248,41 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             if not title or key in seen_meeting_titles:
                 continue
             seen_meeting_titles.add(key)
-            if _materialize_meeting(cur, note, item, target_user_id, project_ids, person_ids, f"ai_meeting:{key[:80]}"):
+            source_kind = f"ai_meeting:{key[:80]}"
+            meeting_id = _materialize_meeting(
+                cur,
+                note,
+                item,
+                target_user_id,
+                project_ids,
+                person_ids,
+                source_kind,
+                source_confidence=_item_confidence(item),
+                source_payload=_ai_source_payload("meeting", note, title, source_kind, item, project_ids, person_ids),
+            )
+            if meeting_id:
+                meeting_ids.append(meeting_id)
                 created["meetings"] += 1
 
     if note_kind in {"meeting", "call"}:
-        if _materialize_meeting(cur, note, {"title": _note_title(note, "Meeting"), "summary": str(note.get("body") or "")[:4000]}, target_user_id, project_ids, person_ids, note_kind):
+        title = _note_title(note, "Meeting")
+        item = {"title": title, "summary": str(note.get("body") or "")[:4000], "confidence": 0.9}
+        meeting_id = _materialize_meeting(
+            cur,
+            note,
+            item,
+            target_user_id,
+            project_ids,
+            person_ids,
+            note_kind,
+            source_confidence=0.9,
+            source_payload=_ai_source_payload("meeting", note, title, note_kind, item, project_ids, person_ids),
+        )
+        if meeting_id:
+            meeting_ids.append(meeting_id)
             created["meetings"] += 1
 
+    workflow_ids: list[str] = []
     seen_workflows: set[str] = set()
     for item in data.get("workflows", []):
         name = _memory_item_title(item, "")
@@ -1174,7 +1290,21 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
         if not name or key in seen_workflows:
             continue
         seen_workflows.add(key)
-        if _materialize_workflow(cur, note, item, target_user_id, project_ids, person_ids, task_ids):
+        source_kind = f"ai_workflow:{key[:80]}"
+        workflow_id = _materialize_workflow(
+            cur,
+            note,
+            item,
+            target_user_id,
+            project_ids,
+            person_ids,
+            task_ids,
+            source_kind=source_kind,
+            source_confidence=_item_confidence(item),
+            source_payload=_ai_source_payload("workflow", note, name, source_kind, item, project_ids, person_ids),
+        )
+        if workflow_id:
+            workflow_ids.append(workflow_id)
             created["workflows"] += 1
 
     seen_reports: set[str] = set()
@@ -1185,20 +1315,43 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             if not title or key in seen_reports:
                 continue
             seen_reports.add(key)
-            if _materialize_report(cur, note, item, target_user_id, project_ids, person_ids, task_ids, company_ids, f"ai_report:{key[:80]}"):
+            source_kind = f"ai_report:{key[:80]}"
+            if _materialize_report(
+                cur,
+                note,
+                item,
+                target_user_id,
+                project_ids,
+                person_ids,
+                task_ids,
+                company_ids,
+                meeting_ids,
+                workflow_ids,
+                [],
+                source_kind,
+                source_confidence=_item_confidence(item),
+                source_payload=_ai_source_payload("report", note, title, source_kind, item, project_ids, person_ids),
+            ):
                 created["reports"] += 1
 
     if note_kind == "report":
+        title = _note_title(note, "Report")
+        item = {"title": title, "summary": str(note.get("body") or ""), "confidence": 0.9}
         if _materialize_report(
             cur,
             note,
-            {"title": _note_title(note, "Report"), "summary": str(note.get("body") or "")},
+            item,
             target_user_id,
             project_ids,
             person_ids,
             task_ids,
             company_ids,
+            meeting_ids,
+            workflow_ids,
+            [],
             "report",
+            source_confidence=0.9,
+            source_payload=_ai_source_payload("report", note, title, "report", item, project_ids, person_ids),
         ):
             created["reports"] += 1
 

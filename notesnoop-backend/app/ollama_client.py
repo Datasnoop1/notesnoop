@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+from datetime import date
 from typing import Any
 
 import httpx
@@ -28,8 +29,8 @@ REPORT_ALLOW_DETERMINISTIC_FALLBACK = os.getenv("NOTESNOOP_REPORT_ALLOW_DETERMIN
 
 EXTRACTION_SYSTEM = """You extract durable memory from messy professional notes.
 Return strict JSON only:
-{"people":[{"name":"...", "confidence":0.0, "span":[0,10]}], "projects":[{"name":"...", "confidence":0.0, "span":[0,10]}], "companies":[{"name":"...", "domain":null, "confidence":0.0, "span":[0,10]}], "tasks":[{"title":"...", "due_date":"YYYY-MM-DD or null", "confidence":0.0, "span":[0,10]}], "meetings":[{"title":"...", "summary":"...", "occurred_date":"YYYY-MM-DD or null", "confidence":0.0}], "workflows":[{"name":"...", "description":"...", "confidence":0.0}], "reports":[{"title":"...", "summary":"...", "confidence":0.0}]}
-Do not invent names, tasks, dates, or facts. Only include explicit items in the note. Confidence must be 0..1. Use character spans when obvious; otherwise [0,0]."""
+{"people":[{"name":"...", "confidence":0.0, "span":[0,10]}], "projects":[{"name":"...", "confidence":0.0, "span":[0,10]}], "companies":[{"name":"...", "domain":null, "confidence":0.0, "span":[0,10]}], "tasks":[{"title":"...", "description":"...", "status":"todo|doing|blocked|done", "priority":1, "due_date":"YYYY-MM-DD or null", "person_names":[], "company_names":[], "company_ids":[], "task_ids":[], "relationship_hints":[], "confidence":0.0, "span":[0,10]}], "meetings":[{"title":"...", "summary":"...", "occurred_date":"YYYY-MM-DD or null", "person_names":[], "company_names":[], "decisions":[], "relationship_hints":[], "confidence":0.0}], "workflows":[{"name":"...", "description":"...", "task_titles":[], "task_ids":[], "company_names":[], "company_ids":[], "relationship_hints":[], "confidence":0.0}], "reports":[{"title":"...", "summary":"...", "task_titles":[], "task_ids":[], "company_names":[], "company_ids":[], "relationship_hints":[], "confidence":0.0}]}
+Do not invent names, tasks, dates, or facts. Only include explicit items in the note. Preserve useful descriptions and relationship hints when present. Confidence must be 0..1. Use character spans when obvious; otherwise [0,0]."""
 
 PROJECT_REPORT_SYSTEM = """You turn NoteSnoop project memory into a concise professional report.
 Return strict JSON only:
@@ -97,6 +98,12 @@ ACTION_ITEM_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+COMPANY_SUFFIX_RE = re.compile(
+    r"\b([A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){0,4}\s+"
+    r"(?:BV|NV|LLC|Ltd|Limited|Inc|GmbH|SA|SAS|AG|Advisory|Capital|Partners|Ventures|Group|Bank))\b"
+)
+ISO_DATE_RE = re.compile(r"\b(20\d{2}-[01]\d-[0-3]\d)\b")
+EU_DATE_RE = re.compile(r"\b([0-3]?\d)[/-]([01]?\d)[/-](20\d{2})\b")
 
 
 def _clean_action_title(text: str) -> str:
@@ -106,6 +113,62 @@ def _clean_action_title(text: str) -> str:
     if len(title) > 240:
         title = title[:237].rstrip() + "..."
     return title
+
+
+def _extract_due_date_hint(text: str) -> str | None:
+    iso_match = ISO_DATE_RE.search(text)
+    if iso_match:
+        return iso_match.group(1)
+    eu_match = EU_DATE_RE.search(text)
+    if not eu_match:
+        return None
+    day, month, year = (int(eu_match.group(1)), int(eu_match.group(2)), int(eu_match.group(3)))
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
+def _extract_relative_due_hint(text: str) -> str | None:
+    match = re.search(
+        r"\b(tomorrow|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+        text,
+        re.IGNORECASE,
+    )
+    return match.group(1) if match else None
+
+
+def _task_status_hint(text: str) -> str:
+    if re.search(r"\b(blocked|stuck|waiting on|cannot proceed)\b", text, re.IGNORECASE):
+        return "blocked"
+    if re.search(r"\b(done|completed|sent|finished)\b", text, re.IGNORECASE):
+        return "done"
+    if re.search(r"\b(doing|in progress|working on|underway)\b", text, re.IGNORECASE):
+        return "doing"
+    return "todo"
+
+
+def _task_priority_hint(text: str) -> int:
+    if re.search(r"\b(urgent|asap|today|critical|high priority)\b", text, re.IGNORECASE):
+        return 1
+    if re.search(r"\b(important|this week|before)\b", text, re.IGNORECASE):
+        return 2
+    if re.search(r"\b(low priority|nice to have|someday)\b", text, re.IGNORECASE):
+        return 5
+    return 3
+
+
+def _heuristic_company_mentions(note_body: str) -> list[dict[str, Any]]:
+    mentions: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in COMPANY_SUFFIX_RE.finditer(note_body):
+        name = re.sub(r"\s+", " ", match.group(1)).strip(" ,.;")
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        mentions.append({"name": name, "domain": None, "confidence": 0.64, "span": [match.start(1), match.end(1)]})
+    return mentions
 
 
 def deterministic_extract_tasks(note_body: str) -> list[dict[str, Any]]:
@@ -120,7 +183,19 @@ def deterministic_extract_tasks(note_body: str) -> list[dict[str, Any]]:
         if len(title) < 3 or key in seen:
             continue
         seen.add(key)
-        tasks.append({"title": title, "confidence": 0.86, "span": [match.start(), match.end()]})
+        task = {
+            "title": title,
+            "description": segment,
+            "status": _task_status_hint(segment),
+            "priority": _task_priority_hint(segment),
+            "due_date": _extract_due_date_hint(segment),
+            "confidence": 0.86,
+            "span": [match.start(), match.end()],
+        }
+        due_date_hint = _extract_relative_due_hint(segment)
+        if due_date_hint:
+            task["due_date_hint"] = due_date_hint
+        tasks.append(task)
     return tasks
 
 
@@ -129,7 +204,18 @@ def deterministic_extract_meetings(note_body: str) -> list[dict[str, Any]]:
     if not re.search(r"\b(meeting|call|sync|standup|demo|workshop)\b", text, re.IGNORECASE):
         return []
     title_match = re.search(r"(?im)^\s*(?:meeting|call|sync|standup|demo|workshop)\s*[:\-]\s*(.+)$", note_body)
-    title = title_match.group(1).strip() if title_match else "Captured conversation"
+    if title_match:
+        title = title_match.group(1).strip()
+    else:
+        segment = next(
+            (
+                part.strip()
+                for part in re.split(r"[.\n\r;]+", note_body)
+                if re.search(r"\b(meeting|call|sync|standup|demo|workshop)\b", part, re.IGNORECASE)
+            ),
+            "Captured conversation",
+        )
+        title = segment[:160]
     return [{"title": _clean_action_title(title) or "Captured conversation", "summary": text[:360], "occurred_date": None, "confidence": 0.74}]
 
 
@@ -161,10 +247,17 @@ def deterministic_extract_entities(
     known_projects: list[str],
     known_companies: list[str] | None = None,
 ) -> dict[str, Any]:
+    known_company_mentions = _exact_mentions(note_body, known_companies or [])
+    seen_company_names = {item["name"].casefold() for item in known_company_mentions}
+    company_mentions = [*known_company_mentions]
+    for company in _heuristic_company_mentions(note_body):
+        if company["name"].casefold() not in seen_company_names:
+            company_mentions.append(company)
+            seen_company_names.add(company["name"].casefold())
     return {
         "people": _exact_mentions(note_body, known_people),
         "projects": _exact_mentions(note_body, known_projects),
-        "companies": _exact_mentions(note_body, known_companies or []),
+        "companies": company_mentions,
         "tasks": deterministic_extract_tasks(note_body),
         "meetings": deterministic_extract_meetings(note_body),
         "workflows": deterministic_extract_workflows(note_body),
@@ -305,7 +398,10 @@ async def extract_entities(
             "Prefer matching known_companies when organizations are mentioned.",
             "Unknown people may be returned as people mentions, but never create entities yourself.",
             "Return explicit tasks/action items when the note says need, follow up, todo, or action item.",
+            "For tasks, preserve a short description, status when explicit, priority when urgency is explicit, and related person/company names when explicit.",
+            "If the note supplies durable relationship identifiers, preserve company_ids, task_ids, and relationship_hints exactly.",
             "Return meetings only when the note explicitly describes a meeting, call, sync, demo, workshop, or standup.",
+            "For meetings, preserve participants, companies, decisions, and follow-up hints when explicit.",
             "Return workflows only when the note explicitly describes a recurring process, workflow, or loop.",
             "Return reports only when the note explicitly identifies itself as a report, brief, summary, or memo.",
             "If an action item has an explicit due date, return due_date as YYYY-MM-DD; otherwise null.",
@@ -350,9 +446,10 @@ async def extract_entities(
         if task["title"].casefold() not in existing_task_titles:
             data["tasks"].append(task)
     existing_company_names = {str(item.get("name", "")).strip().casefold() for item in data["companies"] if isinstance(item, dict)}
-    for company in _exact_mentions(note_body, known_companies or []):
+    for company in [*_exact_mentions(note_body, known_companies or []), *_heuristic_company_mentions(note_body)]:
         if company["name"].casefold() not in existing_company_names:
             data["companies"].append(company)
+            existing_company_names.add(company["name"].casefold())
     return data
 
 
