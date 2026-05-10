@@ -332,6 +332,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
   const [reviewItems, setReviewItems] = useState<any[]>([]);
   const [activeMemoryTab, setActiveMemoryTab] = useState("tasks");
+  const [taskAssigneeFilter, setTaskAssigneeFilter] = useState<string>("all");
   const [selectedMemory, setSelectedMemory] = useState<{ sectionId: string; item: any } | null>(null);
   const [selectedGraphKind, setSelectedGraphKind] = useState<string | null>(null);
   const [quickTaskTitle, setQuickTaskTitle] = useState("");
@@ -1497,13 +1498,46 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }))
     .filter((edge) => edge.fromLayout && edge.toLayout)
     .slice(0, 12);
+  const tasksByAssignee = useMemo(() => {
+    const groups: Record<string, { id: string; name: string; count: number }> = {};
+    let unassigned = 0;
+    for (const task of openTasks) {
+      const assigneeId = task.assignee_id || (task.people || []).find((person: any) => person.relation === "assignee")?.id;
+      const assigneeName = task.assignee_name || (task.people || []).find((person: any) => person.relation === "assignee")?.name;
+      if (!assigneeId) {
+        unassigned += 1;
+        continue;
+      }
+      const key = String(assigneeId);
+      if (!groups[key]) groups[key] = { id: key, name: String(assigneeName || "Unknown"), count: 0 };
+      groups[key].count += 1;
+    }
+    return { groups: Object.values(groups).sort((a, b) => b.count - a.count), unassigned };
+  }, [openTasks]);
+
+  const filteredOpenTasks = useMemo(() => {
+    if (taskAssigneeFilter === "all") return openTasks;
+    if (taskAssigneeFilter === "unassigned") {
+      return openTasks.filter((task) => {
+        const assigneeId = task.assignee_id || (task.people || []).find((person: any) => person.relation === "assignee")?.id;
+        return !assigneeId;
+      });
+    }
+    return openTasks.filter((task) => {
+      const assigneeId = task.assignee_id || (task.people || []).find((person: any) => person.relation === "assignee")?.id;
+      return String(assigneeId || "") === taskAssigneeFilter;
+    });
+  }, [openTasks, taskAssigneeFilter]);
+
   const memorySections = [
     {
       id: "tasks",
       title: "Open tasks",
       icon: ClipboardList,
-      items: openTasks,
-      empty: "No open tasks found. Capture follow-ups as Task memories.",
+      items: filteredOpenTasks,
+      empty: taskAssigneeFilter === "all"
+        ? "No open tasks found. Capture follow-ups as Task memories."
+        : `No open tasks for that owner.`,
     },
     {
       id: "meetings",
@@ -2096,6 +2130,42 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     );
                   })}
                 </div>
+                {activeMemorySection.id === "tasks" && (tasksByAssignee.groups.length > 0 || tasksByAssignee.unassigned > 0) && (
+                  <div className="task-assignee-filter" role="tablist" aria-label="Filter tasks by assignee">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={taskAssigneeFilter === "all"}
+                      className={taskAssigneeFilter === "all" ? "assignee-chip active" : "assignee-chip"}
+                      onClick={() => setTaskAssigneeFilter("all")}
+                    >
+                      All <strong>{openTasks.length}</strong>
+                    </button>
+                    {tasksByAssignee.unassigned > 0 && (
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={taskAssigneeFilter === "unassigned"}
+                        className={taskAssigneeFilter === "unassigned" ? "assignee-chip warn active" : "assignee-chip warn"}
+                        onClick={() => setTaskAssigneeFilter("unassigned")}
+                      >
+                        Unassigned <strong>{tasksByAssignee.unassigned}</strong>
+                      </button>
+                    )}
+                    {tasksByAssignee.groups.slice(0, 6).map((group) => (
+                      <button
+                        key={group.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={taskAssigneeFilter === group.id}
+                        className={taskAssigneeFilter === group.id ? "assignee-chip active" : "assignee-chip"}
+                        onClick={() => setTaskAssigneeFilter(group.id)}
+                      >
+                        {group.name} <strong>{group.count}</strong>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {activeMemorySection.id === "tasks" && (
                   <div className="quick-task-row task-create-row">
                     <input

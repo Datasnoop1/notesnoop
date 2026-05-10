@@ -798,6 +798,39 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   padding: 4px 8px;
   border-radius: 6px;
 }
+.task-assignee-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0 4px;
+}
+.assignee-chip {
+  border: 1px solid var(--line);
+  background: #fffefb;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.assignee-chip strong {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.assignee-chip:hover { border-color: #bdd7d0; background: #f7fbf8; }
+.assignee-chip.active {
+  background: #173832;
+  color: white;
+  border-color: #173832;
+}
+.assignee-chip.active strong { color: rgba(255, 255, 255, 0.78); }
+.assignee-chip.warn { border-color: #e1cf94; background: #fffaf0; color: #6b5300; }
+.assignee-chip.warn.active { background: #6b5300; color: white; border-color: #6b5300; }
+.assignee-chip.warn.active strong { color: rgba(255, 255, 255, 0.78); }
 .memory-row-body {
   display: -webkit-box;
   -webkit-line-clamp: 2;
