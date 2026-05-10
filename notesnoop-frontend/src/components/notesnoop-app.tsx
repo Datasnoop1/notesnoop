@@ -4578,6 +4578,7 @@ function MemoryDetailSheet({
   const [companyQuickTaskTitle, setCompanyQuickTaskTitle] = useState("");
   const [companyQuickTaskDue, setCompanyQuickTaskDue] = useState("");
   const [companyQuickTaskAssignee, setCompanyQuickTaskAssignee] = useState("");
+  const [draftDomain, setDraftDomain] = useState<string>(String(item.domain || ""));
   useEffect(() => {
     setDraftTitle(title);
     setDraftBody(body);
@@ -4588,7 +4589,8 @@ function MemoryDetailSheet({
     setDraftPersonIds(relationIds(item.people));
     setDraftCompanyIds(relationIds(item.companies));
     setDraftAssigneeId(initialAssignee);
-  }, [body, initialAssignee, item.companies, item.due_at, item.id, item.occurred_at, item.people, item.priority, item.projects, item.status, title]);
+    setDraftDomain(String(item.domain || ""));
+  }, [body, initialAssignee, item.companies, item.domain, item.due_at, item.id, item.occurred_at, item.people, item.priority, item.projects, item.status, title]);
   if (!memory) return null;
   const projects = item.projects || [];
   const people = item.people || [];
@@ -4617,7 +4619,10 @@ function MemoryDetailSheet({
     const payload: Record<string, unknown> = {};
     if (sectionId === "workflows") payload.name = draftTitle.trim();
     else payload.title = draftTitle.trim();
-    if (sectionId === "companies") payload.description = draftBody || null;
+    if (sectionId === "companies") {
+      payload.description = draftBody || null;
+      payload.domain = draftDomain.trim() || null;
+    }
     if (sectionId === "tasks") {
       payload.description = draftBody || null;
       payload.due_at = eventDate(draftDate);
@@ -4719,6 +4724,15 @@ function MemoryDetailSheet({
             <input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} aria-label="Memory title" />
             {(isTask || sectionId === "meetings") && (
               <input type="date" value={draftDate} onChange={(event) => setDraftDate(event.target.value)} aria-label="Memory date" />
+            )}
+            {sectionId === "companies" && (
+              <input
+                type="text"
+                value={draftDomain}
+                onChange={(event) => setDraftDomain(event.target.value)}
+                placeholder="Domain (e.g. northstar.example)"
+                aria-label="Company domain"
+              />
             )}
             {(isTask || sectionId === "reports" || sectionId === "workflows") && (
               <select value={draftStatus} onChange={(event) => setDraftStatus(event.target.value)} aria-label="Memory status">
