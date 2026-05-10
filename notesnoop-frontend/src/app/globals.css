@@ -1775,6 +1775,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border-color: #173832;
 }
 .search-scope-tab.active strong { color: rgba(255, 255, 255, 0.78); }
+.recent-memory-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 8px;
+}
 .share-panel {
   border: 1px solid var(--line);
   background: #f7fbf8;

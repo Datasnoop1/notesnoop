@@ -333,6 +333,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [reviewItems, setReviewItems] = useState<any[]>([]);
   const [activeMemoryTab, setActiveMemoryTab] = useState("tasks");
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState<string>("all");
+  const [recentMemoryKindFilter, setRecentMemoryKindFilter] = useState<string>("all");
   const [selectedMemory, setSelectedMemory] = useState<{ sectionId: string; item: any } | null>(null);
   const [selectedGraphKind, setSelectedGraphKind] = useState<string | null>(null);
   const [quickTaskTitle, setQuickTaskTitle] = useState("");
@@ -2444,33 +2445,72 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   <h2>Recent memory</h2>
                   <Sparkles size={18} />
                 </div>
-                {dashboardNotes.length ? (
-                  <div className="dashboard-list">
-                    {dashboardNotes.slice(0, 4).map((note) => {
-                      const status = pipelineStatusForNote(note);
-                      const kindLabel = NOTE_KIND_LABELS[note.note_kind || "note"] || "Note";
-                      const isEmail = note.note_kind === "email" || !!note.raw_email_metadata;
-                      return (
-                        <button key={note.id} className="dashboard-row memory-row" type="button" onClick={() => openNote(note.id)}>
-                          <span className="memory-row-content">
-                            <span className="memory-row-head">
-                              <strong>{note.title}</strong>
-                              {status && (
-                                <span className={`pipeline-pill pipeline-pill-${status.tone}`}>{status.label}</span>
-                              )}
-                              {isEmail && (
-                                <span className="pipeline-pill pipeline-pill-email">Email</span>
-                              )}
+                {(() => {
+                  const kindCounts: Record<string, number> = {};
+                  for (const note of dashboardNotes) {
+                    const k = String(note.note_kind || "note");
+                    kindCounts[k] = (kindCounts[k] || 0) + 1;
+                  }
+                  const tabs = [{ id: "all", label: "All" }, ...Object.keys(kindCounts).sort().map((id) => ({ id, label: NOTE_KIND_LABELS[id] || id }))];
+                  if (tabs.length <= 2) return null;
+                  return (
+                    <div className="recent-memory-tabs" role="tablist" aria-label="Filter recent memory">
+                      {tabs.map((tab) => {
+                        const count = tab.id === "all" ? dashboardNotes.length : kindCounts[tab.id] || 0;
+                        const active = recentMemoryKindFilter === tab.id;
+                        return (
+                          <button
+                            key={tab.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={active}
+                            className={active ? "search-scope-tab active" : "search-scope-tab"}
+                            onClick={() => setRecentMemoryKindFilter(tab.id)}
+                          >
+                            {tab.label}
+                            <strong>{count}</strong>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                {(() => {
+                  const filtered = recentMemoryKindFilter === "all"
+                    ? dashboardNotes
+                    : dashboardNotes.filter((note) => (note.note_kind || "note") === recentMemoryKindFilter);
+                  if (!dashboardNotes.length) {
+                    return <p className="dashboard-empty">No notes yet. Paste a meeting note, forward an email, or hit Capture to start.</p>;
+                  }
+                  if (filtered.length === 0) {
+                    return <p className="dashboard-empty">No {NOTE_KIND_LABELS[recentMemoryKindFilter] || recentMemoryKindFilter} notes yet.</p>;
+                  }
+                  return (
+                    <div className="dashboard-list">
+                      {filtered.slice(0, 6).map((note) => {
+                        const status = pipelineStatusForNote(note);
+                        const kindLabel = NOTE_KIND_LABELS[note.note_kind || "note"] || "Note";
+                        const isEmail = note.note_kind === "email" || !!note.raw_email_metadata;
+                        return (
+                          <button key={note.id} className="dashboard-row memory-row" type="button" onClick={() => openNote(note.id)}>
+                            <span className="memory-row-content">
+                              <span className="memory-row-head">
+                                <strong>{note.title}</strong>
+                                {status && (
+                                  <span className={`pipeline-pill pipeline-pill-${status.tone}`}>{status.label}</span>
+                                )}
+                                {isEmail && (
+                                  <span className="pipeline-pill pipeline-pill-email">Email</span>
+                                )}
+                              </span>
+                              <small className="memory-row-body">{kindLabel}{note.body ? ` - ${truncateInline(note.body, 140)}` : ""}</small>
                             </span>
-                            <small className="memory-row-body">{kindLabel}{note.body ? ` - ${truncateInline(note.body, 140)}` : ""}</small>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="dashboard-empty">No notes yet. Paste a meeting note, forward an email, or hit Capture to start.</p>
-                )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </section>
 
               <section className="dashboard-panel loose-ends-panel">
