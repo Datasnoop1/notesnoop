@@ -113,6 +113,13 @@ type MemoryRouteKind = MemoryBriefKind;
 
 const API_BASE = process.env.NEXT_PUBLIC_NOTESNOOP_API_URL || "";
 const DEV_AUTH = process.env.NEXT_PUBLIC_NOTESNOOP_DEV_AUTH === "true";
+const ACTIVITY_KIND_LABEL: Record<string, string> = {
+  note_created: "New note",
+  task_done: "Task done",
+  note_archived: "Archived",
+  project_closed: "Closed",
+};
+
 const NOTE_KIND_LABELS: Record<string, string> = {
   note: "Note",
   meeting: "Meeting",
@@ -412,6 +419,19 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [triageItems, setTriageItems] = useState<any[]>([]);
   const [triageLoading, setTriageLoading] = useState(false);
   const [triageSelected, setTriageSelected] = useState<Set<string>>(() => new Set());
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityItems, setActivityItems] = useState<any[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const activityGroups = useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    for (const event of activityItems) {
+      const bucket = eventAgeBucket(event.event_at);
+      if (!groups[bucket]) groups[bucket] = [];
+      groups[bucket].push(event);
+    }
+    return groups;
+  }, [activityItems]);
+
   const [recentMemoryKindFilter, setRecentMemoryKindFilter] = useState<string>("all");
   const [selectedMemory, setSelectedMemory] = useState<{ sectionId: string; item: any } | null>(null);
   const [selectedGraphKind, setSelectedGraphKind] = useState<string | null>(null);
@@ -1150,6 +1170,25 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setTriageSelected(new Set());
     setTriageOpen(true);
     refreshTriage().catch(() => undefined);
+  }
+
+  const refreshActivity = useCallback(async () => {
+    if (!workspaceId) return;
+    setActivityLoading(true);
+    try {
+      const res = await api(`/api/workspaces/${workspaceId}/activity?days=7`);
+      setActivityItems(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setActivityItems([]);
+      setToast(err instanceof Error ? err.message : "Could not load activity");
+    } finally {
+      setActivityLoading(false);
+    }
+  }, [api, workspaceId]);
+
+  function openActivity() {
+    setActivityOpen(true);
+    refreshActivity().catch(() => undefined);
   }
 
   function toggleTriageSelected(noteId: string) {
@@ -2435,6 +2474,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     <Inbox size={16} /> Inbox{pipelineCounts.received > 0 ? ` (${pipelineCounts.received})` : ""}
                   </button>
                 )}
+                <button type="button" onClick={openActivity} aria-label="Recent 7-day activity">
+                  <CalendarDays size={16} /> Activity
+                </button>
               </div>
             </div>
 
@@ -3622,6 +3664,50 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         refresh={refreshWorkspaceData}
       />
 
+      {activityOpen && (
+        <div
+          className="sheet-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Recent activity"
+          onClick={() => setActivityOpen(false)}
+        >
+          <aside className="triage-sheet activity-sheet" onClick={(event) => event.stopPropagation()}>
+            <div className="triage-head">
+              <div>
+                <h2><CalendarDays size={18} /> Last 7 days</h2>
+                <p>{activityItems.length} event{activityItems.length === 1 ? "" : "s"} captured / completed / archived this week.</p>
+              </div>
+              <button className="icon-btn" onClick={() => setActivityOpen(false)} aria-label="Close activity">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="triage-list activity-list">
+              {activityLoading && <p className="dashboard-empty">Loading...</p>}
+              {!activityLoading && !activityItems.length && (
+                <p className="dashboard-empty">Nothing recorded this week.</p>
+              )}
+              {activityItems.length > 0 && (
+                <ActivityFeed
+                  groups={activityGroups}
+                  onSelect={(event) => {
+                    setActivityOpen(false);
+                    if (event.kind === "note_created" || event.kind === "note_archived") {
+                      openNote(event.id).catch(() => undefined);
+                    } else if (event.kind === "task_done") {
+                      openMemoryItem("tasks", { id: event.id, title: event.title }).catch(() => undefined);
+                    } else if (event.kind === "project_closed") {
+                      const project = (state?.projects || []).find((p) => p.id === event.id) || { id: event.id, name: event.title };
+                      openProject(project).catch(() => undefined);
+                    }
+                  }}
+                />
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
+
       {triageOpen && (
         <div
           className="sheet-backdrop"
@@ -4607,6 +4693,39 @@ function personSourceBadgeClass(source?: string, state?: string): string {
   if (label === "Collaborator") return "evidence-collaborator";
   if (label === "Manual") return "evidence-manual";
   return "";
+}
+
+function ActivityFeed({
+  groups,
+  onSelect,
+}: {
+  groups: Record<string, any[]>;
+  onSelect: (event: any) => void;
+}) {
+  const order = ["Today", "Yesterday", "This week", "Earlier"];
+  return (
+    <>
+      {order
+        .filter((bucket) => groups[bucket]?.length)
+        .map((bucket) => (
+          <section key={bucket} className="activity-bucket">
+            <h4>{bucket}</h4>
+            {groups[bucket].map((event: any) => (
+              <button
+                key={`${event.kind}-${event.id}`}
+                type="button"
+                className="activity-row"
+                onClick={() => onSelect(event)}
+              >
+                <span className={`activity-kind activity-kind-${event.kind}`}>{ACTIVITY_KIND_LABEL[event.kind] || event.kind}</span>
+                <span className="activity-title">{event.title || "Untitled"}</span>
+                <span className="activity-time">{humanRelativeTime(event.event_at)}</span>
+              </button>
+            ))}
+          </section>
+        ))}
+    </>
+  );
 }
 
 function ProjectDescriptionEditor({

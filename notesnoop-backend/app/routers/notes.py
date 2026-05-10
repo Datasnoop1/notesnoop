@@ -200,6 +200,71 @@ def set_note_projects(note_id: str, payload: NoteProjectSet, user: CurrentUser =
         return {"data": get_note_payload(cur, note_id)}
 
 
+@router.get("/workspaces/{workspace_id}/activity")
+def workspace_activity(workspace_id: str, days: int = 7, user: CurrentUser = Depends(current_user)):
+    days = max(1, min(int(days or 7), 30))
+    with transaction(user.clerk_user_id) as cur:
+        rows: list[dict] = []
+        rows.extend(
+            many(
+                cur,
+                """
+                SELECT 'note_created' AS kind, n.id, coalesce(n.title, left(n.body, 60)) AS title,
+                       n.created_at AS event_at, n.note_kind AS detail
+                FROM notes n
+                WHERE n.workspace_id = %s
+                  AND n.created_at >= now() - (%s::int * INTERVAL '1 day')
+                  AND n.archived_at IS NULL
+                """,
+                (workspace_id, days),
+            )
+        )
+        rows.extend(
+            many(
+                cur,
+                """
+                SELECT 'task_done' AS kind, t.id, t.title, t.updated_at AS event_at, NULL::text AS detail
+                FROM tasks t
+                WHERE t.workspace_id = %s
+                  AND t.status = 'done'
+                  AND t.updated_at >= now() - (%s::int * INTERVAL '1 day')
+                """,
+                (workspace_id, days),
+            )
+        )
+        rows.extend(
+            many(
+                cur,
+                """
+                SELECT 'note_archived' AS kind, n.id, coalesce(n.title, left(n.body, 60)) AS title,
+                       n.archived_at AS event_at, NULL::text AS detail
+                FROM notes n
+                WHERE n.workspace_id = %s
+                  AND n.archived_at IS NOT NULL
+                  AND n.archived_at >= now() - (%s::int * INTERVAL '1 day')
+                """,
+                (workspace_id, days),
+            )
+        )
+        rows.extend(
+            many(
+                cur,
+                """
+                SELECT 'project_closed' AS kind, p.id, p.name AS title, p.closed_at AS event_at,
+                       NULL::text AS detail
+                FROM projects p
+                WHERE p.workspace_id = %s
+                  AND p.status = 'closed'
+                  AND p.closed_at IS NOT NULL
+                  AND p.closed_at >= now() - (%s::int * INTERVAL '1 day')
+                """,
+                (workspace_id, days),
+            )
+        )
+        rows.sort(key=lambda row: str(row.get("event_at") or ""), reverse=True)
+        return {"data": rows[:100], "meta": {"days": days, "count": len(rows[:100])}}
+
+
 @router.get("/workspaces/{workspace_id}/triage")
 def triage_inbox(workspace_id: str, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:

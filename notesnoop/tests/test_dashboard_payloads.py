@@ -388,6 +388,30 @@ def test_review_queue_exposes_source_people_and_source_companies(client):
     assert any(c["id"] == company_id for c in row.get("source_companies") or [])
 
 
+def test_activity_endpoint_returns_recent_events(client):
+    """Verify /workspaces/{id}/activity returns chronological events from last 7 days."""
+    user_id = f"activity_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Activity workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    note = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Activity test note"},
+        headers=headers,
+    )
+    assert note.status_code == 200
+
+    activity = client.get(f"/api/workspaces/{workspace_id}/activity?days=7", headers=headers)
+    assert activity.status_code == 200
+    rows = activity.json()["data"]
+    note_events = [r for r in rows if r["kind"] == "note_created"]
+    assert len(note_events) >= 1
+    assert any("Activity test note" in (r["title"] or "") for r in note_events)
+    assert activity.json()["meta"]["days"] == 7
+
+
 def test_home_week_counts_aggregate_last_seven_days(client):
     """Verify /home returns week_counts aggregating last 7 days of activity."""
     user_id = f"week_user_{uuid.uuid4().hex[:10]}"
