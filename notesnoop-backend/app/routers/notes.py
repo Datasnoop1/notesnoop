@@ -898,7 +898,10 @@ def ask_memory(workspace_id: str, payload: MemoryAskRequest, user: CurrentUser =
                 (literal, *where_params, query_embedding.model, literal),
             )
         notes = _merge_search_rows(keyword_rows, semantic_rows)[:12]
-        memory_results = _memory_search_results(cur, workspace_id, query, payload.project_id, payload.person_id)[:18]
+        memory_results = _merge_memory_results(
+            _memory_search_results(cur, workspace_id, query, payload.project_id, payload.person_id),
+            _memory_context_results(cur, workspace_id, payload.project_id, payload.person_id),
+        )[:18]
         context = {
             "workspace_id": workspace_id,
             "project_id": payload.project_id,
@@ -910,7 +913,7 @@ def ask_memory(workspace_id: str, payload: MemoryAskRequest, user: CurrentUser =
 
 
 def _memory_search_results(cur, workspace_id: str, query: str, project_id: str | None, person_id: str | None) -> list[dict]:
-    pattern = f"%{query}%"
+    terms = _memory_query_terms(query)
     project_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.project_id = %s::uuid)"
     person_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.person_id = %s::uuid)"
     searches = [
@@ -918,7 +921,7 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
             "task",
             "tasks",
             "title",
-            "description",
+            "concat_ws(' - ', status, description)",
             "created_at",
             project_filter.format(link_table="task_projects", id_column="task_id"),
             person_filter.format(link_table="task_people", id_column="task_id"),
@@ -962,6 +965,8 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
     ]
     results: list[dict] = []
     for kind, table, title_column, subtitle_column, sort_column, project_sql, person_sql in searches:
+        match_sql = _memory_match_sql("item", title_column=title_column, subtitle_column=subtitle_column, term_count=len(terms))
+        match_params = [f"%{term}%" for term in terms for _ in range(2)]
         rows = many(
             cur,
             f"""
@@ -972,17 +977,19 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
                    {sort_column} AS sort_at
             FROM {table} item
             WHERE item.workspace_id = %s
-              AND (item.{title_column} ILIKE %s OR coalesce({subtitle_column}, '') ILIKE %s)
+              AND ({match_sql})
               AND ({project_sql})
               AND ({person_sql})
             ORDER BY {sort_column} DESC
             LIMIT 8
             """,
-            (kind, workspace_id, pattern, pattern, project_id, project_id, person_id, person_id),
+            (kind, workspace_id, *match_params, project_id, project_id, person_id, person_id),
         )
         results.extend(rows)
 
     if not person_id:
+        person_match_sql = _memory_match_sql("p", title_column="name", subtitle_column="concat_ws(' ', company, role, email)", term_count=len(terms))
+        person_match_params = [f"%{term}%" for term in terms for _ in range(2)]
         results.extend(
             many(
                 cur,
@@ -994,7 +1001,7 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
                        p.created_at AS sort_at
                 FROM people p
                 WHERE p.workspace_id = %s
-                  AND (p.name ILIKE %s OR coalesce(p.company, '') ILIKE %s OR coalesce(p.role, '') ILIKE %s OR coalesce(p.email, '') ILIKE %s)
+                  AND ({person_match_sql})
                   AND (
                     %s::uuid IS NULL
                     OR EXISTS (
@@ -1008,10 +1015,12 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
                 ORDER BY p.created_at DESC
                 LIMIT 8
                 """,
-                (workspace_id, pattern, pattern, pattern, pattern, project_id, project_id),
+                (workspace_id, *person_match_params, project_id, project_id),
             )
         )
 
+    project_match_sql = _memory_match_sql("p", title_column="name", subtitle_column="kind", term_count=len(terms))
+    project_match_params = [f"%{term}%" for term in terms for _ in range(2)]
     results.extend(
         many(
             cur,
@@ -1024,16 +1033,86 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
             FROM projects p
             WHERE p.workspace_id = %s
               AND p.kind <> 'personal'
-              AND p.name ILIKE %s
+              AND ({project_match_sql})
               AND (%s::uuid IS NULL OR p.id = %s::uuid)
             ORDER BY p.created_at DESC
             LIMIT 8
             """,
-            (workspace_id, pattern, project_id, project_id),
+            (workspace_id, *project_match_params, project_id, project_id),
         )
     )
     results.sort(key=lambda row: str(row.get("sort_at") or ""), reverse=True)
     return results[:30]
+
+
+def _memory_query_terms(query: str) -> list[str]:
+    stop_words = {
+        "a", "an", "and", "are", "about", "for", "from", "has", "have", "is", "me", "of", "on", "or",
+        "show", "tell", "the", "to", "what", "which", "who", "with",
+    }
+    terms = []
+    for term in "".join(char.lower() if char.isalnum() else " " for char in query).split():
+        if len(term) < 3 or term in stop_words:
+            continue
+        if term not in terms:
+            terms.append(term)
+    return terms or [query.strip()]
+
+
+def _memory_match_sql(alias: str, title_column: str, subtitle_column: str, term_count: int) -> str:
+    checks = [
+        f"({alias}.{title_column} ILIKE %s OR coalesce({subtitle_column}, '') ILIKE %s)"
+        for _ in range(term_count)
+    ]
+    return " OR ".join(checks) if checks else "TRUE"
+
+
+def _merge_memory_results(primary: list[dict], fallback: list[dict]) -> list[dict]:
+    seen: set[tuple[str, str]] = set()
+    merged: list[dict] = []
+    for row in [*primary, *fallback]:
+        key = (str(row.get("kind") or ""), str(row.get("id") or ""))
+        if not key[0] or not key[1] or key in seen:
+            continue
+        seen.add(key)
+        merged.append(row)
+    return merged
+
+
+def _memory_context_results(cur, workspace_id: str, project_id: str | None, person_id: str | None) -> list[dict]:
+    if not project_id and not person_id:
+        return []
+    project_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.project_id = %s::uuid)"
+    person_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.person_id = %s::uuid)"
+    searches = [
+        ("task", "tasks", "title", "concat_ws(' - ', status, description)", "coalesce(due_at, created_at)", project_filter.format(link_table="task_projects", id_column="task_id"), person_filter.format(link_table="task_people", id_column="task_id")),
+        ("meeting", "meetings", "title", "summary", "coalesce(occurred_at, created_at)", project_filter.format(link_table="meeting_projects", id_column="meeting_id"), person_filter.format(link_table="meeting_people", id_column="meeting_id")),
+        ("report", "reports", "title", "body", "created_at", project_filter.format(link_table="report_projects", id_column="report_id"), person_filter.format(link_table="report_people", id_column="report_id")),
+        ("workflow", "workflows", "name", "description", "updated_at", project_filter.format(link_table="workflow_projects", id_column="workflow_id"), person_filter.format(link_table="workflow_people", id_column="workflow_id")),
+        ("company", "companies", "name", "coalesce(domain, description)", "updated_at", project_filter.format(link_table="company_projects", id_column="company_id"), person_filter.format(link_table="company_people", id_column="company_id")),
+    ]
+    results: list[dict] = []
+    for kind, table, title_column, subtitle_column, sort_column, project_sql, person_sql in searches:
+        rows = many(
+            cur,
+            f"""
+            SELECT %s AS kind,
+                   item.id,
+                   item.{title_column} AS title,
+                   left(coalesce({subtitle_column}, ''), 260) AS subtitle,
+                   {sort_column} AS sort_at
+            FROM {table} item
+            WHERE item.workspace_id = %s
+              AND ({project_sql})
+              AND ({person_sql})
+            ORDER BY {sort_column} DESC
+            LIMIT 6
+            """,
+            (kind, workspace_id, project_id, project_id, person_id, person_id),
+        )
+        results.extend(rows)
+    results.sort(key=lambda row: str(row.get("sort_at") or ""), reverse=True)
+    return results[:20]
 
 
 def _search_where(

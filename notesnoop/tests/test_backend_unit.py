@@ -24,7 +24,7 @@ import migrate
 from app import auth, email_ingest, main, ollama_client, worker
 from app.briefing import make_unsubscribe_token, parse_unsubscribe_token
 from app.embeddings import EmbeddingResult
-from app.routers import memory, realtime, webhooks
+from app.routers import memory, notes, realtime, webhooks
 
 
 class FakeCursor:
@@ -215,6 +215,7 @@ def test_ollama_extraction_payload_and_validation(monkeypatch):
     assert answer["citations"][0]["label"] == "N1"
     assert answer["citations"][1]["kind"] == "task"
     assert answer["source_counts"] == {"notes": 1, "memory": 1}
+    assert notes._memory_query_terms("What is blocked on Apollo?") == ["blocked", "apollo"]
 
     class RateLimitedResponse:
         status_code = 429
