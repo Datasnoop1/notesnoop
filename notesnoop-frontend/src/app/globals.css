@@ -3458,6 +3458,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   resize: vertical;
   background: #fff;
 }
+
+.person-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-weight: 600;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
 .palette-title {
   font-size: 14px;
   font-weight: 500;

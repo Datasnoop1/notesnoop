@@ -246,6 +246,52 @@ function memoryBriefKind(sectionId: string): MemoryBriefKind {
   return map[sectionId] || "task";
 }
 
+const AVATAR_PALETTE = [
+  { bg: "#fdecec", fg: "#8a2a2a" },
+  { bg: "#ecf2ee", fg: "#1f4a30" },
+  { bg: "#eef2ff", fg: "#29367a" },
+  { bg: "#f4edf7", fg: "#5d326f" },
+  { bg: "#fff4e6", fg: "#6b3b15" },
+  { bg: "#eafaff", fg: "#1f4a5a" },
+  { bg: "#fef3f0", fg: "#6a2f24" },
+  { bg: "#f4efe8", fg: "#5a4423" },
+];
+
+function avatarTone(name: string) {
+  if (!name) return AVATAR_PALETTE[0];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  return AVATAR_PALETTE[Math.abs(hash) % AVATAR_PALETTE.length];
+}
+
+function personInitials(name: string): string {
+  if (!name) return "?";
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((p) => p[0]?.toUpperCase() || "").join("") || "?";
+}
+
+function PersonAvatar({ name, size = 22 }: { name: string; size?: number }) {
+  const tone = avatarTone(name);
+  const initials = personInitials(name);
+  return (
+    <span
+      className="person-avatar"
+      style={{
+        width: size,
+        height: size,
+        background: tone.bg,
+        color: tone.fg,
+        fontSize: Math.round(size * 0.42),
+      }}
+      aria-hidden="true"
+    >
+      {initials}
+    </span>
+  );
+}
+
 function paletteKindLabel(kind: string): string {
   const map: Record<string, string> = {
     note: "Note",
@@ -2189,7 +2235,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   onClick={() => openPerson(person)}
                   aria-label={`Open ${person.name} timeline`}
                 >
-                  <UserRound size={15} /> {person.name}
+                  <PersonAvatar name={person.name} size={20} /> {person.name}
                   {count > 0 && <span className="sidebar-count" aria-label={`${count} tasks assigned`}>{count}</span>}
                 </button>
               );
