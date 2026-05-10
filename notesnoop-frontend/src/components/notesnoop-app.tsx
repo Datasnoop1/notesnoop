@@ -2600,6 +2600,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         }}
         onSuggestionQueued={() => setToast("Suggestion sent to Review.")}
         onOpenMemory={openMemoryItem}
+        onOpenReview={openReviewQueue}
         createProject={async (name) => {
           if (!workspaceId) throw new Error("Workspace is not ready");
           const res = await api(`/api/workspaces/${workspaceId}/projects`, {
@@ -3672,6 +3673,7 @@ function LinkedSheet({
   onReviewDecision,
   onSuggestionQueued,
   onOpenMemory,
+  onOpenReview,
   createProject,
   api,
   refresh,
@@ -3692,6 +3694,7 @@ function LinkedSheet({
   onReviewDecision: (reviewId: string, decision: "accept" | "reject") => Promise<void>;
   onSuggestionQueued: () => void;
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
+  onOpenReview: () => void;
   createProject: (name: string) => Promise<any>;
   api: (path: string, init?: RequestInit) => Promise<any>;
   refresh: () => Promise<void>;
@@ -3712,6 +3715,29 @@ function LinkedSheet({
     setEditMode(false);
     setNewProjectName("");
   }, [note]);
+  useEffect(() => {
+    if (!open || !note) return;
+    if (note.ai_processing_status !== "processing" && note.ai_processing_status !== "queued" && note.ai_processing_status !== "pending") return;
+    let cancelled = false;
+    let attempts = 0;
+    const tick = async () => {
+      if (cancelled) return;
+      attempts += 1;
+      try {
+        await refresh();
+      } catch {
+        // network jitter is fine; we'll try again
+      }
+      if (!cancelled && attempts < 20) {
+        timer = setTimeout(tick, 3000);
+      }
+    };
+    let timer: ReturnType<typeof setTimeout> = setTimeout(tick, 3000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [open, note, refresh]);
   if (!open || !note) return null;
 
   const currentProjectIds = (note.projects || []).map((project: any) => project.id);
@@ -3808,6 +3834,77 @@ function LinkedSheet({
             <span>{note.raw_email_metadata.subject || "No subject"}</span>
           </div>
         )}
+        {!editMode && (() => {
+          const status = note.ai_processing_status;
+          const summaryParts: string[] = [];
+          for (const [kind, count] of Object.entries(memoryCounts) as [string, number][]) {
+            summaryParts.push(`${count} ${kind}${count === 1 ? "" : "s"}`);
+          }
+          const summaryText = summaryParts.length ? summaryParts.join(", ") : "no memory yet";
+          if (status === "processing" || status === "queued" || status === "pending") {
+            return (
+              <div className="extraction-banner extraction-banner-progress" role="status">
+                <span className="extraction-spinner" aria-hidden="true" />
+                <div>
+                  <strong>Extracting memory…</strong>
+                  <small>Reading the note for tasks, meetings, people, projects, and companies. This usually takes a few seconds.</small>
+                </div>
+              </div>
+            );
+          }
+          if (status === "failed") {
+            return (
+              <div className="extraction-banner extraction-banner-failed" role="alert">
+                <X size={18} />
+                <div>
+                  <strong>Extraction failed</strong>
+                  <small>{note.ai_processing_error ? String(note.ai_processing_error).slice(0, 200) : "No detail recorded."}</small>
+                </div>
+                <button type="button" className="extraction-banner-action" onClick={onProcess}>
+                  <Sparkles size={14} /> Retry
+                </button>
+              </div>
+            );
+          }
+          if (status === "processed") {
+            return (
+              <div className="extraction-banner extraction-banner-done">
+                <Sparkles size={18} />
+                <div>
+                  <strong>Found {summaryText}{suggestions.length ? `. ${suggestions.length} need${suggestions.length === 1 ? "s" : ""} your review.` : "."}</strong>
+                  <small>Source-backed and editable. Open any item to refine its relationships.</small>
+                </div>
+                {suggestions.length > 0 && (
+                  <button
+                    type="button"
+                    className="extraction-banner-action primary"
+                    onClick={() => {
+                      onClose();
+                      onOpenReview();
+                    }}
+                  >
+                    Review now
+                  </button>
+                )}
+              </div>
+            );
+          }
+          if (status === "skipped" || status === "unprocessed" || !status) {
+            return (
+              <div className="extraction-banner extraction-banner-idle">
+                <Sparkles size={18} />
+                <div>
+                  <strong>Memory not extracted yet</strong>
+                  <small>You&apos;re in manual mode. Extract memory pulls tasks, people, companies, meetings, and follow-ups out of this note.</small>
+                </div>
+                <button type="button" className="extraction-banner-action primary" onClick={onProcess}>
+                  <Sparkles size={14} /> Extract memory
+                </button>
+              </div>
+            );
+          }
+          return null;
+        })()}
         <div className="memory-workbench" aria-label="Memory workbench">
           <span>
             <Sparkles size={15} />

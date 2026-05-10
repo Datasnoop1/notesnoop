@@ -647,7 +647,7 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(screen.getByRole("button", { name: /Quick brief/i }));
     fireEvent.click(screen.getByRole("button", { name: /Full brief/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Flag$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Extract memory/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Extract memory/i })[0]);
 
     fireEvent.click(screen.getByRole("button", { name: /Edit/i }));
     fireEvent.change(screen.getByLabelText("Note title"), { target: { value: "Edited title" } });
