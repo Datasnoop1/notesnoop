@@ -117,7 +117,8 @@ def person_timeline(person_id: str, user: CurrentUser = Depends(current_user)):
             """,
             (person_id,),
         )
-        return {"data": {"person": person, "notes": notes, "projects": projects, "tasks": tasks, "meetings": meetings, "reports": reports, "companies": companies}}
+        profile = _person_memory_profile(person, notes, projects, tasks, meetings, reports, companies)
+        return {"data": {"person": person, "profile": profile, "notes": notes, "projects": projects, "tasks": tasks, "meetings": meetings, "reports": reports, "companies": companies}}
 
 
 @router.get("/projects/{project_id}/timeline")
@@ -252,9 +253,11 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
             """,
             (project_id,),
         )
+        profile = _project_memory_profile(project, notes, people, members, tasks, meetings, reports, workflows, companies)
         return {
             "data": {
                 "project": project,
+                "profile": profile,
                 "notes": notes,
                 "people": people,
                 "members": members,
@@ -654,6 +657,77 @@ def _is_flagged(cur, user_id: str, note_id: str | None = None, project_id: str |
             (user_id, note_id, project_id, person_id),
         )
     )
+
+
+def _person_memory_profile(
+    person: dict,
+    notes: list[dict],
+    projects: list[dict],
+    tasks: list[dict],
+    meetings: list[dict],
+    reports: list[dict],
+    companies: list[dict],
+) -> dict:
+    open_tasks = [task for task in tasks if task.get("status") not in {"done", "archived"}]
+    blocked_tasks = [task for task in open_tasks if task.get("status") == "blocked"]
+    due_tasks = sorted(
+        [task for task in open_tasks if task.get("due_at")],
+        key=lambda task: task.get("due_at"),
+    )
+    last_touch = _latest_timestamp([*notes, *meetings, *reports], "occurred_at", "created_at")
+    return {
+        "headline": f"{person.get('name')} memory",
+        "last_touch_at": last_touch,
+        "open_loop_count": len(open_tasks),
+        "blocked_count": len(blocked_tasks),
+        "project_count": len(projects),
+        "meeting_count": len(meetings),
+        "report_count": len(reports),
+        "companies": [company.get("name") for company in companies[:4] if company.get("name")],
+        "next_action": due_tasks[0].get("title") if due_tasks else (open_tasks[0].get("title") if open_tasks else None),
+        "top_projects": [project.get("name") for project in projects[:4] if project.get("name")],
+    }
+
+
+def _project_memory_profile(
+    project: dict,
+    notes: list[dict],
+    people: list[dict],
+    members: list[dict],
+    tasks: list[dict],
+    meetings: list[dict],
+    reports: list[dict],
+    workflows: list[dict],
+    companies: list[dict],
+) -> dict:
+    open_tasks = [task for task in tasks if task.get("status") not in {"done", "archived"}]
+    blocked_tasks = [task for task in open_tasks if task.get("status") == "blocked"]
+    last_touch = _latest_timestamp([*notes, *meetings, *reports], "occurred_at", "created_at")
+    return {
+        "headline": f"{project.get('name')} project memory",
+        "last_touch_at": last_touch,
+        "memory_count": len(notes) + len(tasks) + len(meetings) + len(reports) + len(workflows),
+        "open_loop_count": len(open_tasks),
+        "blocked_count": len(blocked_tasks),
+        "people_count": len(people),
+        "member_count": len(members),
+        "meeting_count": len(meetings),
+        "report_count": len(reports),
+        "workflow_count": len(workflows),
+        "companies": [company.get("name") for company in companies[:4] if company.get("name")],
+        "next_action": open_tasks[0].get("title") if open_tasks else None,
+    }
+
+
+def _latest_timestamp(rows: list[dict], *keys: str):
+    values = []
+    for row in rows:
+        for key in keys:
+            value = row.get(key)
+            if value:
+                values.append(value)
+                break
+    return max(values) if values else None
 
 
 def _create_review_person(cur, review: dict, data: dict, user_id: str) -> str | None:

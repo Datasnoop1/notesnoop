@@ -2008,6 +2008,23 @@ function TimelinePanel({
 }) {
   const [mergeTargetId, setMergeTargetId] = useState("");
   const notes = timeline.notes || [];
+  const profile = timeline.profile || {};
+  const profileStats = kind === "project"
+    ? [
+        ["Memory", profile.memory_count],
+        ["Open loops", profile.open_loop_count],
+        ["Blocked", profile.blocked_count],
+        ["People", profile.people_count],
+        ["Meetings", profile.meeting_count],
+        ["Reports", profile.report_count],
+      ]
+    : [
+        ["Open loops", profile.open_loop_count],
+        ["Blocked", profile.blocked_count],
+        ["Projects", profile.project_count],
+        ["Meetings", profile.meeting_count],
+        ["Reports", profile.report_count],
+      ];
   return (
     <div className="timeline-panel">
       <div className="timeline-actions">
@@ -2017,6 +2034,26 @@ function TimelinePanel({
           <button onClick={() => onGenerateReport(timeline.project)}><FileText size={16} /> Generate report</button>
         )}
         <button onClick={onBack}><X size={16} /> Close</button>
+      </div>
+      <div className="memory-profile-card">
+        <div>
+          <span>{kind === "project" ? "Project profile" : "Person profile"}</span>
+          <strong>{profile.headline || (kind === "project" ? timeline.project?.name : timeline.person?.name)}</strong>
+          <small>
+            {profile.last_touch_at ? `Last touch ${new Date(profile.last_touch_at).toLocaleDateString()}` : "No dated touch yet"}
+            {profile.next_action ? ` - Next: ${profile.next_action}` : ""}
+          </small>
+        </div>
+        <div className="profile-stat-grid">
+          {profileStats.map(([label, value]) => (
+            <span key={label}>
+              <strong>{Number(value || 0)}</strong>
+              {label}
+            </span>
+          ))}
+        </div>
+        {!!profile.companies?.length && <p>{profile.companies.join(" - ")}</p>}
+        {!!profile.top_projects?.length && <p>{profile.top_projects.join(" - ")}</p>}
       </div>
       {kind === "person" && (
         <div className="merge-row">

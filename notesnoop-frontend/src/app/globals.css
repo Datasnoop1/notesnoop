@@ -910,6 +910,54 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .entity-row div { display: grid; gap: 2px; }
 .entity-row span { color: var(--muted); font-size: 13px; }
 .timeline-panel { display: grid; gap: 12px; }
+.memory-profile-card {
+  border: 1px solid #bdd7d0;
+  background: #f7fbf8;
+  border-radius: 8px;
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+.memory-profile-card > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+.memory-profile-card span,
+.memory-profile-card small,
+.memory-profile-card p {
+  color: var(--muted);
+}
+.memory-profile-card span {
+  font-size: 12px;
+  text-transform: uppercase;
+}
+.memory-profile-card strong {
+  color: var(--ink);
+}
+.memory-profile-card p {
+  margin: 0;
+  font-size: 13px;
+}
+.profile-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.profile-stat-grid span {
+  border: 1px solid #d8e5e0;
+  background: #fffefb;
+  border-radius: 8px;
+  min-height: 54px;
+  padding: 7px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  text-transform: none;
+}
+.profile-stat-grid strong {
+  font-size: 18px;
+  line-height: 1;
+}
 .timeline-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .timeline-actions button, .merge-row button {
   border: 1px solid var(--line);
