@@ -403,7 +403,8 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             SELECT p.*,
                    max(coalesce(n.occurred_at, n.created_at)) AS last_note_at,
                    count(DISTINCT n.id) AS mention_count,
-                   count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing','blocked')) AS open_task_count
+                   count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing','blocked')) AS open_task_count,
+                   count(DISTINCT t.id) FILTER (WHERE t.status = 'blocked') AS blocked_task_count
             FROM projects p
             LEFT JOIN note_projects np ON np.project_id = p.id
             LEFT JOIN notes n ON n.id = np.note_id

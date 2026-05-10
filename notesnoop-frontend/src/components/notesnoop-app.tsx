@@ -2424,9 +2424,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                       const daysSince = last ? daysSinceNow(last) : null;
                       const stale = daysSince !== null && daysSince > 14;
                       const openTasks = Number(project.open_task_count || 0);
+                      const blocked = Number(project.blocked_task_count || 0);
                       const notes = Number(project.mention_count || 0);
                       const facts: string[] = [];
-                      if (openTasks > 0) facts.push(`${openTasks} open task${openTasks === 1 ? "" : "s"}`);
+                      if (openTasks > 0) {
+                        facts.push(blocked > 0 ? `${openTasks} open (${blocked} blocked)` : `${openTasks} open task${openTasks === 1 ? "" : "s"}`);
+                      }
                       if (notes > 0) facts.push(`${notes} note${notes === 1 ? "" : "s"}`);
                       if (!facts.length) facts.push(project.kind === "inbox" ? "Inbox" : "Project");
                       return (
