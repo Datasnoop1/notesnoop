@@ -152,6 +152,10 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
           recent_projects: [projects[2]],
           recent_people: responsePeople,
           companies: [{ id: "company-1", name: "Northstar", domain: "northstar.example" }],
+          workflows: [
+            { id: "workflow-1", name: "Diligence loop", status: "active", updated_at: "2026-05-10T10:00:00Z" },
+            { id: "workflow-2", name: "Paused outreach", status: "paused", updated_at: "2026-05-09T10:00:00Z" },
+          ],
           flagged: [{ id: "flag-1", label: "Apollo update", target_kind: "note", note_id: "note-1" }],
           recent_notes: responseNotes,
           ...options.home,
@@ -723,6 +727,22 @@ describe("NoteSnoopApp", () => {
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/people"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/send-test-email"))).toBe(true);
     });
+  });
+
+  it("renders Workflows as a first-class sidebar section, active first", async () => {
+    installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByPlaceholderText(/Search notes/i);
+    const diligence = await screen.findByRole("button", { name: /Open workflow Diligence loop/i });
+    const paused = await screen.findByRole("button", { name: /Open workflow Paused outreach/i });
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    const order = Array.from(sidebar.querySelectorAll(".nav-item")).map((el) => el.textContent || "");
+    const diligenceIdx = order.findIndex((t) => t.includes("Diligence loop"));
+    const pausedIdx = order.findIndex((t) => t.includes("Paused outreach"));
+    expect(diligenceIdx).toBeLessThan(pausedIdx);
+    expect(within(paused).getByText("paused")).toBeInTheDocument();
+    expect(diligence).toBeInTheDocument();
   });
 
   it("opens the Cmd-K palette, searches, and routes to a memory item", async () => {

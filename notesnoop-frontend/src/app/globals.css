@@ -2874,6 +2874,21 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .palette-kind-company { background: #fef3f0; color: #6a2f24; border-color: #f5cdc1; }
 .palette-kind-person { background: #f4efe8; color: #5a4423; border-color: #e3d4bb; }
 .palette-kind-project { background: #eaf3ec; color: #1f4a30; border-color: #c7dccd; }
+.workflow-status-pill {
+  margin-left: auto;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 600;
+  background: #f0eee5;
+  color: #5b513a;
+  border: 1px solid #e0d9bf;
+}
+.workflow-status-pill.workflow-status-paused { background: #fff4e0; color: #5b3b15; border-color: #f4d9b6; }
+.workflow-status-pill.workflow-status-retired { background: #f0eded; color: #5a4040; border-color: #d8c9c9; }
+.workflow-status-pill.workflow-status-draft { background: #eef2ff; color: #29367a; border-color: #c7d2fe; }
 .palette-title {
   font-size: 14px;
   font-weight: 500;

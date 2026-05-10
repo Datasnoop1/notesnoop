@@ -1661,6 +1661,18 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         : dashboardNotes.filter((note) => note.note_kind === "report")
   );
   const workflows = home?.workflows || [];
+  const sidebarWorkflows = useMemo(() => {
+    const list = [...(home?.workflows || [])];
+    list.sort((a: any, b: any) => {
+      const aActive = (a.status || "active") === "active" ? 0 : 1;
+      const bActive = (b.status || "active") === "active" ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      const aDate = String(a.updated_at || a.created_at || "");
+      const bDate = String(b.updated_at || b.created_at || "");
+      return bDate.localeCompare(aDate);
+    });
+    return list.slice(0, 5);
+  }, [home?.workflows]);
   const companies = useMemo(() => home?.companies || [], [home?.companies]);
   const looseEnds = home?.loose_ends || {};
   const looseNotesWithoutProject = (looseEnds.notes_without_project || []) as any[];
@@ -2010,6 +2022,26 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 aria-label={`Open ${company.name}`}
               >
                 <Building2 size={15} /> {company.name}
+              </button>
+            ))}
+          </>
+        )}
+        {sidebarWorkflows.length > 0 && (
+          <>
+            <div className="sidebar-label">Workflows</div>
+            {sidebarWorkflows.map((workflow: any) => (
+              <button
+                key={workflow.id}
+                className="nav-item"
+                onClick={() => openMemoryItem("workflows", workflow)}
+                aria-label={`Open workflow ${workflow.name || workflow.title}`}
+              >
+                <Workflow size={15} /> {workflow.name || workflow.title || "Workflow"}
+                {workflow.status && workflow.status !== "active" && (
+                  <span className={`workflow-status-pill workflow-status-${workflow.status}`} aria-label={`Status ${workflow.status}`}>
+                    {workflow.status}
+                  </span>
+                )}
               </button>
             ))}
           </>
