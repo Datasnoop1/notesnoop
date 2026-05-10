@@ -1361,6 +1361,46 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .memory-edit-grid button {
   grid-column: 1 / -1;
 }
+.relation-editor {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8faf8;
+}
+.relation-editor strong {
+  width: 100%;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--muted);
+  letter-spacing: .02em;
+}
+.relation-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 10px 0 8px;
+  background: white;
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+}
+.relation-chip input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--teal);
+}
+.relation-chip.active {
+  border-color: #7bbcaf;
+  background: #e9f6f3;
+}
 .memory-edit-grid button {
   justify-self: start;
   border: 1px solid #173832;

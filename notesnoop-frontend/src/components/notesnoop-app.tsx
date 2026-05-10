@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ClipboardList,
   Copy,
+  Download,
   FileText,
   Flag,
   Inbox,
@@ -72,11 +73,12 @@ type MemoryGraphState = {
 };
 
 type RouteTarget = {
-  kind: "dashboard" | "project" | "person" | "note";
+  kind: "dashboard" | "project" | "person" | "note" | "task" | "meeting" | "report" | "workflow" | "company";
   id?: string | null;
 };
 
 type MemoryBriefKind = "task" | "meeting" | "report" | "workflow" | "company";
+type MemoryRouteKind = MemoryBriefKind;
 
 const API_BASE = process.env.NEXT_PUBLIC_NOTESNOOP_API_URL || "";
 const DEV_AUTH = process.env.NEXT_PUBLIC_NOTESNOOP_DEV_AUTH === "true";
@@ -89,6 +91,27 @@ const NOTE_KIND_LABELS: Record<string, string> = {
   report: "Report",
 };
 const STRUCTURED_REVIEW_KINDS = new Set(["task", "meeting", "report", "workflow", "company"]);
+const MEMORY_ROUTE_PATHS: Record<MemoryRouteKind, string> = {
+  task: "tasks",
+  meeting: "meetings",
+  report: "reports",
+  workflow: "workflows",
+  company: "companies",
+};
+const MEMORY_ROUTE_TO_SECTION: Record<MemoryRouteKind, string> = {
+  task: "tasks",
+  meeting: "meetings",
+  report: "reports",
+  workflow: "workflows",
+  company: "companies",
+};
+const SECTION_TO_MEMORY_ROUTE: Record<string, MemoryRouteKind> = {
+  tasks: "task",
+  meetings: "meeting",
+  reports: "report",
+  workflows: "workflow",
+  companies: "company",
+};
 const STRUCTURED_REVIEW_FIELDS: Record<string, { key: string; label: string; multiline?: boolean }[]> = {
   task: [
     { key: "title", label: "Task title" },
@@ -149,10 +172,17 @@ function routeFromPath(pathname: string, search = ""): RouteTarget {
   if (parts[0] === "projects" && parts[1]) return { kind: "project", id: decodeRouteId(parts[1]) };
   if (parts[0] === "people" && parts[1]) return { kind: "person", id: decodeRouteId(parts[1]) };
   if (parts[0] === "notes" && parts[1]) return { kind: "note", id: decodeRouteId(parts[1]) };
+  for (const [kind, path] of Object.entries(MEMORY_ROUTE_PATHS)) {
+    if (parts[0] === path && parts[1]) return { kind: kind as MemoryRouteKind, id: decodeRouteId(parts[1]) };
+  }
   const params = new URLSearchParams(search);
   if (params.get("project_id")) return { kind: "project", id: params.get("project_id") };
   if (params.get("person_id")) return { kind: "person", id: params.get("person_id") };
   if (params.get("note_id")) return { kind: "note", id: params.get("note_id") };
+  for (const kind of Object.keys(MEMORY_ROUTE_PATHS) as MemoryRouteKind[]) {
+    const id = params.get(`${kind}_id`);
+    if (id) return { kind, id };
+  }
   return { kind: "dashboard" };
 }
 
@@ -166,6 +196,7 @@ function routePath(target: RouteTarget) {
   if (target.kind === "project" && target.id) return `/projects/${encodeURIComponent(target.id)}`;
   if (target.kind === "person" && target.id) return `/people/${encodeURIComponent(target.id)}`;
   if (target.kind === "note" && target.id) return `/notes/${encodeURIComponent(target.id)}`;
+  if (isMemoryRouteKind(target.kind) && target.id) return `/${MEMORY_ROUTE_PATHS[target.kind]}/${encodeURIComponent(target.id)}`;
   return "/";
 }
 
@@ -182,6 +213,36 @@ function memoryBriefKind(sectionId: string): MemoryBriefKind {
     companies: "company",
   };
   return map[sectionId] || "task";
+}
+
+function isMemoryRouteKind(kind: RouteTarget["kind"]): kind is MemoryRouteKind {
+  return kind in MEMORY_ROUTE_PATHS;
+}
+
+function memoryRouteTarget(sectionId: string, item: any): RouteTarget | null {
+  const kind = SECTION_TO_MEMORY_ROUTE[sectionId];
+  if (!kind || !item?.id) return null;
+  return { kind, id: item.id };
+}
+
+function reportMarkdown(item: any, fallbackTitle: string, fallbackBody: string) {
+  const title = String(item?.title || item?.name || fallbackTitle || "Report").trim();
+  const body = String(item?.body || fallbackBody || "").trim();
+  if (body.startsWith("#")) return body;
+  return [`# ${title}`, body].filter(Boolean).join("\n\n");
+}
+
+function downloadName(title: string) {
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  return `${slug || "notesnoop-report"}.md`;
+}
+
+function relationIds(values?: any[]) {
+  return (values || []).map((item) => String(item.id)).filter(Boolean);
+}
+
+function toggleId(values: string[], id: string) {
+  return values.includes(id) ? values.filter((value) => value !== id) : [...values, id];
 }
 
 function reviewPayloadValue(value: any) {
@@ -261,6 +322,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [toast, setToast] = useState("");
   const searchDebounceRef = useRef<number | null>(null);
   const appliedRouteRef = useRef("");
+  const openProjectRef = useRef<((project: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
+  const openMemoryItemRef = useRef<((sectionId: string, item: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
 
   const api = useCallback(
     async (path: string, init: RequestInit = {}) => {
@@ -749,21 +812,22 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setToast(payload.state === "dismissed" ? "Reminder dismissed." : payload.state === "snoozed" ? "Reminder snoozed." : "Reminder updated.");
   }
 
-  async function openMemoryItem(sectionId: string, item: any) {
+  async function openMemoryItem(sectionId: string, item: any, options: { push?: boolean } = {}) {
     if (!workspaceId) return;
     if (sectionId === "intel") {
       const projectId = item.project_id || item.id;
       const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
-      if (project) await openProject(project);
+      if (project) await openProjectRef.current?.(project);
       return;
     }
+    const routeTargetForItem = memoryRouteTarget(sectionId, item);
     const query = activeProject ? `?project_id=${activeProject}` : "";
     const endpointBySection: Record<string, string> = {
-      tasks: `/api/workspaces/${workspaceId}/tasks${query}`,
-      meetings: `/api/workspaces/${workspaceId}/meetings${query}`,
-      reports: `/api/workspaces/${workspaceId}/reports${query}`,
-      workflows: `/api/workspaces/${workspaceId}/workflows${query}`,
-      companies: `/api/workspaces/${workspaceId}/companies`,
+      tasks: item?.id ? `/api/tasks/${item.id}` : `/api/workspaces/${workspaceId}/tasks${query}`,
+      meetings: item?.id ? `/api/meetings/${item.id}` : `/api/workspaces/${workspaceId}/meetings${query}`,
+      reports: item?.id ? `/api/reports/${item.id}` : `/api/workspaces/${workspaceId}/reports${query}`,
+      workflows: item?.id ? `/api/workflows/${item.id}` : `/api/workspaces/${workspaceId}/workflows${query}`,
+      companies: item?.id ? `/api/companies/${item.id}` : `/api/workspaces/${workspaceId}/companies`,
     };
     try {
       const endpoint = endpointBySection[sectionId];
@@ -772,12 +836,27 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         return;
       }
       const res = await api(endpoint);
-      const detail = (res.data || []).find((candidate: any) => candidate.id === item.id) || item;
+      const data = res.data || [];
+      const detail = Array.isArray(data) ? data.find((candidate: any) => candidate.id === item.id) || item : data || item;
       setSelectedMemory({ sectionId, item: detail });
+      if (routeTargetForItem && options.push !== false) {
+        appliedRouteRef.current = routeKey(routeTargetForItem);
+        setRouteTarget(routeTargetForItem);
+        writeAppRoute(routeTargetForItem);
+      }
     } catch {
       setSelectedMemory({ sectionId, item });
+      if (routeTargetForItem && options.push !== false) {
+        appliedRouteRef.current = routeKey(routeTargetForItem);
+        setRouteTarget(routeTargetForItem);
+        writeAppRoute(routeTargetForItem);
+      }
     }
   }
+
+  useEffect(() => {
+    openMemoryItemRef.current = openMemoryItem;
+  });
 
   async function openGraphNode(node: any) {
     if (node.kind === "note") {
@@ -1043,6 +1122,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setMobileNav(false);
   }, [api, writeAppRoute]);
 
+  useEffect(() => {
+    openProjectRef.current = openProject;
+  }, [openProject]);
+
   async function inviteProjectMember(project: any, email: string) {
     if (!email.trim()) return;
     const res = await api(`/api/projects/${project.id}/invites`, {
@@ -1086,6 +1169,41 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     appliedRouteRef.current = routeKey(target);
     setRouteTarget(target);
     writeAppRoute(target);
+  }
+
+  function closeMemorySheet() {
+    setSelectedMemory(null);
+    if (!isMemoryRouteKind(routeTarget.kind)) return;
+    const target = activeProject ? { kind: "project", id: activeProject } as const : { kind: "dashboard" } as const;
+    appliedRouteRef.current = routeKey(target);
+    setRouteTarget(target);
+    writeAppRoute(target);
+  }
+
+  async function copyMemoryLink(sectionId: string, item: any) {
+    const target = memoryRouteTarget(sectionId, item);
+    if (!target) return;
+    await copyRouteLink(target, item.title || item.name || "Memory");
+  }
+
+  async function copyReportMarkdown(item: any) {
+    await navigator.clipboard.writeText(reportMarkdown(item, item?.title || "Report", item?.body || ""));
+    setToast("Report markdown copied.");
+  }
+
+  function downloadReportMarkdown(item: any) {
+    if (typeof window === "undefined") return;
+    const markdown = reportMarkdown(item, item?.title || "Report", item?.body || "");
+    const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = downloadName(item?.title || item?.name || "notesnoop-report");
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+    setToast("Report downloaded.");
   }
 
   async function flag(target: { note_id?: string; project_id?: string; person_id?: string }) {
@@ -1217,8 +1335,17 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         appliedRouteRef.current = "";
         setToast(err.message);
       });
+      return;
     }
-  }, [isSignedIn, openNote, openPerson, openProject, quickCapture, routeTarget, state?.people, state?.projects, state?.workspace]);
+    if (isMemoryRouteKind(routeTarget.kind) && routeTarget.id && (isSignedIn || DEV_AUTH)) {
+      if (!workspaceId) return;
+      appliedRouteRef.current = key;
+      openMemoryItemRef.current?.(MEMORY_ROUTE_TO_SECTION[routeTarget.kind], { id: routeTarget.id }, { push: false }).catch((err) => {
+        appliedRouteRef.current = "";
+        setToast(err.message);
+      });
+    }
+  }, [isSignedIn, openNote, openPerson, openProject, quickCapture, routeTarget, state?.people, state?.projects, state?.workspace, workspaceId]);
 
   useEffect(() => {
     if (!landingProjectId || !state?.projects?.length) return;
@@ -2107,11 +2234,17 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
 
       <MemoryDetailSheet
         memory={selectedMemory}
-        onClose={() => setSelectedMemory(null)}
+        allProjects={state?.projects || []}
+        allPeople={state?.people || []}
+        allCompanies={companies}
+        onClose={closeMemorySheet}
         onTaskStatusChange={updateTaskStatus}
         onUpdateMemory={updateMemoryItem}
         onUpdateReminder={updateReminder}
         onCopyBrief={(sectionId, item, variant) => copyBrief(memoryBriefKind(sectionId), item, variant)}
+        onCopyLink={copyMemoryLink}
+        onCopyReportMarkdown={copyReportMarkdown}
+        onDownloadReportMarkdown={downloadReportMarkdown}
         onOpenNote={openNote}
         onOpenProject={(projectId) => {
           const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
@@ -2353,20 +2486,32 @@ function ReviewSheet({
 
 function MemoryDetailSheet({
   memory,
+  allProjects,
+  allPeople,
+  allCompanies,
   onClose,
   onTaskStatusChange,
   onUpdateMemory,
   onUpdateReminder,
   onCopyBrief,
+  onCopyLink,
+  onCopyReportMarkdown,
+  onDownloadReportMarkdown,
   onOpenNote,
   onOpenProject,
 }: {
   memory: { sectionId: string; item: any } | null;
+  allProjects: any[];
+  allPeople: any[];
+  allCompanies: any[];
   onClose: () => void;
   onTaskStatusChange: (taskId: string, status: "todo" | "doing" | "blocked" | "done") => Promise<void>;
   onUpdateMemory: (sectionId: string, itemId: string, payload: Record<string, unknown>) => Promise<void>;
   onUpdateReminder: (reminderId: string, payload: Record<string, unknown>) => Promise<void>;
   onCopyBrief: (sectionId: string, item: any, variant: "quick" | "full") => Promise<void>;
+  onCopyLink: (sectionId: string, item: any) => Promise<void>;
+  onCopyReportMarkdown: (item: any) => Promise<void>;
+  onDownloadReportMarkdown: (item: any) => void;
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenProject: (projectId: string) => void;
 }) {
@@ -2378,12 +2523,18 @@ function MemoryDetailSheet({
   const [draftBody, setDraftBody] = useState(body);
   const [draftStatus, setDraftStatus] = useState(item.status || "");
   const [draftDate, setDraftDate] = useState(inputDate(item.due_at || item.occurred_at || null));
+  const [draftProjectIds, setDraftProjectIds] = useState<string[]>(relationIds(item.projects));
+  const [draftPersonIds, setDraftPersonIds] = useState<string[]>(relationIds(item.people));
+  const [draftCompanyIds, setDraftCompanyIds] = useState<string[]>(relationIds(item.companies));
   useEffect(() => {
     setDraftTitle(title);
     setDraftBody(body);
     setDraftStatus(item.status || "");
     setDraftDate(inputDate(item.due_at || item.occurred_at || null));
-  }, [body, item.due_at, item.id, item.occurred_at, item.status, title]);
+    setDraftProjectIds(relationIds(item.projects));
+    setDraftPersonIds(relationIds(item.people));
+    setDraftCompanyIds(relationIds(item.companies));
+  }, [body, item.companies, item.due_at, item.id, item.occurred_at, item.people, item.projects, item.status, title]);
   if (!memory) return null;
   const projects = item.projects || [];
   const people = item.people || [];
@@ -2429,6 +2580,11 @@ function MemoryDetailSheet({
       payload.description = draftBody || null;
       if (draftStatus) payload.status = draftStatus;
     }
+    if (["tasks", "meetings", "reports", "workflows", "companies"].includes(sectionId)) {
+      payload.project_ids = draftProjectIds;
+      payload.person_ids = draftPersonIds;
+    }
+    if (sectionId === "reports") payload.company_ids = draftCompanyIds;
     await onUpdateMemory(sectionId, item.id, payload);
   }
   function snoozeUntilTomorrow() {
@@ -2444,6 +2600,9 @@ function MemoryDetailSheet({
     workflows: "Workflow",
     companies: "Company",
   };
+  const editableProjects = allProjects.filter((project) => project.kind !== "inbox");
+  const editablePeople = allPeople.filter((person) => !person.clerk_user_id);
+  const editableCompanies = allCompanies;
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <aside className="linked-sheet memory-detail-sheet" onClick={(event) => event.stopPropagation()}>
@@ -2468,6 +2627,19 @@ function MemoryDetailSheet({
             <button type="button" onClick={() => onCopyBrief(sectionId, item, "full")}>
               <FileText size={16} /> Full brief
             </button>
+            <button type="button" onClick={() => onCopyLink(sectionId, item)}>
+              <Link size={16} /> Copy link
+            </button>
+            {sectionId === "reports" && (
+              <>
+                <button type="button" onClick={() => onCopyReportMarkdown(item)}>
+                  <Copy size={16} /> Copy markdown
+                </button>
+                <button type="button" onClick={() => onDownloadReportMarkdown(item)}>
+                  <Download size={16} /> Download .md
+                </button>
+              </>
+            )}
           </div>
         )}
         {sourceCounts && (
@@ -2494,6 +2666,52 @@ function MemoryDetailSheet({
               </select>
             )}
             <textarea value={draftBody} onChange={(event) => setDraftBody(event.target.value)} rows={4} aria-label="Memory body" />
+            {!!editableProjects.length && (
+              <div className="relation-editor" role="group" aria-label="Linked projects">
+                <strong>Projects</strong>
+                {editableProjects.map((project) => (
+                  <label key={project.id} className={draftProjectIds.includes(project.id) ? "relation-chip active" : "relation-chip"}>
+                    <input
+                      type="checkbox"
+                      checked={draftProjectIds.includes(project.id)}
+                      onChange={() => setDraftProjectIds((current) => toggleId(current, project.id))}
+                    />
+                    <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                    {project.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            {!!editablePeople.length && (
+              <div className="relation-editor" role="group" aria-label="Linked people">
+                <strong>People</strong>
+                {editablePeople.map((person) => (
+                  <label key={person.id} className={draftPersonIds.includes(person.id) ? "relation-chip active" : "relation-chip"}>
+                    <input
+                      type="checkbox"
+                      checked={draftPersonIds.includes(person.id)}
+                      onChange={() => setDraftPersonIds((current) => toggleId(current, person.id))}
+                    />
+                    {person.name}
+                  </label>
+                ))}
+              </div>
+            )}
+            {sectionId === "reports" && !!editableCompanies.length && (
+              <div className="relation-editor" role="group" aria-label="Linked companies">
+                <strong>Companies</strong>
+                {editableCompanies.map((company) => (
+                  <label key={company.id} className={draftCompanyIds.includes(company.id) ? "relation-chip active" : "relation-chip"}>
+                    <input
+                      type="checkbox"
+                      checked={draftCompanyIds.includes(company.id)}
+                      onChange={() => setDraftCompanyIds((current) => toggleId(current, company.id))}
+                    />
+                    {company.name}
+                  </label>
+                ))}
+              </div>
+            )}
             <button type="button" onClick={saveEdits} disabled={!draftTitle.trim()}>
               <Check size={15} /> Save memory
             </button>

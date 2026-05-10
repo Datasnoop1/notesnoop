@@ -194,6 +194,13 @@ def test_project_report_generation_is_scoped_linked_and_counted(client, monkeypa
     assert {row["id"] for row in data["tasks"]} == {task_id}
     assert {row["id"] for row in data["people"]} == {person_id}
     assert {row["id"] for row in data["companies"]} == {company_id}
+    fetched = client.get(f"/api/reports/{data['id']}", headers=owner_headers)
+    assert fetched.status_code == 200
+    fetched_data = fetched.json()["data"]
+    assert fetched_data["title"] == "Apollo source report"
+    assert {row["id"] for row in fetched_data["projects"]} == {project_id}
+    assert {row["id"] for row in fetched_data["tasks"]} == {task_id}
+    assert {row["id"] for row in fetched_data["companies"]} == {company_id}
     assert calls == [
         {
             "project_id": project_id,

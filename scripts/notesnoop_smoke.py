@@ -302,6 +302,9 @@ def run(base_url: str, basic_auth: str | None) -> None:
     assert_true(not any(item["id"] == reminder["id"] for item in dismissed_rows), "task reminder can be dismissed")
     assert_true(any(item["id"] == meeting["id"] for item in home_memory["meetings_calls"]), "dashboard meetings/calls populate from meeting graph")
     assert_true(any(item["id"] == report["id"] for item in home_memory["reports_briefs"]), "dashboard reports/briefs populate from report graph")
+    assert_true(data(owner.get(f"/api/tasks/{task['id']}"))["people"][0]["id"] == avery["id"], "task detail preserves project/person links")
+    assert_true(data(owner.get(f"/api/meetings/{meeting['id']}"))["people"][0]["id"] == avery["id"], "meeting detail preserves multi-entity links")
+    assert_true(data(owner.get(f"/api/reports/{report['id']}"))["tasks"][0]["id"] == task["id"], "report detail preserves task/person/project links")
     assert_true(project_summary["task_counts"]["blocked"] >= 1, "project summary includes task state")
     assert_true(home_memory["project_intelligence"], "project intelligence cards populate")
 

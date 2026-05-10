@@ -151,6 +151,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
           pending_review: responsePending,
           recent_projects: [projects[2]],
           recent_people: responsePeople,
+          companies: [{ id: "company-1", name: "Northstar", domain: "northstar.example" }],
           flagged: [{ id: "flag-1", label: "Apollo update", target_kind: "note", note_id: "note-1" }],
           recent_notes: responseNotes,
           ...options.home,
@@ -260,11 +261,40 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/briefs/")) return json({ data: { markdown: "Brief markdown" } });
     if (url.includes("/api/flags")) return json({ data: { flagged: true } });
     if (url.includes("/api/notes/note-1/process-with-ai")) return json({ data: { queued: true } });
+    if (url.includes("/api/tasks/note-task-1") && (!init?.method || init.method === "GET")) {
+      return json({ data: { ...taskNote, id: "note-task-1", projects: [projects[2]], people: [people[0]], notes: [note] } });
+    }
+    if (url.includes("/api/reports/report-1") && (!init?.method || init.method === "GET")) {
+      return json({
+        data: {
+          id: "report-1",
+          title: "Apollo weekly brief",
+          body: "# Apollo weekly brief\n\nProgress and blockers.",
+          status: "draft",
+          projects: [projects[2]],
+          people,
+          notes: [note],
+          tasks: [{ id: "task-1", title: "Send diligence pack", status: "todo" }],
+          companies: [{ id: "company-1", name: "Northstar" }],
+          source_counts: { notes: 1, tasks: 1, meetings: 0, reports: 0, people: 2, companies: 1 },
+        },
+      });
+    }
     if (url.includes("/api/task-reminders/reminder-1") && init?.method === "PATCH") {
       return json({ data: { id: "reminder-1", remind_at: "2026-05-15T12:00:00Z", ...JSON.parse(String(init.body)) } });
     }
     if (url.includes("/api/tasks/") && init?.method === "PATCH") {
-      return json({ data: { ...taskNote, status: JSON.parse(String(init.body)).status } });
+      const payload = JSON.parse(String(init.body));
+      return json({
+        data: {
+          ...taskNote,
+          ...payload,
+          id: url.split("/api/tasks/")[1]?.split("?")[0] || "note-task-1",
+          projects: projects.filter((project) => payload.project_ids?.includes(project.id)),
+          people: people.filter((person) => payload.person_ids?.includes(person.id)),
+          notes: [note],
+        },
+      });
     }
     if (url.includes("/api/email-blocks")) return json({ data: { deleted_note_id: "note-1" } });
     if (url.includes("/api/notes/note-1/people")) return json({ data: note });
@@ -294,6 +324,14 @@ describe("NoteSnoopApp", () => {
     vi.useRealTimers();
     window.history.replaceState({}, "", "/");
     vi.mocked(navigator.clipboard.writeText).mockClear();
+    Object.defineProperty(window.URL, "createObjectURL", {
+      value: vi.fn(() => "blob:notesnoop-report"),
+      configurable: true,
+    });
+    Object.defineProperty(window.URL, "revokeObjectURL", {
+      value: vi.fn(),
+      configurable: true,
+    });
   });
 
   it("renders dashboard-first workspace data and toggles Morning briefing", async () => {
@@ -341,6 +379,19 @@ describe("NoteSnoopApp", () => {
     const memorySheet = document.querySelector(".memory-detail-sheet") as HTMLElement;
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Quick brief/i }));
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Full brief/i }));
+    fireEvent.click(within(memorySheet).getByLabelText("Jordan Kim"));
+    fireEvent.click(within(memorySheet).getByRole("button", { name: /Save memory/i }));
+    await waitFor(() => {
+      const relationPatch = fetchMock.mock.calls.find(([input, init]) => (
+        String(input).includes("/api/tasks/note-task-1")
+        && init?.method === "PATCH"
+        && String(init.body).includes("person_ids")
+      ));
+      expect(JSON.parse(String(relationPatch?.[1]?.body))).toMatchObject({
+        project_ids: ["project-1"],
+        person_ids: ["person-1", "person-2"],
+      });
+    });
     fireEvent.click(await screen.findByRole("button", { name: /Snooze 1 day/i }));
     await waitFor(() => {
       expect(calls.some((call) => call.includes("GET /api/briefs/task/note-task-1?variant=quick"))).toBe(true);
@@ -458,6 +509,24 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     await waitFor(() => expect(window.location.pathname).toBe("/"));
+  });
+
+  it("opens a report from a durable route and exports markdown", async () => {
+    const { calls } = installFetch();
+    window.history.replaceState({}, "", "/reports/report-1?workspace_id=workspace-1");
+    render(<NoteSnoopApp quickCapture={false} initialRoute={{ kind: "report", id: "report-1" }} />);
+
+    expect(await screen.findByRole("heading", { name: "Apollo weekly brief" })).toBeInTheDocument();
+    const memorySheet = document.querySelector(".memory-detail-sheet") as HTMLElement;
+    fireEvent.click(within(memorySheet).getByRole("button", { name: /^Copy link$/i }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://localhost:3000/reports/report-1?workspace_id=workspace-1"));
+    fireEvent.click(within(memorySheet).getByRole("button", { name: /Copy markdown/i }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("# Apollo weekly brief")));
+    fireEvent.click(within(memorySheet).getByRole("button", { name: /Download \.md/i }));
+
+    expect(calls.some((call) => call.includes("GET /api/reports/report-1"))).toBe(true);
+    expect(window.URL.createObjectURL).toHaveBeenCalled();
+    expect(window.URL.revokeObjectURL).toHaveBeenCalledWith("blob:notesnoop-report");
   });
 
   it("saves a quick capture note and opens the linked-entities sheet", async () => {

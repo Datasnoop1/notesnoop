@@ -118,6 +118,15 @@ def update_company(company_id: str, payload: CompanyUpdate, user: CurrentUser = 
         return {"data": _company_payload(cur, company_id)}
 
 
+@router.get("/companies/{company_id}")
+def get_company(company_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        company = _company_payload(cur, company_id)
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+        return {"data": company}
+
+
 @router.get("/workspaces/{workspace_id}/tasks")
 def list_tasks(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
@@ -265,6 +274,15 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
         if payload.note_ids is not None:
             _replace_links(cur, "task_notes", "task_id", "note_id", task_id, workspace_id, payload.note_ids, user.clerk_user_id)
         return {"data": _task_payload(cur, task_id)}
+
+
+@router.get("/tasks/{task_id}")
+def get_task(task_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        task = _task_payload(cur, task_id)
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return {"data": task}
 
 
 @router.get("/workspaces/{workspace_id}/reminders")
@@ -438,6 +456,15 @@ def update_meeting(meeting_id: str, payload: MeetingUpdate, user: CurrentUser = 
         return {"data": _meeting_payload(cur, meeting_id)}
 
 
+@router.get("/meetings/{meeting_id}")
+def get_meeting(meeting_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        meeting = _meeting_payload(cur, meeting_id)
+        if not meeting:
+            raise HTTPException(status_code=404, detail="Meeting not found")
+        return {"data": meeting}
+
+
 @router.get("/workspaces/{workspace_id}/reports")
 def list_reports(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
@@ -551,6 +578,15 @@ def update_report(report_id: str, payload: ReportUpdate, user: CurrentUser = Dep
         if payload.task_ids is not None:
             _replace_links(cur, "report_tasks", "report_id", "task_id", report_id, workspace_id, payload.task_ids, user.clerk_user_id)
         return {"data": _report_payload(cur, report_id)}
+
+
+@router.get("/reports/{report_id}")
+def get_report(report_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        report = _report_payload(cur, report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        return {"data": report}
 
 
 @router.get("/workspaces/{workspace_id}/workflows")
@@ -694,6 +730,15 @@ def update_workflow(workflow_id: str, payload: WorkflowUpdate, user: CurrentUser
                     (workflow_id, task_id, workspace_id, position, user.clerk_user_id),
                 )
         return {"data": _workflow_payload(cur, workflow_id)}
+
+
+@router.get("/workflows/{workflow_id}")
+def get_workflow(workflow_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        workflow = _workflow_payload(cur, workflow_id)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        return {"data": workflow}
 
 
 @router.get("/workspaces/{workspace_id}/memory-graph")

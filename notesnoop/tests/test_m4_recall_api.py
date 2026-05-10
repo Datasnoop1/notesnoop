@@ -243,6 +243,30 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
         headers=headers,
     )
     assert workflow.status_code == 200
+    meeting = client.post(
+        f"/api/workspaces/{workspace_id}/meetings",
+        json={
+            "title": "Apollo partner sync",
+            "summary": "Reviewed diligence ownership across Morgan and Jordan.",
+            "project_ids": [project_id],
+            "person_ids": [person_id, suggested_person_id],
+            "note_ids": [note_id],
+        },
+        headers=headers,
+    )
+    assert meeting.status_code == 200
+    task_detail = client.get(f"/api/tasks/{graph_only_task_id}", headers=headers)
+    assert task_detail.status_code == 200
+    assert {row["id"] for row in task_detail.json()["data"]["people"]} == {person_id}
+    company_detail = client.get(f"/api/companies/{company.json()['data']['id']}", headers=headers)
+    assert company_detail.status_code == 200
+    assert {row["id"] for row in company_detail.json()["data"]["projects"]} == {project_id}
+    meeting_detail = client.get(f"/api/meetings/{meeting.json()['data']['id']}", headers=headers)
+    assert meeting_detail.status_code == 200
+    assert {row["id"] for row in meeting_detail.json()["data"]["people"]} == {person_id, suggested_person_id}
+    workflow_detail = client.get(f"/api/workflows/{workflow.json()['data']['id']}", headers=headers)
+    assert workflow_detail.status_code == 200
+    assert {row["id"] for row in workflow_detail.json()["data"]["tasks"]} == {graph_only_task_id}
     task_brief = client.get(f"/api/briefs/task/{graph_only_task_id}", params={"variant": "full"}, headers=headers)
     assert task_brief.status_code == 200
     task_brief_markdown = task_brief.json()["data"]["markdown"]
