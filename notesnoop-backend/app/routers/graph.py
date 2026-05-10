@@ -338,6 +338,58 @@ def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentU
                 """,
                 (entity_id,),
             )
+            tasks = many(
+                cur,
+                """
+                SELECT t.title, t.status, t.due_at
+                FROM tasks t
+                JOIN task_people tp ON tp.task_id = t.id
+                WHERE tp.person_id = %s
+                  AND t.status NOT IN ('done','archived')
+                ORDER BY
+                  CASE t.status WHEN 'blocked' THEN 1 WHEN 'doing' THEN 2 WHEN 'todo' THEN 3 WHEN 'done' THEN 4 ELSE 5 END,
+                  t.due_at NULLS LAST,
+                  t.created_at DESC
+                LIMIT %s
+                """,
+                (entity_id, 8 if full else 4),
+            )
+            meetings = many(
+                cur,
+                """
+                SELECT m.title, m.occurred_at, m.created_at
+                FROM meetings m
+                JOIN meeting_people mp ON mp.meeting_id = m.id
+                WHERE mp.person_id = %s
+                ORDER BY coalesce(m.occurred_at, m.created_at) DESC
+                LIMIT %s
+                """,
+                (entity_id, 6 if full else 3),
+            )
+            reports = many(
+                cur,
+                """
+                SELECT r.title, r.status, r.created_at
+                FROM reports r
+                JOIN report_people rp ON rp.report_id = r.id
+                WHERE rp.person_id = %s
+                ORDER BY r.created_at DESC
+                LIMIT %s
+                """,
+                (entity_id, 6 if full else 3),
+            )
+            companies = many(
+                cur,
+                """
+                SELECT c.name, cp.role
+                FROM companies c
+                JOIN company_people cp ON cp.company_id = c.id
+                WHERE cp.person_id = %s
+                ORDER BY c.name
+                LIMIT 5
+                """,
+                (entity_id,),
+            )
             notes = many(
                 cur,
                 """
@@ -365,10 +417,21 @@ def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentU
             lines = [
                 f"# {person['name']}",
                 f"Company: {person.get('company') or 'Not set'}",
+                f"Memory: {len(notes)} shared notes, {len(tasks)} open loops, {len(meetings)} meetings/calls, {len(reports)} reports",
                 f"Top projects: {', '.join(p['name'] for p in projects[:3]) or 'None yet'}",
             ]
+            if companies:
+                lines.append(f"Companies: {', '.join(c['name'] for c in companies)}")
+            if tasks:
+                lines += ["Open loops:", *[f"- {t['status']}: {t['title']}{f' (due {t['due_at']})' if t.get('due_at') else ''}" for t in tasks]]
+            if meetings:
+                lines += ["Recent meetings/calls:", *[f"- {m.get('occurred_at') or m.get('created_at')}: {m['title']}" for m in meetings]]
+            if reports:
+                lines += ["Reports/briefs:", *[f"- {r['status']}: {r['title']}" for r in reports]]
             if notes:
                 lines += ["Recent notes:", *[f"- {n['created_at']}: {n['title']}" for n in notes]]
+            if len(notes) < 3 and not tasks and not meetings:
+                lines.append("Thin data: this person memory is still early.")
             if private_count and private_count["n"]:
                 lines.append(f"+ {private_count['n']} notes in private projects")
             return {"data": {"markdown": "\n".join(lines)}}
@@ -390,6 +453,70 @@ def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentU
             """,
             (entity_id,),
         )
+        tasks = many(
+            cur,
+            """
+            SELECT t.title, t.status, t.due_at
+            FROM tasks t
+            JOIN task_projects tp ON tp.task_id = t.id
+            WHERE tp.project_id = %s
+              AND t.status NOT IN ('done','archived')
+            ORDER BY
+              CASE t.status WHEN 'blocked' THEN 1 WHEN 'doing' THEN 2 WHEN 'todo' THEN 3 WHEN 'done' THEN 4 ELSE 5 END,
+              t.due_at NULLS LAST,
+              t.created_at DESC
+            LIMIT %s
+            """,
+            (entity_id, 10 if full else 5),
+        )
+        meetings = many(
+            cur,
+            """
+            SELECT m.title, m.occurred_at, m.created_at
+            FROM meetings m
+            JOIN meeting_projects mp ON mp.meeting_id = m.id
+            WHERE mp.project_id = %s
+            ORDER BY coalesce(m.occurred_at, m.created_at) DESC
+            LIMIT %s
+            """,
+            (entity_id, 8 if full else 4),
+        )
+        reports = many(
+            cur,
+            """
+            SELECT r.title, r.status, r.created_at
+            FROM reports r
+            JOIN report_projects rp ON rp.report_id = r.id
+            WHERE rp.project_id = %s
+            ORDER BY r.created_at DESC
+            LIMIT %s
+            """,
+            (entity_id, 8 if full else 4),
+        )
+        workflows = many(
+            cur,
+            """
+            SELECT w.name, w.status, w.updated_at
+            FROM workflows w
+            JOIN workflow_projects wp ON wp.workflow_id = w.id
+            WHERE wp.project_id = %s
+            ORDER BY w.updated_at DESC
+            LIMIT %s
+            """,
+            (entity_id, 8 if full else 4),
+        )
+        companies = many(
+            cur,
+            """
+            SELECT c.name, c.domain
+            FROM companies c
+            JOIN company_projects cp ON cp.company_id = c.id
+            WHERE cp.project_id = %s
+            ORDER BY c.name
+            LIMIT 6
+            """,
+            (entity_id,),
+        )
         notes = many(
             cur,
             """
@@ -404,11 +531,25 @@ def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentU
         )
         lines = [
             f"# {project['name']}",
+            f"Scope: {'Personal project - review before sharing' if project.get('kind') == 'personal' else 'Shared project memory'}",
+            f"Memory: {len(notes)} notes, {len(tasks)} open loops, {len(meetings)} meetings/calls, {len(reports)} reports, {len(workflows)} workflows",
             f"Top people: {', '.join(p['name'] for p in people[:3]) or 'None confirmed yet'}",
             f"Flagged: {'yes' if _is_flagged(cur, user.clerk_user_id, project_id=entity_id) else 'no'}",
         ]
+        if companies:
+            lines.append(f"Companies: {', '.join(c['name'] for c in companies)}")
+        if tasks:
+            lines += ["Open loops:", *[f"- {t['status']}: {t['title']}{f' (due {t['due_at']})' if t.get('due_at') else ''}" for t in tasks]]
+        if meetings:
+            lines += ["Recent meetings/calls:", *[f"- {m.get('occurred_at') or m.get('created_at')}: {m['title']}" for m in meetings]]
+        if reports:
+            lines += ["Reports/briefs:", *[f"- {r['status']}: {r['title']}" for r in reports]]
+        if workflows:
+            lines += ["Workflows:", *[f"- {w['status']}: {w['name']}" for w in workflows]]
         if notes:
             lines += ["Recent notes:", *[f"- {n['created_at']}: {n['title']}" for n in notes]]
+        if len(notes) < 3 and not tasks and not meetings:
+            lines.append("Thin data: this project memory is still early.")
         return {"data": {"markdown": "\n".join(lines)}}
 
 
