@@ -352,6 +352,9 @@ def test_workspace_scoped_tables_have_rls_policies(conn):
         "report_notes",
         "report_tasks",
         "report_companies",
+        "report_meetings",
+        "report_workflows",
+        "report_reports",
     }
     with conn.cursor() as cur:
         cur.execute(

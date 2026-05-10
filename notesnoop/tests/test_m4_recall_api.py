@@ -231,6 +231,7 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
         headers=headers,
     )
     assert company.status_code == 200
+    company_id = company.json()["data"]["id"]
     workflow = client.post(
         f"/api/workspaces/{workspace_id}/workflows",
         json={
@@ -243,6 +244,7 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
         headers=headers,
     )
     assert workflow.status_code == 200
+    workflow_id = workflow.json()["data"]["id"]
     meeting = client.post(
         f"/api/workspaces/{workspace_id}/meetings",
         json={
@@ -255,28 +257,65 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
         headers=headers,
     )
     assert meeting.status_code == 200
+    meeting_id = meeting.json()["data"]["id"]
     task_detail = client.get(f"/api/tasks/{graph_only_task_id}", headers=headers)
     assert task_detail.status_code == 200
     assert {row["id"] for row in task_detail.json()["data"]["people"]} == {person_id}
-    company_detail = client.get(f"/api/companies/{company.json()['data']['id']}", headers=headers)
+    company_detail = client.get(f"/api/companies/{company_id}", headers=headers)
     assert company_detail.status_code == 200
     assert {row["id"] for row in company_detail.json()["data"]["projects"]} == {project_id}
-    meeting_detail = client.get(f"/api/meetings/{meeting.json()['data']['id']}", headers=headers)
+    meeting_detail = client.get(f"/api/meetings/{meeting_id}", headers=headers)
     assert meeting_detail.status_code == 200
     assert {row["id"] for row in meeting_detail.json()["data"]["people"]} == {person_id, suggested_person_id}
-    workflow_detail = client.get(f"/api/workflows/{workflow.json()['data']['id']}", headers=headers)
+    workflow_detail = client.get(f"/api/workflows/{workflow_id}", headers=headers)
     assert workflow_detail.status_code == 200
     assert {row["id"] for row in workflow_detail.json()["data"]["tasks"]} == {graph_only_task_id}
+    report = client.post(
+        f"/api/workspaces/{workspace_id}/reports",
+        json={
+            "title": "Apollo relationship memory report",
+            "body": "Diligence status across Morgan, Northstar, the workflow, and the partner sync.",
+            "project_ids": [project_id],
+            "person_ids": [person_id],
+            "company_ids": [company_id],
+            "note_ids": [note_id],
+            "task_ids": [graph_only_task_id],
+            "meeting_ids": [meeting_id],
+            "workflow_ids": [workflow_id],
+        },
+        headers=headers,
+    )
+    assert report.status_code == 200
+    report_id = report.json()["data"]["id"]
+    followup_report = client.post(
+        f"/api/workspaces/{workspace_id}/reports",
+        json={
+            "title": "Apollo cited report",
+            "body": "Builds on the relationship memory report.",
+            "project_ids": [project_id],
+            "report_ids": [report_id],
+        },
+        headers=headers,
+    )
+    assert followup_report.status_code == 200
+    followup_report_id = followup_report.json()["data"]["id"]
+    report_detail = client.get(f"/api/reports/{report_id}", headers=headers)
+    assert report_detail.status_code == 200
+    assert {row["id"] for row in report_detail.json()["data"]["meetings"]} == {meeting_id}
+    assert {row["id"] for row in report_detail.json()["data"]["workflows"]} == {workflow_id}
+    followup_detail = client.get(f"/api/reports/{followup_report_id}", headers=headers)
+    assert followup_detail.status_code == 200
+    assert {row["id"] for row in followup_detail.json()["data"]["source_reports"]} == {report_id}
     task_brief = client.get(f"/api/briefs/task/{graph_only_task_id}", params={"variant": "full"}, headers=headers)
     assert task_brief.status_code == 200
     task_brief_markdown = task_brief.json()["data"]["markdown"]
     assert "Project-only Apollo board prep" in task_brief_markdown
     assert "Projects: Apollo" in task_brief_markdown
     assert "People: Morgan Lee" in task_brief_markdown
-    company_brief = client.get(f"/api/briefs/company/{company.json()['data']['id']}", headers=headers)
+    company_brief = client.get(f"/api/briefs/company/{company_id}", headers=headers)
     assert company_brief.status_code == 200
     assert "Northstar Advisory" in company_brief.json()["data"]["markdown"]
-    workflow_brief = client.get(f"/api/briefs/workflow/{workflow.json()['data']['id']}", headers=headers)
+    workflow_brief = client.get(f"/api/briefs/workflow/{workflow_id}", headers=headers)
     assert workflow_brief.status_code == 200
     workflow_markdown = workflow_brief.json()["data"]["markdown"]
     assert "Apollo diligence workflow" in workflow_markdown
@@ -300,6 +339,44 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     assert ask_data["citations"]
     assert ask_data["source_counts"]["memory"] >= 1
     assert "Prepare Apollo diligence pack" in ask_data["answer"]
+    ask_report = client.post(
+        f"/api/workspaces/{workspace_id}/ask/report",
+        json={
+            "query": "What diligence memory exists for Apollo?",
+            "answer": ask_data["answer"],
+            "confidence": ask_data["confidence"],
+            "citations": ask_data["citations"],
+            "source_counts": ask_data["source_counts"],
+            "project_id": project_id,
+            "person_id": person_id,
+        },
+        headers=headers,
+    )
+    assert ask_report.status_code == 200
+    ask_report_data = ask_report.json()["data"]
+    assert ask_report_data["source_kind"] == "ask_memory"
+    assert ask_report_data["generation_confidence"] == ask_data["confidence"]
+    assert {row["id"] for row in ask_report_data["projects"]} == {project_id}
+    assert {row["id"] for row in ask_report_data["people"]} == {person_id}
+    assert ask_report_data["source_counts"] == ask_data["source_counts"]
+    ask_task = client.post(
+        f"/api/workspaces/{workspace_id}/ask/task",
+        json={
+            "query": "What diligence memory exists for Apollo?",
+            "answer": ask_data["answer"],
+            "title": "Follow up from diligence memory",
+            "confidence": ask_data["confidence"],
+            "citations": ask_data["citations"],
+            "project_id": project_id,
+            "person_id": person_id,
+        },
+        headers=headers,
+    )
+    assert ask_task.status_code == 200
+    ask_task_data = ask_task.json()["data"]
+    assert ask_task_data["source_kind"] == "ask_memory"
+    assert {row["id"] for row in ask_task_data["projects"]} == {project_id}
+    assert {row["id"] for row in ask_task_data["people"]} == {person_id}
     note_memory = client.get(f"/api/notes/{note_id}", headers=headers)
     assert note_memory.status_code == 200
     linked_memory = {(row["kind"], row["title"]) for row in note_memory.json()["data"]["memory_links"]}
@@ -315,10 +392,13 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     graph_nodes = {(row["kind"], row["id"]) for row in graph_data["nodes"]}
     graph_edges = {(row["from_kind"], row["from_id"], row["relation"], row["to_kind"], row["to_id"]) for row in graph_data["edges"]}
     assert ("task", graph_only_task_id) in graph_nodes
-    assert ("workflow", workflow.json()["data"]["id"]) in graph_nodes
+    assert ("workflow", workflow_id) in graph_nodes
     assert ("task", graph_only_task_id, "filed_in", "project", project_id) in graph_edges
     assert ("task", graph_only_task_id, "assignee", "person", person_id) in graph_edges
-    assert ("workflow", workflow.json()["data"]["id"], "contains", "task", graph_only_task_id) in graph_edges
+    assert ("workflow", workflow_id, "contains", "task", graph_only_task_id) in graph_edges
+    assert ("report", report_id, "cites", "meeting", meeting_id) in graph_edges
+    assert ("report", report_id, "covers", "workflow", workflow_id) in graph_edges
+    assert ("report", followup_report_id, "builds_on", "report", report_id) in graph_edges
 
     recent = client.get(f"/api/workspaces/{workspace_id}/search", params={"q": ""}, headers=headers)
     assert recent.status_code == 200

@@ -194,6 +194,12 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
         meta: { semantic_enabled: false, semantic_excluded: 0, memory_results: memoryResults },
       });
     }
+    if (url.includes("/api/workspaces/workspace-1/ask/report") && init?.method === "POST") {
+      return json({ data: { id: "report-created", ...JSON.parse(String(init.body)), status: "draft", projects: [projects[2]] } });
+    }
+    if (url.includes("/api/workspaces/workspace-1/ask/task") && init?.method === "POST") {
+      return json({ data: { id: "task-created", ...JSON.parse(String(init.body)), status: "todo", projects: [projects[2]] } });
+    }
     if (url.includes("/api/workspaces/workspace-1/ask")) {
       return json({
         data: {
@@ -357,19 +363,23 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(within(dashboard).getByRole("button", { name: /Copy answer/i }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("What is blocked on Apollo?")));
     fireEvent.click(within(dashboard).getByRole("button", { name: /Save report/i }));
-    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/reports"))).toBe(true));
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/ask/report"))).toBe(true));
     const reportCall = fetchMock.mock.calls.find(([input, init]) => (
-      String(input).includes("/api/workspaces/workspace-1/reports") && init?.method === "POST"
+      String(input).includes("/api/workspaces/workspace-1/ask/report") && init?.method === "POST"
     ));
     expect(JSON.parse(String(reportCall?.[1]?.body))).toMatchObject({
+      query: "What is blocked on Apollo?",
       title: "What is blocked on Apollo?",
-      status: "draft",
-      note_ids: ["note-1"],
-      task_ids: ["note-task-1"],
+      confidence: 0.74,
+      citations: [
+        { kind: "note", id: "note-1", title: "Apollo update", label: "N1" },
+        { kind: "task", id: "note-task-1", title: "Send Apollo follow-up", label: "M1" },
+      ],
+      source_counts: { notes: 1, memory: 1 },
     });
     fireEvent.click(await screen.findByRole("button", { name: /Close memory/i }));
     fireEvent.click(within(dashboard).getByRole("button", { name: /Create task/i }));
-    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/tasks"))).toBe(true));
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/ask/task"))).toBe(true));
     expect(within(dashboard).getByRole("tab", { name: /Open tasks1/i })).toHaveAttribute("aria-selected", "true");
     expect(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByRole("button", { name: /Mark task done/i }));

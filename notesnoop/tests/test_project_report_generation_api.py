@@ -128,6 +128,20 @@ def test_project_report_generation_is_scoped_linked_and_counted(client, monkeypa
     assert task.status_code == 200
     task_id = task.json()["data"]["id"]
 
+    meeting = client.post(
+        f"/api/workspaces/{workspace_id}/meetings",
+        json={
+            "title": "Apollo weekly sync",
+            "summary": "Covered pricing and diligence blockers.",
+            "project_ids": [project_id],
+            "person_ids": [person_id],
+            "note_ids": [note_id],
+        },
+        headers=owner_headers,
+    )
+    assert meeting.status_code == 200
+    meeting_id = meeting.json()["data"]["id"]
+
     company = client.post(
         f"/api/workspaces/{workspace_id}/companies",
         json={
@@ -140,6 +154,23 @@ def test_project_report_generation_is_scoped_linked_and_counted(client, monkeypa
     )
     assert company.status_code == 200
     company_id = company.json()["data"]["id"]
+
+    prior_report = client.post(
+        f"/api/workspaces/{workspace_id}/reports",
+        json={
+            "title": "Apollo prior report",
+            "body": "Previous status and open questions.",
+            "project_ids": [project_id],
+            "person_ids": [person_id],
+            "company_ids": [company_id],
+            "note_ids": [note_id],
+            "task_ids": [task_id],
+            "meeting_ids": [meeting_id],
+        },
+        headers=owner_headers,
+    )
+    assert prior_report.status_code == 200
+    prior_report_id = prior_report.json()["data"]["id"]
 
     with psycopg2.connect(DATABASE_URL) as conn:
         with conn.cursor() as cur:
@@ -183,15 +214,17 @@ def test_project_report_generation_is_scoped_linked_and_counted(client, monkeypa
         "projects": 1,
         "notes": 1,
         "tasks": 1,
-        "meetings": 0,
-        "reports": 0,
+        "meetings": 1,
+        "reports": 1,
         "people": 1,
         "companies": 1,
-        "total": 5,
+        "total": 7,
     }
     assert {row["id"] for row in data["projects"]} == {project_id}
     assert {row["id"] for row in data["notes"]} == {note_id}
     assert {row["id"] for row in data["tasks"]} == {task_id}
+    assert {row["id"] for row in data["meetings"]} == {meeting_id}
+    assert {row["id"] for row in data["source_reports"]} == {prior_report_id}
     assert {row["id"] for row in data["people"]} == {person_id}
     assert {row["id"] for row in data["companies"]} == {company_id}
     fetched = client.get(f"/api/reports/{data['id']}", headers=owner_headers)
@@ -200,14 +233,16 @@ def test_project_report_generation_is_scoped_linked_and_counted(client, monkeypa
     assert fetched_data["title"] == "Apollo source report"
     assert {row["id"] for row in fetched_data["projects"]} == {project_id}
     assert {row["id"] for row in fetched_data["tasks"]} == {task_id}
+    assert {row["id"] for row in fetched_data["meetings"]} == {meeting_id}
+    assert {row["id"] for row in fetched_data["source_reports"]} == {prior_report_id}
     assert {row["id"] for row in fetched_data["companies"]} == {company_id}
     assert calls == [
         {
             "project_id": project_id,
             "notes": [note_id],
             "tasks": [task_id],
-            "meetings": [],
-            "reports": [],
+            "meetings": [meeting_id],
+            "reports": [prior_report_id],
             "people": [person_id],
             "companies": [company_id],
             "variant": "quick",

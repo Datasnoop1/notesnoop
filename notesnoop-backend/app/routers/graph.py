@@ -876,6 +876,9 @@ def _copy_memory_object_brief(cur, kind: str, entity_id: str, full: bool) -> dic
             "note_link": ("report_notes", "report_id"),
             "task_link": ("report_tasks", "report_id"),
             "company_link": ("report_companies", "report_id"),
+            "meeting_link": ("report_meetings", "report_id"),
+            "report_link": ("report_reports", "report_id"),
+            "workflow_link": ("report_workflows", "report_id"),
         },
         "workflow": {
             "table": "workflows",
@@ -969,6 +972,51 @@ def _copy_memory_object_brief(cur, kind: str, entity_id: str, full: bool) -> dic
             """,
             (entity_id,),
         )
+    meetings = []
+    if config.get("meeting_link"):
+        meeting_table, meeting_column = config["meeting_link"]
+        meetings = many(
+            cur,
+            f"""
+            SELECT m.title
+            FROM meetings m
+            JOIN {meeting_table} link ON link.meeting_id = m.id
+            WHERE link.{meeting_column} = %s
+            ORDER BY coalesce(m.occurred_at, m.created_at) DESC
+            LIMIT 8
+            """,
+            (entity_id,),
+        )
+    source_reports = []
+    if config.get("report_link"):
+        report_table, report_column = config["report_link"]
+        source_reports = many(
+            cur,
+            f"""
+            SELECT r.title
+            FROM reports r
+            JOIN {report_table} link ON link.source_report_id = r.id
+            WHERE link.{report_column} = %s
+            ORDER BY r.created_at DESC
+            LIMIT 8
+            """,
+            (entity_id,),
+        )
+    workflows = []
+    if config.get("workflow_link"):
+        workflow_table, workflow_column = config["workflow_link"]
+        workflows = many(
+            cur,
+            f"""
+            SELECT w.name AS title
+            FROM workflows w
+            JOIN {workflow_table} link ON link.workflow_id = w.id
+            WHERE link.{workflow_column} = %s
+            ORDER BY w.updated_at DESC
+            LIMIT 8
+            """,
+            (entity_id,),
+        )
 
     title = str(row.get(config["title"]) or f"Untitled {kind}").strip()
     status = row.get("status") or row.get("priority") or row.get("domain") or ""
@@ -989,12 +1037,18 @@ def _copy_memory_object_brief(cur, kind: str, entity_id: str, full: bool) -> dic
         lines.append(f"Companies: {', '.join(company['name'] for company in companies)}")
     if tasks:
         lines += ["Linked tasks:", *[f"- {task['status']}: {task['title']}" for task in tasks]]
+    if meetings:
+        lines += ["Linked meetings:", *[f"- {meeting['title']}" for meeting in meetings]]
+    if workflows:
+        lines += ["Linked workflows:", *[f"- {workflow['title']}" for workflow in workflows]]
+    if source_reports:
+        lines += ["Source reports:", *[f"- {report['title']}" for report in source_reports]]
     body = str(row.get(config["body"]) or "").strip()
     if body:
         lines += ["", body[:5000 if full else 1200]]
     if notes:
         lines += ["Source notes:", *[f"- {note['created_at']}: {note['title']}" for note in notes]]
-    if not any((projects, people, notes, tasks, companies)):
+    if not any((projects, people, notes, tasks, companies, meetings, workflows, source_reports)):
         lines.append(f"Thin data: this {kind} is not linked to supporting memory yet.")
     if any(project.get("kind") == "personal" for project in projects):
         lines.append("Personal-project safeguard: review before sharing outside Personal.")

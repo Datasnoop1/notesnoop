@@ -952,12 +952,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
-  function askCitationIds(kind: string) {
-    return (askResult?.citations || [])
-      .filter((citation: any) => citation.kind === kind && citation.id)
-      .map((citation: any) => citation.id);
-  }
-
   function askBody() {
     const sources = (askResult?.citations || [])
       .slice(0, 12)
@@ -973,17 +967,17 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setBusy(true);
     try {
       const personId = personTimeline?.person?.id || searchFilters.person_id || undefined;
-      const res = await api(`/api/workspaces/${workspaceId}/reports`, {
+      const res = await api(`/api/workspaces/${workspaceId}/ask/report`, {
         method: "POST",
         body: JSON.stringify({
+          query: askQuestion.trim(),
+          answer: String(askResult?.answer || "").trim(),
           title: askQuestion.trim().slice(0, 180),
-          body: askBody(),
-          status: "draft",
-          project_ids: activeProject ? [activeProject] : undefined,
-          person_ids: personId ? [personId] : undefined,
-          note_ids: askCitationIds("note"),
-          task_ids: askCitationIds("task"),
-          company_ids: askCitationIds("company"),
+          confidence: askResult.confidence,
+          citations: askResult.citations || [],
+          source_counts: askResult.source_counts || {},
+          project_id: activeProject || undefined,
+          person_id: personId,
         }),
       });
       await refreshWorkspaceData();
@@ -1003,16 +997,16 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setBusy(true);
     try {
       const personId = personTimeline?.person?.id || searchFilters.person_id || undefined;
-      const res = await api(`/api/workspaces/${workspaceId}/tasks`, {
+      const res = await api(`/api/workspaces/${workspaceId}/ask/task`, {
         method: "POST",
         body: JSON.stringify({
+          query: askQuestion.trim(),
+          answer: String(askResult?.answer || "").trim(),
           title: `Follow up: ${askQuestion.trim()}`.slice(0, 220),
-          description: askBody(),
-          status: "todo",
-          priority: 3,
-          project_ids: activeProject ? [activeProject] : undefined,
-          person_ids: personId ? [personId] : undefined,
-          note_ids: askCitationIds("note"),
+          confidence: askResult.confidence,
+          citations: askResult.citations || [],
+          project_id: activeProject || undefined,
+          person_id: personId,
         }),
       });
       await refreshWorkspaceData();

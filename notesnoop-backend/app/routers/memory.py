@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -11,6 +12,8 @@ from ..schemas import (
     CompanyUpdate,
     MeetingCreate,
     MeetingUpdate,
+    MemoryAskSaveReportRequest,
+    MemoryAskSaveTaskRequest,
     ProjectReportGenerateRequest,
     ReportCreate,
     ReportUpdate,
@@ -503,6 +506,9 @@ def create_report(workspace_id: str, payload: ReportCreate, user: CurrentUser = 
         _validate_company_ids(cur, workspace_id, payload.company_ids or [])
         _validate_note_ids(cur, workspace_id, payload.note_ids or [])
         _validate_task_ids(cur, workspace_id, payload.task_ids or [])
+        _validate_meeting_ids(cur, workspace_id, payload.meeting_ids or [])
+        _validate_report_ids(cur, workspace_id, payload.report_ids or [])
+        _validate_workflow_ids(cur, workspace_id, payload.workflow_ids or [])
         cur.execute(
             """
             INSERT INTO reports (workspace_id, title, body, status, period_start, period_end, created_by)
@@ -525,6 +531,9 @@ def create_report(workspace_id: str, payload: ReportCreate, user: CurrentUser = 
         _link_many(cur, "report_companies", "report_id", "company_id", report["id"], workspace_id, payload.company_ids or [], user.clerk_user_id)
         _link_many(cur, "report_notes", "report_id", "note_id", report["id"], workspace_id, payload.note_ids or [], user.clerk_user_id)
         _link_many(cur, "report_tasks", "report_id", "task_id", report["id"], workspace_id, payload.task_ids or [], user.clerk_user_id)
+        _link_many(cur, "report_meetings", "report_id", "meeting_id", report["id"], workspace_id, payload.meeting_ids or [], user.clerk_user_id)
+        _link_many(cur, "report_reports", "report_id", "source_report_id", report["id"], workspace_id, payload.report_ids or [], user.clerk_user_id)
+        _link_many(cur, "report_workflows", "report_id", "workflow_id", report["id"], workspace_id, payload.workflow_ids or [], user.clerk_user_id)
         return {"data": _report_payload(cur, str(report["id"]))}
 
 
@@ -547,6 +556,12 @@ def update_report(report_id: str, payload: ReportUpdate, user: CurrentUser = Dep
             _validate_note_ids(cur, workspace_id, payload.note_ids)
         if payload.task_ids is not None:
             _validate_task_ids(cur, workspace_id, payload.task_ids)
+        if payload.meeting_ids is not None:
+            _validate_meeting_ids(cur, workspace_id, payload.meeting_ids)
+        if payload.report_ids is not None:
+            _validate_report_ids(cur, workspace_id, [item for item in payload.report_ids if item != report_id])
+        if payload.workflow_ids is not None:
+            _validate_workflow_ids(cur, workspace_id, payload.workflow_ids)
         cur.execute(
             """
             UPDATE reports
@@ -577,6 +592,21 @@ def update_report(report_id: str, payload: ReportUpdate, user: CurrentUser = Dep
             _replace_links(cur, "report_notes", "report_id", "note_id", report_id, workspace_id, payload.note_ids, user.clerk_user_id)
         if payload.task_ids is not None:
             _replace_links(cur, "report_tasks", "report_id", "task_id", report_id, workspace_id, payload.task_ids, user.clerk_user_id)
+        if payload.meeting_ids is not None:
+            _replace_links(cur, "report_meetings", "report_id", "meeting_id", report_id, workspace_id, payload.meeting_ids, user.clerk_user_id)
+        if payload.report_ids is not None:
+            _replace_links(
+                cur,
+                "report_reports",
+                "report_id",
+                "source_report_id",
+                report_id,
+                workspace_id,
+                [item for item in payload.report_ids if item != report_id],
+                user.clerk_user_id,
+            )
+        if payload.workflow_ids is not None:
+            _replace_links(cur, "report_workflows", "report_id", "workflow_id", report_id, workspace_id, payload.workflow_ids, user.clerk_user_id)
         return {"data": _report_payload(cur, report_id)}
 
 
@@ -587,6 +617,124 @@ def get_report(report_id: str, user: CurrentUser = Depends(current_user)):
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         return {"data": report}
+
+
+@router.post("/workspaces/{workspace_id}/ask/report")
+def save_ask_memory_report(workspace_id: str, payload: MemoryAskSaveReportRequest, user: CurrentUser = Depends(current_user)):
+    title = (payload.title or payload.query).strip()[:240]
+    body = _ask_report_body(payload.query, payload.answer, payload.citations)
+    with transaction(user.clerk_user_id) as cur:
+        _ensure_workspace_access(cur, workspace_id)
+        source_ids = _ask_source_ids(payload.citations, payload.project_id, payload.person_id)
+        _validate_project_ids(cur, workspace_id, source_ids["project"])
+        _validate_person_ids(cur, workspace_id, source_ids["person"])
+        _validate_company_ids(cur, workspace_id, source_ids["company"])
+        _validate_note_ids(cur, workspace_id, source_ids["note"])
+        _validate_task_ids(cur, workspace_id, source_ids["task"])
+        _validate_meeting_ids(cur, workspace_id, source_ids["meeting"])
+        _validate_report_ids(cur, workspace_id, source_ids["report"])
+        _validate_workflow_ids(cur, workspace_id, source_ids["workflow"])
+        source_payload = {
+            "kind": "ask_memory",
+            "query": payload.query.strip(),
+            "citations": _citation_payload(payload.citations),
+            "source_counts": payload.source_counts,
+        }
+        cur.execute(
+            """
+            INSERT INTO reports (
+              workspace_id, title, body, status, created_by, source_kind,
+              source_confidence, source_payload
+            )
+            VALUES (%s, %s, %s, 'draft', %s, 'ask_memory', %s, %s::jsonb)
+            RETURNING *
+            """,
+            (
+                workspace_id,
+                title,
+                body,
+                user.clerk_user_id,
+                payload.confidence,
+                json.dumps(source_payload, default=str),
+            ),
+        )
+        report = dict(cur.fetchone())
+        report_id = str(report["id"])
+        _link_many(cur, "report_projects", "report_id", "project_id", report_id, workspace_id, source_ids["project"], user.clerk_user_id)
+        _link_many(cur, "report_people", "report_id", "person_id", report_id, workspace_id, source_ids["person"], user.clerk_user_id)
+        _link_many(cur, "report_companies", "report_id", "company_id", report_id, workspace_id, source_ids["company"], user.clerk_user_id)
+        _link_many(cur, "report_notes", "report_id", "note_id", report_id, workspace_id, source_ids["note"], user.clerk_user_id)
+        _link_many(cur, "report_tasks", "report_id", "task_id", report_id, workspace_id, source_ids["task"], user.clerk_user_id)
+        _link_many(cur, "report_meetings", "report_id", "meeting_id", report_id, workspace_id, source_ids["meeting"], user.clerk_user_id)
+        _link_many(cur, "report_reports", "report_id", "source_report_id", report_id, workspace_id, source_ids["report"], user.clerk_user_id)
+        _link_many(cur, "report_workflows", "report_id", "workflow_id", report_id, workspace_id, source_ids["workflow"], user.clerk_user_id)
+        created = _report_payload(cur, report_id)
+        if created is not None:
+            created["generation_confidence"] = payload.confidence
+            created["source_counts"] = payload.source_counts
+        return {"data": created}
+
+
+@router.post("/workspaces/{workspace_id}/ask/task")
+def save_ask_memory_task(workspace_id: str, payload: MemoryAskSaveTaskRequest, user: CurrentUser = Depends(current_user)):
+    title = (payload.title or f"Follow up: {payload.query.strip()}").strip()[:240]
+    description = _ask_task_description(payload.query, payload.answer, payload.citations)
+    with transaction(user.clerk_user_id) as cur:
+        _ensure_workspace_access(cur, workspace_id)
+        source_ids = _ask_source_ids(payload.citations, payload.project_id, payload.person_id)
+        _validate_project_ids(cur, workspace_id, source_ids["project"])
+        _validate_person_ids(cur, workspace_id, source_ids["person"])
+        _validate_note_ids(cur, workspace_id, source_ids["note"])
+        _validate_task_ids(cur, workspace_id, source_ids["task"])
+        _validate_company_ids(cur, workspace_id, source_ids["company"])
+        _validate_meeting_ids(cur, workspace_id, source_ids["meeting"])
+        _validate_report_ids(cur, workspace_id, source_ids["report"])
+        _validate_workflow_ids(cur, workspace_id, source_ids["workflow"])
+        source_payload = {
+            "kind": "ask_memory",
+            "query": payload.query.strip(),
+            "citations": _citation_payload(payload.citations),
+            "linked_memory_ids": {
+                "company": source_ids["company"],
+                "meeting": source_ids["meeting"],
+                "report": source_ids["report"],
+                "workflow": source_ids["workflow"],
+                "task": source_ids["task"],
+            },
+        }
+        cur.execute(
+            """
+            INSERT INTO tasks (
+              workspace_id, title, description, status, priority, due_at, created_by,
+              source_kind, source_confidence, source_payload
+            )
+            VALUES (%s, %s, %s, 'todo', 3, %s, %s, 'ask_memory', %s, %s::jsonb)
+            RETURNING *
+            """,
+            (
+                workspace_id,
+                title,
+                description,
+                payload.due_at,
+                user.clerk_user_id,
+                payload.confidence,
+                json.dumps(source_payload, default=str),
+            ),
+        )
+        task = dict(cur.fetchone())
+        task_id = str(task["id"])
+        _link_many(cur, "task_projects", "task_id", "project_id", task_id, workspace_id, source_ids["project"], user.clerk_user_id)
+        for person_id in source_ids["person"]:
+            cur.execute(
+                """
+                INSERT INTO task_people (task_id, person_id, workspace_id, relation, linked_by)
+                VALUES (%s, %s, %s, 'assignee', %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (task_id, person_id, workspace_id, user.clerk_user_id),
+            )
+        _link_many(cur, "task_notes", "task_id", "note_id", task_id, workspace_id, source_ids["note"], user.clerk_user_id)
+        return {"data": _task_payload(cur, task_id)}
 
 
 @router.get("/workspaces/{workspace_id}/workflows")
@@ -958,6 +1106,18 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
             FROM report_companies
             WHERE report_id = ANY(%s::uuid[]) AND company_id = ANY(%s::uuid[])
             UNION ALL
+            SELECT 'report', report_id::text, 'meeting', meeting_id::text, 'cites'
+            FROM report_meetings
+            WHERE report_id = ANY(%s::uuid[]) AND meeting_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'report', report_id::text, 'report', source_report_id::text, 'builds_on'
+            FROM report_reports
+            WHERE report_id = ANY(%s::uuid[]) AND source_report_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'report', report_id::text, 'workflow', workflow_id::text, 'covers'
+            FROM report_workflows
+            WHERE report_id = ANY(%s::uuid[]) AND workflow_id = ANY(%s::uuid[])
+            UNION ALL
             SELECT 'workflow', workflow_id::text, 'note', note_id::text, 'sourced_from'
             FROM workflow_notes
             WHERE workflow_id = ANY(%s::uuid[]) AND note_id = ANY(%s::uuid[])
@@ -1000,6 +1160,9 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
                 report_ids, project_ids,
                 report_ids, task_ids,
                 report_ids, company_ids,
+                report_ids, meeting_ids,
+                report_ids, report_ids,
+                report_ids, workflow_ids,
                 workflow_ids, note_ids,
                 workflow_ids, task_ids,
                 workflow_ids, person_ids,
@@ -1219,33 +1382,53 @@ def generate_project_memory_report(project_id: str, payload: ProjectReportGenera
     with transaction(user.clerk_user_id) as cur:
         project = _load_reportable_project(cur, project_id)
         workspace_id = str(project["workspace_id"])
+        source_counts = {
+            "projects": len(project_ids),
+            "notes": len(note_ids),
+            "tasks": len(task_ids),
+            "meetings": len(meeting_ids),
+            "reports": len(prior_report_ids),
+            "people": len(person_ids),
+            "companies": len(company_ids),
+        }
+        source_counts["total"] = sum(source_counts.values())
         cur.execute(
             """
-            INSERT INTO reports (workspace_id, title, body, status, created_by)
-            VALUES (%s, %s, %s, 'draft', %s)
+            INSERT INTO reports (
+              workspace_id, title, body, status, created_by, source_kind,
+              source_confidence, source_payload
+            )
+            VALUES (%s, %s, %s, 'draft', %s, 'project_report', %s, %s::jsonb)
             RETURNING *
             """,
-            (workspace_id, title, body, user.clerk_user_id),
+            (
+                workspace_id,
+                title,
+                body,
+                user.clerk_user_id,
+                generated.get("confidence"),
+                json.dumps(
+                    {
+                        "kind": "project_report",
+                        "variant": payload.variant,
+                        "project_id": project_id,
+                        "source_counts": source_counts,
+                    },
+                    default=str,
+                ),
+            ),
         )
         report = dict(cur.fetchone())
         report_id = str(report["id"])
         _link_many(cur, "report_projects", "report_id", "project_id", report_id, workspace_id, project_ids, user.clerk_user_id)
         _link_many(cur, "report_notes", "report_id", "note_id", report_id, workspace_id, note_ids, user.clerk_user_id)
         _link_many(cur, "report_tasks", "report_id", "task_id", report_id, workspace_id, task_ids, user.clerk_user_id)
+        _link_many(cur, "report_meetings", "report_id", "meeting_id", report_id, workspace_id, meeting_ids, user.clerk_user_id)
+        _link_many(cur, "report_reports", "report_id", "source_report_id", report_id, workspace_id, prior_report_ids, user.clerk_user_id)
         _link_many(cur, "report_people", "report_id", "person_id", report_id, workspace_id, person_ids, user.clerk_user_id)
         _link_many(cur, "report_companies", "report_id", "company_id", report_id, workspace_id, company_ids, user.clerk_user_id)
         created = _report_payload(cur, report_id)
         if created is not None:
-            source_counts = {
-                "projects": len(project_ids),
-                "notes": len(note_ids),
-                "tasks": len(task_ids),
-                "meetings": len(meeting_ids),
-                "reports": len(prior_report_ids),
-                "people": len(person_ids),
-                "companies": len(company_ids),
-            }
-            source_counts["total"] = sum(source_counts.values())
             created["generation_confidence"] = generated.get("confidence")
             created["source_counts"] = source_counts
         return {"data": created}
@@ -1341,6 +1524,66 @@ def _display_note(note: dict) -> str:
     return body[:80] or "(untitled)"
 
 
+def _citation_payload(citations) -> list[dict]:
+    items = []
+    for citation in citations:
+        items.append(
+            {
+                "kind": citation.kind,
+                "id": citation.id,
+                "title": citation.title,
+                "label": citation.label,
+            }
+        )
+    return items
+
+
+def _ask_source_ids(citations, project_id: str | None = None, person_id: str | None = None) -> dict[str, list[str]]:
+    ids = {
+        "note": [],
+        "task": [],
+        "meeting": [],
+        "report": [],
+        "workflow": [],
+        "company": [],
+        "person": [],
+        "project": [],
+    }
+    for citation in citations:
+        if citation.kind in ids and citation.id:
+            ids[citation.kind].append(citation.id)
+    if project_id:
+        ids["project"].append(project_id)
+    if person_id:
+        ids["person"].append(person_id)
+    return {kind: _dedupe(values) for kind, values in ids.items()}
+
+
+def _ask_report_body(query: str, answer: str, citations) -> str:
+    lines = [f"# {query.strip()}", answer.strip()]
+    source_lines = _ask_source_lines(citations)
+    if source_lines:
+        lines.append("## Sources\n" + "\n".join(source_lines))
+    return "\n\n".join(line for line in lines if line)
+
+
+def _ask_task_description(query: str, answer: str, citations) -> str:
+    lines = [f"Created from Ask Memory: {query.strip()}", answer.strip()]
+    source_lines = _ask_source_lines(citations)
+    if source_lines:
+        lines.append("Sources:\n" + "\n".join(source_lines))
+    return "\n\n".join(line for line in lines if line)
+
+
+def _ask_source_lines(citations) -> list[str]:
+    lines = []
+    for citation in citations[:20]:
+        title = citation.title or citation.id
+        label = citation.label or citation.kind
+        lines.append(f"- {label}: {citation.kind} - {title}")
+    return lines
+
+
 def _ensure_workspace_access(cur, workspace_id: str) -> None:
     if not one(cur, "SELECT id FROM workspaces WHERE id = %s", (workspace_id,)):
         raise HTTPException(status_code=404, detail="Workspace not found")
@@ -1360,6 +1603,18 @@ def _validate_note_ids(cur, workspace_id: str, ids: list[str]) -> None:
 
 def _validate_task_ids(cur, workspace_id: str, ids: list[str]) -> None:
     _validate_ids(cur, "tasks", workspace_id, ids, "One or more tasks are unavailable")
+
+
+def _validate_meeting_ids(cur, workspace_id: str, ids: list[str]) -> None:
+    _validate_ids(cur, "meetings", workspace_id, ids, "One or more meetings are unavailable")
+
+
+def _validate_report_ids(cur, workspace_id: str, ids: list[str]) -> None:
+    _validate_ids(cur, "reports", workspace_id, ids, "One or more reports are unavailable")
+
+
+def _validate_workflow_ids(cur, workspace_id: str, ids: list[str]) -> None:
+    _validate_ids(cur, "workflows", workspace_id, ids, "One or more workflows are unavailable")
 
 
 def _validate_company_ids(cur, workspace_id: str, ids: list[str]) -> None:
@@ -1455,6 +1710,9 @@ def _report_payload(cur, report_id: str) -> dict | None:
     report["companies"] = many(cur, "SELECT c.* FROM companies c JOIN report_companies rc ON rc.company_id = c.id WHERE rc.report_id = %s ORDER BY c.name", (report_id,))
     report["notes"] = many(cur, "SELECT n.* FROM notes n JOIN report_notes rn ON rn.note_id = n.id WHERE rn.report_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (report_id,))
     report["tasks"] = many(cur, "SELECT t.* FROM tasks t JOIN report_tasks rt ON rt.task_id = t.id WHERE rt.report_id = %s ORDER BY t.created_at DESC", (report_id,))
+    report["meetings"] = many(cur, "SELECT m.* FROM meetings m JOIN report_meetings rm ON rm.meeting_id = m.id WHERE rm.report_id = %s ORDER BY coalesce(m.occurred_at, m.created_at) DESC", (report_id,))
+    report["source_reports"] = many(cur, "SELECT r.* FROM reports r JOIN report_reports rr ON rr.source_report_id = r.id WHERE rr.report_id = %s ORDER BY r.created_at DESC", (report_id,))
+    report["workflows"] = many(cur, "SELECT w.* FROM workflows w JOIN report_workflows rw ON rw.workflow_id = w.id WHERE rw.report_id = %s ORDER BY w.updated_at DESC", (report_id,))
     return report
 
 

@@ -285,6 +285,7 @@ def run(base_url: str, basic_auth: str | None) -> None:
                 "person_ids": [avery["id"]],
                 "note_ids": [note["id"]],
                 "task_ids": [task["id"]],
+                "meeting_ids": [meeting["id"]],
             },
         )
     )
@@ -304,7 +305,9 @@ def run(base_url: str, basic_auth: str | None) -> None:
     assert_true(any(item["id"] == report["id"] for item in home_memory["reports_briefs"]), "dashboard reports/briefs populate from report graph")
     assert_true(data(owner.get(f"/api/tasks/{task['id']}"))["people"][0]["id"] == avery["id"], "task detail preserves project/person links")
     assert_true(data(owner.get(f"/api/meetings/{meeting['id']}"))["people"][0]["id"] == avery["id"], "meeting detail preserves multi-entity links")
-    assert_true(data(owner.get(f"/api/reports/{report['id']}"))["tasks"][0]["id"] == task["id"], "report detail preserves task/person/project links")
+    report_detail = data(owner.get(f"/api/reports/{report['id']}"))
+    assert_true(report_detail["tasks"][0]["id"] == task["id"], "report detail preserves task/person/project links")
+    assert_true(report_detail["meetings"][0]["id"] == meeting["id"], "report detail preserves meeting source links")
     assert_true(project_summary["task_counts"]["blocked"] >= 1, "project summary includes task state")
     assert_true(home_memory["project_intelligence"], "project intelligence cards populate")
 
@@ -328,29 +331,31 @@ def run(base_url: str, basic_auth: str | None) -> None:
     )
     ask = data(owner.post(f"/api/workspaces/{workspace_id}/ask", {"query": "What is blocked on Apollo?", "project_id": project["id"]}))
     assert_true(ask["citations"] and ask["source_counts"]["memory"] >= 1, "ask memory returns grounded citations")
-    ask_note_ids = [item["id"] for item in ask["citations"] if item.get("kind") == "note"]
-    ask_task_ids = [item["id"] for item in ask["citations"] if item.get("kind") == "task"]
     ask_report = data(
         owner.post(
-            f"/api/workspaces/{workspace_id}/reports",
+            f"/api/workspaces/{workspace_id}/ask/report",
             {
+                "query": "What is blocked on Apollo?",
+                "answer": ask["answer"],
                 "title": f"Ask memory brief {suffix}",
-                "body": ask["answer"],
-                "project_ids": [project["id"]],
-                "note_ids": ask_note_ids,
-                "task_ids": ask_task_ids,
+                "confidence": ask.get("confidence"),
+                "citations": ask["citations"],
+                "source_counts": ask.get("source_counts", {}),
+                "project_id": project["id"],
             },
         )
     )
     ask_task = data(
         owner.post(
-            f"/api/workspaces/{workspace_id}/tasks",
+            f"/api/workspaces/{workspace_id}/ask/task",
             {
+                "query": "What is blocked on Apollo?",
+                "answer": ask["answer"],
                 "title": f"Follow up from Ask Memory {suffix}",
-                "description": ask["answer"],
-                "project_ids": [project["id"]],
-                "person_ids": [avery["id"]],
-                "note_ids": ask_note_ids,
+                "confidence": ask.get("confidence"),
+                "citations": ask["citations"],
+                "project_id": project["id"],
+                "person_id": avery["id"],
             },
         )
     )

@@ -79,6 +79,35 @@ class MemoryAskRequest(BaseModel):
     date_to: str | None = None
 
 
+class MemoryAskCitation(BaseModel):
+    kind: str = Field(pattern="^(note|task|meeting|report|workflow|company|person|project)$")
+    id: str = Field(min_length=1)
+    title: str | None = None
+    label: str | None = None
+
+
+class MemoryAskSaveReportRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=500)
+    answer: str = Field(min_length=1)
+    title: str | None = Field(default=None, max_length=240)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    citations: list[MemoryAskCitation] = Field(default_factory=list)
+    source_counts: dict[str, Any] = Field(default_factory=dict)
+    project_id: str | None = None
+    person_id: str | None = None
+
+
+class MemoryAskSaveTaskRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=500)
+    answer: str = Field(min_length=1)
+    title: str | None = Field(default=None, max_length=240)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    citations: list[MemoryAskCitation] = Field(default_factory=list)
+    project_id: str | None = None
+    person_id: str | None = None
+    due_at: datetime | None = None
+
+
 class NoteProjectSet(BaseModel):
     project_ids: list[str] = Field(min_length=1)
     confirm_personal_move: bool = False
@@ -150,6 +179,9 @@ class ReportCreate(BaseModel):
     company_ids: list[str] | None = None
     note_ids: list[str] | None = None
     task_ids: list[str] | None = None
+    meeting_ids: list[str] | None = None
+    report_ids: list[str] | None = None
+    workflow_ids: list[str] | None = None
 
 
 class ProjectReportGenerateRequest(BaseModel):
@@ -168,6 +200,9 @@ class ReportUpdate(BaseModel):
     company_ids: list[str] | None = None
     note_ids: list[str] | None = None
     task_ids: list[str] | None = None
+    meeting_ids: list[str] | None = None
+    report_ids: list[str] | None = None
+    workflow_ids: list[str] | None = None
 
 
 class WorkflowCreate(BaseModel):

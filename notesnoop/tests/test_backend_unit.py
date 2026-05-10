@@ -597,10 +597,15 @@ def test_generated_project_report_links_deduped_sources_and_counts(monkeypatch):
     def params_for(fragment: str) -> list[tuple]:
         return [params for sql, params in write_cursor.executed if fragment in sql]
 
-    assert params_for("INSERT INTO reports")[0] == ("workspace-1", "Custom report", "Grounded body", "user-1")
+    insert_params = params_for("INSERT INTO reports")[0]
+    assert insert_params[:4] == ("workspace-1", "Custom report", "Grounded body", "user-1")
+    assert insert_params[4] == 0.81
+    assert json.loads(insert_params[5])["source_counts"]["total"] == 9
     assert params_for("INSERT INTO report_projects") == [("report-1", "project-1", "workspace-1", "user-1")]
     assert [params[1] for params in params_for("INSERT INTO report_notes")] == ["note-1", "note-2"]
     assert [params[1] for params in params_for("INSERT INTO report_tasks")] == ["task-1"]
+    assert [params[1] for params in params_for("INSERT INTO report_meetings")] == ["meeting-1"]
+    assert [params[1] for params in params_for("INSERT INTO report_reports")] == ["prior-report-1"]
     assert [params[1] for params in params_for("INSERT INTO report_people")] == ["person-1", "person-2"]
     assert [params[1] for params in params_for("INSERT INTO report_companies")] == ["company-1"]
 
