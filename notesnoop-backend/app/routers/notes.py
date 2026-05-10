@@ -1151,6 +1151,7 @@ def search(
     date_from: str | None = None,
     date_to: str | None = None,
     flagged_only: bool = False,
+    note_kind: str | None = None,
     user: CurrentUser = Depends(current_user),
 ):
     query = q.strip()
@@ -1169,6 +1170,7 @@ def search(
             date_from,
             date_to,
             flagged_only,
+            note_kind,
         )
         if not query:
             rows = many(
@@ -1241,6 +1243,7 @@ def search(
                     "date_from": date_from,
                     "date_to": date_to,
                     "flagged_only": flagged_only,
+                    "note_kind": note_kind,
                 },
             }
         return {"data": rows, "meta": meta}
@@ -1520,6 +1523,7 @@ def _search_where(
     date_from: str | None,
     date_to: str | None,
     flagged_only: bool,
+    note_kind: str | None = None,
 ) -> tuple[str, list]:
     clauses = ["n.workspace_id = %s"]
     params: list = [workspace_id]
@@ -1545,6 +1549,9 @@ def _search_where(
     if date_to:
         clauses.append("coalesce(n.occurred_at, n.created_at) < (%s::date + interval '1 day')")
         params.append(date_to)
+    if note_kind and note_kind in {"note", "email", "task", "meeting", "call", "report"}:
+        clauses.append("n.note_kind = %s")
+        params.append(note_kind)
     if flagged_only:
         clauses.append(
             """

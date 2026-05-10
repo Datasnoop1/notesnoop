@@ -95,6 +95,7 @@ type SearchFilters = {
   date_from?: string;
   date_to?: string;
   flagged_only?: boolean;
+  note_kind?: string;
 };
 
 type MemoryGraphState = {
@@ -466,6 +467,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       if (filters.date_from) params.set("date_from", filters.date_from);
       if (filters.date_to) params.set("date_to", filters.date_to);
       if (filters.flagged_only) params.set("flagged_only", "true");
+      if (filters.note_kind) params.set("note_kind", filters.note_kind);
       return params.toString();
     },
     [activeProject],
@@ -2318,6 +2320,16 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 aria-label="Search to date"
               />
             </label>
+            <select
+              value={searchFilters.note_kind || ""}
+              onChange={(e) => applySearchFilters({ ...searchFilters, note_kind: e.target.value || undefined })}
+              aria-label="Filter by note kind"
+            >
+              <option value="">All kinds</option>
+              {Object.entries(NOTE_KIND_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
             <button
               className={searchFilters.flagged_only ? "filter-toggle active" : "filter-toggle"}
               onClick={() => applySearchFilters({ ...searchFilters, flagged_only: !searchFilters.flagged_only })}
