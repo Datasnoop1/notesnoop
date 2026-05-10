@@ -119,3 +119,28 @@ def test_task_assignee_picker_writes_assignee_and_watcher_roles(client):
     # default assignee (preserves legacy single-link semantics).
     assert payload2["assignee_id"] == alice_id
     assert all(row["id"] == alice_id for row in payload2["people"])
+
+
+def test_task_priority_round_trips(client):
+    user_id = f"priority_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Priority workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    created = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={"title": "Urgent followup", "priority": 1},
+        headers=headers,
+    )
+    assert created.status_code == 200
+    task_id = created.json()["data"]["id"]
+    assert created.json()["data"]["priority"] == 1
+
+    updated = client.patch(
+        f"/api/tasks/{task_id}",
+        json={"priority": 5},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["data"]["priority"] == 5
