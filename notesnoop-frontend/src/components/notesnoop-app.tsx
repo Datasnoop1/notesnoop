@@ -2523,7 +2523,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                       const stale = daysSince !== null && daysSince > 30;
                       const company = person.company;
                       const noteCount = Number(person.mention_count || person.confirmed_note_count || 0);
+                      const tasksOwned = personOpenTaskCounts[person.id] || 0;
                       const facts: string[] = [];
+                      if (tasksOwned > 0) facts.push(`${tasksOwned} open task${tasksOwned === 1 ? "" : "s"}`);
                       if (company) facts.push(company);
                       if (noteCount > 0) facts.push(`${noteCount} note${noteCount === 1 ? "" : "s"}`);
                       if (!facts.length) facts.push("Person");
