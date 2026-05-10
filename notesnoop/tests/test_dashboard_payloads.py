@@ -1,0 +1,211 @@
+"""Integration smoke tests for the dashboard / review-queue payloads.
+
+Verifies that the slices A-V additions are wired all the way through:
+loose_ends + today_counts + pipeline_counts on /home, source_people /
+source_companies on /review-queue, linked_via persistence on manual
+edits, and assignee_id surfaced on the task payload after the new
+assignee picker writes it.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import uuid
+from pathlib import Path
+
+import pytest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+DATABASE_URL = os.getenv("NOTESNOOP_TEST_DATABASE_URL") or os.getenv("MIGRATE_DATABASE_URL")
+
+
+pytestmark = pytest.mark.skipif(
+    not DATABASE_URL,
+    reason="NOTESNOOP_TEST_DATABASE_URL or MIGRATE_DATABASE_URL is required",
+)
+
+if DATABASE_URL:
+    os.environ.setdefault("NOTESNOOP_DATABASE_URL", DATABASE_URL)
+    os.environ["NOTESNOOP_DEV_AUTH"] = "true"
+    sys.path.insert(0, str(ROOT / "notesnoop-backend"))
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+
+def _run_migrations() -> None:
+    subprocess.run(
+        [sys.executable, str(ROOT / "notesnoop" / "migrate.py"), "up", "--target=ci"],
+        cwd=ROOT,
+        env={**os.environ, "NOTESNOOP_TEST_DATABASE_URL": DATABASE_URL or ""},
+        check=True,
+    )
+
+
+@pytest.fixture(scope="module")
+def client():
+    _run_migrations()
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def _headers(user_id: str) -> dict[str, str]:
+    return {
+        "x-notesnoop-user-id": user_id,
+        "x-notesnoop-email": f"{user_id}@example.test",
+        "x-notesnoop-name": "Dashboard Tester",
+    }
+
+
+def test_home_payload_contains_loose_ends_today_counts_and_pipeline_counts(client):
+    user_id = f"dash_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Dashboard workspace"}, headers=headers)
+    assert boot.status_code == 200
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    # Capture a note so today_counts.new_notes > 0 and loose_ends.notes_without_project has it.
+    note = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Apollo follow-up - Morgan to send memo by Friday."},
+        headers=headers,
+    )
+    assert note.status_code == 200
+
+    # Create a person with no company so loose_ends.people_without_company catches it.
+    person = client.post(
+        f"/api/workspaces/{workspace_id}/people",
+        json={"name": "Quiet Person"},
+        headers=headers,
+    )
+    assert person.status_code == 200
+
+    home = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    assert home.status_code == 200
+    data = home.json()["data"]
+
+    # pipeline_counts (slice A): always present, all int keys.
+    assert isinstance(data["pipeline_counts"], dict)
+    for key in ("received", "processing", "needs_review", "accepted", "failed"):
+        assert isinstance(data["pipeline_counts"][key], int)
+
+    # loose_ends (slice G): four keys, three are lists, stale_reviews_count is an int.
+    loose = data["loose_ends"]
+    assert isinstance(loose, dict)
+    assert isinstance(loose["notes_without_project"], list)
+    assert isinstance(loose["tasks_without_owner"], list)
+    assert isinstance(loose["people_without_company"], list)
+    assert isinstance(loose["stale_reviews_count"], int)
+
+    # today_counts (slice V): three int keys.
+    today = data["today_counts"]
+    assert isinstance(today, dict)
+    assert today["new_notes"] >= 1
+    assert isinstance(today["tasks_done"], int)
+    assert isinstance(today["reviews_accepted"], int)
+
+
+def test_task_link_writes_linked_via_manual_and_payload_round_trips(client):
+    user_id = f"link_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Linked workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    project = client.post(
+        f"/api/workspaces/{workspace_id}/projects",
+        json={"name": "Apollo", "color_hex": "#e85d4f"},
+        headers=headers,
+    )
+    person = client.post(
+        f"/api/workspaces/{workspace_id}/people",
+        json={"name": "Owner Person"},
+        headers=headers,
+    )
+    company = client.post(
+        f"/api/workspaces/{workspace_id}/companies",
+        json={"name": "Northstar Advisory"},
+        headers=headers,
+    )
+    project_id = project.json()["data"]["id"]
+    person_id = person.json()["data"]["id"]
+    company_id = company.json()["data"]["id"]
+
+    task = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={
+            "title": "Linked through manual UI flow",
+            "project_ids": [project_id],
+            "person_ids": [person_id],
+            "company_ids": [company_id],
+            "assignee_id": person_id,
+        },
+        headers=headers,
+    )
+    assert task.status_code == 200
+    task_data = task.json()["data"]
+
+    for collection in (task_data["projects"], task_data["people"], task_data["companies"]):
+        assert all(row.get("linked_via") == "manual" for row in collection)
+    assert task_data["assignee_id"] == person_id
+
+
+def test_review_queue_exposes_source_people_and_source_companies(client):
+    """Verify slice D's backend addition: source-note people + companies are surfaced
+    on the review-queue list so the Review Sheet can pre-seed its pickers.
+    """
+    from app.db import transaction
+
+    user_id = f"review_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Review workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    person = client.post(
+        f"/api/workspaces/{workspace_id}/people",
+        json={"name": "Source Person"},
+        headers=headers,
+    )
+    company = client.post(
+        f"/api/workspaces/{workspace_id}/companies",
+        json={"name": "Source Company"},
+        headers=headers,
+    )
+    person_id = person.json()["data"]["id"]
+    company_id = company.json()["data"]["id"]
+
+    note = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Source note for the review queue picker prefill test."},
+        headers=headers,
+    )
+    note_id = note.json()["data"]["id"]
+
+    # Manually attach the person + company to the note so the join lights up.
+    client.post(
+        f"/api/notes/{note_id}/people",
+        json={"person_id": person_id, "state": "confirmed", "source": "user"},
+        headers=headers,
+    )
+    with transaction(user_id) as cur:
+        cur.execute(
+            "INSERT INTO company_notes (company_id, note_id, workspace_id, linked_by) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+            (company_id, note_id, workspace_id, user_id),
+        )
+        cur.execute(
+            "INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload) VALUES (%s, %s, 'task', %s, 'ai_suggestion', %s::jsonb)",
+            (workspace_id, user_id, note_id, '{"title":"Prefill candidate","confidence":0.7}'),
+        )
+
+    queue = client.get(f"/api/workspaces/{workspace_id}/review-queue", headers=headers)
+    assert queue.status_code == 200
+    items = queue.json()["data"]
+    assert items, "expected at least one review queue row"
+    row = items[0]
+    assert any(p["id"] == person_id for p in row.get("source_people") or [])
+    assert any(c["id"] == company_id for c in row.get("source_companies") or [])
