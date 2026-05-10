@@ -242,6 +242,59 @@ def _item_company_names(item: Any) -> list[str]:
     return _dedupe_strings(names)
 
 
+def _item_person_names(item: Any) -> list[str]:
+    if not isinstance(item, dict):
+        return []
+    names: list[str] = []
+    for key in ("person_name", "assignee_name", "owner_name", "person"):
+        value = item.get(key)
+        if isinstance(value, str):
+            names.append(value)
+    for key in ("person_names", "people", "attendees", "participants"):
+        value = item.get(key)
+        if not isinstance(value, list):
+            continue
+        for entry in value:
+            if isinstance(entry, dict):
+                names.append(str(entry.get("name") or ""))
+            else:
+                names.append(str(entry or ""))
+    return _dedupe_strings(names)
+
+
+def _resolve_person_ids_from_item(cur, workspace_id: str, item: dict[str, Any]) -> list[str]:
+    """Resolve LLM-extracted person hints (name strings or UUIDs) on a memory
+    item into known person IDs in the workspace. Mirrors _resolve_company_ids_from_payload.
+    """
+    resolved: list[str] = []
+    raw_ids = _id_list(item.get("person_ids"))
+    valid_ids = [value for value in raw_ids if _looks_like_uuid(value)]
+    invalid_ids = [value for value in raw_ids if not _looks_like_uuid(value)]
+    if valid_ids:
+        cur.execute(
+            """
+            SELECT id
+            FROM people
+            WHERE workspace_id = %s
+              AND id = ANY(%s::uuid[])
+            """,
+            (workspace_id, valid_ids),
+        )
+        rows = cur.fetchall()
+        db_ids = [str(row["id"]) for row in rows]
+        resolved.extend(db_ids or valid_ids)
+
+    names = _dedupe_strings([*invalid_ids, *_item_person_names(item)])
+    if names:
+        cur.execute("SELECT id, name FROM people WHERE workspace_id = %s ORDER BY name", (workspace_id,))
+        people = [dict(row) for row in cur.fetchall()]
+        for name in names:
+            person, score = _best_match(name, people)
+            if person and score >= 0.85:
+                resolved.append(str(person["id"]))
+    return _dedupe_strings(resolved)
+
+
 def _resolve_company_ids_from_payload(cur, workspace_id: str, payload: dict[str, Any]) -> list[str]:
     resolved: list[str] = []
     raw_ids = _id_list(payload.get("company_ids"))
@@ -1373,6 +1426,7 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             company_ids.append(company_id)
             created["companies"] += 1
 
+    workspace_id = str(note["workspace_id"])
     task_ids: list[str] = []
     seen_task_titles: set[str] = set()
     for item in data.get("tasks", []):
@@ -1382,7 +1436,9 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             continue
         seen_task_titles.add(key)
         due_at = (item.get("due_at") or item.get("due_date")) if isinstance(item, dict) else None
-        source_payload = _ai_source_payload("task", note, title, "action_item", item, project_ids, person_ids)
+        item_person_ids = _resolve_person_ids_from_item(cur, workspace_id, item) or list(person_ids)
+        item_company_ids = _resolve_company_ids_from_payload(cur, workspace_id, item) or list(company_ids)
+        source_payload = _ai_source_payload("task", note, title, "action_item", item, project_ids, item_person_ids)
         task_id = _materialize_task(
             cur,
             note,
@@ -1390,12 +1446,12 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             "action_item",
             target_user_id,
             project_ids,
-            person_ids,
+            item_person_ids,
             due_at,
             description=source_payload.get("description") or source_payload.get("summary"),
             status=str(source_payload.get("status") or "todo"),
             priority=source_payload.get("priority") or 3,
-            company_ids=company_ids,
+            company_ids=item_company_ids,
             source_confidence=_item_confidence(item),
             source_payload=source_payload,
         )
@@ -1434,17 +1490,19 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
                 continue
             seen_meeting_titles.add(key)
             source_kind = f"ai_meeting:{key[:80]}"
+            item_person_ids = _resolve_person_ids_from_item(cur, workspace_id, item) or list(person_ids)
+            item_company_ids = _resolve_company_ids_from_payload(cur, workspace_id, item) or list(company_ids)
             meeting_id = _materialize_meeting(
                 cur,
                 note,
                 item,
                 target_user_id,
                 project_ids,
-                person_ids,
+                item_person_ids,
                 source_kind,
-                company_ids=company_ids,
+                company_ids=item_company_ids,
                 source_confidence=_item_confidence(item),
-                source_payload=_ai_source_payload("meeting", note, title, source_kind, item, project_ids, person_ids),
+                source_payload=_ai_source_payload("meeting", note, title, source_kind, item, project_ids, item_person_ids),
             )
             if meeting_id:
                 meeting_ids.append(meeting_id)
@@ -1478,18 +1536,20 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
             continue
         seen_workflows.add(key)
         source_kind = f"ai_workflow:{key[:80]}"
+        item_person_ids = _resolve_person_ids_from_item(cur, workspace_id, item) or list(person_ids)
+        item_company_ids = _resolve_company_ids_from_payload(cur, workspace_id, item) or list(company_ids)
         workflow_id = _materialize_workflow(
             cur,
             note,
             item,
             target_user_id,
             project_ids,
-            person_ids,
+            item_person_ids,
             task_ids,
-            company_ids=company_ids,
+            company_ids=item_company_ids,
             source_kind=source_kind,
             source_confidence=_item_confidence(item),
-            source_payload=_ai_source_payload("workflow", note, name, source_kind, item, project_ids, person_ids),
+            source_payload=_ai_source_payload("workflow", note, name, source_kind, item, project_ids, item_person_ids),
         )
         if workflow_id:
             workflow_ids.append(workflow_id)
@@ -1504,21 +1564,23 @@ def _materialize_ai_memory(cur, note: dict, data: dict[str, Any], target_user_id
                 continue
             seen_reports.add(key)
             source_kind = f"ai_report:{key[:80]}"
+            item_person_ids = _resolve_person_ids_from_item(cur, workspace_id, item) or list(person_ids)
+            item_company_ids = _resolve_company_ids_from_payload(cur, workspace_id, item) or list(company_ids)
             if _materialize_report(
                 cur,
                 note,
                 item,
                 target_user_id,
                 project_ids,
-                person_ids,
+                item_person_ids,
                 task_ids,
-                company_ids,
+                item_company_ids,
                 meeting_ids,
                 workflow_ids,
                 [],
                 source_kind,
                 source_confidence=_item_confidence(item),
-                source_payload=_ai_source_payload("report", note, title, source_kind, item, project_ids, person_ids),
+                source_payload=_ai_source_payload("report", note, title, source_kind, item, project_ids, item_person_ids),
             ):
                 created["reports"] += 1
 
