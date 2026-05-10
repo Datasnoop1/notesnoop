@@ -2851,6 +2851,25 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           if (project) openProject(project);
         }}
         onOpenMemory={openMemoryItem}
+        onCreateTaskForCompany={async (companyId, title, dueAt, assigneeId) => {
+          if (!workspaceId) return;
+          const body: Record<string, unknown> = { title, company_ids: [companyId] };
+          if (dueAt) body.due_at = dueAt;
+          if (assigneeId) {
+            body.person_ids = [assigneeId];
+            body.assignee_id = assigneeId;
+          }
+          try {
+            await api(`/api/workspaces/${workspaceId}/tasks`, { method: "POST", body: JSON.stringify(body) });
+            setToast("Task added.");
+            await refreshWorkspaceData();
+            if (selectedMemory?.sectionId === "companies" && selectedMemory.item?.id === companyId) {
+              await openMemoryItem("companies", selectedMemory.item);
+            }
+          } catch (err) {
+            setToast(err instanceof Error ? err.message : "Could not create task");
+          }
+        }}
       />
 
       <LinkedSheet
@@ -3499,6 +3518,7 @@ function MemoryDetailSheet({
   onOpenNote,
   onOpenProject,
   onOpenMemory,
+  onCreateTaskForCompany,
 }: {
   memory: { sectionId: string; item: any } | null;
   allProjects: any[];
@@ -3515,6 +3535,7 @@ function MemoryDetailSheet({
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenProject: (projectId: string) => void;
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
+  onCreateTaskForCompany?: (companyId: string, title: string, dueAt: string | null, assigneeId: string | null) => Promise<void>;
 }) {
   const sectionId = memory?.sectionId || "";
   const item = memory?.item || {};
@@ -3533,6 +3554,9 @@ function MemoryDetailSheet({
     return assigneePerson ? String(assigneePerson.id) : "";
   }, [item.assignee_id, item.people]);
   const [draftAssigneeId, setDraftAssigneeId] = useState<string>(initialAssignee);
+  const [companyQuickTaskTitle, setCompanyQuickTaskTitle] = useState("");
+  const [companyQuickTaskDue, setCompanyQuickTaskDue] = useState("");
+  const [companyQuickTaskAssignee, setCompanyQuickTaskAssignee] = useState("");
   useEffect(() => {
     setDraftTitle(title);
     setDraftBody(body);
@@ -3878,6 +3902,50 @@ function MemoryDetailSheet({
                 </span>
               );
             })}
+          </div>
+        )}
+        {sectionId === "companies" && item.id && onCreateTaskForCompany && (
+          <div className="quick-task-row task-create-row" aria-label="Quick task for this company">
+            <input
+              value={companyQuickTaskTitle}
+              onChange={(event) => setCompanyQuickTaskTitle(event.target.value)}
+              placeholder={`Add a task for ${item.name || "this company"}`}
+              aria-label="Quick task title"
+            />
+            <input
+              type="date"
+              value={companyQuickTaskDue}
+              onChange={(event) => setCompanyQuickTaskDue(event.target.value)}
+              aria-label="Quick task due date"
+            />
+            <select
+              value={companyQuickTaskAssignee}
+              onChange={(event) => setCompanyQuickTaskAssignee(event.target.value)}
+              aria-label="Quick task assignee"
+            >
+              <option value="">No assignee</option>
+              {allPeople.filter((person) => !person.clerk_user_id).map((person) => (
+                <option key={person.id} value={person.id}>{person.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!companyQuickTaskTitle.trim()}
+              onClick={async () => {
+                if (!onCreateTaskForCompany || !companyQuickTaskTitle.trim()) return;
+                await onCreateTaskForCompany(
+                  String(item.id),
+                  companyQuickTaskTitle.trim(),
+                  companyQuickTaskDue ? `${companyQuickTaskDue}T12:00:00` : null,
+                  companyQuickTaskAssignee || null,
+                );
+                setCompanyQuickTaskTitle("");
+                setCompanyQuickTaskDue("");
+                setCompanyQuickTaskAssignee("");
+              }}
+            >
+              <Plus size={16} /> Add task
+            </button>
           </div>
         )}
         {!!tasks.length && (
