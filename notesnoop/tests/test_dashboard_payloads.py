@@ -154,6 +154,56 @@ def test_task_link_writes_linked_via_manual_and_payload_round_trips(client):
     assert task_data["assignee_id"] == person_id
 
 
+def test_company_detail_surfaces_tasks_and_meetings_linked_to_company(client):
+    """Verify slice Z: company payload returns tasks + meetings, not just
+    people/projects/notes. Lets the company sheet act as a real anchor.
+    """
+    user_id = f"company_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Company workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    company = client.post(
+        f"/api/workspaces/{workspace_id}/companies",
+        json={"name": "Northstar"},
+        headers=headers,
+    )
+    person = client.post(
+        f"/api/workspaces/{workspace_id}/people",
+        json={"name": "Alice"},
+        headers=headers,
+    )
+    company_id = company.json()["data"]["id"]
+    person_id = person.json()["data"]["id"]
+
+    task = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={
+            "title": "Northstar follow-up",
+            "person_ids": [person_id],
+            "company_ids": [company_id],
+            "assignee_id": person_id,
+        },
+        headers=headers,
+    )
+    assert task.status_code == 200
+    meeting = client.post(
+        f"/api/workspaces/{workspace_id}/meetings",
+        json={"title": "Northstar weekly", "company_ids": [company_id]},
+        headers=headers,
+    )
+    assert meeting.status_code == 200
+
+    company_payload = client.get(f"/api/companies/{company_id}", headers=headers)
+    assert company_payload.status_code == 200
+    data = company_payload.json()["data"]
+    assert any(t["title"] == "Northstar follow-up" for t in (data.get("tasks") or []))
+    task_row = next(t for t in data["tasks"] if t["title"] == "Northstar follow-up")
+    assert task_row["assignee_name"] == "Alice"
+    assert any(m["title"] == "Northstar weekly" for m in (data.get("meetings") or []))
+
+
 def test_review_queue_exposes_source_people_and_source_companies(client):
     """Verify slice D's backend addition: source-note people + companies are surfaced
     on the review-queue list so the Review Sheet can pre-seed its pickers.
