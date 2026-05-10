@@ -4956,7 +4956,24 @@ function MemoryDetailSheet({
         </div>
         <div className="note-meta-row">
           <span>{kindLabel[sectionId] || "Memory"}</span>
-          {item.status && <span>{item.status}</span>}
+          {sectionId === "workflows" && item.id && item.status ? (
+            <button
+              type="button"
+              className={`workflow-status-pill workflow-status-${item.status} workflow-status-cycler`}
+              onClick={() => {
+                const stages = ["draft", "active", "paused", "retired"];
+                const idx = stages.indexOf(String(item.status));
+                const next = stages[(idx + 1) % stages.length];
+                onUpdateMemory("workflows", item.id, { status: next }).catch(() => undefined);
+              }}
+              aria-label={`Cycle workflow status from ${item.status}`}
+              title="Click to cycle workflow status"
+            >
+              {item.status}
+            </button>
+          ) : item.status ? (
+            <span>{item.status}</span>
+          ) : null}
           {(item.due_at || item.occurred_at || item.created_at) && <span>{new Date(item.due_at || item.occurred_at || item.created_at).toLocaleDateString()}</span>}
           {typeof item.generation_confidence === "number" && <span>{Math.round(item.generation_confidence * 100)}% grounded</span>}
         </div>

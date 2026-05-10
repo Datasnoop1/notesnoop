@@ -2908,6 +2908,15 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .workflow-status-pill.workflow-status-paused { background: #fff4e0; color: #5b3b15; border-color: #f4d9b6; }
 .workflow-status-pill.workflow-status-retired { background: #f0eded; color: #5a4040; border-color: #d8c9c9; }
 .workflow-status-pill.workflow-status-draft { background: #eef2ff; color: #29367a; border-color: #c7d2fe; }
+.workflow-status-pill.workflow-status-active { background: #ecf2ee; color: #1f4a30; border-color: #c7dccd; }
+.workflow-status-cycler {
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.workflow-status-cycler:hover { filter: brightness(0.97); }
 
 .task-view-toggle {
   display: inline-flex;
