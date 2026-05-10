@@ -1256,6 +1256,40 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   background: #fff5f2;
   color: #7b2e24;
 }
+.memory-workbench {
+  border: 1px solid #d8e5e0;
+  background: #fffdf8;
+  border-radius: 8px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.memory-workbench span {
+  border: 1px solid #e1ece8;
+  background: #f7fbf8;
+  border-radius: 8px;
+  min-height: 58px;
+  padding: 8px;
+  display: grid;
+  gap: 3px;
+  align-content: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.memory-workbench svg {
+  color: var(--teal);
+}
+.memory-workbench strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+.memory-workbench small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
 .suggestion-panel {
   border: 1px solid #bdd7d0;
   background: #f7fbf8;
@@ -1263,6 +1297,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   padding: 10px;
   display: grid;
   gap: 8px;
+}
+.suggestion-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+.suggestion-bulk {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .suggestion-panel article {
   border-top: 1px solid #d8e5e0;
@@ -1594,6 +1639,9 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
     border-top: 1px solid var(--line);
     border-radius: 12px 12px 0 0;
     padding: 10px 14px 18px;
+  }
+  .memory-workbench {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .sheet-handle {
     display: block;

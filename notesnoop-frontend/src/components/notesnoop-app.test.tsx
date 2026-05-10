@@ -418,6 +418,9 @@ describe("NoteSnoopApp", () => {
     const noteButtons = await within(dashboard).findAllByRole("button", { name: /Apollo update/i });
     fireEvent.click(noteButtons[0]);
     expect(await screen.findByText("From sender@example.test")).toBeInTheDocument();
+    const workbench = await screen.findByLabelText("Memory workbench");
+    expect(within(workbench).getByText("Manual")).toBeInTheDocument();
+    expect(within(workbench).getByText("1 task / 1 company")).toBeInTheDocument();
     expect(await screen.findByText("AI suggestions")).toBeInTheDocument();
     expect(await screen.findByText("Structured memory from this note")).toBeInTheDocument();
     expect(await screen.findByText("Prepare Apollo follow-up")).toBeInTheDocument();

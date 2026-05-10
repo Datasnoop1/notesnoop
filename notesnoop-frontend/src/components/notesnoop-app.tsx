@@ -2279,6 +2279,23 @@ function LinkedSheet({
 
   const currentProjectIds = (note.projects || []).map((project: any) => project.id);
   const structuredMemories = Array.isArray(note.memory_links) ? note.memory_links : [];
+  const suggestions = Array.isArray(note.review_suggestions) ? note.review_suggestions : [];
+  const memoryCounts = structuredMemories.reduce((counts: Record<string, number>, memory: any) => {
+    const key = memory.kind || "memory";
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+  const memoryCountLabel = Object.entries(memoryCounts)
+    .map(([kind, count]) => `${count} ${kind}${count === 1 ? "" : "s"}`)
+    .join(" / ");
+  const aiStatusLabel: Record<string, string> = {
+    processed: "Processed",
+    processing: "Processing",
+    pending: "Queued",
+    queued: "Queued",
+    failed: "Failed",
+    skipped: "Manual",
+  };
 
   async function link() {
     if (!personId) return;
@@ -2301,6 +2318,12 @@ function LinkedSheet({
     const project = await createProject(newProjectName.trim());
     await onSetProjects(note, [project.id], note.is_personal);
     setNewProjectName("");
+  }
+
+  async function decideSuggestions(decision: "accept" | "reject") {
+    for (const suggestion of suggestions) {
+      await onReviewDecision(suggestion.id, decision);
+    }
   }
 
   return (
@@ -2348,6 +2371,29 @@ function LinkedSheet({
             <span>{note.raw_email_metadata.subject || "No subject"}</span>
           </div>
         )}
+        <div className="memory-workbench" aria-label="Memory workbench">
+          <span>
+            <Sparkles size={15} />
+            <strong>{aiStatusLabel[note.ai_processing_status] || "Captured"}</strong>
+            AI
+          </span>
+          <span>
+            <Lightbulb size={15} />
+            <strong>{suggestions.length}</strong>
+            Review
+          </span>
+          <span>
+            <Workflow size={15} />
+            <strong>{structuredMemories.length}</strong>
+            Graph
+          </span>
+          <span>
+            <Users size={15} />
+            <strong>{(note.people || []).length}/{(note.projects || []).length}</strong>
+            Links
+          </span>
+          {memoryCountLabel && <small>{memoryCountLabel}</small>}
+        </div>
         <div className="chip-row">
           {(note.projects || []).map((project: any) => (
             <span className="chip project-chip" key={project.id}>
@@ -2368,10 +2414,18 @@ function LinkedSheet({
             <span>{note.ai_processing_error}</span>
           </div>
         )}
-        {!!note.review_suggestions?.length && (
+        {!!suggestions.length && (
           <div className="suggestion-panel">
-            <strong>AI suggestions</strong>
-            {note.review_suggestions.map((suggestion: any) => (
+            <div className="suggestion-head">
+              <strong>AI suggestions</strong>
+              {suggestions.length > 1 && (
+                <span className="suggestion-bulk">
+                  <button type="button" onClick={() => decideSuggestions("accept")}><Check size={15} /> Accept all</button>
+                  <button type="button" onClick={() => decideSuggestions("reject")}><X size={15} /> Reject all</button>
+                </span>
+              )}
+            </div>
+            {suggestions.map((suggestion: any) => (
               <article key={suggestion.id}>
                 <span>
                   {suggestion.entity_kind}
