@@ -351,6 +351,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     if (typeof window === "undefined") return "cards";
     return (window.localStorage.getItem("notesnoop_tasks_view_mode") as "cards" | "board") || "cards";
   });
+  const [triageOpen, setTriageOpen] = useState(false);
+  const [triageItems, setTriageItems] = useState<any[]>([]);
+  const [triageLoading, setTriageLoading] = useState(false);
+  const [triageSelected, setTriageSelected] = useState<Set<string>>(() => new Set());
   const [recentMemoryKindFilter, setRecentMemoryKindFilter] = useState<string>("all");
   const [selectedMemory, setSelectedMemory] = useState<{ sectionId: string; item: any } | null>(null);
   const [selectedGraphKind, setSelectedGraphKind] = useState<string | null>(null);
@@ -1056,6 +1060,61 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     } catch (err) {
       setReviewItems(home?.pending_review || []);
       setToast(err instanceof Error ? err.message : "Could not load review queue");
+    }
+  }
+
+  const refreshTriage = useCallback(async () => {
+    if (!workspaceId) return;
+    setTriageLoading(true);
+    try {
+      const res = await api(`/api/workspaces/${workspaceId}/triage`);
+      setTriageItems(Array.isArray(res.data) ? res.data : []);
+    } catch (err) {
+      setTriageItems([]);
+      setToast(err instanceof Error ? err.message : "Could not load triage");
+    } finally {
+      setTriageLoading(false);
+    }
+  }, [api, workspaceId]);
+
+  function openTriage() {
+    setTriageSelected(new Set());
+    setTriageOpen(true);
+    refreshTriage().catch(() => undefined);
+  }
+
+  function toggleTriageSelected(noteId: string) {
+    setTriageSelected((current) => {
+      const next = new Set(current);
+      if (next.has(noteId)) next.delete(noteId);
+      else next.add(noteId);
+      return next;
+    });
+  }
+
+  function selectAllTriage() {
+    setTriageSelected(new Set(triageItems.map((item) => String(item.id))));
+  }
+
+  async function triageBulk(action: "process" | "archive") {
+    if (!workspaceId) return;
+    const ids = Array.from(triageSelected);
+    if (!ids.length) {
+      setToast("Select notes first.");
+      return;
+    }
+    try {
+      const res = await api(`/api/workspaces/${workspaceId}/triage/${action}`, {
+        method: "POST",
+        body: JSON.stringify({ note_ids: ids }),
+      });
+      const count = (res?.meta?.count as number | undefined) || ids.length;
+      setToast(action === "process" ? `Queued ${count} for extraction.` : `Archived ${count} notes.`);
+      setTriageSelected(new Set());
+      await refreshTriage();
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Bulk action failed");
     }
   }
 
@@ -2443,6 +2502,16 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               <section className="dashboard-panel pipeline-panel">
                 <div className="panel-head">
                   <h2>Processing lane</h2>
+                  {pipelineCounts.received > 0 && (
+                    <button
+                      type="button"
+                      className="pipeline-triage-btn"
+                      onClick={openTriage}
+                      aria-label="Triage unprocessed notes"
+                    >
+                      <Inbox size={14} /> Triage ({pipelineCounts.received})
+                    </button>
+                  )}
                   <Workflow size={18} />
                 </div>
                 <div className="pipeline-stages" role="list" aria-label="Note processing pipeline">
@@ -3350,6 +3419,106 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         api={api}
         refresh={refreshWorkspaceData}
       />
+
+      {triageOpen && (
+        <div
+          className="sheet-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Inbox triage"
+          onClick={() => setTriageOpen(false)}
+        >
+          <aside className="triage-sheet" onClick={(event) => event.stopPropagation()}>
+            <div className="triage-head">
+              <div>
+                <h2><Inbox size={18} /> Triage inbox</h2>
+                <p>{triageItems.length} unprocessed note{triageItems.length === 1 ? "" : "s"}. Select to bulk-process or archive.</p>
+              </div>
+              <button className="icon-btn" onClick={() => setTriageOpen(false)} aria-label="Close triage">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="triage-toolbar">
+              <button type="button" onClick={selectAllTriage} disabled={!triageItems.length}>
+                Select all
+              </button>
+              <button type="button" onClick={() => setTriageSelected(new Set())} disabled={!triageSelected.size}>
+                Clear
+              </button>
+              <span className="triage-selected-count" aria-live="polite">
+                {triageSelected.size} selected
+              </span>
+              <button
+                type="button"
+                className="triage-action-primary"
+                onClick={() => triageBulk("process")}
+                disabled={!triageSelected.size}
+              >
+                <Sparkles size={14} /> Process selected
+              </button>
+              <button
+                type="button"
+                className="triage-action-secondary"
+                onClick={() => triageBulk("archive")}
+                disabled={!triageSelected.size}
+              >
+                <Archive size={14} /> Archive selected
+              </button>
+            </div>
+            <div className="triage-list" role="list">
+              {triageLoading && <p className="dashboard-empty">Loading...</p>}
+              {!triageLoading && !triageItems.length && (
+                <p className="dashboard-empty">Inbox is clean. Nothing waiting for extraction.</p>
+              )}
+              {triageItems.map((item) => {
+                const checked = triageSelected.has(String(item.id));
+                const sender = item?.raw_email_metadata?.sender || item?.raw_email_metadata?.from || "";
+                const subject = item?.raw_email_metadata?.subject || "";
+                return (
+                  <label key={item.id} className={`triage-row${checked ? " active" : ""}`} role="listitem">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleTriageSelected(String(item.id))}
+                      aria-label={`Select ${item.title || "note"}`}
+                    />
+                    <div className="triage-row-body">
+                      <div className="triage-row-head">
+                        <strong>{item.title || subject || "Untitled note"}</strong>
+                        <span className="triage-kind">{NOTE_KIND_LABELS[item.note_kind] || "Note"}</span>
+                      </div>
+                      {sender && <small className="triage-sender">From {sender}</small>}
+                      <p className="triage-preview">{item.body_preview || subject}</p>
+                      {(item.projects || []).length > 0 && (
+                        <div className="triage-projects">
+                          {(item.projects || []).map((project: any) => (
+                            <span className="chip project-chip" key={project.id}>
+                              <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                              {project.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="triage-open"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setTriageOpen(false);
+                        openNote(item.id).catch(() => undefined);
+                      }}
+                      aria-label={`Open ${item.title || "note"}`}
+                    >
+                      Open
+                    </button>
+                  </label>
+                );
+              })}
+            </div>
+          </aside>
+        </div>
+      )}
 
       {paletteOpen && (
         <div

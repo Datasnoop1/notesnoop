@@ -200,6 +200,101 @@ def set_note_projects(note_id: str, payload: NoteProjectSet, user: CurrentUser =
         return {"data": get_note_payload(cur, note_id)}
 
 
+@router.get("/workspaces/{workspace_id}/triage")
+def triage_inbox(workspace_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        rows = many(
+            cur,
+            """
+            SELECT n.id,
+                   n.title,
+                   left(coalesce(n.body, ''), 280) AS body_preview,
+                   n.note_kind,
+                   n.ai_processing_status,
+                   n.created_at,
+                   n.raw_email_metadata,
+                   coalesce(json_agg(DISTINCT jsonb_build_object('id', p.id, 'name', p.name, 'kind', p.kind, 'color_hex', p.color_hex))
+                            FILTER (WHERE p.id IS NOT NULL), '[]') AS projects
+            FROM notes n
+            LEFT JOIN note_projects np ON np.note_id = n.id
+            LEFT JOIN projects p ON p.id = np.project_id
+            WHERE n.workspace_id = %s
+              AND n.ai_processing_status IN ('unprocessed','skipped')
+              AND coalesce(n.archived_at, NULL) IS NULL
+            GROUP BY n.id
+            ORDER BY n.created_at DESC
+            LIMIT 50
+            """,
+            (workspace_id,),
+        )
+        return {"data": rows, "meta": {"count": len(rows)}}
+
+
+@router.post("/workspaces/{workspace_id}/triage/process")
+def triage_process(workspace_id: str, payload: dict, user: CurrentUser = Depends(current_user)):
+    note_ids = payload.get("note_ids") or []
+    if not isinstance(note_ids, list) or not note_ids:
+        raise HTTPException(status_code=422, detail="note_ids required")
+    queued: list[str] = []
+    skipped: list[dict] = []
+    with transaction(user.clerk_user_id) as cur:
+        rows = many(
+            cur,
+            """
+            SELECT id, is_personal, ai_processing_status
+            FROM notes
+            WHERE workspace_id = %s
+              AND id = ANY(%s::uuid[])
+            """,
+            (workspace_id, note_ids),
+        )
+        ok, retry_after = consume_ai_quota(cur, workspace_id, user.clerk_user_id)
+        if not ok:
+            raise HTTPException(status_code=429, detail="AI rate limit exceeded", headers={"Retry-After": str(retry_after)})
+        for row in rows:
+            note_id = str(row["id"])
+            if row["is_personal"]:
+                skipped.append({"id": note_id, "reason": "personal"})
+                continue
+            cur.execute(
+                """
+                INSERT INTO ai_jobs (workspace_id, kind, note_id, target_user_id, priority, idempotency_key)
+                VALUES (%s, 'reprocess', %s, %s, 10, %s)
+                ON CONFLICT (idempotency_key) DO UPDATE
+                  SET state = 'queued', attempts = 0, last_error = NULL, completed_at = NULL
+                """,
+                (workspace_id, note_id, user.clerk_user_id, f"note:{note_id}:reprocess"),
+            )
+            cur.execute(
+                "UPDATE notes SET ai_processing_status = 'processing', ai_processing_error = NULL WHERE id = %s",
+                (note_id,),
+            )
+            queued.append(note_id)
+        return {"data": {"queued": queued, "skipped": skipped}, "meta": {"count": len(queued)}}
+
+
+@router.post("/workspaces/{workspace_id}/triage/archive")
+def triage_archive(workspace_id: str, payload: dict, user: CurrentUser = Depends(current_user)):
+    note_ids = payload.get("note_ids") or []
+    if not isinstance(note_ids, list) or not note_ids:
+        raise HTTPException(status_code=422, detail="note_ids required")
+    archived: list[str] = []
+    with transaction(user.clerk_user_id) as cur:
+        rows = many(
+            cur,
+            "SELECT id FROM notes WHERE workspace_id = %s AND id = ANY(%s::uuid[])",
+            (workspace_id, note_ids),
+        )
+        for row in rows:
+            note_id = str(row["id"])
+            cur.execute(
+                "UPDATE notes SET archived_at = now(), updated_at = now() WHERE id = %s",
+                (note_id,),
+            )
+            archived.append(note_id)
+    return {"data": {"archived": archived}, "meta": {"count": len(archived)}}
+
+
 @router.get("/workspaces/{workspace_id}/notes")
 def list_notes(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:

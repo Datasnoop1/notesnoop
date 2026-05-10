@@ -386,3 +386,51 @@ def test_review_queue_exposes_source_people_and_source_companies(client):
     row = items[0]
     assert any(p["id"] == person_id for p in row.get("source_people") or [])
     assert any(c["id"] == company_id for c in row.get("source_companies") or [])
+
+
+def test_triage_endpoint_lists_unprocessed_and_bulk_actions(client):
+    """Triage view returns unprocessed notes; bulk-process queues each and bulk-archive hides them."""
+    user_id = f"triage_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Triage workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    note_a = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Forwarded diligence note A"},
+        headers=headers,
+    )
+    note_b = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Forwarded diligence note B"},
+        headers=headers,
+    )
+    note_a_id = note_a.json()["data"]["id"]
+    note_b_id = note_b.json()["data"]["id"]
+
+    listing = client.get(f"/api/workspaces/{workspace_id}/triage", headers=headers)
+    assert listing.status_code == 200
+    ids = {row["id"] for row in listing.json()["data"]}
+    assert note_a_id in ids and note_b_id in ids
+
+    process = client.post(
+        f"/api/workspaces/{workspace_id}/triage/process",
+        json={"note_ids": [note_a_id]},
+        headers=headers,
+    )
+    assert process.status_code == 200
+    assert note_a_id in process.json()["data"]["queued"]
+
+    archive = client.post(
+        f"/api/workspaces/{workspace_id}/triage/archive",
+        json={"note_ids": [note_b_id]},
+        headers=headers,
+    )
+    assert archive.status_code == 200
+    assert note_b_id in archive.json()["data"]["archived"]
+
+    after = client.get(f"/api/workspaces/{workspace_id}/triage", headers=headers)
+    remaining_ids = {row["id"] for row in after.json()["data"]}
+    assert note_a_id not in remaining_ids  # left "unprocessed" state via processing
+    assert note_b_id not in remaining_ids  # archived

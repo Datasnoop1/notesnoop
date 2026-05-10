@@ -198,6 +198,29 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
         meta: { semantic_enabled: false, semantic_excluded: 0, memory_results: memoryResults },
       });
     }
+    if (url.includes("/api/workspaces/workspace-1/triage/process") && init?.method === "POST") {
+      const ids = JSON.parse(String(init.body))?.note_ids || [];
+      return json({ data: { queued: ids, skipped: [] }, meta: { count: ids.length } });
+    }
+    if (url.includes("/api/workspaces/workspace-1/triage/archive") && init?.method === "POST") {
+      const ids = JSON.parse(String(init.body))?.note_ids || [];
+      return json({ data: { archived: ids }, meta: { count: ids.length } });
+    }
+    if (url.includes("/api/workspaces/workspace-1/triage")) {
+      return json({
+        data: [
+          {
+            id: "triage-note-1",
+            title: "Forwarded diligence note",
+            body_preview: "Morgan asked about Apollo timeline.",
+            note_kind: "email",
+            raw_email_metadata: { sender: "sender@example.test", subject: "Forwarded diligence note" },
+            projects: [],
+          },
+        ],
+        meta: { count: 1 },
+      });
+    }
     if (url.includes("/api/workspaces/workspace-1/ask/report") && init?.method === "POST") {
       return json({ data: { id: "report-created", ...JSON.parse(String(init.body)), status: "draft", projects: [projects[2]] } });
     }
@@ -727,6 +750,25 @@ describe("NoteSnoopApp", () => {
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/projects"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/people"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/send-test-email"))).toBe(true);
+    });
+  });
+
+  it("opens the Inbox Triage sheet and bulk-processes selected notes", async () => {
+    const { calls } = installFetch({ home: { pipeline_counts: { received: 1, processing: 0, needs_review: 0, accepted: 0, failed: 0 } } });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const triageBtn = await screen.findByRole("button", { name: /Triage unprocessed notes/i });
+    fireEvent.click(triageBtn);
+
+    await screen.findByRole("dialog", { name: /Inbox triage/i });
+    const selectAll = await screen.findByRole("button", { name: "Select all" });
+    fireEvent.click(selectAll);
+
+    const processBtn = screen.getByRole("button", { name: /Process selected/i });
+    fireEvent.click(processBtn);
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.startsWith("POST /api/workspaces/workspace-1/triage/process"))).toBe(true);
     });
   });
 
