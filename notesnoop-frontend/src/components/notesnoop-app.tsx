@@ -3429,6 +3429,48 @@ function MemoryDetailSheet({
           </div>
         )}
         {!canEdit && body && <p>{body}</p>}
+        {(() => {
+          const sourcePayload = item.source_payload || {};
+          const decisions = Array.isArray(sourcePayload.decisions) ? sourcePayload.decisions : [];
+          const hints = Array.isArray(sourcePayload.relationship_hints) ? sourcePayload.relationship_hints : [];
+          const followUps = Array.isArray(sourcePayload.follow_ups || sourcePayload.followups) ? sourcePayload.follow_ups || sourcePayload.followups : [];
+          const allEmpty = decisions.length === 0 && hints.length === 0 && followUps.length === 0;
+          if (allEmpty) return null;
+          return (
+            <div className="ai-extracted-extras">
+              {decisions.length > 0 && (
+                <div className="ai-extracted-block ai-extracted-decisions">
+                  <strong>Decisions</strong>
+                  <ul>
+                    {decisions.slice(0, 6).map((line: any, idx: number) => (
+                      <li key={`decision-${idx}`}>{String(line)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {followUps.length > 0 && (
+                <div className="ai-extracted-block ai-extracted-followups">
+                  <strong>Follow-ups</strong>
+                  <ul>
+                    {followUps.slice(0, 6).map((line: any, idx: number) => (
+                      <li key={`followup-${idx}`}>{String(line)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {hints.length > 0 && (
+                <div className="ai-extracted-block ai-extracted-hints">
+                  <strong>AI relationship hints</strong>
+                  <ul>
+                    {hints.slice(0, 6).map((line: any, idx: number) => (
+                      <li key={`hint-${idx}`}>{String(line)}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          );
+        })()}
         {isTask && (
           <div className="memory-status-actions">
             <button disabled={item.status === "todo"} onClick={() => onTaskStatusChange(item.id, "todo")}>Todo</button>

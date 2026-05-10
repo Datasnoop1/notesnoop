@@ -1503,6 +1503,39 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border-radius: 999px;
   padding: 1px 7px;
 }
+.ai-extracted-extras {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+.ai-extracted-block {
+  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+}
+.ai-extracted-block strong {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.ai-extracted-block ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 3px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.ai-extracted-decisions { background: #f4faf4; border-color: #b3d7b6; }
+.ai-extracted-decisions strong { color: #1f4d27; }
+.ai-extracted-followups { background: #fffaf0; border-color: #e1cf94; }
+.ai-extracted-followups strong { color: #6b5300; }
+.ai-extracted-hints { background: #f3f1fb; border-color: #d3cbef; }
+.ai-extracted-hints strong { color: #2c2358; }
 .share-panel {
   border: 1px solid var(--line);
   background: #f7fbf8;
