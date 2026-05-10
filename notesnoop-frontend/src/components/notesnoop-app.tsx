@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect, @next/next/no-img-element */
 
 import {
+  AlertCircle,
   Archive,
   Bell,
   Building2,
@@ -352,6 +353,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     return (window.localStorage.getItem("notesnoop_tasks_view_mode") as "cards" | "board") || "cards";
   });
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [triageOpen, setTriageOpen] = useState(false);
   const [triageItems, setTriageItems] = useState<any[]>([]);
   const [triageLoading, setTriageLoading] = useState(false);
@@ -1760,6 +1762,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
     return list.slice().sort((a: any, b: any) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime()).slice(0, 6);
   }, [openTasks]);
+  const pipelineFailed = home?.pipeline_recent_failed || [];
+  const staleReviewCount = Number(home?.loose_ends?.stale_reviews_count || 0);
   const dueTodayTasks = useMemo(() => {
     const list: any[] = [];
     for (const task of openTasks) {
@@ -1769,6 +1773,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
     return list.slice(0, 6);
   }, [openTasks]);
+  const notifCount = overdueTasks.length + pipelineFailed.length + (staleReviewCount > 0 ? 1 : 0);
   const meetingsCalls = (
     home?.meetings_calls?.length
       ? home.meetings_calls
@@ -2249,6 +2254,15 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           <button className="mode-btn" onClick={toggleMorningBriefing} title="Daily count-only morning briefing">
             <Bell size={18} />
             {state?.workspace?.morning_briefing_optin ? "Briefing on" : "Briefing off"}
+          </button>
+          <button
+            className={`topbar-notif-btn${notifCount > 0 ? " has-notifs" : ""}`}
+            onClick={() => setNotifOpen((open) => !open)}
+            aria-label={`Notifications${notifCount > 0 ? ` (${notifCount} items)` : ""}`}
+            aria-expanded={notifOpen}
+          >
+            <AlertCircle size={18} />
+            {notifCount > 0 && <span className="topbar-notif-count">{notifCount}</span>}
           </button>
           <UserButton />
         </header>
@@ -3610,6 +3624,83 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               })}
             </div>
           </aside>
+        </div>
+      )}
+
+      {notifOpen && (
+        <div className="notif-backdrop" onClick={() => setNotifOpen(false)}>
+          <div className="notif-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="notif-head">
+              <h3><AlertCircle size={15} /> Notifications</h3>
+              <button className="icon-btn" onClick={() => setNotifOpen(false)} aria-label="Close notifications">
+                <X size={16} />
+              </button>
+            </div>
+            {notifCount === 0 ? (
+              <p className="notif-empty">You&apos;re all caught up.</p>
+            ) : (
+              <>
+                {overdueTasks.length > 0 && (
+                  <section className="notif-section">
+                    <h4>Overdue tasks ({overdueTasks.length})</h4>
+                    {overdueTasks.map((task: any) => (
+                      <button
+                        key={`notif-overdue-${task.id}`}
+                        type="button"
+                        className="notif-row"
+                        onClick={() => {
+                          setNotifOpen(false);
+                          openMemoryItem("tasks", task).catch(() => undefined);
+                        }}
+                      >
+                        <span className="notif-row-title">{task.title || "Untitled task"}</span>
+                        <span className="notif-row-meta">
+                          {task.assignee_name || "Unassigned"} - Due {humanRelativeTime(task.due_at || task.due_date)}
+                        </span>
+                      </button>
+                    ))}
+                  </section>
+                )}
+                {pipelineFailed.length > 0 && (
+                  <section className="notif-section">
+                    <h4>Pipeline failures ({pipelineFailed.length})</h4>
+                    {pipelineFailed.map((note: any) => (
+                      <button
+                        key={`notif-fail-${note.id}`}
+                        type="button"
+                        className="notif-row"
+                        onClick={() => {
+                          setNotifOpen(false);
+                          openNote(note.id).catch(() => undefined);
+                        }}
+                      >
+                        <span className="notif-row-title">{note.title || "Untitled note"}</span>
+                        <span className="notif-row-meta">
+                          {note.ai_processing_error ? String(note.ai_processing_error).slice(0, 80) : "Click to open"}
+                        </span>
+                      </button>
+                    ))}
+                  </section>
+                )}
+                {staleReviewCount > 0 && (
+                  <section className="notif-section">
+                    <h4>Stale reviews</h4>
+                    <button
+                      type="button"
+                      className="notif-row"
+                      onClick={() => {
+                        setNotifOpen(false);
+                        openReviewQueue().catch(() => undefined);
+                      }}
+                    >
+                      <span className="notif-row-title">{staleReviewCount} review{staleReviewCount === 1 ? "" : "s"} pending more than 3 days</span>
+                      <span className="notif-row-meta">Click to open the review queue</span>
+                    </button>
+                  </section>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
 

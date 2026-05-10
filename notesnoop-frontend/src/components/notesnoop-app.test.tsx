@@ -828,6 +828,38 @@ describe("NoteSnoopApp", () => {
     });
   });
 
+  it("shows notification bell with overdue tasks when home has them", async () => {
+    installFetch({
+      home: {
+        open_tasks: [
+          {
+            id: "task-overdue-1",
+            title: "Past-due Apollo deliverable",
+            status: "todo",
+            due_at: "2020-01-01T12:00:00Z",
+            people: [],
+            projects: [],
+            companies: [],
+          },
+        ],
+        pipeline_recent_failed: [
+          { id: "note-failed-1", title: "Failed extraction note", ai_processing_error: "ollama timeout" },
+        ],
+        loose_ends: { stale_reviews_count: 2 },
+      },
+    });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const bell = await screen.findByRole("button", { name: /Notifications \(/i });
+    fireEvent.click(bell);
+
+    const panel = await screen.findByRole("heading", { name: /Notifications/i });
+    const container = panel.closest(".notif-panel") as HTMLElement;
+    expect(within(container).getByText("Past-due Apollo deliverable")).toBeInTheDocument();
+    expect(within(container).getByText("Failed extraction note")).toBeInTheDocument();
+    expect(within(container).getByText(/2 reviews pending more than 3 days/i)).toBeInTheDocument();
+  });
+
   it("opens the keyboard shortcuts cheat sheet on ? and closes on Esc", async () => {
     installFetch();
     render(<NoteSnoopApp quickCapture={false} />);

@@ -3315,6 +3315,108 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border-color: #c2dcc8;
   color: #1f5a3a;
 }
+
+.topbar-notif-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.topbar-notif-btn:hover { color: var(--text); border-color: #b4c8be; }
+.topbar-notif-btn.has-notifs { color: #8a2a2a; border-color: #f4c0c0; }
+.topbar-notif-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #c83a3a;
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.notif-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+.notif-panel {
+  position: fixed;
+  top: 64px;
+  right: 16px;
+  width: min(420px, 92vw);
+  max-height: 70vh;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(16, 32, 28, .22);
+  overflow: auto;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  z-index: 31;
+}
+.notif-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.notif-head h3 {
+  margin: 0;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.notif-empty {
+  padding: 28px 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0;
+}
+.notif-section {
+  border-top: 1px solid var(--line);
+  padding: 10px 14px;
+}
+.notif-section:first-of-type { border-top: none; }
+.notif-section h4 {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+.notif-row {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 7px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+}
+.notif-row:hover { background: #f1f6f1; }
+.notif-row-title { font-size: 13px; font-weight: 500; }
+.notif-row-meta { font-size: 11px; color: var(--muted); }
 .palette-title {
   font-size: 14px;
   font-weight: 500;
