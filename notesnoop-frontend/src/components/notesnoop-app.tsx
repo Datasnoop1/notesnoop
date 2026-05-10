@@ -1486,6 +1486,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         ? [...(home?.meetings || []), ...(home?.calls || [])]
         : dashboardNotes.filter((note) => ["meeting", "call"].includes(note.note_kind))
   );
+  const todaysMeetings: any[] = [];
+  for (const meeting of meetingsCalls as any[]) {
+    const at = meeting.occurred_at || meeting.created_at;
+    if (!at) continue;
+    const days = daysSinceNow(at);
+    if (days === 0) todaysMeetings.push(meeting);
+    if (todaysMeetings.length >= 6) break;
+  }
   const reportsBriefs = (
     home?.reports_briefs?.length
       ? home.reports_briefs
@@ -2056,8 +2064,27 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   <h2>Needs attention</h2>
                   <Bell size={18} />
                 </div>
-                {dashboardReviewItems.length || dashboardFlagged.length || upcomingReminders.length || overdueTasks.length || dueTodayTasks.length ? (
+                {dashboardReviewItems.length || dashboardFlagged.length || upcomingReminders.length || overdueTasks.length || dueTodayTasks.length || todaysMeetings.length ? (
                   <div className="attention-groups">
+                    {todaysMeetings.length > 0 && (
+                      <div className="attention-group">
+                        <div className="attention-group-head">
+                          <span className="attention-group-label">Meetings today</span>
+                          <strong>{todaysMeetings.length}</strong>
+                        </div>
+                        <div className="attention-grid">
+                          {todaysMeetings.map((meeting: any) => (
+                            <button key={`meeting-today-${meeting.id}`} className="dashboard-row" type="button" onClick={() => openMemoryItem("meetings", meeting)}>
+                              <span className="row-icon"><CalendarDays size={15} /></span>
+                              <span>
+                                <strong>{meeting.title}</strong>
+                                <small>{meeting.occurred_at ? new Date(meeting.occurred_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Today"}{meeting.project_name ? ` - ${meeting.project_name}` : ""}</small>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {overdueTasks.length > 0 && (
                       <div className="attention-group">
                         <div className="attention-group-head">
