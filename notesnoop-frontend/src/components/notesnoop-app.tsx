@@ -1275,6 +1275,30 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setToast(`${variant === "full" ? "Full" : "Quick"} brief copied.`);
   }
 
+  async function createTaskForAnchor(input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null }) {
+    if (!workspaceId || !input.title.trim()) return;
+    const body: Record<string, unknown> = { title: input.title.trim() };
+    if (input.due_at) body.due_at = input.due_at;
+    if (input.project_id) body.project_ids = [input.project_id];
+    if (input.assignee_id) {
+      body.person_ids = [input.assignee_id];
+      body.assignee_id = input.assignee_id;
+    }
+    try {
+      await api(`/api/workspaces/${workspaceId}/tasks`, { method: "POST", body: JSON.stringify(body) });
+      setToast("Task added.");
+      await refreshWorkspaceData();
+      if (projectTimeline && input.project_id === projectTimeline.project?.id) {
+        await openProject(projectTimeline.project);
+      }
+      if (personTimeline && input.assignee_id === personTimeline.person?.id) {
+        await openPerson(personTimeline.person);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not create task");
+    }
+  }
+
   async function generateProjectReport(project: any) {
     if (!project?.id) return;
     setBusy(true);
@@ -2706,6 +2730,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   onCopyLink={() => copyRouteLink({ kind: "person", id: personTimeline.person.id }, "Person")}
                   onFlag={() => flag({ person_id: personTimeline.person.id })}
                   onMerge={mergePerson}
+                  onCreateTask={createTaskForAnchor}
                   onBack={closePersonTimeline}
                 />
               ) : projectTimeline ? (
@@ -2723,6 +2748,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   onInviteEmailChange={setInviteEmail}
                   onInvite={inviteProjectMember}
                   onGenerateReport={generateProjectReport}
+                  onCreateTask={createTaskForAnchor}
                   onBack={closeProjectTimeline}
                 />
               ) : (
@@ -3887,6 +3913,7 @@ function TimelinePanel({
   onCopyLink,
   onFlag,
   onMerge,
+  onCreateTask,
   inviteEmail = "",
   onInviteEmailChange,
   onInvite,
@@ -3902,6 +3929,7 @@ function TimelinePanel({
   onCopyLink: () => void;
   onFlag: () => void;
   onMerge: (sourcePersonId: string, targetPersonId: string) => Promise<void>;
+  onCreateTask?: (input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null }) => Promise<void>;
   inviteEmail?: string;
   onInviteEmailChange?: (email: string) => void;
   onInvite?: (project: any, email: string) => Promise<void>;
@@ -3909,6 +3937,8 @@ function TimelinePanel({
   onBack: () => void;
 }) {
   const [mergeTargetId, setMergeTargetId] = useState("");
+  const [quickTaskTitle, setQuickTaskTitle] = useState("");
+  const [quickTaskDue, setQuickTaskDue] = useState("");
   const notes = timeline.notes || [];
   const events = Array.isArray(timeline.events) && timeline.events.length
     ? timeline.events
@@ -4060,6 +4090,41 @@ function TimelinePanel({
           </div>
         );
       })()}
+      {onCreateTask && (
+        <div className="quick-task-row task-create-row" aria-label="Quick add task">
+          <input
+            value={quickTaskTitle}
+            onChange={(event) => setQuickTaskTitle(event.target.value)}
+            placeholder={kind === "person"
+              ? `Assign a task to ${timeline.person?.name || "this person"}`
+              : `Add a task for ${timeline.project?.name || "this project"}`}
+            aria-label="Quick task title"
+          />
+          <input
+            type="date"
+            value={quickTaskDue}
+            onChange={(event) => setQuickTaskDue(event.target.value)}
+            aria-label="Quick task due date"
+          />
+          <button
+            type="button"
+            disabled={!quickTaskTitle.trim() || !onCreateTask}
+            onClick={async () => {
+              if (!onCreateTask || !quickTaskTitle.trim()) return;
+              await onCreateTask({
+                title: quickTaskTitle.trim(),
+                due_at: quickTaskDue ? `${quickTaskDue}T12:00:00` : null,
+                project_id: kind === "project" ? timeline.project?.id || null : null,
+                assignee_id: kind === "person" ? timeline.person?.id || null : null,
+              });
+              setQuickTaskTitle("");
+              setQuickTaskDue("");
+            }}
+          >
+            <Plus size={16} /> Add task
+          </button>
+        </div>
+      )}
       {!!timeline.tasks?.length && (
         <div className="mini-section">
           <strong>Tasks</strong>
