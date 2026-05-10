@@ -683,7 +683,7 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Flag$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Close$/i }));
 
-    fireEvent.click(await screen.findByRole("button", { name: /Open Morgan Lee timeline/i }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Open Morgan Lee timeline/i }))[0]);
     expect(await screen.findByRole("heading", { name: "Morgan Lee" })).toBeInTheDocument();
     expect((await screen.findAllByText("Morgan kickoff call")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getAllByRole("combobox").at(-1)!, { target: { value: "person-2" } });

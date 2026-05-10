@@ -1777,6 +1777,36 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             <Plus size={18} />
           </button>
         </div>
+        {(state?.people || []).length > 0 && (
+          <>
+            <div className="sidebar-label">People</div>
+            {dashboardPeople.slice(0, 5).map((person) => (
+              <button
+                key={person.id}
+                className={`nav-item ${personTimeline?.person?.id === person.id ? "active" : ""}`}
+                onClick={() => openPerson(person)}
+                aria-label={`Open ${person.name} timeline`}
+              >
+                <UserRound size={15} /> {person.name}
+              </button>
+            ))}
+          </>
+        )}
+        {(companies || []).length > 0 && (
+          <>
+            <div className="sidebar-label">Companies</div>
+            {companies.slice(0, 5).map((company: any) => (
+              <button
+                key={company.id}
+                className="nav-item"
+                onClick={() => openMemoryItem("companies", company)}
+                aria-label={`Open ${company.name}`}
+              >
+                <Building2 size={15} /> {company.name}
+              </button>
+            ))}
+          </>
+        )}
         <div className="inbound">
           <span>Inbound</span>
           <button onClick={() => state?.inbound_address && navigator.clipboard.writeText(state.inbound_address)}>
