@@ -1781,6 +1781,11 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   gap: 6px;
   padding-bottom: 8px;
 }
+.recent-memory-when {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
 .share-panel {
   border: 1px solid var(--line);
   background: #f7fbf8;

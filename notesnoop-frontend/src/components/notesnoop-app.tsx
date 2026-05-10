@@ -2491,6 +2491,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                         const status = pipelineStatusForNote(note);
                         const kindLabel = NOTE_KIND_LABELS[note.note_kind || "note"] || "Note";
                         const isEmail = note.note_kind === "email" || !!note.raw_email_metadata;
+                        const relative = humanRelativeTime(note.occurred_at || note.created_at);
                         return (
                           <button key={note.id} className="dashboard-row memory-row" type="button" onClick={() => openNote(note.id)}>
                             <span className="memory-row-content">
@@ -2502,6 +2503,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                                 {isEmail && (
                                   <span className="pipeline-pill pipeline-pill-email">Email</span>
                                 )}
+                                {relative && <span className="recent-memory-when">{relative}</span>}
                               </span>
                               <small className="memory-row-body">{kindLabel}{note.body ? ` - ${truncateInline(note.body, 140)}` : ""}</small>
                             </span>
