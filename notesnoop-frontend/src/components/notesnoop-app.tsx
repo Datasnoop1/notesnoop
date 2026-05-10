@@ -4233,6 +4233,7 @@ function TimelinePanel({
   const [quickTaskTitle, setQuickTaskTitle] = useState("");
   const [quickTaskDue, setQuickTaskDue] = useState("");
   const [quickTaskAssignee, setQuickTaskAssignee] = useState("");
+  const [personTaskFilter, setPersonTaskFilter] = useState<"all" | "owner" | "watcher">("all");
   const notes = timeline.notes || [];
   const events = Array.isArray(timeline.events) && timeline.events.length
     ? timeline.events
@@ -4437,21 +4438,40 @@ function TimelinePanel({
           </button>
         </div>
       )}
-      {!!timeline.tasks?.length && (
-        <div className="mini-section">
-          <strong>Tasks</strong>
-          {timeline.tasks.slice(0, 8).map((task: any) => (
-            <span key={task.id} className="mini-relation">
-              <span>{task.title}</span>
-              <span className="mini-relation-tag">{task.status}</span>
-              {kind === "person" && task.is_assignee && <span className="mini-relation-tag" style={{ background: "#f4faf4", borderColor: "#b3d7b6", color: "#1f4d27" }}>owner</span>}
-              {kind === "person" && task.is_assignee === false && <span className="mini-relation-tag" style={{ background: "#fffefb" }}>watcher</span>}
-              {kind !== "person" && task.assignee_name && <small>{task.assignee_name}</small>}
-              {task.project_name && kind !== "project" && <small>{task.project_name}</small>}
-            </span>
-          ))}
-        </div>
-      )}
+      {!!timeline.tasks?.length && (() => {
+        const filtered = kind === "person" && personTaskFilter !== "all"
+          ? timeline.tasks.filter((task: any) => personTaskFilter === "owner" ? task.is_assignee === true : task.is_assignee === false)
+          : timeline.tasks;
+        const ownerCount = timeline.tasks.filter((task: any) => task.is_assignee === true).length;
+        const watcherCount = timeline.tasks.filter((task: any) => task.is_assignee === false).length;
+        return (
+          <div className="mini-section">
+            <strong>Tasks</strong>
+            {kind === "person" && (ownerCount > 0 || watcherCount > 0) && (
+              <div className="search-scope-tabs" role="tablist" aria-label="Filter person tasks by role">
+                <button type="button" role="tab" aria-selected={personTaskFilter === "all"} className={personTaskFilter === "all" ? "search-scope-tab active" : "search-scope-tab"} onClick={() => setPersonTaskFilter("all")}>All <strong>{timeline.tasks.length}</strong></button>
+                {ownerCount > 0 && (
+                  <button type="button" role="tab" aria-selected={personTaskFilter === "owner"} className={personTaskFilter === "owner" ? "search-scope-tab active" : "search-scope-tab"} onClick={() => setPersonTaskFilter("owner")}>Owner <strong>{ownerCount}</strong></button>
+                )}
+                {watcherCount > 0 && (
+                  <button type="button" role="tab" aria-selected={personTaskFilter === "watcher"} className={personTaskFilter === "watcher" ? "search-scope-tab active" : "search-scope-tab"} onClick={() => setPersonTaskFilter("watcher")}>Watching <strong>{watcherCount}</strong></button>
+                )}
+              </div>
+            )}
+            {filtered.slice(0, 8).map((task: any) => (
+              <span key={task.id} className="mini-relation">
+                <span>{task.title}</span>
+                <span className="mini-relation-tag">{task.status}</span>
+                {kind === "person" && task.is_assignee && <span className="mini-relation-tag" style={{ background: "#f4faf4", borderColor: "#b3d7b6", color: "#1f4d27" }}>owner</span>}
+                {kind === "person" && task.is_assignee === false && <span className="mini-relation-tag" style={{ background: "#fffefb" }}>watcher</span>}
+                {kind !== "person" && task.assignee_name && <small>{task.assignee_name}</small>}
+                {task.project_name && kind !== "project" && <small>{task.project_name}</small>}
+              </span>
+            ))}
+            {filtered.length === 0 && <span className="muted">No matching tasks.</span>}
+          </div>
+        );
+      })()}
       {!!timeline.meetings?.length && (
         <div className="mini-section">
           <strong>Meetings/calls</strong>
