@@ -2165,14 +2165,27 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 </div>
                 {dashboardNotes.length ? (
                   <div className="dashboard-list">
-                    {dashboardNotes.slice(0, 4).map((note) => (
-                      <button key={note.id} className="dashboard-row memory-row" type="button" onClick={() => openNote(note.id)}>
-                        <span>
-                          <strong>{note.title}</strong>
-                          <small>{NOTE_KIND_LABELS[note.note_kind || "note"] || "Note"} - {note.body}</small>
-                        </span>
-                      </button>
-                    ))}
+                    {dashboardNotes.slice(0, 4).map((note) => {
+                      const status = pipelineStatusForNote(note);
+                      const kindLabel = NOTE_KIND_LABELS[note.note_kind || "note"] || "Note";
+                      const isEmail = note.note_kind === "email" || !!note.raw_email_metadata;
+                      return (
+                        <button key={note.id} className="dashboard-row memory-row" type="button" onClick={() => openNote(note.id)}>
+                          <span className="memory-row-content">
+                            <span className="memory-row-head">
+                              <strong>{note.title}</strong>
+                              {status && (
+                                <span className={`pipeline-pill pipeline-pill-${status.tone}`}>{status.label}</span>
+                              )}
+                              {isEmail && (
+                                <span className="pipeline-pill pipeline-pill-email">Email</span>
+                              )}
+                            </span>
+                            <small>{kindLabel}{note.body ? ` - ${note.body}` : ""}</small>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="dashboard-empty">No notes yet.</p>
@@ -2874,6 +2887,15 @@ function ReviewSheet({
       </aside>
     </div>
   );
+}
+
+function pipelineStatusForNote(note: any): { label: string; tone: string } | null {
+  const status = note?.ai_processing_status;
+  if (status === "processing") return { label: "Processing", tone: "info" };
+  if (status === "failed") return { label: "Failed", tone: "danger" };
+  if (status === "processed") return { label: "Accepted", tone: "ok" };
+  if (status === "skipped" || status === "unprocessed") return { label: "Awaiting", tone: "neutral" };
+  return null;
 }
 
 function daysSinceNow(value?: string | null): number | null {

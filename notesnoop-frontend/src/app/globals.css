@@ -491,6 +491,36 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .dashboard-row.stale:hover {
   opacity: 0.85;
 }
+.memory-row-content {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.memory-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.pipeline-pill {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  background: #fffefb;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.pipeline-pill-info { border-color: #bdd7d0; background: #f7fbf8; color: #1f4e44; }
+.pipeline-pill-warn { border-color: #e1cf94; background: #fff8e1; color: #6b5300; }
+.pipeline-pill-ok { border-color: #b3d7b6; background: #f4faf4; color: #1f4d27; }
+.pipeline-pill-danger { border-color: #d8a3a0; background: #fbf3f2; color: #6b1818; }
+.pipeline-pill-neutral { border-color: #d1d4d4; background: #f0f3f3; color: #444; }
+.pipeline-pill-email { border-color: #c8c0e5; background: #f3f1fb; color: #3f2c79; }
 .memory-system-panel {
   grid-column: span 12;
   border-color: #bdd7d0;
