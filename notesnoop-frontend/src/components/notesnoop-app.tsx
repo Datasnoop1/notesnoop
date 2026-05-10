@@ -346,6 +346,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const searchDebounceRef = useRef<number | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const appliedRouteRef = useRef("");
   const openProjectRef = useRef<((project: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
   const openMemoryItemRef = useRef<((sectionId: string, item: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
@@ -481,6 +482,21 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   useEffect(() => {
     if (isSignedIn || DEV_AUTH) refresh().catch((err) => setToast(err.message));
   }, [isSignedIn, refresh]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (target?.isContentEditable) return;
+      event.preventDefault();
+      searchInputRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   useEffect(() => {
     refreshWorkspaceData().catch((err) => setToast(err.message));
@@ -1872,7 +1888,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           </button>
           <div className="search-box">
             <Search size={18} />
-            <input value={query} onChange={(e) => scheduleSearch(e.target.value)} placeholder="Search notes, people, projects..." />
+            <input
+              ref={searchInputRef}
+              value={query}
+              onChange={(e) => scheduleSearch(e.target.value)}
+              placeholder="Search notes, people, projects... (press / to focus)"
+            />
           </div>
           {!!state?.workspaces?.length && state.workspaces.length > 1 && (
             <select
