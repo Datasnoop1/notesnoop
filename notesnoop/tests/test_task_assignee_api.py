@@ -121,6 +121,84 @@ def test_task_assignee_picker_writes_assignee_and_watcher_roles(client):
     assert all(row["id"] == alice_id for row in payload2["people"])
 
 
+def test_rename_project_and_person(client):
+    user_id = f"rename_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Rename workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    project = client.post(
+        f"/api/workspaces/{workspace_id}/projects",
+        json={"name": "Apolllo (typo)", "color_hex": "#e85d4f"},
+        headers=headers,
+    )
+    project_id = project.json()["data"]["id"]
+    person = client.post(
+        f"/api/workspaces/{workspace_id}/people",
+        json={"name": "Morgaan Lee"},
+        headers=headers,
+    )
+    person_id = person.json()["data"]["id"]
+
+    renamed_project = client.patch(
+        f"/api/projects/{project_id}",
+        json={"name": "Apollo"},
+        headers=headers,
+    )
+    assert renamed_project.status_code == 200
+    assert renamed_project.json()["data"]["name"] == "Apollo"
+
+    renamed_person = client.patch(
+        f"/api/people/{person_id}",
+        json={"name": "Morgan Lee", "role": "CEO"},
+        headers=headers,
+    )
+    assert renamed_person.status_code == 200
+    assert renamed_person.json()["data"]["name"] == "Morgan Lee"
+    assert renamed_person.json()["data"]["role"] == "CEO"
+
+    # System projects (personal / inbox) cannot be renamed.
+    bootstrap_state = boot.json()["data"]
+    inbox = next(p for p in bootstrap_state["projects"] if p["kind"] == "inbox")
+    blocked = client.patch(
+        f"/api/projects/{inbox['id']}",
+        json={"name": "Renamed Inbox"},
+        headers=headers,
+    )
+    assert blocked.status_code == 400
+
+
+def test_manual_create_task_reminder(client):
+    user_id = f"reminder_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Reminder workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    task = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={"title": "Call Alice next Tuesday"},
+        headers=headers,
+    )
+    assert task.status_code == 200
+    task_id = task.json()["data"]["id"]
+
+    # Missing remind_at must 422.
+    missing = client.post(f"/api/tasks/{task_id}/reminders", json={}, headers=headers)
+    assert missing.status_code == 422
+
+    created = client.post(
+        f"/api/tasks/{task_id}/reminders",
+        json={"remind_at": "2099-06-15T09:00:00+00:00"},
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    reminder = created.json()["data"]
+    assert reminder["task_id"] == task_id
+    assert reminder["state"] == "pending"
+
+
 def test_task_priority_round_trips(client):
     user_id = f"priority_user_{uuid.uuid4().hex[:10]}"
     headers = _headers(user_id)
