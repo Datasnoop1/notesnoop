@@ -2112,7 +2112,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     })}
                   </div>
                 ) : (
-                  <p className="dashboard-empty">No active projects yet.</p>
+                  <p className="dashboard-empty">No active projects yet. Capture a note and tag it to start a project here.</p>
                 )}
               </section>
 
@@ -2154,7 +2154,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     })}
                   </div>
                 ) : (
-                  <p className="dashboard-empty">No people yet.</p>
+                  <p className="dashboard-empty">No people yet. People you mention in notes or who arrive via forwarded email will appear here.</p>
                 )}
               </section>
 
@@ -2188,7 +2188,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     })}
                   </div>
                 ) : (
-                  <p className="dashboard-empty">No notes yet.</p>
+                  <p className="dashboard-empty">No notes yet. Paste a meeting note, forward an email, or hit Capture to start.</p>
                 )}
               </section>
 
