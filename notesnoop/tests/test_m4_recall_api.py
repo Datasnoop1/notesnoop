@@ -170,6 +170,18 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
         headers=headers,
     )
     assert task.status_code == 200
+    graph_only_task = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={
+            "title": "Project-only Apollo board prep",
+            "description": "No source note, still a first-class project memory.",
+            "project_ids": [project_id],
+            "person_ids": [person_id],
+        },
+        headers=headers,
+    )
+    assert graph_only_task.status_code == 200
+    graph_only_task_id = graph_only_task.json()["data"]["id"]
     company = client.post(
         f"/api/workspaces/{workspace_id}/companies",
         json={
@@ -182,6 +194,18 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
         headers=headers,
     )
     assert company.status_code == 200
+    workflow = client.post(
+        f"/api/workspaces/{workspace_id}/workflows",
+        json={
+            "name": "Apollo diligence workflow",
+            "description": "Tracks the board prep loop.",
+            "project_ids": [project_id],
+            "person_ids": [person_id],
+            "task_ids": [graph_only_task_id],
+        },
+        headers=headers,
+    )
+    assert workflow.status_code == 200
     memory_search = client.get(
         f"/api/workspaces/{workspace_id}/search",
         params={"q": "diligence", "project_id": project_id, "person_id": person_id},
@@ -196,6 +220,20 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
     linked_memory = {(row["kind"], row["title"]) for row in note_memory.json()["data"]["memory_links"]}
     assert ("task", "Prepare Apollo diligence pack") in linked_memory
     assert ("company", "Northstar Advisory") in linked_memory
+    memory_graph = client.get(
+        f"/api/workspaces/{workspace_id}/memory-graph",
+        params={"project_id": project_id},
+        headers=headers,
+    )
+    assert memory_graph.status_code == 200
+    graph_data = memory_graph.json()["data"]
+    graph_nodes = {(row["kind"], row["id"]) for row in graph_data["nodes"]}
+    graph_edges = {(row["from_kind"], row["from_id"], row["relation"], row["to_kind"], row["to_id"]) for row in graph_data["edges"]}
+    assert ("task", graph_only_task_id) in graph_nodes
+    assert ("workflow", workflow.json()["data"]["id"]) in graph_nodes
+    assert ("task", graph_only_task_id, "filed_in", "project", project_id) in graph_edges
+    assert ("task", graph_only_task_id, "assignee", "person", person_id) in graph_edges
+    assert ("workflow", workflow.json()["data"]["id"], "contains", "task", graph_only_task_id) in graph_edges
 
     recent = client.get(f"/api/workspaces/{workspace_id}/search", params={"q": ""}, headers=headers)
     assert recent.status_code == 200

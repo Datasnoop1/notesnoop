@@ -698,193 +698,268 @@ def update_workflow(workflow_id: str, payload: WorkflowUpdate, user: CurrentUser
 def memory_graph(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
         _ensure_workspace_access(cur, workspace_id)
-        filter_project_sql = ""
-        params: list = [workspace_id]
         if project_id:
             _validate_project_ids(cur, workspace_id, [project_id])
-            filter_project_sql = "AND EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s)"
-            params.append(project_id)
         notes = many(
             cur,
-            f"""
+            """
             SELECT n.id, n.title, n.note_kind, coalesce(n.occurred_at, n.created_at) AS happened_at
             FROM notes n
-            WHERE n.workspace_id = %s {filter_project_sql}
+            WHERE n.workspace_id = %s
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1 FROM note_projects np
+                  WHERE np.note_id = n.id AND np.project_id = %s::uuid
+                )
+              )
             ORDER BY coalesce(n.occurred_at, n.created_at) DESC
-            LIMIT 30
+            LIMIT 60
             """,
-            tuple(params),
-        )
-        note_ids = [str(note["id"]) for note in notes]
-        if not note_ids:
-            return {"data": {"nodes": [], "edges": []}}
-        people = many(
-            cur,
-            """
-            SELECT DISTINCT p.id, p.name AS title, p.company
-            FROM people p
-            JOIN note_people_links npl ON npl.person_id = p.id
-            WHERE npl.note_id = ANY(%s::uuid[])
-              AND npl.state IN ('confirmed','auto_linked')
-            ORDER BY p.name
-            LIMIT 50
-            """,
-            (note_ids,),
-        )
-        projects = many(
-            cur,
-            """
-            SELECT DISTINCT p.id, p.name AS title, p.color_hex
-            FROM projects p
-            JOIN note_projects np ON np.project_id = p.id
-            WHERE np.note_id = ANY(%s::uuid[])
-            ORDER BY p.name
-            LIMIT 50
-            """,
-            (note_ids,),
+            (workspace_id, project_id, project_id),
         )
         tasks = many(
             cur,
             """
-            SELECT DISTINCT t.id, t.title, t.status, t.created_at
+            SELECT DISTINCT t.id, t.title, t.status, t.due_at, t.created_at
             FROM tasks t
-            JOIN task_notes tn ON tn.task_id = t.id
-            WHERE tn.note_id = ANY(%s::uuid[])
+            LEFT JOIN task_projects tp ON tp.task_id = t.id
+            WHERE t.workspace_id = %s
+              AND (%s::uuid IS NULL OR tp.project_id = %s::uuid)
             ORDER BY t.created_at DESC
-            LIMIT 50
+            LIMIT 80
             """,
-            (note_ids,),
+            (workspace_id, project_id, project_id),
         )
-        task_ids = [str(task["id"]) for task in tasks]
         meetings = many(
             cur,
             """
             SELECT DISTINCT m.id, m.title, coalesce(m.occurred_at, m.created_at) AS happened_at
             FROM meetings m
-            JOIN meeting_notes mn ON mn.meeting_id = m.id
-            WHERE mn.note_id = ANY(%s::uuid[])
-            ORDER BY coalesce(m.occurred_at, m.created_at) DESC
-            LIMIT 50
+            LEFT JOIN meeting_projects mp ON mp.meeting_id = m.id
+            WHERE m.workspace_id = %s
+              AND (%s::uuid IS NULL OR mp.project_id = %s::uuid)
+            ORDER BY happened_at DESC
+            LIMIT 60
             """,
-            (note_ids,),
+            (workspace_id, project_id, project_id),
         )
         reports = many(
             cur,
             """
             SELECT DISTINCT r.id, r.title, r.status, r.created_at
             FROM reports r
-            JOIN report_notes rn ON rn.report_id = r.id
-            WHERE rn.note_id = ANY(%s::uuid[])
+            LEFT JOIN report_projects rp ON rp.report_id = r.id
+            WHERE r.workspace_id = %s
+              AND (%s::uuid IS NULL OR rp.project_id = %s::uuid)
             ORDER BY r.created_at DESC
-            LIMIT 50
+            LIMIT 60
             """,
-            (note_ids,),
+            (workspace_id, project_id, project_id),
         )
-        report_ids = [str(report["id"]) for report in reports]
         workflows = many(
             cur,
             """
             SELECT DISTINCT w.id, w.name AS title, w.status, w.updated_at
             FROM workflows w
-            LEFT JOIN workflow_notes wn ON wn.workflow_id = w.id
-            LEFT JOIN workflow_tasks wt ON wt.workflow_id = w.id
-            WHERE wn.note_id = ANY(%s::uuid[])
-               OR wt.task_id = ANY(%s::uuid[])
+            LEFT JOIN workflow_projects wp ON wp.workflow_id = w.id
+            WHERE w.workspace_id = %s
+              AND (%s::uuid IS NULL OR wp.project_id = %s::uuid)
             ORDER BY w.updated_at DESC
-            LIMIT 50
+            LIMIT 60
             """,
-            (note_ids, task_ids),
+            (workspace_id, project_id, project_id),
         )
         companies = many(
             cur,
             """
             SELECT DISTINCT c.id, c.name AS title, c.domain, c.updated_at
             FROM companies c
-            LEFT JOIN company_notes cn ON cn.company_id = c.id
-            LEFT JOIN report_companies rc ON rc.company_id = c.id
-            WHERE cn.note_id = ANY(%s::uuid[])
-               OR rc.report_id = ANY(%s::uuid[])
-            ORDER BY c.name
-            LIMIT 50
+            LEFT JOIN company_projects cp ON cp.company_id = c.id
+            WHERE c.workspace_id = %s
+              AND (%s::uuid IS NULL OR cp.project_id = %s::uuid)
+            ORDER BY title
+            LIMIT 60
             """,
-            (note_ids, report_ids),
+            (workspace_id, project_id, project_id),
         )
+        projects = many(
+            cur,
+            """
+            SELECT p.id, p.name AS title, p.color_hex, p.kind
+            FROM projects p
+            WHERE p.workspace_id = %s
+              AND p.kind <> 'personal'
+              AND (%s::uuid IS NULL OR p.id = %s::uuid)
+            ORDER BY p.kind, p.name
+            LIMIT 60
+            """,
+            (workspace_id, project_id, project_id),
+        )
+        note_ids = [str(note["id"]) for note in notes]
+        task_ids = [str(task["id"]) for task in tasks]
+        meeting_ids = [str(meeting["id"]) for meeting in meetings]
+        report_ids = [str(report["id"]) for report in reports]
+        workflow_ids = [str(workflow["id"]) for workflow in workflows]
+        company_ids = [str(company["id"]) for company in companies]
+        project_ids = [str(project["id"]) for project in projects]
+        people = many(
+            cur,
+            """
+            SELECT DISTINCT p.id, p.name AS title, p.company
+            FROM people p
+            WHERE p.workspace_id = %s
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1
+                  FROM note_people_links npl
+                  JOIN note_projects np ON np.note_id = npl.note_id
+                  WHERE npl.person_id = p.id
+                    AND npl.state IN ('confirmed','auto_linked')
+                    AND np.project_id = %s::uuid
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM task_people tp
+                  JOIN task_projects tpr ON tpr.task_id = tp.task_id
+                  WHERE tp.person_id = p.id AND tpr.project_id = %s::uuid
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM meeting_people mp
+                  JOIN meeting_projects mpr ON mpr.meeting_id = mp.meeting_id
+                  WHERE mp.person_id = p.id AND mpr.project_id = %s::uuid
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM report_people rp
+                  JOIN report_projects rpr ON rpr.report_id = rp.report_id
+                  WHERE rp.person_id = p.id AND rpr.project_id = %s::uuid
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM workflow_people wp
+                  JOIN workflow_projects wpr ON wpr.workflow_id = wp.workflow_id
+                  WHERE wp.person_id = p.id AND wpr.project_id = %s::uuid
+                )
+                OR EXISTS (
+                  SELECT 1
+                  FROM company_people cp
+                  JOIN company_projects cpr ON cpr.company_id = cp.company_id
+                  WHERE cp.person_id = p.id AND cpr.project_id = %s::uuid
+                )
+              )
+            ORDER BY p.name
+            LIMIT 80
+            """,
+            (workspace_id, project_id, project_id, project_id, project_id, project_id, project_id, project_id),
+        )
+        person_ids = [str(person["id"]) for person in people]
         edges = many(
             cur,
             """
             SELECT 'note' AS from_kind, note_id::text AS from_id, 'person' AS to_kind, person_id::text AS to_id, 'mentions' AS relation
-            FROM note_people_links WHERE note_id = ANY(%s::uuid[]) AND state IN ('confirmed','auto_linked')
+            FROM note_people_links
+            WHERE note_id = ANY(%s::uuid[]) AND person_id = ANY(%s::uuid[]) AND state IN ('confirmed','auto_linked')
             UNION ALL
             SELECT 'note', note_id::text, 'project', project_id::text, 'filed_in'
-            FROM note_projects WHERE note_id = ANY(%s::uuid[])
+            FROM note_projects
+            WHERE note_id = ANY(%s::uuid[]) AND project_id = ANY(%s::uuid[])
             UNION ALL
             SELECT 'task', task_id::text, 'note', note_id::text, 'sourced_from'
-            FROM task_notes WHERE note_id = ANY(%s::uuid[])
+            FROM task_notes
+            WHERE task_id = ANY(%s::uuid[]) AND note_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'task', task_id::text, 'person', person_id::text, relation
+            FROM task_people
+            WHERE task_id = ANY(%s::uuid[]) AND person_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'task', task_id::text, 'project', project_id::text, 'filed_in'
+            FROM task_projects
+            WHERE task_id = ANY(%s::uuid[]) AND project_id = ANY(%s::uuid[])
             UNION ALL
             SELECT 'meeting', meeting_id::text, 'note', note_id::text, 'sourced_from'
-            FROM meeting_notes WHERE note_id = ANY(%s::uuid[])
+            FROM meeting_notes
+            WHERE meeting_id = ANY(%s::uuid[]) AND note_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'meeting', meeting_id::text, 'person', person_id::text, attendance_status
+            FROM meeting_people
+            WHERE meeting_id = ANY(%s::uuid[]) AND person_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'meeting', meeting_id::text, 'project', project_id::text, 'filed_in'
+            FROM meeting_projects
+            WHERE meeting_id = ANY(%s::uuid[]) AND project_id = ANY(%s::uuid[])
             UNION ALL
             SELECT 'report', report_id::text, 'note', note_id::text, 'sourced_from'
-            FROM report_notes WHERE note_id = ANY(%s::uuid[])
+            FROM report_notes
+            WHERE report_id = ANY(%s::uuid[]) AND note_id = ANY(%s::uuid[])
             UNION ALL
-            SELECT 'workflow', workflow_id::text, 'note', note_id::text, 'sourced_from'
-            FROM workflow_notes WHERE note_id = ANY(%s::uuid[])
+            SELECT 'report', report_id::text, 'person', person_id::text, 'mentions'
+            FROM report_people
+            WHERE report_id = ANY(%s::uuid[]) AND person_id = ANY(%s::uuid[])
             UNION ALL
-            SELECT 'workflow', workflow_id::text, 'task', task_id::text, 'contains'
-            FROM workflow_tasks WHERE task_id = ANY(%s::uuid[])
+            SELECT 'report', report_id::text, 'project', project_id::text, 'filed_in'
+            FROM report_projects
+            WHERE report_id = ANY(%s::uuid[]) AND project_id = ANY(%s::uuid[])
             UNION ALL
-            SELECT 'workflow', workflow_id::text, 'person', person_id::text, 'involves'
-            FROM workflow_people WHERE workflow_id IN (
-              SELECT id FROM workflows
-              WHERE id IN (SELECT workflow_id FROM workflow_notes WHERE note_id = ANY(%s::uuid[]))
-                 OR id IN (SELECT workflow_id FROM workflow_tasks WHERE task_id = ANY(%s::uuid[]))
-            )
-            UNION ALL
-            SELECT 'workflow', workflow_id::text, 'project', project_id::text, 'runs_in'
-            FROM workflow_projects WHERE workflow_id IN (
-              SELECT id FROM workflows
-              WHERE id IN (SELECT workflow_id FROM workflow_notes WHERE note_id = ANY(%s::uuid[]))
-                 OR id IN (SELECT workflow_id FROM workflow_tasks WHERE task_id = ANY(%s::uuid[]))
-            )
-            UNION ALL
-            SELECT 'company', company_id::text, 'note', note_id::text, 'sourced_from'
-            FROM company_notes WHERE note_id = ANY(%s::uuid[])
-            UNION ALL
-            SELECT 'company', company_id::text, 'person', person_id::text, 'associated_with'
-            FROM company_people WHERE company_id IN (
-              SELECT id FROM companies
-              WHERE id IN (SELECT company_id FROM company_notes WHERE note_id = ANY(%s::uuid[]))
-                 OR id IN (SELECT company_id FROM report_companies WHERE report_id = ANY(%s::uuid[]))
-            )
-            UNION ALL
-            SELECT 'company', company_id::text, 'project', project_id::text, 'works_on'
-            FROM company_projects WHERE company_id IN (
-              SELECT id FROM companies
-              WHERE id IN (SELECT company_id FROM company_notes WHERE note_id = ANY(%s::uuid[]))
-                 OR id IN (SELECT company_id FROM report_companies WHERE report_id = ANY(%s::uuid[]))
-            )
+            SELECT 'report', report_id::text, 'task', task_id::text, 'includes'
+            FROM report_tasks
+            WHERE report_id = ANY(%s::uuid[]) AND task_id = ANY(%s::uuid[])
             UNION ALL
             SELECT 'report', report_id::text, 'company', company_id::text, 'covers'
-            FROM report_companies WHERE report_id = ANY(%s::uuid[])
+            FROM report_companies
+            WHERE report_id = ANY(%s::uuid[]) AND company_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'workflow', workflow_id::text, 'note', note_id::text, 'sourced_from'
+            FROM workflow_notes
+            WHERE workflow_id = ANY(%s::uuid[]) AND note_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'workflow', workflow_id::text, 'task', task_id::text, 'contains'
+            FROM workflow_tasks
+            WHERE workflow_id = ANY(%s::uuid[]) AND task_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'workflow', workflow_id::text, 'person', person_id::text, relation
+            FROM workflow_people
+            WHERE workflow_id = ANY(%s::uuid[]) AND person_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'workflow', workflow_id::text, 'project', project_id::text, 'runs_in'
+            FROM workflow_projects
+            WHERE workflow_id = ANY(%s::uuid[]) AND project_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'company', company_id::text, 'note', note_id::text, 'sourced_from'
+            FROM company_notes
+            WHERE company_id = ANY(%s::uuid[]) AND note_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'company', company_id::text, 'person', person_id::text, 'associated_with'
+            FROM company_people
+            WHERE company_id = ANY(%s::uuid[]) AND person_id = ANY(%s::uuid[])
+            UNION ALL
+            SELECT 'company', company_id::text, 'project', project_id::text, 'works_on'
+            FROM company_projects
+            WHERE company_id = ANY(%s::uuid[]) AND project_id = ANY(%s::uuid[])
             """,
             (
-                note_ids,
-                note_ids,
-                note_ids,
-                note_ids,
-                note_ids,
-                note_ids,
-                task_ids,
-                note_ids,
-                task_ids,
-                note_ids,
-                task_ids,
-                note_ids,
-                note_ids,
-                report_ids,
-                note_ids,
-                report_ids,
-                report_ids,
+                note_ids, person_ids,
+                note_ids, project_ids,
+                task_ids, note_ids,
+                task_ids, person_ids,
+                task_ids, project_ids,
+                meeting_ids, note_ids,
+                meeting_ids, person_ids,
+                meeting_ids, project_ids,
+                report_ids, note_ids,
+                report_ids, person_ids,
+                report_ids, project_ids,
+                report_ids, task_ids,
+                report_ids, company_ids,
+                workflow_ids, note_ids,
+                workflow_ids, task_ids,
+                workflow_ids, person_ids,
+                workflow_ids, project_ids,
+                company_ids, note_ids,
+                company_ids, person_ids,
+                company_ids, project_ids,
             ),
         )
         nodes = []
