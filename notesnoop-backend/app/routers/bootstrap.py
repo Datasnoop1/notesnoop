@@ -198,12 +198,20 @@ def update_project(project_id: str, payload: ProjectUpdate, user: CurrentUser = 
             raise HTTPException(status_code=404, detail="Project not found")
         if project["kind"] in ("inbox", "personal") and payload.name is not None and payload.name.strip().lower() != project["name"].lower():
             raise HTTPException(status_code=400, detail="System projects cannot be renamed")
+        if payload.status is not None and project["kind"] in ("inbox", "personal"):
+            raise HTTPException(status_code=400, detail="System projects cannot be closed")
+        next_status = payload.status if payload.status is not None else project.get("status") or "active"
+        closed_at_sql = "now()" if next_status == "closed" and (project.get("status") != "closed") else (
+            "NULL" if next_status == "active" else "closed_at"
+        )
         cur.execute(
-            """
+            f"""
             UPDATE projects
             SET name = %s,
                 color_hex = %s,
-                ai_mode = %s
+                ai_mode = %s,
+                status = %s,
+                closed_at = {closed_at_sql}
             WHERE id = %s
             RETURNING *
             """,
@@ -211,6 +219,7 @@ def update_project(project_id: str, payload: ProjectUpdate, user: CurrentUser = 
                 payload.name.strip() if payload.name is not None else project["name"],
                 payload.color_hex if "color_hex" in payload.model_fields_set else project.get("color_hex"),
                 payload.ai_mode if payload.ai_mode is not None else project.get("ai_mode"),
+                next_status,
                 project_id,
             ),
         )

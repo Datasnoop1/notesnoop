@@ -388,13 +388,90 @@ def test_review_queue_exposes_source_people_and_source_companies(client):
     assert any(c["id"] == company_id for c in row.get("source_companies") or [])
 
 
+def test_project_close_and_reopen_filters_recent_projects(client):
+    """Closing a project hides it from /home recent_projects; reopening brings it back."""
+    user_id = f"proj_close_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Close workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    project_create = client.post(
+        f"/api/workspaces/{workspace_id}/projects",
+        json={"name": "Alpha Diligence", "color_hex": "#888888"},
+        headers=headers,
+    )
+    project_id = project_create.json()["data"]["id"]
+
+    # Capture a note so the project shows up in recent_projects
+    client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Initial diligence note", "project_ids": [project_id]},
+        headers=headers,
+    )
+
+    home_before = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    before_ids = [p["id"] for p in home_before.json()["data"]["recent_projects"]]
+    assert project_id in before_ids
+
+    closed = client.patch(
+        f"/api/projects/{project_id}",
+        json={"status": "closed"},
+        headers=headers,
+    )
+    assert closed.status_code == 200
+    assert closed.json()["data"]["status"] == "closed"
+    assert closed.json()["data"]["closed_at"] is not None
+
+    home_after = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    after_ids = [p["id"] for p in home_after.json()["data"]["recent_projects"]]
+    assert project_id not in after_ids
+
+    reopened = client.patch(
+        f"/api/projects/{project_id}",
+        json={"status": "active"},
+        headers=headers,
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["data"]["status"] == "active"
+    assert reopened.json()["data"]["closed_at"] is None
+
+    home_final = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    final_ids = [p["id"] for p in home_final.json()["data"]["recent_projects"]]
+    assert project_id in final_ids
+
+
+def test_inbox_project_cannot_be_closed(client):
+    """System projects (inbox / personal) refuse status changes with HTTP 400."""
+    user_id = f"sys_close_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Sys workspace"}, headers=headers)
+    inbox = next(p for p in boot.json()["data"]["projects"] if p["kind"] == "inbox")
+
+    response = client.patch(
+        f"/api/projects/{inbox['id']}",
+        json={"status": "closed"},
+        headers=headers,
+    )
+    assert response.status_code == 400
+
+
 def test_triage_endpoint_lists_unprocessed_and_bulk_actions(client):
     """Triage view returns unprocessed notes; bulk-process queues each and bulk-archive hides them."""
+    from app.db import transaction
+
     user_id = f"triage_user_{uuid.uuid4().hex[:10]}"
     headers = _headers(user_id)
 
     boot = client.post("/api/bootstrap", json={"workspace_name": "Triage workspace"}, headers=headers)
     workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    # Set workspace AI to manual so freshly-created notes land in 'skipped' (a
+    # legitimate triage-eligible status) instead of immediately flipping to
+    # 'processing'.
+    with transaction(user_id) as cur:
+        cur.execute("UPDATE workspaces SET ai_mode = 'manual' WHERE id = %s", (workspace_id,))
 
     note_a = client.post(
         f"/api/workspaces/{workspace_id}/notes",
@@ -432,5 +509,5 @@ def test_triage_endpoint_lists_unprocessed_and_bulk_actions(client):
 
     after = client.get(f"/api/workspaces/{workspace_id}/triage", headers=headers)
     remaining_ids = {row["id"] for row in after.json()["data"]}
-    assert note_a_id not in remaining_ids  # left "unprocessed" state via processing
+    assert note_a_id not in remaining_ids  # advanced to 'processing'
     assert note_b_id not in remaining_ids  # archived

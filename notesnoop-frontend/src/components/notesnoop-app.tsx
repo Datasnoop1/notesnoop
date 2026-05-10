@@ -406,6 +406,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const workspaceId = state?.workspace?.id;
   const inbox = useMemo(() => state?.projects.find((p) => p.kind === "inbox"), [state]);
   const personal = useMemo(() => state?.projects.find((p) => p.kind === "personal"), [state]);
+  const closedProjects = useMemo(
+    () => (state?.projects || []).filter((p) => p.kind === "user" && (p.status || "active") === "closed"),
+    [state?.projects],
+  );
   const saveProjectIds = selectedProjectIds.length ? selectedProjectIds : activeProject ? [activeProject] : [];
   const activityByProject = useMemo(() => new Map(activity.map((item) => [item.project_id, item])), [activity]);
   const seededPeople = useMemo(() => (state?.people || []).filter((person) => !person.clerk_user_id), [state]);
@@ -1486,6 +1490,26 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
+  async function setProjectStatus(projectId: string, status: "active" | "closed") {
+    try {
+      const res = await api(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      setToast(status === "closed" ? "Project closed." : "Project reopened.");
+      await refreshWorkspaceData();
+      if (projectTimeline?.project?.id === projectId) {
+        if (status === "closed") {
+          closeProjectTimeline();
+        } else {
+          await openProject(res.data || projectTimeline.project);
+        }
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not update project");
+    }
+  }
+
   async function renamePerson(personId: string, nextName: string) {
     if (!nextName.trim()) return;
     try {
@@ -2043,7 +2067,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         )}
         <div className="sidebar-label">Projects</div>
         {state?.projects
-          .filter((p) => p.kind === "user")
+          .filter((p) => p.kind === "user" && (p.status || "active") === "active")
           .map((project) => {
             const count = projectOpenTaskCounts[project.id] || 0;
             return (
@@ -2054,6 +2078,21 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               </button>
             );
           })}
+        {closedProjects.length > 0 && (
+          <details className="sidebar-closed-section">
+            <summary>Closed ({closedProjects.length})</summary>
+            {closedProjects.map((project) => (
+              <button
+                key={project.id}
+                className={`nav-item closed-project ${activeProject === project.id ? "active" : ""}`}
+                onClick={() => openProject(project)}
+              >
+                <span className="dot" style={{ background: project.color_hex || "#7c3aed", opacity: 0.4 }} />
+                <span style={{ textDecoration: "line-through", opacity: 0.7 }}>{project.name}</span>
+              </button>
+            ))}
+          </details>
+        )}
         <div className="sidebar-create">
           <input value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="New project" />
           <button className="icon-btn" onClick={createProject} aria-label="Create project">
@@ -3267,6 +3306,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   onGenerateReport={generateProjectReport}
                   onCreateTask={createTaskForAnchor}
                   onRename={projectTimeline.project?.kind === "user" ? (next) => renameProject(projectTimeline.project.id, next) : undefined}
+                  onSetProjectStatus={projectTimeline.project?.kind === "user" ? (status) => setProjectStatus(projectTimeline.project.id, status) : undefined}
                   onBack={closeProjectTimeline}
                 />
               ) : (
@@ -4898,6 +4938,7 @@ function TimelinePanel({
   onInvite,
   onGenerateReport,
   onBack,
+  onSetProjectStatus,
 }: {
   timeline: any;
   kind: "person" | "project";
@@ -4910,6 +4951,7 @@ function TimelinePanel({
   onMerge: (sourcePersonId: string, targetPersonId: string) => Promise<void>;
   onCreateTask?: (input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null }) => Promise<void>;
   onRename?: (nextName: string) => Promise<void>;
+  onSetProjectStatus?: (status: "active" | "closed") => Promise<void>;
   inviteEmail?: string;
   onInviteEmailChange?: (email: string) => void;
   onInvite?: (project: any, email: string) => Promise<void>;
@@ -4973,6 +5015,13 @@ function TimelinePanel({
         <button onClick={onFlag}><Flag size={16} /> Flag</button>
         {kind === "project" && onGenerateReport && (
           <button onClick={() => onGenerateReport(timeline.project)}><FileText size={16} /> Generate report</button>
+        )}
+        {kind === "project" && onSetProjectStatus && timeline.project?.kind === "user" && (
+          timeline.project.status === "closed" ? (
+            <button onClick={() => onSetProjectStatus("active")}><Archive size={16} /> Reopen</button>
+          ) : (
+            <button onClick={() => onSetProjectStatus("closed")}><Archive size={16} /> Close project</button>
+          )
         )}
         <button onClick={onBack}><X size={16} /> Close</button>
       </div>

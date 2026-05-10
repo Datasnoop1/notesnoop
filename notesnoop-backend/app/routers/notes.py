@@ -533,6 +533,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             LEFT JOIN tasks t ON t.id = tp.task_id
             WHERE p.workspace_id = %s
               AND (%s::uuid IS NULL OR p.id = %s::uuid)
+              AND coalesce(p.status, 'active') = 'active'
             GROUP BY p.id
             ORDER BY coalesce(max(coalesce(n.occurred_at, n.created_at)), p.created_at) DESC
             LIMIT 5

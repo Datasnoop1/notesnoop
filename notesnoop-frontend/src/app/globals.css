@@ -3164,6 +3164,26 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   align-self: center;
 }
 .triage-open:hover { background: #f1efe8; color: var(--text); }
+
+.sidebar-closed-section {
+  margin-top: 6px;
+  padding: 0;
+}
+.sidebar-closed-section > summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 6px 12px;
+  user-select: none;
+}
+.sidebar-closed-section > summary::-webkit-details-marker { display: none; }
+.sidebar-closed-section[open] > summary { color: var(--text); }
+.sidebar-closed-section .nav-item.closed-project {
+  opacity: 0.7;
+}
 .palette-title {
   font-size: 14px;
   font-weight: 500;
