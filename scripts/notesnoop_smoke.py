@@ -235,6 +235,7 @@ def run(base_url: str, basic_auth: str | None) -> None:
                 "description": "Confirm diligence timeline and next decision owner.",
                 "status": "doing",
                 "priority": 1,
+                "due_at": "2026-05-15T12:00:00Z",
                 "project_ids": [project["id"]],
                 "person_ids": [avery["id"]],
                 "note_ids": [note["id"]],

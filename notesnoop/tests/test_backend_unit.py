@@ -364,6 +364,17 @@ def test_task_reminders_migration_adds_first_class_due_reminders():
     assert "GRANT SELECT, INSERT, UPDATE, DELETE ON task_reminders" in migration.sql
 
 
+def test_task_reminder_active_uniqueness_migration_prevents_duplicate_snoozes():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0021_task_reminder_active_uniqueness.sql")
+
+    assert migration.filename == "0021_task_reminder_active_uniqueness.sql"
+    assert "idx_notesnoop_task_reminders_active_task_channel" in migration.sql
+    assert "WHERE state IN ('pending','snoozed')" in migration.sql
+    assert "DROP INDEX IF EXISTS idx_notesnoop_task_reminders_pending_task_channel" in migration.sql
+    assert "UPDATE task_reminders" in migration.sql
+    assert "IF NOT FOUND THEN" in migration.sql
+
+
 def test_project_summary_helper_is_deterministic():
     summary = memory.build_project_summary(
         {"id": "project-1", "name": "Apollo"},
