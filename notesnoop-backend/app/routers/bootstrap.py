@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
-from ..schemas import BootstrapRequest, PersonCreate, ProjectCreate, ProjectInviteCreate, WorkspaceSettingsUpdate
+from ..schemas import BootstrapRequest, PersonCreate, PersonUpdate, ProjectCreate, ProjectInviteCreate, ProjectUpdate, WorkspaceSettingsUpdate
 from ..services import (
     accept_pending_project_invites,
     bootstrap_workspace,
@@ -118,6 +118,35 @@ def create_person(
         return {"data": person}
 
 
+@router.patch("/people/{person_id}")
+def update_person(person_id: str, payload: PersonUpdate, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        person = one(cur, "SELECT * FROM people WHERE id = %s", (person_id,))
+        if not person:
+            raise HTTPException(status_code=404, detail="Person not found")
+        cur.execute(
+            """
+            UPDATE people
+            SET name = %s,
+                company = %s,
+                role = %s,
+                email = %s,
+                details = %s
+            WHERE id = %s
+            RETURNING *
+            """,
+            (
+                payload.name.strip() if payload.name is not None else person["name"],
+                payload.company if "company" in payload.model_fields_set else person.get("company"),
+                payload.role if "role" in payload.model_fields_set else person.get("role"),
+                payload.email if "email" in payload.model_fields_set else person.get("email"),
+                payload.details if "details" in payload.model_fields_set else person.get("details"),
+                person_id,
+            ),
+        )
+        return {"data": dict(cur.fetchone())}
+
+
 @router.get("/workspaces/{workspace_id}/people")
 def list_people(workspace_id: str, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
@@ -159,6 +188,33 @@ def create_project(
             (project["id"], user.clerk_user_id),
         )
         return {"data": project}
+
+
+@router.patch("/projects/{project_id}")
+def update_project(project_id: str, payload: ProjectUpdate, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        project = one(cur, "SELECT * FROM projects WHERE id = %s", (project_id,))
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if project["kind"] in ("inbox", "personal") and payload.name is not None and payload.name.strip().lower() != project["name"].lower():
+            raise HTTPException(status_code=400, detail="System projects cannot be renamed")
+        cur.execute(
+            """
+            UPDATE projects
+            SET name = %s,
+                color_hex = %s,
+                ai_mode = %s
+            WHERE id = %s
+            RETURNING *
+            """,
+            (
+                payload.name.strip() if payload.name is not None else project["name"],
+                payload.color_hex if "color_hex" in payload.model_fields_set else project.get("color_hex"),
+                payload.ai_mode if payload.ai_mode is not None else project.get("ai_mode"),
+                project_id,
+            ),
+        )
+        return {"data": dict(cur.fetchone())}
 
 
 @router.get("/workspaces/{workspace_id}/projects")

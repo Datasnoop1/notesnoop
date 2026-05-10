@@ -1828,6 +1828,47 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border-color: #d1d4d4;
   color: #555;
 }
+.profile-name-display {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.profile-name-edit {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+.profile-name-edit:hover { color: var(--ink); background: var(--line); }
+.profile-name-edit-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.profile-name-edit-row input {
+  min-height: 34px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.profile-name-edit-row button {
+  border: 1px solid var(--line);
+  background: #fffefb;
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.profile-name-edit-row button:disabled { opacity: 0.55; cursor: not-allowed; }
 .share-panel {
   border: 1px solid var(--line);
   background: #f7fbf8;

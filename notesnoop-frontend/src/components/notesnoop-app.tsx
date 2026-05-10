@@ -1292,6 +1292,40 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setToast(`${variant === "full" ? "Full" : "Quick"} brief copied.`);
   }
 
+  async function renameProject(projectId: string, nextName: string) {
+    if (!nextName.trim()) return;
+    try {
+      const res = await api(`/api/projects/${projectId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: nextName.trim() }),
+      });
+      setToast("Project renamed.");
+      await refreshWorkspaceData();
+      if (projectTimeline?.project?.id === projectId) {
+        await openProject(res.data || projectTimeline.project);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not rename project");
+    }
+  }
+
+  async function renamePerson(personId: string, nextName: string) {
+    if (!nextName.trim()) return;
+    try {
+      const res = await api(`/api/people/${personId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: nextName.trim() }),
+      });
+      setToast("Person renamed.");
+      await refreshWorkspaceData();
+      if (personTimeline?.person?.id === personId) {
+        await openPerson(res.data || personTimeline.person);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not rename person");
+    }
+  }
+
   async function createTaskForAnchor(input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null }) {
     if (!workspaceId || !input.title.trim()) return;
     const body: Record<string, unknown> = { title: input.title.trim() };
@@ -2959,6 +2993,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   onFlag={() => flag({ person_id: personTimeline.person.id })}
                   onMerge={mergePerson}
                   onCreateTask={createTaskForAnchor}
+                  onRename={(next) => renamePerson(personTimeline.person.id, next)}
                   onBack={closePersonTimeline}
                 />
               ) : projectTimeline ? (
@@ -2977,6 +3012,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   onInvite={inviteProjectMember}
                   onGenerateReport={generateProjectReport}
                   onCreateTask={createTaskForAnchor}
+                  onRename={projectTimeline.project?.kind === "user" ? (next) => renameProject(projectTimeline.project.id, next) : undefined}
                   onBack={closeProjectTimeline}
                 />
               ) : (
@@ -3689,6 +3725,52 @@ function personSourceBadgeClass(source?: string, state?: string): string {
   return "";
 }
 
+function ProfileNameEditor({ initial, onSave }: { initial: string; onSave: (next: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(initial);
+  useEffect(() => { setValue(initial); }, [initial]);
+  if (!editing) {
+    return (
+      <strong className="profile-name-display">
+        {initial}
+        <button type="button" className="profile-name-edit" aria-label="Rename" onClick={() => setEditing(true)}>
+          <Settings size={13} />
+        </button>
+      </strong>
+    );
+  }
+  return (
+    <span className="profile-name-edit-row">
+      <input
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        aria-label="New name"
+        autoFocus
+        onKeyDown={(event) => {
+          if (event.key === "Escape") { setEditing(false); setValue(initial); }
+          if (event.key === "Enter" && value.trim() && value.trim() !== initial) {
+            setEditing(false);
+            void onSave(value.trim());
+          }
+        }}
+      />
+      <button
+        type="button"
+        disabled={!value.trim() || value.trim() === initial}
+        onClick={() => {
+          setEditing(false);
+          void onSave(value.trim());
+        }}
+      >
+        <Check size={14} /> Save
+      </button>
+      <button type="button" onClick={() => { setEditing(false); setValue(initial); }}>
+        <X size={14} /> Cancel
+      </button>
+    </span>
+  );
+}
+
 function humanReviewReason(reason: string): string {
   const map: Record<string, string> = {
     new_person: "AI thinks this is a new person",
@@ -4231,6 +4313,7 @@ function TimelinePanel({
   onFlag,
   onMerge,
   onCreateTask,
+  onRename,
   inviteEmail = "",
   onInviteEmailChange,
   onInvite,
@@ -4247,6 +4330,7 @@ function TimelinePanel({
   onFlag: () => void;
   onMerge: (sourcePersonId: string, targetPersonId: string) => Promise<void>;
   onCreateTask?: (input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null }) => Promise<void>;
+  onRename?: (nextName: string) => Promise<void>;
   inviteEmail?: string;
   onInviteEmailChange?: (email: string) => void;
   onInvite?: (project: any, email: string) => Promise<void>;
@@ -4316,7 +4400,14 @@ function TimelinePanel({
       <div className="memory-profile-card">
         <div>
           <span>{kind === "project" ? "Project profile" : "Person profile"}</span>
-          <strong>{profile.headline || (kind === "project" ? timeline.project?.name : timeline.person?.name)}</strong>
+          {onRename ? (
+            <ProfileNameEditor
+              initial={String((kind === "project" ? timeline.project?.name : timeline.person?.name) || "Untitled")}
+              onSave={(next) => onRename(next)}
+            />
+          ) : (
+            <strong>{profile.headline || (kind === "project" ? timeline.project?.name : timeline.person?.name)}</strong>
+          )}
           <small>
             {profile.last_touch_at ? `Last touch ${new Date(profile.last_touch_at).toLocaleDateString()}` : "No dated touch yet"}
             {profile.next_action ? ` - Next: ${profile.next_action}` : ""}

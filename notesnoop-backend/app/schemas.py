@@ -51,6 +51,20 @@ class ProjectCreate(BaseModel):
     ai_mode: str = Field(default="on", pattern="^(on|manual)$")
 
 
+class ProjectUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    color_hex: str | None = Field(default=None, max_length=16)
+    ai_mode: str | None = Field(default=None, pattern="^(on|manual)$")
+
+
+class PersonUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    role: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=320)
+    details: str | None = None
+
+
 class ProjectInviteCreate(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     display_name: str | None = Field(default=None, max_length=200)
