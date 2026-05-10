@@ -36,6 +36,11 @@ Return strict JSON only:
 {"title":"...", "body":"markdown report", "confidence":0.0}
 The report must be grounded only in the provided notes, tasks, meetings, and prior reports. If data is thin, say so plainly. Include sections for Executive summary, Current state, Open loops, People/companies, Risks, and Next actions. Do not invent facts."""
 
+MEMORY_ASK_SYSTEM = """You answer questions over NoteSnoop memory.
+Return strict JSON only:
+{"answer":"markdown answer", "confidence":0.0}
+Use only the supplied notes and structured memory. If the evidence is thin or missing, say that directly. Do not invent names, dates, tasks, project status, or decisions."""
+
 
 def _is_cloud_host() -> bool:
     return "ollama.com" in OLLAMA_HOST
@@ -238,6 +243,50 @@ def deterministic_project_report(
     }
 
 
+def _citation(kind: str, item: dict[str, Any], label: str) -> dict[str, Any]:
+    return {
+        "kind": kind,
+        "id": str(item.get("id") or item.get("note_id") or ""),
+        "title": _first_text(item, "title", "name", "body", "description", limit=120) or label,
+        "label": label,
+    }
+
+
+def deterministic_memory_answer(query: str, notes: list[dict[str, Any]], memories: list[dict[str, Any]]) -> dict[str, Any]:
+    citations: list[dict[str, Any]] = []
+    answer_lines = [f"### Answer", ""]
+    if not notes and not memories:
+        return {
+            "answer": "I do not have enough matching memory to answer that yet.",
+            "confidence": 0.25,
+            "citations": [],
+            "source_counts": {"notes": 0, "memory": 0},
+        }
+
+    if notes:
+        answer_lines.append("Relevant notes:")
+        for index, note in enumerate(notes[:5], start=1):
+            label = f"N{index}"
+            citations.append(_citation("note", note, label))
+            answer_lines.append(f"- [{label}] {_first_text(note, 'title', 'body', limit=220)}")
+    if memories:
+        answer_lines.append("")
+        answer_lines.append("Structured memory:")
+        for index, memory in enumerate(memories[:6], start=1):
+            label = f"M{index}"
+            citations.append(_citation(str(memory.get("kind") or "memory"), memory, label))
+            title = _first_text(memory, "title", "name", limit=160)
+            subtitle = _first_text(memory, "subtitle", "description", "body", limit=180)
+            answer_lines.append(f"- [{label}] {title}{f': {subtitle}' if subtitle else ''}")
+    answer_lines.extend(["", f"Query: {query.strip()}"])
+    return {
+        "answer": "\n".join(answer_lines).strip(),
+        "confidence": 0.55 if len(citations) < 3 else 0.7,
+        "citations": citations,
+        "source_counts": {"notes": len(notes), "memory": len(memories)},
+    }
+
+
 async def extract_entities(
     note_body: str,
     known_people: list[str],
@@ -361,5 +410,65 @@ async def generate_project_report(
     except Exception as exc:
         if REPORT_ALLOW_DETERMINISTIC_FALLBACK and (_is_transient_error(exc) or isinstance(exc, (ValueError, json.JSONDecodeError))):
             logger.warning("using deterministic project report fallback after Ollama report failure: %s", exc)
+            return fallback
+        raise
+
+
+async def generate_memory_answer(
+    query: str,
+    notes: list[dict[str, Any]],
+    memories: list[dict[str, Any]],
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    fallback = deterministic_memory_answer(query, notes, memories)
+    if _is_cloud_host() and not OLLAMA_API_KEY:
+        if REPORT_ALLOW_DETERMINISTIC_FALLBACK:
+            return fallback
+        raise RuntimeError("OLLAMA_API_KEY is not configured")
+    prompt = {
+        "query": query,
+        "context": context or {},
+        "notes": notes[:12],
+        "structured_memory": memories[:18],
+        "citation_labels": fallback["citations"],
+        "instructions": [
+            "Answer the user question directly.",
+            "Use markdown.",
+            "Only use supplied memory.",
+            "When useful, include source labels like [N1] or [M2] that match citation_labels.",
+            "If the supplied memory is insufficient, say what is missing.",
+        ],
+    }
+    payload = {
+        "model": EXTRACTION_MODEL,
+        "stream": False,
+        "messages": [
+            {"role": "system", "content": MEMORY_ASK_SYSTEM},
+            {"role": "user", "content": json.dumps(prompt, ensure_ascii=False, default=str)},
+        ],
+        "format": "json",
+        "options": {"temperature": 0.15},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(f"{OLLAMA_HOST}/api/chat", headers=_headers(), json=payload)
+            resp.raise_for_status()
+        content = resp.json().get("message", {}).get("content", "")
+        data = json.loads(content)
+        if not isinstance(data, dict):
+            raise ValueError("Ollama memory answer response must be a JSON object")
+        answer = str(data.get("answer") or "").strip()
+        if not answer:
+            raise ValueError("Ollama memory answer response is missing answer")
+        confidence = float(data.get("confidence") or fallback["confidence"])
+        return {
+            "answer": answer,
+            "confidence": max(0.0, min(1.0, confidence)),
+            "citations": fallback["citations"],
+            "source_counts": fallback["source_counts"],
+        }
+    except Exception as exc:
+        if REPORT_ALLOW_DETERMINISTIC_FALLBACK and (_is_transient_error(exc) or isinstance(exc, (ValueError, json.JSONDecodeError))):
+            logger.warning("using deterministic memory answer fallback after Ollama answer failure: %s", exc)
             return fallback
         raise

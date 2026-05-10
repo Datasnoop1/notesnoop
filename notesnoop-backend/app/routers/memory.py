@@ -1050,11 +1050,7 @@ def project_summary(project_id: str, user: CurrentUser = Depends(current_user)):
 @router.post("/projects/{project_id}/reports/generate")
 def generate_project_memory_report(project_id: str, payload: ProjectReportGenerateRequest, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
-        project = one(cur, "SELECT * FROM projects WHERE id = %s", (project_id,))
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-        if project.get("kind") == "personal":
-            raise HTTPException(status_code=403, detail="Personal projects cannot generate shareable reports")
+        project = _load_reportable_project(cur, project_id)
         workspace_id = str(project["workspace_id"])
         notes = many(
             cur,
@@ -1149,6 +1145,18 @@ def generate_project_memory_report(project_id: str, payload: ProjectReportGenera
             (workspace_id, project_id, project_id),
         )
 
+    notes = _dedupe_source_rows(notes)
+    tasks = _dedupe_source_rows(tasks)
+    meetings = _dedupe_source_rows(meetings)
+    prior_reports = _dedupe_source_rows(prior_reports)
+    people = _dedupe_source_rows(people)
+    companies = _dedupe_source_rows(companies)
+    if not any((notes, tasks, meetings, prior_reports)):
+        raise HTTPException(
+            status_code=422,
+            detail="Project needs notes, tasks, meetings, or prior reports before generating a report",
+        )
+
     project_context = {**project, "people": people, "companies": companies}
     generated = asyncio.run(generate_project_report(project_context, notes, tasks, meetings, prior_reports, payload.variant))
     title = (payload.title or generated.get("title") or f"{project.get('name') or 'Project'} report").strip()[:240]
@@ -1156,41 +1164,77 @@ def generate_project_memory_report(project_id: str, payload: ProjectReportGenera
     if not body:
         raise HTTPException(status_code=502, detail="Report generation returned an empty body")
 
-    note_ids = [str(note["id"]) for note in notes]
-    task_ids = [str(task["id"]) for task in tasks]
-    person_ids = [str(person["id"]) for person in people]
-    company_ids = [str(company["id"]) for company in companies]
+    project_ids = [project_id]
+    note_ids = _source_ids(notes)
+    task_ids = _source_ids(tasks)
+    meeting_ids = _source_ids(meetings)
+    prior_report_ids = _source_ids(prior_reports)
+    person_ids = _source_ids(people)
+    company_ids = _source_ids(companies)
     with transaction(user.clerk_user_id) as cur:
-        project = one(cur, "SELECT * FROM projects WHERE id = %s", (project_id,))
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
+        project = _load_reportable_project(cur, project_id)
+        workspace_id = str(project["workspace_id"])
         cur.execute(
             """
             INSERT INTO reports (workspace_id, title, body, status, created_by)
             VALUES (%s, %s, %s, 'draft', %s)
             RETURNING *
             """,
-            (project["workspace_id"], title, body, user.clerk_user_id),
+            (workspace_id, title, body, user.clerk_user_id),
         )
         report = dict(cur.fetchone())
         report_id = str(report["id"])
-        _link_many(cur, "report_projects", "report_id", "project_id", report_id, str(project["workspace_id"]), [project_id], user.clerk_user_id)
-        _link_many(cur, "report_notes", "report_id", "note_id", report_id, str(project["workspace_id"]), note_ids, user.clerk_user_id)
-        _link_many(cur, "report_tasks", "report_id", "task_id", report_id, str(project["workspace_id"]), task_ids, user.clerk_user_id)
-        _link_many(cur, "report_people", "report_id", "person_id", report_id, str(project["workspace_id"]), person_ids, user.clerk_user_id)
-        _link_many(cur, "report_companies", "report_id", "company_id", report_id, str(project["workspace_id"]), company_ids, user.clerk_user_id)
+        _link_many(cur, "report_projects", "report_id", "project_id", report_id, workspace_id, project_ids, user.clerk_user_id)
+        _link_many(cur, "report_notes", "report_id", "note_id", report_id, workspace_id, note_ids, user.clerk_user_id)
+        _link_many(cur, "report_tasks", "report_id", "task_id", report_id, workspace_id, task_ids, user.clerk_user_id)
+        _link_many(cur, "report_people", "report_id", "person_id", report_id, workspace_id, person_ids, user.clerk_user_id)
+        _link_many(cur, "report_companies", "report_id", "company_id", report_id, workspace_id, company_ids, user.clerk_user_id)
         created = _report_payload(cur, report_id)
         if created is not None:
-            created["generation_confidence"] = generated.get("confidence")
-            created["source_counts"] = {
+            source_counts = {
+                "projects": len(project_ids),
                 "notes": len(note_ids),
                 "tasks": len(task_ids),
-                "meetings": len(meetings),
-                "reports": len(prior_reports),
+                "meetings": len(meeting_ids),
+                "reports": len(prior_report_ids),
                 "people": len(person_ids),
                 "companies": len(company_ids),
             }
+            source_counts["total"] = sum(source_counts.values())
+            created["generation_confidence"] = generated.get("confidence")
+            created["source_counts"] = source_counts
         return {"data": created}
+
+
+def _load_reportable_project(cur, project_id: str) -> dict:
+    project = one(cur, "SELECT * FROM projects WHERE id = %s", (project_id,))
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    access = one(cur, "SELECT can_access_project(%s::uuid) AS allowed", (project_id,))
+    if not access or not access.get("allowed"):
+        raise HTTPException(status_code=404, detail="Project not found")
+    if project.get("kind") == "personal":
+        raise HTTPException(status_code=403, detail="Personal projects cannot generate shareable reports")
+    return project
+
+
+def _dedupe_source_rows(rows: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    deduped = []
+    for row in rows:
+        row_id = row.get("id")
+        if row_id is None:
+            continue
+        key = str(row_id)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return deduped
+
+
+def _source_ids(rows: list[dict]) -> list[str]:
+    return [str(row["id"]) for row in rows]
 
 
 def build_project_summary(

@@ -192,6 +192,19 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
         meta: { semantic_enabled: false, semantic_excluded: 0, memory_results: memoryResults },
       });
     }
+    if (url.includes("/api/workspaces/workspace-1/ask")) {
+      return json({
+        data: {
+          answer: "### Answer\n- Apollo has a blocked pricing loop [N1].\n- Morgan owns the next follow-up [M1].",
+          confidence: 0.74,
+          citations: [
+            { kind: "note", id: "note-1", title: "Apollo update", label: "N1" },
+            { kind: "task", id: "note-task-1", title: "Send Apollo follow-up", label: "M1" },
+          ],
+          source_counts: { notes: 1, memory: 1 },
+        },
+      });
+    }
     if (url.includes("/api/workspaces/workspace-1/notes") && init?.method === "POST") {
       return json({ data: { ...note, title: "Fresh note", body: JSON.parse(String(init.body)).body } });
     }
@@ -277,6 +290,8 @@ describe("NoteSnoopApp", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+    window.history.replaceState({}, "", "/");
+    vi.mocked(navigator.clipboard.writeText).mockClear();
   });
 
   it("renders dashboard-first workspace data and toggles Morning briefing", async () => {
@@ -295,6 +310,10 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("group", { name: "Interactive memory graph" })).toBeInTheDocument();
     expect(within(dashboard).getByText(/Reminder due/i)).toBeInTheDocument();
     expect(within(dashboard).getAllByText("sourced_from").length).toBeGreaterThan(0);
+    fireEvent.change(within(dashboard).getByLabelText("Ask memory question"), { target: { value: "What is blocked on Apollo?" } });
+    fireEvent.click(within(dashboard).getByRole("button", { name: /^Ask$/i }));
+    expect(await within(dashboard).findByText("74% grounded")).toBeInTheDocument();
+    expect(within(dashboard).getByRole("group", { name: "Answer citations" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("tab", { name: /Open tasks1/i })).toHaveAttribute("aria-selected", "true");
     expect(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByRole("button", { name: /Mark task done/i }));
@@ -388,6 +407,32 @@ describe("NoteSnoopApp", () => {
     expect(await screen.findByRole("heading", { name: "Apollo generated report" })).toBeInTheDocument();
     expect(screen.getByText("82% grounded")).toBeInTheDocument();
     expect(screen.getByDisplayValue(/Grounded in memory/i)).toBeInTheDocument();
+  });
+
+  it("opens a project from a durable route and copies its link", async () => {
+    const { calls } = installFetch();
+    window.history.replaceState({}, "", "/projects/project-1?workspace_id=workspace-1");
+    render(<NoteSnoopApp quickCapture={false} initialRoute={{ kind: "project", id: "project-1" }} />);
+
+    expect(await screen.findByRole("heading", { name: "Apollo dashboard" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Copy link$/i }));
+
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://localhost:3000/projects/project-1?workspace_id=workspace-1"));
+    expect(calls.some((call) => call.includes("GET /api/projects/project-1/timeline"))).toBe(true);
+  });
+
+  it("opens a note from a durable route and returns to the dashboard URL on close", async () => {
+    installFetch();
+    window.history.replaceState({}, "", "/notes/note-1");
+    render(<NoteSnoopApp quickCapture={false} initialRoute={{ kind: "note", id: "note-1" }} />);
+
+    expect(await screen.findByRole("heading", { name: "Apollo update" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Copy link$/i }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://localhost:3000/notes/note-1"));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
   });
 
   it("saves a quick capture note and opens the linked-entities sheet", async () => {

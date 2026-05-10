@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 import hashlib
 import hmac
 import json
@@ -205,6 +206,16 @@ def test_ollama_extraction_payload_and_validation(monkeypatch):
     assert "Confirm pricing" in report["body"]
     assert report["confidence"] > 0.5
 
+    answer = ollama_client.deterministic_memory_answer(
+        "What is blocked on Apollo?",
+        [{"id": "note-1", "title": "Apollo update", "body": "Pricing is blocked until Morgan sends details."}],
+        [{"id": "task-1", "kind": "task", "title": "Confirm pricing", "subtitle": "Blocked by missing details"}],
+    )
+    assert "Apollo update" in answer["answer"]
+    assert answer["citations"][0]["label"] == "N1"
+    assert answer["citations"][1]["kind"] == "task"
+    assert answer["source_counts"] == {"notes": 1, "memory": 1}
+
     class RateLimitedResponse:
         status_code = 429
 
@@ -403,6 +414,152 @@ def test_project_summary_helper_is_deterministic():
         "- First note body with useful context",
         "- Named note",
     ]
+
+
+def test_generated_project_report_access_and_personal_guards(monkeypatch):
+    user = auth.CurrentUser(clerk_user_id="user-1")
+    payload = memory.ProjectReportGenerateRequest()
+
+    async def unexpected_generate(*_args, **_kwargs):
+        raise AssertionError("generation should not run")
+
+    monkeypatch.setattr(memory, "generate_project_report", unexpected_generate)
+
+    inaccessible = FakeCursor(
+        fetchone_values=[
+            {"id": "project-1", "workspace_id": "workspace-1", "name": "Apollo", "kind": "user"},
+            {"allowed": False},
+        ]
+    )
+
+    @contextmanager
+    def inaccessible_transaction(_user_id):
+        yield inaccessible
+
+    monkeypatch.setattr(memory, "transaction", inaccessible_transaction)
+    with pytest.raises(HTTPException) as denied:
+        memory.generate_project_memory_report("project-1", payload, user)
+    assert denied.value.status_code == 404
+
+    personal = FakeCursor(
+        fetchone_values=[
+            {"id": "project-personal", "workspace_id": "workspace-1", "name": "Personal", "kind": "personal"},
+            {"allowed": True},
+        ]
+    )
+
+    @contextmanager
+    def personal_transaction(_user_id):
+        yield personal
+
+    monkeypatch.setattr(memory, "transaction", personal_transaction)
+    with pytest.raises(HTTPException) as blocked:
+        memory.generate_project_memory_report("project-personal", payload, user)
+    assert blocked.value.status_code == 403
+
+
+def test_generated_project_report_rejects_empty_sources(monkeypatch):
+    user = auth.CurrentUser(clerk_user_id="user-1")
+    read_cursor = FakeCursor(
+        fetchone_values=[
+            {"id": "project-1", "workspace_id": "workspace-1", "name": "Apollo", "kind": "user"},
+            {"allowed": True},
+        ],
+        fetchall_values=[[], [], [], [], [], []],
+    )
+
+    async def unexpected_generate(*_args, **_kwargs):
+        raise AssertionError("empty projects should not generate reports")
+
+    @contextmanager
+    def fake_transaction(_user_id):
+        yield read_cursor
+
+    monkeypatch.setattr(memory, "transaction", fake_transaction)
+    monkeypatch.setattr(memory, "generate_project_report", unexpected_generate)
+
+    with pytest.raises(HTTPException) as empty:
+        memory.generate_project_memory_report("project-1", memory.ProjectReportGenerateRequest(), user)
+    assert empty.value.status_code == 422
+    assert "needs notes, tasks, meetings, or prior reports" in empty.value.detail
+
+
+def test_generated_project_report_links_deduped_sources_and_counts(monkeypatch):
+    user = auth.CurrentUser(clerk_user_id="user-1")
+    project = {"id": "project-1", "workspace_id": "workspace-1", "name": "Apollo", "kind": "user"}
+    read_cursor = FakeCursor(
+        fetchone_values=[project, {"allowed": True}],
+        fetchall_values=[
+            [{"id": "note-1", "title": "Memo"}, {"id": "note-1", "title": "Memo again"}, {"id": "note-2", "title": "Call"}],
+            [{"id": "task-1", "title": "Follow up"}, {"id": "task-1", "title": "Follow up duplicate"}],
+            [{"id": "meeting-1", "title": "Partner sync"}],
+            [{"id": "prior-report-1", "title": "Prior"}, {"id": "prior-report-1", "title": "Prior duplicate"}],
+            [{"id": "person-1", "name": "Morgan"}, {"id": "person-1", "name": "Morgan again"}, {"id": "person-2", "name": "Jordan"}],
+            [{"id": "company-1", "name": "Northstar"}, {"id": "company-1", "name": "Northstar duplicate"}],
+        ],
+    )
+    write_cursor = FakeCursor(fetchone_values=[project, {"allowed": True}, {"id": "report-1", "workspace_id": "workspace-1"}])
+    cursors = [read_cursor, write_cursor]
+    captured = {}
+
+    async def fake_generate(project_context, notes, tasks, meetings, reports, variant):
+        captured.update(
+            {
+                "project_people": [row["id"] for row in project_context["people"]],
+                "project_companies": [row["id"] for row in project_context["companies"]],
+                "notes": [row["id"] for row in notes],
+                "tasks": [row["id"] for row in tasks],
+                "meetings": [row["id"] for row in meetings],
+                "reports": [row["id"] for row in reports],
+                "variant": variant,
+            }
+        )
+        return {"title": "Generated", "body": "Grounded body", "confidence": 0.81}
+
+    @contextmanager
+    def fake_transaction(_user_id):
+        yield cursors.pop(0)
+
+    monkeypatch.setattr(memory, "transaction", fake_transaction)
+    monkeypatch.setattr(memory, "generate_project_report", fake_generate)
+    monkeypatch.setattr(memory, "_report_payload", lambda _cur, report_id: {"id": report_id})
+
+    result = memory.generate_project_memory_report(
+        "project-1",
+        memory.ProjectReportGenerateRequest(title="Custom report", variant="quick"),
+        user,
+    )
+
+    assert captured == {
+        "project_people": ["person-1", "person-2"],
+        "project_companies": ["company-1"],
+        "notes": ["note-1", "note-2"],
+        "tasks": ["task-1"],
+        "meetings": ["meeting-1"],
+        "reports": ["prior-report-1"],
+        "variant": "quick",
+    }
+    assert result["data"]["generation_confidence"] == 0.81
+    assert result["data"]["source_counts"] == {
+        "projects": 1,
+        "notes": 2,
+        "tasks": 1,
+        "meetings": 1,
+        "reports": 1,
+        "people": 2,
+        "companies": 1,
+        "total": 9,
+    }
+
+    def params_for(fragment: str) -> list[tuple]:
+        return [params for sql, params in write_cursor.executed if fragment in sql]
+
+    assert params_for("INSERT INTO reports")[0] == ("workspace-1", "Custom report", "Grounded body", "user-1")
+    assert params_for("INSERT INTO report_projects") == [("report-1", "project-1", "workspace-1", "user-1")]
+    assert [params[1] for params in params_for("INSERT INTO report_notes")] == ["note-1", "note-2"]
+    assert [params[1] for params in params_for("INSERT INTO report_tasks")] == ["task-1"]
+    assert [params[1] for params in params_for("INSERT INTO report_people")] == ["person-1", "person-2"]
+    assert [params[1] for params in params_for("INSERT INTO report_companies")] == ["company-1"]
 
 
 def test_email_and_webhook_helpers(monkeypatch):

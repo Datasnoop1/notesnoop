@@ -71,6 +71,14 @@ class NoteUpdate(BaseModel):
     occurred_at: datetime | None = None
 
 
+class MemoryAskRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=500)
+    project_id: str | None = None
+    person_id: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+
+
 class NoteProjectSet(BaseModel):
     project_ids: list[str] = Field(min_length=1)
     confirm_personal_move: bool = False

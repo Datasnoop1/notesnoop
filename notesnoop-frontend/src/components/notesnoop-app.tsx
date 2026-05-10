@@ -15,6 +15,7 @@ import {
   Flag,
   Inbox,
   Lightbulb,
+  Link,
   Menu,
   Plus,
   Search,
@@ -70,6 +71,11 @@ type MemoryGraphState = {
   edges: any[];
 };
 
+type RouteTarget = {
+  kind: "dashboard" | "project" | "person" | "note";
+  id?: string | null;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_NOTESNOOP_API_URL || "";
 const DEV_AUTH = process.env.NEXT_PUBLIC_NOTESNOOP_DEV_AUTH === "true";
 const NOTE_KIND_LABELS: Record<string, string> = {
@@ -92,7 +98,45 @@ function eventDate(value?: string | null) {
   return `${value}T12:00:00`;
 }
 
-export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
+function decodeRouteId(value?: string) {
+  if (!value) return null;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function routeFromPath(pathname: string, search = ""): RouteTarget {
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts[0] === "projects" && parts[1]) return { kind: "project", id: decodeRouteId(parts[1]) };
+  if (parts[0] === "people" && parts[1]) return { kind: "person", id: decodeRouteId(parts[1]) };
+  if (parts[0] === "notes" && parts[1]) return { kind: "note", id: decodeRouteId(parts[1]) };
+  const params = new URLSearchParams(search);
+  if (params.get("project_id")) return { kind: "project", id: params.get("project_id") };
+  if (params.get("person_id")) return { kind: "person", id: params.get("person_id") };
+  if (params.get("note_id")) return { kind: "note", id: params.get("note_id") };
+  return { kind: "dashboard" };
+}
+
+function initialRouteTarget(initialRoute?: RouteTarget): RouteTarget {
+  if (initialRoute?.kind && initialRoute.kind !== "dashboard") return initialRoute;
+  if (typeof window === "undefined") return initialRoute || { kind: "dashboard" };
+  return routeFromPath(window.location.pathname, window.location.search);
+}
+
+function routePath(target: RouteTarget) {
+  if (target.kind === "project" && target.id) return `/projects/${encodeURIComponent(target.id)}`;
+  if (target.kind === "person" && target.id) return `/people/${encodeURIComponent(target.id)}`;
+  if (target.kind === "note" && target.id) return `/notes/${encodeURIComponent(target.id)}`;
+  return "/";
+}
+
+function routeKey(target: RouteTarget) {
+  return `${target.kind}:${target.id || ""}`;
+}
+
+export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boolean; initialRoute?: RouteTarget }) {
   const { getToken, isSignedIn, isLoaded } = useAuth();
   const [state, setState] = useState<ApiState | null>(null);
   const [home, setHome] = useState<HomeState | null>(null);
@@ -102,6 +146,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     if (typeof window === "undefined") return null;
     return new URLSearchParams(window.location.search).get("workspace_id");
   });
+  const [routeTarget, setRouteTarget] = useState<RouteTarget>(() => initialRouteTarget(initialRoute));
   const [landingProjectId, setLandingProjectId] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     return new URLSearchParams(window.location.search).get("project_id");
@@ -112,6 +157,8 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [noteKind, setNoteKind] = useState("note");
   const [occurredAt, setOccurredAt] = useState("");
   const [query, setQuery] = useState("");
+  const [askQuestion, setAskQuestion] = useState("");
+  const [askResult, setAskResult] = useState<any | null>(null);
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
   const [searchMeta, setSearchMeta] = useState<any | null>(null);
   const [personName, setPersonName] = useState("");
@@ -146,6 +193,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState("");
   const searchDebounceRef = useRef<number | null>(null);
+  const appliedRouteRef = useRef("");
 
   const api = useCallback(
     async (path: string, init: RequestInit = {}) => {
@@ -177,6 +225,39 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const activityByProject = useMemo(() => new Map(activity.map((item) => [item.project_id, item])), [activity]);
   const seededPeople = useMemo(() => (state?.people || []).filter((person) => !person.clerk_user_id), [state]);
   const showWarmStart = !quickCapture && !warmStartDismissed && !!state?.workspace && !notes.length && seededPeople.length < 2;
+
+  const appRouteUrl = useCallback(
+    (target: RouteTarget) => {
+      const params = new URLSearchParams();
+      const workspaceParam = requestedWorkspaceId
+        || (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("workspace_id") : null);
+      if (workspaceParam) params.set("workspace_id", workspaceParam);
+      const query = params.toString();
+      return `${routePath(target)}${query ? `?${query}` : ""}`;
+    },
+    [requestedWorkspaceId],
+  );
+
+  const writeAppRoute = useCallback(
+    (target: RouteTarget, replace = false) => {
+      if (typeof window === "undefined") return;
+      const next = appRouteUrl(target);
+      const current = `${window.location.pathname}${window.location.search}`;
+      if (next === current) return;
+      window.history[replace ? "replaceState" : "pushState"]({}, "", next);
+    },
+    [appRouteUrl],
+  );
+
+  const copyRouteLink = useCallback(
+    async (target: RouteTarget, label: string) => {
+      if (typeof window === "undefined") return;
+      const origin = window.location.origin;
+      await navigator.clipboard.writeText(`${origin}${appRouteUrl(target)}`);
+      setToast(`${label} link copied.`);
+    },
+    [appRouteUrl],
+  );
 
   const buildSearchParams = useCallback(
     (nextQuery: string, filters: SearchFilters) => {
@@ -336,11 +417,17 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     }
   }
 
-  async function openNote(noteId: string) {
+  const openNote = useCallback(async (noteId: string, options: { push?: boolean } = {}) => {
     const res = await api(`/api/notes/${noteId}`);
     setSelectedNote(res.data);
     setSheetOpen(true);
-  }
+    const target = { kind: "note", id: noteId } as const;
+    if (options.push !== false) {
+      appliedRouteRef.current = routeKey(target);
+      setRouteTarget(target);
+      writeAppRoute(target);
+    }
+  }, [api, writeAppRoute]);
 
   async function updateNote(noteId: string, nextTitle: string, nextBody: string, nextKind: string, nextOccurredAt: string) {
     const res = await api(`/api/notes/${noteId}`, {
@@ -696,6 +783,29 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     await refreshWorkspaceData();
   }
 
+  async function askMemory() {
+    if (!workspaceId || !askQuestion.trim()) return;
+    setBusy(true);
+    try {
+      const res = await api(`/api/workspaces/${workspaceId}/ask`, {
+        method: "POST",
+        body: JSON.stringify({
+          query: askQuestion.trim(),
+          project_id: activeProject || undefined,
+          person_id: personTimeline?.person?.id || searchFilters.person_id || undefined,
+          date_from: searchFilters.date_from,
+          date_to: searchFilters.date_to,
+        }),
+      });
+      setAskResult(res.data);
+      setToast("Memory answer ready.");
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not answer from memory");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function toggleComposerProject(project: any) {
     setSelectedProjectIds((current) => {
       if (current.includes(project.id)) return current.filter((id) => id !== project.id);
@@ -747,6 +857,8 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setMemoryGraph({ nodes: [], edges: [] });
     setNotes([]);
     setReviewCount(0);
+    appliedRouteRef.current = routeKey({ kind: "dashboard" });
+    setRouteTarget({ kind: "dashboard" });
     if (typeof window !== "undefined") {
       const url = new URL(window.location.href);
       url.searchParams.set("workspace_id", nextWorkspaceId);
@@ -755,14 +867,35 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     }
   }
 
-  const openProject = useCallback(async (project: any) => {
+  function openDashboard() {
+    setActiveProject(null);
+    setSelectedProjectIds([]);
+    setPersonTimeline(null);
+    setProjectTimeline(null);
+    setSelectedNote(null);
+    setSelectedMemory(null);
+    setSheetOpen(false);
+    const target = { kind: "dashboard" } as const;
+    appliedRouteRef.current = routeKey(target);
+    setRouteTarget(target);
+    writeAppRoute(target);
+  }
+
+  const openProject = useCallback(async (project: any, options: { push?: boolean } = {}) => {
     setActiveProject(project.id);
     setSelectedProjectIds([]);
     setPersonTimeline(null);
     setSelectedMemory(null);
     const res = await api(`/api/projects/${project.id}/timeline`);
     setProjectTimeline(res.data);
-  }, [api]);
+    const target = { kind: "project", id: project.id } as const;
+    if (options.push !== false) {
+      appliedRouteRef.current = routeKey(target);
+      setRouteTarget(target);
+      writeAppRoute(target);
+    }
+    setMobileNav(false);
+  }, [api, writeAppRoute]);
 
   async function inviteProjectMember(project: any, email: string) {
     if (!email.trim()) return;
@@ -775,10 +908,38 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     await openProject(project);
   }
 
-  async function openPerson(person: any) {
+  const openPerson = useCallback(async (person: any, options: { push?: boolean } = {}) => {
     setProjectTimeline(null);
     const res = await api(`/api/people/${person.id}/timeline`);
     setPersonTimeline(res.data);
+    const target = { kind: "person", id: person.id } as const;
+    if (options.push !== false) {
+      appliedRouteRef.current = routeKey(target);
+      setRouteTarget(target);
+      writeAppRoute(target);
+    }
+    setMobileNav(false);
+  }, [api, writeAppRoute]);
+
+  function closePersonTimeline() {
+    setPersonTimeline(null);
+    const target = activeProject ? { kind: "project", id: activeProject } as const : { kind: "dashboard" } as const;
+    appliedRouteRef.current = routeKey(target);
+    setRouteTarget(target);
+    writeAppRoute(target);
+  }
+
+  function closeProjectTimeline() {
+    setProjectTimeline(null);
+  }
+
+  function closeNoteSheet() {
+    setSheetOpen(false);
+    if (routeTarget.kind !== "note") return;
+    const target = activeProject ? { kind: "project", id: activeProject } as const : { kind: "dashboard" } as const;
+    appliedRouteRef.current = routeKey(target);
+    setRouteTarget(target);
+    writeAppRoute(target);
   }
 
   async function flag(target: { note_id?: string; project_id?: string; person_id?: string }) {
@@ -861,6 +1022,57 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
     setToast(decision === "accept" ? "Suggestion accepted." : "Suggestion rejected.");
     await refreshWorkspaceData();
   }
+
+  useEffect(() => {
+    if (quickCapture || typeof window === "undefined") return undefined;
+    const onPopState = () => setRouteTarget(routeFromPath(window.location.pathname, window.location.search));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [quickCapture]);
+
+  useEffect(() => {
+    if (quickCapture) return;
+    const key = routeKey(routeTarget);
+    if (appliedRouteRef.current === key) return;
+    if (routeTarget.kind === "dashboard") {
+      appliedRouteRef.current = key;
+      setActiveProject(null);
+      setSelectedProjectIds([]);
+      setPersonTimeline(null);
+      setProjectTimeline(null);
+      setSelectedNote(null);
+      setSelectedMemory(null);
+      setSheetOpen(false);
+      return;
+    }
+    if (routeTarget.kind === "project" && routeTarget.id) {
+      const project = state?.projects.find((item) => item.id === routeTarget.id);
+      if (!project) return;
+      appliedRouteRef.current = key;
+      openProject(project, { push: false }).catch((err) => {
+        appliedRouteRef.current = "";
+        setToast(err.message);
+      });
+      return;
+    }
+    if (routeTarget.kind === "person" && routeTarget.id) {
+      const person = state?.people.find((item) => item.id === routeTarget.id) || { id: routeTarget.id, name: "Person" };
+      if (!state?.workspace) return;
+      appliedRouteRef.current = key;
+      openPerson(person, { push: false }).catch((err) => {
+        appliedRouteRef.current = "";
+        setToast(err.message);
+      });
+      return;
+    }
+    if (routeTarget.kind === "note" && routeTarget.id && (isSignedIn || DEV_AUTH)) {
+      appliedRouteRef.current = key;
+      openNote(routeTarget.id, { push: false }).catch((err) => {
+        appliedRouteRef.current = "";
+        setToast(err.message);
+      });
+    }
+  }, [isSignedIn, openNote, openPerson, openProject, quickCapture, routeTarget, state?.people, state?.projects, state?.workspace]);
 
   useEffect(() => {
     if (!landingProjectId || !state?.projects?.length) return;
@@ -1049,7 +1261,7 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
             <X size={18} />
           </button>
         </div>
-        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={() => { setActiveProject(null); setSelectedProjectIds([]); setPersonTimeline(null); setProjectTimeline(null); setSelectedMemory(null); }}>
+        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={openDashboard}>
           <Archive size={17} /> Home
         </button>
         {inbox && (
@@ -1184,6 +1396,56 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                 )}
               </div>
             </div>
+
+            <section className="dashboard-ask" aria-label="Ask memory">
+              <div className="ask-prompt">
+                <span><Sparkles size={16} /> Ask memory</span>
+                <div className="ask-row">
+                  <input
+                    value={askQuestion}
+                    onChange={(event) => setAskQuestion(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") askMemory();
+                    }}
+                    placeholder={activeProjectRecord ? `Ask about ${activeProjectRecord.name}` : "Ask across notes, people, tasks, meetings, and reports"}
+                    aria-label="Ask memory question"
+                  />
+                  <button type="button" onClick={askMemory} disabled={busy || askQuestion.trim().length < 3}>
+                    <Search size={16} /> Ask
+                  </button>
+                </div>
+              </div>
+              {askResult && (
+                <div className="ask-answer">
+                  <div>
+                    <strong>{Math.round(Number(askResult.confidence || 0) * 100)}% grounded</strong>
+                    <span>{askResult.source_counts?.notes || 0} notes / {askResult.source_counts?.memory || 0} memories</span>
+                  </div>
+                  {String(askResult.answer || "")
+                    .split("\n")
+                    .map((line) => line.trim())
+                    .filter(Boolean)
+                    .slice(0, 8)
+                    .map((line, index) => (
+                      <p key={`${line}-${index}`}>{line.replace(/^#+\s*/, "")}</p>
+                    ))}
+                  {!!askResult.citations?.length && (
+                    <div className="citation-row" role="group" aria-label="Answer citations">
+                      {askResult.citations.slice(0, 6).map((citation: any) => (
+                        <button
+                          key={`${citation.kind}-${citation.id}-${citation.label}`}
+                          type="button"
+                          onClick={() => citation.kind === "note" ? openNote(citation.id) : openGraphNode(citation)}
+                        >
+                          <span>{citation.label}</span>
+                          {citation.title}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
 
             <div className="dashboard-metrics">
               <button className="metric-card metric-button" type="button" onClick={openReviewQueue} aria-label={`Open review queue with ${dashboardReviewCount} items`}>
@@ -1617,9 +1879,10 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                   onOpenNote={openNote}
                   onOpenMemory={openMemoryItem}
                   onCopy={() => copyBrief("person", personTimeline.person)}
+                  onCopyLink={() => copyRouteLink({ kind: "person", id: personTimeline.person.id }, "Person")}
                   onFlag={() => flag({ person_id: personTimeline.person.id })}
                   onMerge={mergePerson}
-                  onBack={() => setPersonTimeline(null)}
+                  onBack={closePersonTimeline}
                 />
               ) : projectTimeline ? (
                 <TimelinePanel
@@ -1629,13 +1892,14 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                   onOpenNote={openNote}
                   onOpenMemory={openMemoryItem}
                   onCopy={() => copyBrief("project", projectTimeline.project)}
+                  onCopyLink={() => copyRouteLink({ kind: "project", id: projectTimeline.project.id }, "Project")}
                   onFlag={() => flag({ project_id: projectTimeline.project.id })}
                   onMerge={mergePerson}
                   inviteEmail={inviteEmail}
                   onInviteEmailChange={setInviteEmail}
                   onInvite={inviteProjectMember}
                   onGenerateReport={generateProjectReport}
-                  onBack={() => setProjectTimeline(null)}
+                  onBack={closeProjectTimeline}
                 />
               ) : (
                 <>
@@ -1702,8 +1966,9 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
         note={selectedNote}
         projects={state?.projects || []}
         people={state?.people || []}
-        onClose={() => setSheetOpen(false)}
+        onClose={closeNoteSheet}
         onCopy={() => selectedNote && copyBrief("note", selectedNote)}
+        onCopyLink={() => selectedNote && copyRouteLink({ kind: "note", id: selectedNote.id }, "Note")}
         onFullCopy={() => selectedNote && copyBrief("note", selectedNote, "full")}
         onFlag={() => selectedNote && flag({ note_id: selectedNote.id })}
         onProcess={() => selectedNote && processWithAI(selectedNote.id)}
@@ -2120,6 +2385,7 @@ function TimelinePanel({
   onOpenNote,
   onOpenMemory,
   onCopy,
+  onCopyLink,
   onFlag,
   onMerge,
   inviteEmail = "",
@@ -2134,6 +2400,7 @@ function TimelinePanel({
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
   onCopy: () => void;
+  onCopyLink: () => void;
   onFlag: () => void;
   onMerge: (sourcePersonId: string, targetPersonId: string) => Promise<void>;
   inviteEmail?: string;
@@ -2177,6 +2444,7 @@ function TimelinePanel({
     <div className="timeline-panel">
       <div className="timeline-actions">
         <button onClick={onCopy}><Copy size={16} /> Brief</button>
+        <button onClick={onCopyLink}><Link size={16} /> Copy link</button>
         <button onClick={onFlag}><Flag size={16} /> Flag</button>
         {kind === "project" && onGenerateReport && (
           <button onClick={() => onGenerateReport(timeline.project)}><FileText size={16} /> Generate report</button>
@@ -2339,6 +2607,7 @@ function LinkedSheet({
   people,
   onClose,
   onCopy,
+  onCopyLink,
   onFullCopy,
   onFlag,
   onProcess,
@@ -2358,6 +2627,7 @@ function LinkedSheet({
   people: any[];
   onClose: () => void;
   onCopy: () => void;
+  onCopyLink: () => void;
   onFullCopy: () => void;
   onFlag: () => void;
   onProcess: () => void;
@@ -2638,6 +2908,7 @@ function LinkedSheet({
         )}
         <div className="sheet-actions">
           <button onClick={onCopy}><Copy size={17} /> Quick brief</button>
+          <button onClick={onCopyLink}><Link size={17} /> Copy link</button>
           <button onClick={onFullCopy}><Copy size={17} /> Full brief</button>
           <button onClick={onFlag}><Flag size={17} /> Flag</button>
           <button onClick={() => setEditMode(true)}><Settings size={17} /> Edit</button>

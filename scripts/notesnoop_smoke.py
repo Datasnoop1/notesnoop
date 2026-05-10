@@ -296,6 +296,8 @@ def run(base_url: str, basic_auth: str | None) -> None:
     project_brief = data(owner.get(f"/api/briefs/project/{project['id']}?variant=full"))["markdown"]
     assert_true("#" in quick and "Recent notes:" in full, "quick and full copy briefs are generated")
     assert_true("Open loops:" in project_brief and "Reports/briefs:" in project_brief, "project copy brief synthesizes task and report memory")
+    ask = data(owner.post(f"/api/workspaces/{workspace_id}/ask", {"query": "What is blocked on Apollo?", "project_id": project["id"]}))
+    assert_true(ask["citations"] and ask["source_counts"]["memory"] >= 1, "ask memory returns grounded citations")
 
     merge = data(owner.post(f"/api/people/{blair['id']}/merge", {"target_person_id": avery["id"]}))
     owner.post(f"/api/person-merges/{merge['undo_id']}/undo")

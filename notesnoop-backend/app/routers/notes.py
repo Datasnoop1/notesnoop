@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,7 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
 from ..embeddings import embed_text_sync, vector_literal
-from ..schemas import FlagRequest, NoteCreate, NoteLinkPerson, NoteProjectSet, NoteUpdate
+from ..ollama_client import generate_memory_answer
+from ..schemas import FlagRequest, MemoryAskRequest, NoteCreate, NoteLinkPerson, NoteProjectSet, NoteUpdate
 from ..services import consume_ai_quota, derive_title, enqueue_ai_if_allowed
 
 
@@ -845,6 +847,66 @@ def search(
                 },
             }
         return {"data": rows, "meta": meta}
+
+
+@router.post("/workspaces/{workspace_id}/ask")
+def ask_memory(workspace_id: str, payload: MemoryAskRequest, user: CurrentUser = Depends(current_user)):
+    query = payload.query.strip()
+    query_embedding = None
+    try:
+        query_embedding = embed_text_sync(query)
+    except Exception:
+        query_embedding = None
+    with transaction(user.clerk_user_id) as cur:
+        where_sql, where_params = _search_where(
+            workspace_id,
+            user.clerk_user_id,
+            payload.project_id,
+            payload.person_id,
+            payload.date_from,
+            payload.date_to,
+            False,
+        )
+        keyword_rows = many(
+            cur,
+            f"""
+            SELECT *, 'keyword' AS search_source, ts_rank(search_vector, plainto_tsquery('english', %s)) AS search_score
+            FROM notes n
+            WHERE {where_sql}
+              AND n.search_vector @@ plainto_tsquery('english', %s)
+            ORDER BY search_score DESC, created_at DESC
+            LIMIT 12
+            """,
+            (query, *where_params, query),
+        )
+        semantic_rows = []
+        if query_embedding:
+            literal = vector_literal(query_embedding.vector)
+            semantic_rows = many(
+                cur,
+                f"""
+                SELECT n.*,
+                       'semantic' AS search_source,
+                       (1 - (e.embedding <=> %s::vector)) AS search_score
+                FROM embeddings e
+                JOIN notes n ON n.id = e.note_id
+                WHERE {where_sql}
+                  AND e.model_version = %s
+                ORDER BY e.embedding <=> %s::vector
+                LIMIT 12
+                """,
+                (literal, *where_params, query_embedding.model, literal),
+            )
+        notes = _merge_search_rows(keyword_rows, semantic_rows)[:12]
+        memory_results = _memory_search_results(cur, workspace_id, query, payload.project_id, payload.person_id)[:18]
+        context = {
+            "workspace_id": workspace_id,
+            "project_id": payload.project_id,
+            "person_id": payload.person_id,
+            "semantic_enabled": bool(query_embedding),
+        }
+    answer = asyncio.run(generate_memory_answer(query, notes, memory_results, context))
+    return {"data": answer}
 
 
 def _memory_search_results(cur, workspace_id: str, query: str, project_id: str | None, person_id: str | None) -> list[dict]:
