@@ -294,8 +294,15 @@ def run(base_url: str, basic_auth: str | None) -> None:
     quick = data(owner.get(f"/api/briefs/note/{note['id']}?variant=quick"))["markdown"]
     full = data(owner.get(f"/api/briefs/person/{avery['id']}?variant=full"))["markdown"]
     project_brief = data(owner.get(f"/api/briefs/project/{project['id']}?variant=full"))["markdown"]
+    task_brief = data(owner.get(f"/api/briefs/task/{task['id']}?variant=full"))["markdown"]
+    meeting_brief = data(owner.get(f"/api/briefs/meeting/{meeting['id']}?variant=quick"))["markdown"]
+    report_brief = data(owner.get(f"/api/briefs/report/{report['id']}?variant=quick"))["markdown"]
     assert_true("#" in quick and "Recent notes:" in full, "quick and full copy briefs are generated")
     assert_true("Open loops:" in project_brief and "Reports/briefs:" in project_brief, "project copy brief synthesizes task and report memory")
+    assert_true(
+        "Projects:" in task_brief and "People:" in meeting_brief and "Linked tasks:" in report_brief,
+        "structured memory copy briefs synthesize graph links",
+    )
     ask = data(owner.post(f"/api/workspaces/{workspace_id}/ask", {"query": "What is blocked on Apollo?", "project_id": project["id"]}))
     assert_true(ask["citations"] and ask["source_counts"]["memory"] >= 1, "ask memory returns grounded citations")
 

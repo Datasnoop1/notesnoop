@@ -320,8 +320,15 @@ describe("NoteSnoopApp", () => {
     await waitFor(() => expect(calls.some((call) => call.includes("PATCH /api/tasks/note-task-1"))).toBe(true));
     fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up"));
     expect(await screen.findByText("Reminders")).toBeInTheDocument();
+    const memorySheet = document.querySelector(".memory-detail-sheet") as HTMLElement;
+    fireEvent.click(within(memorySheet).getByRole("button", { name: /Quick brief/i }));
+    fireEvent.click(within(memorySheet).getByRole("button", { name: /Full brief/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Snooze 1 day/i }));
-    await waitFor(() => expect(calls.some((call) => call.includes("PATCH /api/task-reminders/reminder-1"))).toBe(true));
+    await waitFor(() => {
+      expect(calls.some((call) => call.includes("GET /api/briefs/task/note-task-1?variant=quick"))).toBe(true);
+      expect(calls.some((call) => call.includes("GET /api/briefs/task/note-task-1?variant=full"))).toBe(true);
+      expect(calls.some((call) => call.includes("PATCH /api/task-reminders/reminder-1"))).toBe(true);
+    });
     fireEvent.click(within(dashboard).getByRole("tab", { name: /Meetings\/calls1/i }));
     expect(within(screen.getByRole("tabpanel", { name: "Meetings/calls" })).getByText("Morgan kickoff call")).toBeInTheDocument();
     fireEvent.click(within(dashboard).getByRole("tab", { name: /Reports\/briefs1/i }));

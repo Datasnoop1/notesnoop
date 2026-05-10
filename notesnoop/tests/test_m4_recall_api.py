@@ -206,6 +206,20 @@ def test_m4_structured_search_timelines_and_collaboration_signals(client):
         headers=headers,
     )
     assert workflow.status_code == 200
+    task_brief = client.get(f"/api/briefs/task/{graph_only_task_id}", params={"variant": "full"}, headers=headers)
+    assert task_brief.status_code == 200
+    task_brief_markdown = task_brief.json()["data"]["markdown"]
+    assert "Project-only Apollo board prep" in task_brief_markdown
+    assert "Projects: Apollo" in task_brief_markdown
+    assert "People: Morgan Lee" in task_brief_markdown
+    company_brief = client.get(f"/api/briefs/company/{company.json()['data']['id']}", headers=headers)
+    assert company_brief.status_code == 200
+    assert "Northstar Advisory" in company_brief.json()["data"]["markdown"]
+    workflow_brief = client.get(f"/api/briefs/workflow/{workflow.json()['data']['id']}", headers=headers)
+    assert workflow_brief.status_code == 200
+    workflow_markdown = workflow_brief.json()["data"]["markdown"]
+    assert "Apollo diligence workflow" in workflow_markdown
+    assert "Project-only Apollo board prep" in workflow_markdown
     memory_search = client.get(
         f"/api/workspaces/{workspace_id}/search",
         params={"q": "diligence", "project_id": project_id, "person_id": person_id},

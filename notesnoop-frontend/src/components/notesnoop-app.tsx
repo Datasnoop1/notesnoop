@@ -76,6 +76,8 @@ type RouteTarget = {
   id?: string | null;
 };
 
+type MemoryBriefKind = "task" | "meeting" | "report" | "workflow" | "company";
+
 const API_BASE = process.env.NEXT_PUBLIC_NOTESNOOP_API_URL || "";
 const DEV_AUTH = process.env.NEXT_PUBLIC_NOTESNOOP_DEV_AUTH === "true";
 const NOTE_KIND_LABELS: Record<string, string> = {
@@ -134,6 +136,17 @@ function routePath(target: RouteTarget) {
 
 function routeKey(target: RouteTarget) {
   return `${target.kind}:${target.id || ""}`;
+}
+
+function memoryBriefKind(sectionId: string): MemoryBriefKind {
+  const map: Record<string, MemoryBriefKind> = {
+    tasks: "task",
+    meetings: "meeting",
+    reports: "report",
+    workflows: "workflow",
+    companies: "company",
+  };
+  return map[sectionId] || "task";
 }
 
 export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boolean; initialRoute?: RouteTarget }) {
@@ -987,7 +1000,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     await refreshWorkspaceData();
   }
 
-  async function copyBrief(kind: "note" | "project" | "person", item: any, variant: "quick" | "full" = "quick") {
+  async function copyBrief(kind: "note" | "project" | "person" | "task" | "meeting" | "report" | "workflow" | "company", item: any, variant: "quick" | "full" = "quick") {
     const res = await api(`/api/briefs/${kind}/${item.id}?variant=${variant}`);
     await navigator.clipboard.writeText(res.data.markdown);
     setToast(`${variant === "full" ? "Full" : "Quick"} brief copied.`);
@@ -1954,6 +1967,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         onTaskStatusChange={updateTaskStatus}
         onUpdateMemory={updateMemoryItem}
         onUpdateReminder={updateReminder}
+        onCopyBrief={(sectionId, item, variant) => copyBrief(memoryBriefKind(sectionId), item, variant)}
         onOpenNote={openNote}
         onOpenProject={(projectId) => {
           const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
@@ -2150,6 +2164,7 @@ function MemoryDetailSheet({
   onTaskStatusChange,
   onUpdateMemory,
   onUpdateReminder,
+  onCopyBrief,
   onOpenNote,
   onOpenProject,
 }: {
@@ -2158,6 +2173,7 @@ function MemoryDetailSheet({
   onTaskStatusChange: (taskId: string, status: "todo" | "doing" | "blocked" | "done") => Promise<void>;
   onUpdateMemory: (sectionId: string, itemId: string, payload: Record<string, unknown>) => Promise<void>;
   onUpdateReminder: (reminderId: string, payload: Record<string, unknown>) => Promise<void>;
+  onCopyBrief: (sectionId: string, item: any, variant: "quick" | "full") => Promise<void>;
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenProject: (projectId: string) => void;
 }) {
@@ -2196,6 +2212,7 @@ function MemoryDetailSheet({
   const isTask = sectionId === "tasks";
   const sourceNoteFallback = Boolean(item.note_id && item.id === item.note_id && ["meetings", "reports"].includes(sectionId));
   const canEdit = ["tasks", "meetings", "reports", "workflows", "companies"].includes(sectionId) && !sourceNoteFallback;
+  const canCopyBrief = Boolean(item.id) && canEdit;
   async function saveEdits() {
     if (!canEdit || !item.id || !draftTitle.trim()) return;
     const payload: Record<string, unknown> = {};
@@ -2250,6 +2267,16 @@ function MemoryDetailSheet({
           {(item.due_at || item.occurred_at || item.created_at) && <span>{new Date(item.due_at || item.occurred_at || item.created_at).toLocaleDateString()}</span>}
           {typeof item.generation_confidence === "number" && <span>{Math.round(item.generation_confidence * 100)}% grounded</span>}
         </div>
+        {canCopyBrief && (
+          <div className="sheet-actions memory-brief-actions">
+            <button type="button" onClick={() => onCopyBrief(sectionId, item, "quick")}>
+              <Copy size={16} /> Quick brief
+            </button>
+            <button type="button" onClick={() => onCopyBrief(sectionId, item, "full")}>
+              <FileText size={16} /> Full brief
+            </button>
+          </div>
+        )}
         {sourceCounts && (
           <div className="source-count-grid" aria-label="Report sources">
             {Object.entries(sourceCounts).map(([key, value]) => (

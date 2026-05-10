@@ -288,7 +288,7 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
 
 @router.get("/briefs/{kind}/{entity_id}")
 def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentUser = Depends(current_user)):
-    if kind not in {"note", "person", "project"}:
+    if kind not in {"note", "person", "project", "task", "meeting", "report", "workflow", "company"}:
         raise HTTPException(status_code=404, detail="Unsupported brief type")
     full = variant == "full"
     with transaction(user.clerk_user_id) as cur:
@@ -436,6 +436,9 @@ def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentU
                 lines.append(f"+ {private_count['n']} notes in private projects")
             return {"data": {"markdown": "\n".join(lines)}}
 
+        if kind != "project":
+            return _copy_memory_object_brief(cur, kind, entity_id, full)
+
         project = one(cur, "SELECT * FROM projects WHERE id = %s", (entity_id,))
         if not project:
             raise HTTPException(status_code=404, detail="Project not found")
@@ -551,7 +554,6 @@ def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentU
         if len(notes) < 3 and not tasks and not meetings:
             lines.append("Thin data: this project memory is still early.")
         return {"data": {"markdown": "\n".join(lines)}}
-
 
 @router.post("/review-queue/{review_id}/accept")
 def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = Depends(current_user)):
@@ -828,6 +830,161 @@ def _is_flagged(cur, user_id: str, note_id: str | None = None, project_id: str |
             (user_id, note_id, project_id, person_id),
         )
     )
+
+
+def _copy_memory_object_brief(cur, kind: str, entity_id: str, full: bool) -> dict:
+    config = {
+        "task": {
+            "table": "tasks",
+            "title": "title",
+            "body": "description",
+            "date": "due_at",
+            "project_link": ("task_projects", "task_id"),
+            "people_link": ("task_people", "task_id", "relation"),
+            "note_link": ("task_notes", "task_id"),
+        },
+        "meeting": {
+            "table": "meetings",
+            "title": "title",
+            "body": "summary",
+            "date": "coalesce(occurred_at, created_at)",
+            "project_link": ("meeting_projects", "meeting_id"),
+            "people_link": ("meeting_people", "meeting_id", "attendance_status"),
+            "note_link": ("meeting_notes", "meeting_id"),
+        },
+        "report": {
+            "table": "reports",
+            "title": "title",
+            "body": "body",
+            "date": "created_at",
+            "project_link": ("report_projects", "report_id"),
+            "people_link": ("report_people", "report_id", None),
+            "note_link": ("report_notes", "report_id"),
+            "task_link": ("report_tasks", "report_id"),
+            "company_link": ("report_companies", "report_id"),
+        },
+        "workflow": {
+            "table": "workflows",
+            "title": "name",
+            "body": "description",
+            "date": "updated_at",
+            "project_link": ("workflow_projects", "workflow_id"),
+            "people_link": ("workflow_people", "workflow_id", "relation"),
+            "note_link": ("workflow_notes", "workflow_id"),
+            "task_link": ("workflow_tasks", "workflow_id"),
+        },
+        "company": {
+            "table": "companies",
+            "title": "name",
+            "body": "description",
+            "date": "updated_at",
+            "project_link": ("company_projects", "company_id"),
+            "people_link": ("company_people", "company_id", "role"),
+            "note_link": ("company_notes", "company_id"),
+        },
+    }[kind]
+    row = one(cur, f"SELECT * FROM {config['table']} WHERE id = %s", (entity_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail=f"{kind.title()} not found")
+
+    project_table, project_column = config["project_link"]
+    projects = many(
+        cur,
+        f"""
+        SELECT p.name, p.kind
+        FROM projects p
+        JOIN {project_table} link ON link.project_id = p.id
+        WHERE link.{project_column} = %s
+        ORDER BY p.name
+        """,
+        (entity_id,),
+    )
+    people_table, people_column, people_role_column = config["people_link"]
+    role_select = f", link.{people_role_column} AS relation" if people_role_column else ", NULL::text AS relation"
+    people = many(
+        cur,
+        f"""
+        SELECT p.name{role_select}
+        FROM people p
+        JOIN {people_table} link ON link.person_id = p.id
+        WHERE link.{people_column} = %s
+        ORDER BY p.name
+        """,
+        (entity_id,),
+    )
+    note_table, note_column = config["note_link"]
+    notes = many(
+        cur,
+        f"""
+        SELECT n.title, n.created_at
+        FROM notes n
+        JOIN {note_table} link ON link.note_id = n.id
+        WHERE link.{note_column} = %s
+        ORDER BY coalesce(n.occurred_at, n.created_at) DESC
+        LIMIT %s
+        """,
+        (entity_id, 8 if full else 3),
+    )
+    tasks = []
+    if config.get("task_link"):
+        task_table, task_column = config["task_link"]
+        tasks = many(
+            cur,
+            f"""
+            SELECT t.title, t.status
+            FROM tasks t
+            JOIN {task_table} link ON link.task_id = t.id
+            WHERE link.{task_column} = %s
+            ORDER BY t.created_at DESC
+            LIMIT %s
+            """,
+            (entity_id, 10 if full else 5),
+        )
+    companies = []
+    if config.get("company_link"):
+        company_table, company_column = config["company_link"]
+        companies = many(
+            cur,
+            f"""
+            SELECT c.name
+            FROM companies c
+            JOIN {company_table} link ON link.company_id = c.id
+            WHERE link.{company_column} = %s
+            ORDER BY c.name
+            LIMIT 8
+            """,
+            (entity_id,),
+        )
+
+    title = str(row.get(config["title"]) or f"Untitled {kind}").strip()
+    status = row.get("status") or row.get("priority") or row.get("domain") or ""
+    date_value = one(cur, f"SELECT {config['date']} AS value FROM {config['table']} WHERE id = %s", (entity_id,))
+    people_labels = [
+        f"{person['name']} ({person['relation']})" if person.get("relation") else person["name"]
+        for person in people
+    ]
+    lines = [
+        f"# {title}",
+        f"Type: {kind}",
+        f"Status: {status or 'not set'}",
+        f"Date: {(date_value or {}).get('value') or 'not set'}",
+        f"Projects: {', '.join(project['name'] for project in projects) or 'None linked'}",
+        f"People: {', '.join(people_labels) or 'None linked'}",
+    ]
+    if companies:
+        lines.append(f"Companies: {', '.join(company['name'] for company in companies)}")
+    if tasks:
+        lines += ["Linked tasks:", *[f"- {task['status']}: {task['title']}" for task in tasks]]
+    body = str(row.get(config["body"]) or "").strip()
+    if body:
+        lines += ["", body[:5000 if full else 1200]]
+    if notes:
+        lines += ["Source notes:", *[f"- {note['created_at']}: {note['title']}" for note in notes]]
+    if not any((projects, people, notes, tasks, companies)):
+        lines.append(f"Thin data: this {kind} is not linked to supporting memory yet.")
+    if any(project.get("kind") == "personal" for project in projects):
+        lines.append("Personal-project safeguard: review before sharing outside Personal.")
+    return {"data": {"markdown": "\n".join(lines)}}
 
 
 def _person_memory_profile(
