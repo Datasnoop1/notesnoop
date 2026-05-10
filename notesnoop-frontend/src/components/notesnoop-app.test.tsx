@@ -290,7 +290,7 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Memory map" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("group", { name: "Interactive memory graph" })).toBeInTheDocument();
     expect(within(dashboard).getByText(/Reminder due/i)).toBeInTheDocument();
-    expect(within(dashboard).getByText("sourced_from")).toBeInTheDocument();
+    expect(within(dashboard).getAllByText("sourced_from").length).toBeGreaterThan(0);
     expect(within(dashboard).getByRole("tab", { name: /Open tasks1/i })).toHaveAttribute("aria-selected", "true");
     expect(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up")).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByRole("button", { name: /Mark task done/i }));

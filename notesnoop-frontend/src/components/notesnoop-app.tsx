@@ -891,11 +891,33 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
   const graphFocusNodes = graphFocusKind ? memoryGraph.nodes.filter((node) => node.kind === graphFocusKind).slice(0, 8) : [];
   const graphNodeByKey = new Map(memoryGraph.nodes.map((node) => [`${node.kind}:${node.id}`, node]));
   const graphPreviewNodes = memoryGraph.nodes.slice(0, 8);
-  const graphPreviewEdges = memoryGraph.edges.slice(0, 8).map((edge) => ({
-    ...edge,
-    from: graphNodeByKey.get(`${edge.from_kind}:${edge.from_id}`),
-    to: graphNodeByKey.get(`${edge.to_kind}:${edge.to_id}`),
+  const graphPositions = [
+    { x: 50, y: 50 },
+    { x: 18, y: 20 },
+    { x: 82, y: 20 },
+    { x: 20, y: 78 },
+    { x: 80, y: 78 },
+    { x: 50, y: 16 },
+    { x: 50, y: 84 },
+    { x: 82, y: 52 },
+  ];
+  const graphPreviewLayouts = graphPreviewNodes.map((node, index) => ({
+    ...node,
+    layoutKey: `${node.kind}:${node.id}`,
+    x: graphPositions[index % graphPositions.length].x,
+    y: graphPositions[index % graphPositions.length].y,
   }));
+  const graphPreviewLayoutByKey = new Map(graphPreviewLayouts.map((node) => [node.layoutKey, node]));
+  const graphPreviewEdges = memoryGraph.edges
+    .map((edge) => ({
+      ...edge,
+      from: graphNodeByKey.get(`${edge.from_kind}:${edge.from_id}`),
+      to: graphNodeByKey.get(`${edge.to_kind}:${edge.to_id}`),
+      fromLayout: graphPreviewLayoutByKey.get(`${edge.from_kind}:${edge.from_id}`),
+      toLayout: graphPreviewLayoutByKey.get(`${edge.to_kind}:${edge.to_id}`),
+    }))
+    .filter((edge) => edge.fromLayout && edge.toLayout)
+    .slice(0, 12);
   const memorySections = [
     {
       id: "tasks",
@@ -1291,11 +1313,26 @@ export function NoteSnoopApp({ quickCapture }: { quickCapture: boolean }) {
                 {memoryGraph.nodes.length ? (
                   <>
                     <div className="graph-canvas" role="group" aria-label="Interactive memory graph">
-                      {graphPreviewNodes.map((node) => (
+                      <svg className="graph-edge-svg" aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">
+                        {graphPreviewEdges.map((edge, index) => {
+                          const fromLayout = edge.fromLayout!;
+                          const toLayout = edge.toLayout!;
+                          return (
+                            <g key={`line-${edge.from_kind}-${edge.from_id}-${edge.to_kind}-${edge.to_id}-${index}`}>
+                              <line x1={fromLayout.x} y1={fromLayout.y} x2={toLayout.x} y2={toLayout.y} />
+                              <text x={(fromLayout.x + toLayout.x) / 2} y={(fromLayout.y + toLayout.y) / 2}>
+                                {edge.relation}
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </svg>
+                      {graphPreviewLayouts.map((node) => (
                         <button
                           key={`preview-${node.kind}-${node.id}`}
                           type="button"
                           className={`graph-node graph-node-${node.kind}`}
+                          style={{ left: `${node.x}%`, top: `${node.y}%` }}
                           onClick={() => openGraphNode(node)}
                           aria-label={`Open ${node.kind} ${node.title || node.name || node.id}`}
                         >

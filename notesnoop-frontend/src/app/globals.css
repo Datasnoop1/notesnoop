@@ -693,20 +693,29 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   background-size: 32px 32px;
   overflow: hidden;
 }
-.graph-canvas::before,
-.graph-canvas::after {
-  content: "";
+.graph-edge-svg {
   position: absolute;
-  inset: 22% 14%;
-  border: 1px solid #cbdcd6;
-  border-left-color: transparent;
-  border-right-color: transparent;
-  transform: rotate(12deg);
+  inset: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
-.graph-canvas::after {
-  inset: 31% 19%;
-  transform: rotate(-18deg);
+.graph-edge-svg line {
+  stroke: #91b9ad;
+  stroke-width: .45;
+  vector-effect: non-scaling-stroke;
+  opacity: .86;
+}
+.graph-edge-svg text {
+  fill: #0f766e;
+  font-size: 2.6px;
+  font-weight: 800;
+  paint-order: stroke;
+  stroke: #fffefb;
+  stroke-width: .65;
+  text-anchor: middle;
+  dominant-baseline: central;
+  text-transform: uppercase;
 }
 .graph-node {
   position: absolute;
@@ -723,6 +732,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   text-align: left;
   box-shadow: 0 4px 14px rgba(16, 32, 28, .08);
   cursor: pointer;
+  transform: translate(-50%, -50%);
+  z-index: 2;
 }
 .graph-node:hover {
   border-color: var(--teal);
@@ -740,14 +751,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   white-space: nowrap;
   font-size: 13px;
 }
-.graph-node:nth-child(1) { left: 42%; top: 39%; }
-.graph-node:nth-child(2) { left: 8%; top: 14%; }
-.graph-node:nth-child(3) { right: 9%; top: 12%; }
-.graph-node:nth-child(4) { left: 13%; bottom: 14%; }
-.graph-node:nth-child(5) { right: 13%; bottom: 15%; }
-.graph-node:nth-child(6) { left: 41%; top: 8%; }
-.graph-node:nth-child(7) { left: 39%; bottom: 8%; }
-.graph-node:nth-child(8) { right: 38%; top: 58%; }
 .graph-kind-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1593,14 +1596,6 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .graph-node {
     width: min(42vw, 132px);
   }
-  .graph-node:nth-child(1) { left: 31%; top: 39%; }
-  .graph-node:nth-child(2) { left: 4%; top: 8%; }
-  .graph-node:nth-child(3) { right: 4%; top: 10%; }
-  .graph-node:nth-child(4) { left: 5%; bottom: 9%; }
-  .graph-node:nth-child(5) { right: 5%; bottom: 10%; }
-  .graph-node:nth-child(6) { left: 31%; top: 23%; }
-  .graph-node:nth-child(7) { left: 31%; bottom: 24%; }
-  .graph-node:nth-child(8) { right: 31%; top: 54%; }
   .memory-tabs button {
     min-height: 48px;
   }
