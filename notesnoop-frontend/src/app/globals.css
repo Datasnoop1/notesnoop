@@ -1536,6 +1536,33 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .ai-extracted-followups strong { color: #6b5300; }
 .ai-extracted-hints { background: #f3f1fb; border-color: #d3cbef; }
 .ai-extracted-hints strong { color: #2c2358; }
+.timeline-event-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.timeline-event-head small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.timeline-event-head small strong {
+  color: var(--ink);
+  margin: 0 2px;
+}
+.timeline-event-section {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.timeline-event-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--muted);
+  font-weight: 600;
+}
 .share-panel {
   border: 1px solid var(--line);
   background: #f7fbf8;

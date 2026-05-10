@@ -3147,6 +3147,15 @@ function daysSinceNow(value?: string | null): number | null {
   return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
 }
 
+function eventAgeBucket(value?: string | null): "Today" | "Yesterday" | "This week" | "Earlier" {
+  const days = daysSinceNow(value);
+  if (days === null) return "Earlier";
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days <= 7) return "This week";
+  return "Earlier";
+}
+
 function humanRelativeTime(value?: string | null): string {
   const days = daysSinceNow(value);
   if (days === null) return "";
@@ -3624,6 +3633,20 @@ function TimelinePanel({
         event_at: note.occurred_at || note.created_at,
       }));
   const profile = timeline.profile || {};
+  const recentEventCount = useMemo(() => {
+    return (events as any[]).filter((event: any) => {
+      const days = daysSinceNow(event.event_at);
+      return days !== null && days <= 7;
+    }).length;
+  }, [events]);
+  const eventBuckets = useMemo(() => {
+    const buckets: Record<string, any[]> = { Today: [], Yesterday: [], "This week": [], Earlier: [] };
+    for (const event of events as any[]) {
+      const bucket = eventAgeBucket(event.event_at);
+      buckets[bucket].push(event);
+    }
+    return buckets;
+  }, [events]);
   const profileStats = kind === "project"
     ? [
         ["Memory", profile.memory_count],
@@ -3769,31 +3792,47 @@ function TimelinePanel({
         </div>
       )}
       <div className="timeline-event-list" aria-label="Interaction history">
-        <strong>Interaction history</strong>
-        {events.map((event: any) => (
-          <button
-            key={`${event.kind}-${event.id}`}
-            type="button"
-            onClick={() => {
-              if (event.kind === "note" || event.section_id === "notes") {
-                onOpenNote(event.note_id || event.id);
-                return;
-              }
-              onOpenMemory(event.section_id, event);
-            }}
-          >
-            <span className={`event-kind event-kind-${event.kind}`}>{event.kind}</span>
-            <span>
-              <strong>{event.title}</strong>
-              <small>
-                {[event.status, event.project_name || event.person_name, event.event_at ? new Date(event.event_at).toLocaleDateString() : null]
-                  .filter(Boolean)
-                  .join(" - ")}
-              </small>
-              {event.subtitle && <p>{event.subtitle}</p>}
-            </span>
-          </button>
-        ))}
+        <div className="timeline-event-head">
+          <strong>Interaction history</strong>
+          {events.length > 0 && (
+            <small>
+              <strong>{events.length}</strong> total
+              {recentEventCount > 0 && <> &middot; <strong>{recentEventCount}</strong> in the last 7 days</>}
+            </small>
+          )}
+        </div>
+        {(() => {
+          const sections: Array<[string, any[]]> = (Object.entries(eventBuckets) as Array<[string, any[]]>).filter(([, list]) => list.length > 0);
+          return sections.map(([label, list]) => (
+            <div key={label} className="timeline-event-section">
+              <span className="timeline-event-section-label">{label}</span>
+              {list.map((event: any) => (
+                <button
+                  key={`${event.kind}-${event.id}`}
+                  type="button"
+                  onClick={() => {
+                    if (event.kind === "note" || event.section_id === "notes") {
+                      onOpenNote(event.note_id || event.id);
+                      return;
+                    }
+                    onOpenMemory(event.section_id, event);
+                  }}
+                >
+                  <span className={`event-kind event-kind-${event.kind}`}>{event.kind}</span>
+                  <span>
+                    <strong>{event.title}</strong>
+                    <small>
+                      {[event.status, event.project_name || event.person_name, event.event_at ? new Date(event.event_at).toLocaleDateString() : null]
+                        .filter(Boolean)
+                        .join(" - ")}
+                    </small>
+                    {event.subtitle && <p>{event.subtitle}</p>}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ));
+        })()}
         {!events.length && <p className="muted">No interaction history yet.</p>}
       </div>
     </div>
