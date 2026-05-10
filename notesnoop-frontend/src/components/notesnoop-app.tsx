@@ -4155,6 +4155,7 @@ function TimelinePanel({
   const [mergeTargetId, setMergeTargetId] = useState("");
   const [quickTaskTitle, setQuickTaskTitle] = useState("");
   const [quickTaskDue, setQuickTaskDue] = useState("");
+  const [quickTaskAssignee, setQuickTaskAssignee] = useState("");
   const notes = timeline.notes || [];
   const events = Array.isArray(timeline.events) && timeline.events.length
     ? timeline.events
@@ -4322,19 +4323,37 @@ function TimelinePanel({
             onChange={(event) => setQuickTaskDue(event.target.value)}
             aria-label="Quick task due date"
           />
+          {kind === "project" && (
+            <select
+              value={quickTaskAssignee}
+              onChange={(event) => setQuickTaskAssignee(event.target.value)}
+              aria-label="Quick task assignee"
+            >
+              <option value="">No assignee</option>
+              {people.filter((person) => !person.clerk_user_id).map((person) => (
+                <option key={person.id} value={person.id}>{person.name}</option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             disabled={!quickTaskTitle.trim() || !onCreateTask}
             onClick={async () => {
               if (!onCreateTask || !quickTaskTitle.trim()) return;
+              const assigneeId = kind === "person"
+                ? timeline.person?.id || null
+                : kind === "project"
+                  ? quickTaskAssignee || null
+                  : null;
               await onCreateTask({
                 title: quickTaskTitle.trim(),
                 due_at: quickTaskDue ? `${quickTaskDue}T12:00:00` : null,
                 project_id: kind === "project" ? timeline.project?.id || null : null,
-                assignee_id: kind === "person" ? timeline.person?.id || null : null,
+                assignee_id: assigneeId,
               });
               setQuickTaskTitle("");
               setQuickTaskDue("");
+              setQuickTaskAssignee("");
             }}
           >
             <Plus size={16} /> Add task
