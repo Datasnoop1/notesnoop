@@ -58,19 +58,20 @@ def person_timeline(person_id: str, user: CurrentUser = Depends(current_user)):
             cur,
             """
             SELECT t.*,
-                   min(p.name) AS project_name
+                   min(p.name) AS project_name,
+                   bool_or(tp.relation = 'assignee') AS is_assignee
             FROM tasks t
-            JOIN task_people tp ON tp.task_id = t.id
+            JOIN task_people tp ON tp.task_id = t.id AND tp.person_id = %s
             LEFT JOIN task_projects tpr ON tpr.task_id = t.id
             LEFT JOIN projects p ON p.id = tpr.project_id
-            WHERE tp.person_id = %s
-              AND t.status <> 'archived'
+            WHERE t.status <> 'archived'
             GROUP BY t.id
             ORDER BY
+              bool_or(tp.relation = 'assignee') DESC,
               CASE t.status WHEN 'blocked' THEN 1 WHEN 'doing' THEN 2 WHEN 'todo' THEN 3 WHEN 'done' THEN 4 ELSE 5 END,
               t.due_at NULLS LAST,
               t.created_at DESC
-            LIMIT 10
+            LIMIT 12
             """,
             (person_id,),
         )

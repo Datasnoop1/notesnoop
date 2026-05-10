@@ -1851,7 +1851,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 </button>
                 {inbox && (
                   <button type="button" onClick={() => openProject(inbox)} aria-label="Open Inbox project">
-                    <Inbox size={16} /> Inbox
+                    <Inbox size={16} /> Inbox{pipelineCounts.received > 0 ? ` (${pipelineCounts.received})` : ""}
                   </button>
                 )}
               </div>
@@ -4047,8 +4047,15 @@ function TimelinePanel({
       {!!timeline.tasks?.length && (
         <div className="mini-section">
           <strong>Tasks</strong>
-          {timeline.tasks.slice(0, 6).map((task: any) => (
-            <span key={task.id}>{task.status} - {task.title}{task.assignee_name ? ` - ${task.assignee_name}` : ""}</span>
+          {timeline.tasks.slice(0, 8).map((task: any) => (
+            <span key={task.id} className="mini-relation">
+              <span>{task.title}</span>
+              <span className="mini-relation-tag">{task.status}</span>
+              {kind === "person" && task.is_assignee && <span className="mini-relation-tag" style={{ background: "#f4faf4", borderColor: "#b3d7b6", color: "#1f4d27" }}>owner</span>}
+              {kind === "person" && task.is_assignee === false && <span className="mini-relation-tag" style={{ background: "#fffefb" }}>watcher</span>}
+              {kind !== "person" && task.assignee_name && <small>{task.assignee_name}</small>}
+              {task.project_name && kind !== "project" && <small>{task.project_name}</small>}
+            </span>
           ))}
         </div>
       )}
