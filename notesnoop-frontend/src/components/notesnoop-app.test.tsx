@@ -335,6 +335,7 @@ describe("NoteSnoopApp", () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     window.history.replaceState({}, "", "/");
+    window.localStorage.clear();
     vi.mocked(navigator.clipboard.writeText).mockClear();
     Object.defineProperty(window.URL, "createObjectURL", {
       value: vi.fn(() => "blob:notesnoop-report"),
@@ -727,6 +728,22 @@ describe("NoteSnoopApp", () => {
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/people"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/send-test-email"))).toBe(true);
     });
+  });
+
+  it("toggles tasks board mode and renders status columns", async () => {
+    installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByPlaceholderText(/Search notes/i);
+
+    const boardToggle = await screen.findByRole("tab", { name: "Board" });
+    fireEvent.click(boardToggle);
+
+    expect(await screen.findByRole("tabpanel", { name: /Tasks by status/i })).toBeInTheDocument();
+    expect(screen.getByText("To do")).toBeInTheDocument();
+    expect(screen.getByText("Doing")).toBeInTheDocument();
+    expect(screen.getByText("Blocked")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Move .* to Doing/i })).toBeInTheDocument();
   });
 
   it("renders Workflows as a first-class sidebar section, active first", async () => {

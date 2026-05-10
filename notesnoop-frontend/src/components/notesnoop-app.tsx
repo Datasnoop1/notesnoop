@@ -347,6 +347,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [reviewItems, setReviewItems] = useState<any[]>([]);
   const [activeMemoryTab, setActiveMemoryTab] = useState("tasks");
   const [taskAssigneeFilter, setTaskAssigneeFilter] = useState<string>("all");
+  const [tasksViewMode, setTasksViewMode] = useState<"cards" | "board">(() => {
+    if (typeof window === "undefined") return "cards";
+    return (window.localStorage.getItem("notesnoop_tasks_view_mode") as "cards" | "board") || "cards";
+  });
   const [recentMemoryKindFilter, setRecentMemoryKindFilter] = useState<string>("all");
   const [selectedMemory, setSelectedMemory] = useState<{ sectionId: string; item: any } | null>(null);
   const [selectedGraphKind, setSelectedGraphKind] = useState<string | null>(null);
@@ -535,6 +539,11 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [paletteOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("notesnoop_tasks_view_mode", tasksViewMode);
+  }, [tasksViewMode]);
 
   useEffect(() => {
     if (!paletteOpen) {
@@ -2531,6 +2540,28 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     );
                   })}
                 </div>
+                {activeMemorySection.id === "tasks" && openTasks.length > 0 && (
+                  <div className="task-view-toggle" role="tablist" aria-label="Task layout">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={tasksViewMode === "cards"}
+                      className={tasksViewMode === "cards" ? "active" : ""}
+                      onClick={() => setTasksViewMode("cards")}
+                    >
+                      List
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={tasksViewMode === "board"}
+                      className={tasksViewMode === "board" ? "active" : ""}
+                      onClick={() => setTasksViewMode("board")}
+                    >
+                      Board
+                    </button>
+                  </div>
+                )}
                 {activeMemorySection.id === "tasks" && (tasksByAssignee.groups.length > 0 || tasksByAssignee.unassigned > 0) && (
                   <div className="task-assignee-filter" role="tablist" aria-label="Filter tasks by assignee">
                     <button
@@ -2644,26 +2675,35 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     </button>
                   </div>
                 )}
-                <div className="memory-card-grid" role="tabpanel" aria-label={activeMemorySection.title}>
-                  {activeMemorySection.items.length ? (
-                    activeMemorySection.items.slice(0, 4).map((item) => (
-                      <MemoryCard
-                        key={`${activeMemorySection.id}-${item.id || item.note_id || item.project_id || item.title || item.name}`}
-                        item={item}
-                        sectionId={activeMemorySection.id}
-                        onOpenNote={openNote}
-                        onOpenProject={(projectId) => {
-                          const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
-                          if (project) openProject(project);
-                        }}
-                        onOpenMemory={openMemoryItem}
-                        onTaskStatusChange={updateTaskStatus}
-                      />
-                    ))
-                  ) : (
-                    <p className="dashboard-empty memory-empty">{activeMemorySection.empty}</p>
-                  )}
-                </div>
+                {activeMemorySection.id === "tasks" && tasksViewMode === "board" ? (
+                  <TaskStatusBoard
+                    tasks={filteredOpenTasks}
+                    emptyMessage={activeMemorySection.empty}
+                    onOpenTask={(task) => openMemoryItem("tasks", task)}
+                    onStatusChange={updateTaskStatus}
+                  />
+                ) : (
+                  <div className="memory-card-grid" role="tabpanel" aria-label={activeMemorySection.title}>
+                    {activeMemorySection.items.length ? (
+                      activeMemorySection.items.slice(0, 4).map((item) => (
+                        <MemoryCard
+                          key={`${activeMemorySection.id}-${item.id || item.note_id || item.project_id || item.title || item.name}`}
+                          item={item}
+                          sectionId={activeMemorySection.id}
+                          onOpenNote={openNote}
+                          onOpenProject={(projectId) => {
+                            const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
+                            if (project) openProject(project);
+                          }}
+                          onOpenMemory={openMemoryItem}
+                          onTaskStatusChange={updateTaskStatus}
+                        />
+                      ))
+                    ) : (
+                      <p className="dashboard-empty memory-empty">{activeMemorySection.empty}</p>
+                    )}
+                  </div>
+                )}
               </section>
 
               <section className="dashboard-panel relationships-panel">
@@ -3400,6 +3440,101 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   return appBody;
 }
 
+const TASK_BOARD_COLUMNS: Array<{ status: "todo" | "doing" | "blocked"; label: string }> = [
+  { status: "todo", label: "To do" },
+  { status: "doing", label: "Doing" },
+  { status: "blocked", label: "Blocked" },
+];
+
+function TaskStatusBoard({
+  tasks,
+  emptyMessage,
+  onOpenTask,
+  onStatusChange,
+}: {
+  tasks: any[];
+  emptyMessage: string;
+  onOpenTask: (task: any) => void;
+  onStatusChange: (taskId: string, status: "todo" | "doing" | "blocked" | "done") => Promise<void>;
+}) {
+  const byStatus = TASK_BOARD_COLUMNS.map((col) => ({
+    ...col,
+    items: tasks.filter((task) => (task.status || "todo") === col.status),
+  }));
+  if (!tasks.length) {
+    return <p className="dashboard-empty memory-empty">{emptyMessage}</p>;
+  }
+  return (
+    <div className="task-board" role="tabpanel" aria-label="Tasks by status">
+      {byStatus.map((column) => (
+        <div className={`task-board-column task-board-${column.status}`} key={column.status}>
+          <header>
+            <span className="task-board-label">{column.label}</span>
+            <strong>{column.items.length}</strong>
+          </header>
+          <div className="task-board-stack">
+            {column.items.length ? (
+              column.items.map((task) => {
+                const dueAt = task.due_at || task.due_date;
+                const priorityRaw = String(task.priority || "").toLowerCase();
+                const priorityLabel = priorityRaw && priorityRaw !== "p3" ? priorityRaw.toUpperCase() : "";
+                const priorityTone = priorityRaw === "p1" || priorityRaw === "p2" ? "urgent" : priorityRaw === "p5" ? "muted" : "";
+                const overdue = isOverdue(dueAt);
+                return (
+                  <article
+                    key={task.id}
+                    className="task-board-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => onOpenTask(task)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onOpenTask(task);
+                      }
+                    }}
+                  >
+                    <div className="task-board-card-title">{task.title || "Untitled task"}</div>
+                    <div className="task-board-card-meta">
+                      {task.assignee_name && <span className="task-board-assignee">{task.assignee_name}</span>}
+                      {!task.assignee_name && <span className="task-board-unassigned">Unassigned</span>}
+                      {priorityLabel && (
+                        <span className={`task-board-priority${priorityTone ? ` task-board-priority-${priorityTone}` : ""}`}>{priorityLabel}</span>
+                      )}
+                      {dueAt && (
+                        <span className={`task-board-due${overdue ? " task-board-due-overdue" : ""}`}>
+                          {overdue ? "Overdue " : ""}Due {humanRelativeTime(dueAt)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="task-board-card-actions" onClick={(event) => event.stopPropagation()}>
+                      {column.status !== "doing" && (
+                        <button type="button" onClick={() => onStatusChange(task.id, "doing")} aria-label={`Move ${task.title} to Doing`}>
+                          → Doing
+                        </button>
+                      )}
+                      {column.status !== "blocked" && (
+                        <button type="button" onClick={() => onStatusChange(task.id, "blocked")} aria-label={`Move ${task.title} to Blocked`}>
+                          → Blocked
+                        </button>
+                      )}
+                      <button type="button" className="task-board-done" onClick={() => onStatusChange(task.id, "done")} aria-label={`Mark ${task.title} done`}>
+                        <Check size={13} /> Done
+                      </button>
+                    </div>
+                  </article>
+                );
+              })
+            ) : (
+              <p className="task-board-empty">No tasks in this column.</p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function MemoryCard({
   item,
   sectionId,
@@ -3908,6 +4043,13 @@ function daysSinceNow(value?: string | null): number | null {
   if (Number.isNaN(ts)) return null;
   const diff = Date.now() - ts;
   return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
+}
+
+function isOverdue(value?: string | null): boolean {
+  if (!value) return false;
+  const ts = new Date(value).getTime();
+  if (Number.isNaN(ts)) return false;
+  return ts < Date.now();
 }
 
 function eventAgeBucket(value?: string | null): "Today" | "Yesterday" | "This week" | "Earlier" {
