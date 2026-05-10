@@ -1417,7 +1417,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         : dashboardNotes.filter((note) => note.note_kind === "report")
   );
   const workflows = home?.workflows || [];
-  const companies = home?.companies || [];
+  const companies = useMemo(() => home?.companies || [], [home?.companies]);
   const looseEnds = home?.loose_ends || {};
   const looseNotesWithoutProject = (looseEnds.notes_without_project || []) as any[];
   const looseTasksWithoutOwner = (looseEnds.tasks_without_owner || []) as any[];
@@ -1539,6 +1539,57 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const activeMemorySection = memorySections.find((section) => section.id === activeMemoryTab) || memorySections[0];
   const showExplorerGrid = Boolean(query.trim() || personTimeline || projectTimeline);
 
+  const composerRows = useMemo(() => {
+    const minRows = quickCapture ? 9 : 5;
+    const newlineCount = body.split("\n").length;
+    const wrapEstimate = Math.ceil(body.length / 90);
+    return Math.min(20, Math.max(minRows, newlineCount + 1, wrapEstimate));
+  }, [body, quickCapture]);
+
+  const composerHints = useMemo(() => {
+    const trimmed = body.trim();
+    if (trimmed.length < 3) return [] as Array<{ kind: "project" | "person" | "company"; id: string; label: string; color?: string }>;
+    const lower = trimmed.toLowerCase();
+    const hits: Array<{ kind: "project" | "person" | "company"; id: string; label: string; color?: string }> = [];
+    for (const project of state?.projects || []) {
+      if (!project?.name || project.kind === "personal" || project.kind === "inbox") continue;
+      const name = String(project.name).toLowerCase();
+      if (name.length >= 3 && lower.includes(name)) {
+        hits.push({ kind: "project", id: project.id, label: project.name, color: project.color_hex });
+      }
+    }
+    for (const person of state?.people || []) {
+      if (!person?.name) continue;
+      const parts = String(person.name).toLowerCase().split(/\s+/).filter(Boolean);
+      const fullName = parts.join(" ");
+      if (fullName.length >= 3 && lower.includes(fullName)) {
+        hits.push({ kind: "person", id: person.id, label: person.name });
+        continue;
+      }
+      if (parts.length > 1) {
+        const tokens = trimmed.split(/[^A-Za-zÀ-ſ]+/).filter(Boolean);
+        const allMatch = parts.every((part) =>
+          tokens.some((token) => token.length >= 3 && token.toLowerCase() === part),
+        );
+        if (allMatch) hits.push({ kind: "person", id: person.id, label: person.name });
+      }
+    }
+    for (const company of companies || []) {
+      if (!company?.name) continue;
+      const name = String(company.name).toLowerCase();
+      if (name.length >= 3 && lower.includes(name)) {
+        hits.push({ kind: "company", id: company.id, label: company.name });
+      }
+    }
+    const seen = new Set<string>();
+    return hits.filter((hit) => {
+      const key = `${hit.kind}:${hit.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 6);
+  }, [body, state?.projects, state?.people, companies]);
+
   const composerSection = (
     <section className={`composer ${quickCapture ? "" : "dashboard-composer"}`}>
       {state?.inbound_address && (
@@ -1570,8 +1621,19 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         value={body}
         onChange={(e) => setBody(e.target.value)}
         placeholder="Dump a note. Names, projects, rough thoughts, half-sentences all belong here."
-        rows={quickCapture ? 9 : 5}
+        rows={composerRows}
       />
+      {composerHints.length > 0 && (
+        <div className="composer-detected" aria-live="polite">
+          <span>We see:</span>
+          {composerHints.map((hint) => (
+            <span key={`${hint.kind}-${hint.id}`} className={`composer-detected-chip composer-detected-${hint.kind}`}>
+              {hint.kind === "project" && <span className="dot" style={{ background: hint.color || "#7c3aed" }} />}
+              {hint.label}
+            </span>
+          ))}
+        </div>
+      )}
       <div className="project-picker" aria-label="Save note to projects">
         {(state?.projects || []).map((project) => {
           const selected = saveProjectIds.includes(project.id);
