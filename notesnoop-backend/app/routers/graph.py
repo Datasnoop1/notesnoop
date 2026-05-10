@@ -431,6 +431,7 @@ def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
                 _update_review_payload(cur, review_id, data)
         if review["entity_kind"] == "person" and person_id:
             source = "collaborator_suggestion" if review["reason"] == "collaborator_suggestion" else "ai"
+            linked_by = data.get("suggested_by") or user.clerk_user_id
             cur.execute(
                 """
                 INSERT INTO note_people_links (note_id, person_id, state, confidence, source, source_user_id)
@@ -441,7 +442,14 @@ def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
                       source = EXCLUDED.source,
                       source_user_id = EXCLUDED.source_user_id
                 """,
-                (review["entity_id"], person_id, confidence, source, data.get("suggested_by") or user.clerk_user_id),
+                (review["entity_id"], person_id, confidence, source, linked_by),
+            )
+            _reconcile_note_memory_links(
+                cur,
+                str(review["entity_id"]),
+                str(review["workspace_id"]),
+                linked_by,
+                person_id=str(person_id),
             )
         project_id = data.get("matched_project_id")
         if review["entity_kind"] == "project" and not project_id:
@@ -454,6 +462,13 @@ def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
             cur.execute(
                 "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
                 (review["entity_id"], project_id, user.clerk_user_id),
+            )
+            _reconcile_note_memory_links(
+                cur,
+                str(review["entity_id"]),
+                str(review["workspace_id"]),
+                user.clerk_user_id,
+                project_id=str(project_id),
             )
         cur.execute("UPDATE review_queue SET state = 'accepted' WHERE id = %s", (review_id,))
         cur.execute(
@@ -887,6 +902,120 @@ def _update_review_payload(cur, review_id: str, data: dict) -> None:
         "UPDATE review_queue SET payload = %s::jsonb WHERE id = %s",
         (json.dumps(data), review_id),
     )
+
+
+def _reconcile_note_memory_links(
+    cur,
+    note_id: str,
+    workspace_id: str,
+    linked_by: str,
+    *,
+    person_id: str | None = None,
+    project_id: str | None = None,
+) -> None:
+    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"memory-reconcile:{note_id}",))
+    if person_id:
+        cur.execute(
+            """
+            INSERT INTO task_people (task_id, person_id, workspace_id, relation, linked_by)
+            SELECT t.id, %s, t.workspace_id, 'assignee', %s
+            FROM tasks t
+            WHERE t.source_note_id = %s AND t.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (person_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO meeting_people (meeting_id, person_id, workspace_id, attendance_status, linked_by)
+            SELECT m.id, %s, m.workspace_id, 'attended', %s
+            FROM meetings m
+            WHERE m.source_note_id = %s AND m.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (person_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO report_people (report_id, person_id, workspace_id, linked_by)
+            SELECT r.id, %s, r.workspace_id, %s
+            FROM reports r
+            WHERE r.source_note_id = %s AND r.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (person_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO company_people (company_id, person_id, workspace_id, linked_by)
+            SELECT cn.company_id, %s, cn.workspace_id, %s
+            FROM company_notes cn
+            WHERE cn.note_id = %s AND cn.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (person_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO workflow_people (workflow_id, person_id, workspace_id, relation, linked_by)
+            SELECT wn.workflow_id, %s, wn.workspace_id, 'participant', %s
+            FROM workflow_notes wn
+            WHERE wn.note_id = %s AND wn.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (person_id, linked_by, note_id, workspace_id),
+        )
+    if project_id:
+        cur.execute(
+            """
+            INSERT INTO task_projects (task_id, project_id, workspace_id, linked_by)
+            SELECT t.id, %s, t.workspace_id, %s
+            FROM tasks t
+            WHERE t.source_note_id = %s AND t.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (project_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO meeting_projects (meeting_id, project_id, workspace_id, linked_by)
+            SELECT m.id, %s, m.workspace_id, %s
+            FROM meetings m
+            WHERE m.source_note_id = %s AND m.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (project_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO report_projects (report_id, project_id, workspace_id, linked_by)
+            SELECT r.id, %s, r.workspace_id, %s
+            FROM reports r
+            WHERE r.source_note_id = %s AND r.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (project_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO company_projects (company_id, project_id, workspace_id, linked_by)
+            SELECT cn.company_id, %s, cn.workspace_id, %s
+            FROM company_notes cn
+            WHERE cn.note_id = %s AND cn.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (project_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO workflow_projects (workflow_id, project_id, workspace_id, linked_by)
+            SELECT wn.workflow_id, %s, wn.workspace_id, %s
+            FROM workflow_notes wn
+            WHERE wn.note_id = %s AND wn.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (project_id, linked_by, note_id, workspace_id),
+        )
 
 
 def _json_safe(value):

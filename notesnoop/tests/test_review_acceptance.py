@@ -65,6 +65,12 @@ def test_accept_unknown_person_review_creates_links_and_updates_payload(monkeypa
     assert updated_review_id == "review-1"
     assert json.loads(payload_json)["matched_person_id"] == "person-new"
     assert _params_for(cur, "INSERT INTO note_people_links")[0] == ("note-1", "person-new", 0.82, "ai", "owner-1")
+    assert _params_for(cur, "SELECT pg_advisory_xact_lock")[0] == ("memory-reconcile:note-1",)
+    assert _params_for(cur, "INSERT INTO task_people")[0] == ("person-new", "owner-1", "note-1", "workspace-1")
+    assert _params_for(cur, "INSERT INTO meeting_people")[0] == ("person-new", "owner-1", "note-1", "workspace-1")
+    assert _params_for(cur, "INSERT INTO report_people")[0] == ("person-new", "owner-1", "note-1", "workspace-1")
+    assert _params_for(cur, "INSERT INTO company_people")[0] == ("person-new", "owner-1", "note-1", "workspace-1")
+    assert _params_for(cur, "INSERT INTO workflow_people")[0] == ("person-new", "owner-1", "note-1", "workspace-1")
     assert _params_for(cur, "INSERT INTO calibration_events")[0] == ("workspace-1", 0.82)
 
 
@@ -88,7 +94,13 @@ def test_accept_unknown_project_review_creates_membership_links_and_updates_payl
     assert updated_review_id == "review-1"
     assert json.loads(payload_json)["matched_project_id"] == "project-new"
     assert _params_for(cur, "SELECT pg_advisory_xact_lock")[0] == ("note-1",)
+    assert _params_for(cur, "SELECT pg_advisory_xact_lock")[1] == ("memory-reconcile:note-1",)
     assert _params_for(cur, "INSERT INTO note_projects")[0] == ("note-1", "project-new", "owner-1")
+    assert _params_for(cur, "INSERT INTO task_projects")[0] == ("project-new", "owner-1", "note-1", "workspace-1")
+    assert _params_for(cur, "INSERT INTO meeting_projects")[0] == ("project-new", "owner-1", "note-1", "workspace-1")
+    assert _params_for(cur, "INSERT INTO report_projects")[0] == ("project-new", "owner-1", "note-1", "workspace-1")
+    assert _params_for(cur, "INSERT INTO company_projects")[0] == ("project-new", "owner-1", "note-1", "workspace-1")
+    assert _params_for(cur, "INSERT INTO workflow_projects")[0] == ("project-new", "owner-1", "note-1", "workspace-1")
     assert _params_for(cur, "INSERT INTO calibration_events")[0] == ("workspace-1", 0.78)
 
 
