@@ -1391,6 +1391,18 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   }, [landingProjectId, openProject, state?.projects]);
 
   const activeProjectRecord = state?.projects.find((project) => project.id === activeProject) || null;
+  const projectOpenTaskCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const task of (home?.open_tasks || []) as any[]) {
+      const projects = Array.isArray(task.projects) ? task.projects : [];
+      for (const project of projects) {
+        const id = project?.id ? String(project.id) : null;
+        if (!id) continue;
+        counts[id] = (counts[id] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [home?.open_tasks]);
   const dashboardReviewItems = home?.pending_review || [];
   const visibleReviewItems = reviewSheetOpen ? reviewItems : dashboardReviewItems;
   const dashboardReviewCount = reviewCount || dashboardReviewItems.length;
@@ -1725,12 +1737,16 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         <div className="sidebar-label">Projects</div>
         {state?.projects
           .filter((p) => p.kind === "user")
-          .map((project) => (
-            <button key={project.id} className={`nav-item ${activeProject === project.id ? "active" : ""}`} onClick={() => openProject(project)}>
-              <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} /> {project.name}
-              {activityByProject.has(project.id) && <span className="activity-dot" title="Collaborator active" />}
-            </button>
-          ))}
+          .map((project) => {
+            const count = projectOpenTaskCounts[project.id] || 0;
+            return (
+              <button key={project.id} className={`nav-item ${activeProject === project.id ? "active" : ""}`} onClick={() => openProject(project)}>
+                <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} /> {project.name}
+                {count > 0 && <span className="sidebar-count" aria-label={`${count} open tasks`}>{count}</span>}
+                {activityByProject.has(project.id) && <span className="activity-dot" title="Collaborator active" />}
+              </button>
+            );
+          })}
         <div className="sidebar-create">
           <input value={projectName} onChange={(e) => setProjectName(e.target.value)} placeholder="New project" />
           <button className="icon-btn" onClick={createProject} aria-label="Create project">
