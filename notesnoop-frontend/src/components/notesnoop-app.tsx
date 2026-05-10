@@ -306,6 +306,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [askResult, setAskResult] = useState<any | null>(null);
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
   const [searchMeta, setSearchMeta] = useState<any | null>(null);
+  const [memorySearchKind, setMemorySearchKind] = useState<string>("all");
   const [personName, setPersonName] = useState("");
   const [personRole, setPersonRole] = useState("");
   const [personCompany, setPersonCompany] = useState("");
@@ -2455,15 +2456,53 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     <h2>Memory matches</h2>
                     <Search size={18} />
                   </div>
-                  <div className="memory-search-grid">
-                    {memorySearchResults.slice(0, 6).map((item: any) => (
-                      <button key={`${item.kind}-${item.id}`} type="button" onClick={() => openGraphNode(item)}>
-                        <span>{item.kind}</span>
-                        <strong>{item.title}</strong>
-                        {item.subtitle && <small>{item.subtitle}</small>}
-                      </button>
-                    ))}
-                  </div>
+                  {(() => {
+                    const kindCounts: Record<string, number> = {};
+                    for (const result of memorySearchResults as any[]) {
+                      const kind = String(result.kind || "other");
+                      kindCounts[kind] = (kindCounts[kind] || 0) + 1;
+                    }
+                    const tabs: { id: string; label: string }[] = [
+                      { id: "all", label: "All" },
+                      ...Object.keys(kindCounts).sort().map((id) => ({ id, label: id })),
+                    ];
+                    const filtered = memorySearchKind === "all"
+                      ? memorySearchResults
+                      : memorySearchResults.filter((item: any) => item.kind === memorySearchKind);
+                    return (
+                      <>
+                        <div className="search-scope-tabs" role="tablist" aria-label="Filter memory matches">
+                          {tabs.map((tab) => {
+                            const count = tab.id === "all" ? memorySearchResults.length : kindCounts[tab.id] || 0;
+                            const active = memorySearchKind === tab.id;
+                            return (
+                              <button
+                                key={tab.id}
+                                type="button"
+                                role="tab"
+                                aria-selected={active}
+                                className={active ? "search-scope-tab active" : "search-scope-tab"}
+                                onClick={() => setMemorySearchKind(tab.id)}
+                              >
+                                {tab.label}
+                                <strong>{count}</strong>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="memory-search-grid">
+                          {filtered.slice(0, 12).map((item: any) => (
+                            <button key={`${item.kind}-${item.id}`} type="button" onClick={() => openGraphNode(item)}>
+                              <span>{item.kind}</span>
+                              <strong>{item.title}</strong>
+                              {item.subtitle && <small>{item.subtitle}</small>}
+                            </button>
+                          ))}
+                          {filtered.length === 0 && <p className="muted">No {memorySearchKind} matches.</p>}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
               <div className="section-head">
