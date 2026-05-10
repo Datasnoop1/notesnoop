@@ -1805,34 +1805,74 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   <Bell size={18} />
                 </div>
                 {dashboardReviewItems.length || dashboardFlagged.length || upcomingReminders.length ? (
-                  <div className="dashboard-list attention-grid">
-                    {upcomingReminders.map((task) => (
-                      <button key={`reminder-${task.id}`} className="dashboard-row" type="button" onClick={() => openMemoryItem("tasks", task)}>
-                        <span className="row-icon"><CalendarDays size={15} /></span>
-                        <span>
-                          <strong>{task.title}</strong>
-                          <small>Reminder due {new Date(task.attention_at || task.remind_at || task.due_at).toLocaleDateString()}</small>
-                        </span>
-                      </button>
-                    ))}
-                    {dashboardReviewItems.slice(0, 5).map((item) => (
-                      <button key={item.id} className="dashboard-row" type="button" onClick={openReviewQueue}>
-                        <span className="row-icon"><Bell size={15} /></span>
-                        <span>
-                          <strong>{item.payload?.name || item.payload?.title || item.entity_kind}</strong>
-                          <small>Review {item.entity_kind || "suggestion"}{typeof item.payload?.confidence === "number" ? ` - ${Math.round(item.payload.confidence * 100)}%` : ""}</small>
-                        </span>
-                      </button>
-                    ))}
-                    {dashboardFlagged.slice(0, 3).map((item) => (
-                      <button key={item.id} className="dashboard-row" type="button" onClick={() => item.note_id && openNote(item.note_id)}>
-                        <span className="row-icon warning"><Flag size={15} /></span>
-                        <span>
-                          <strong>{item.label || item.target_kind}</strong>
-                          <small>Flagged {item.target_kind}</small>
-                        </span>
-                      </button>
-                    ))}
+                  <div className="attention-groups">
+                    {upcomingReminders.length > 0 && (
+                      <div className="attention-group">
+                        <div className="attention-group-head">
+                          <span className="attention-group-label">Reminders</span>
+                          <strong>{upcomingReminders.length}</strong>
+                        </div>
+                        <div className="attention-grid">
+                          {upcomingReminders.map((task) => (
+                            <button key={`reminder-${task.id}`} className="dashboard-row" type="button" onClick={() => openMemoryItem("tasks", task)}>
+                              <span className="row-icon"><CalendarDays size={15} /></span>
+                              <span>
+                                <strong>{task.title}</strong>
+                                <small>Due {new Date(task.attention_at || task.remind_at || task.due_at).toLocaleDateString()}</small>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {dashboardReviewItems.length > 0 && (
+                      <div className="attention-group">
+                        <div className="attention-group-head">
+                          <span className="attention-group-label">AI suggestions</span>
+                          <strong>{dashboardReviewCount || dashboardReviewItems.length}</strong>
+                          <button type="button" className="attention-group-link" onClick={openReviewQueue}>
+                            Review all
+                          </button>
+                        </div>
+                        <div className="attention-grid">
+                          {dashboardReviewItems.slice(0, 6).map((item) => {
+                            const conf = Number(item.payload?.confidence || item.confidence || 0);
+                            const sourceKind = item.source_note_kind === "email" ? "Email" : "AI";
+                            return (
+                              <button key={item.id} className="dashboard-row" type="button" onClick={openReviewQueue}>
+                                <span className="row-icon"><Bell size={15} /></span>
+                                <span>
+                                  <strong>{item.payload?.name || item.payload?.title || `New ${item.entity_kind}`}</strong>
+                                  <small>
+                                    {sourceKind} {item.entity_kind}
+                                    {conf > 0 ? ` - ${Math.round(conf * 100)}%` : ""}
+                                  </small>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    {dashboardFlagged.length > 0 && (
+                      <div className="attention-group">
+                        <div className="attention-group-head">
+                          <span className="attention-group-label">Flagged</span>
+                          <strong>{dashboardFlagged.length}</strong>
+                        </div>
+                        <div className="attention-grid">
+                          {dashboardFlagged.slice(0, 6).map((item) => (
+                            <button key={item.id} className="dashboard-row" type="button" onClick={() => item.note_id && openNote(item.note_id)}>
+                              <span className="row-icon warning"><Flag size={15} /></span>
+                              <span>
+                                <strong>{item.label || item.target_kind}</strong>
+                                <small>Flagged {item.target_kind}</small>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <p className="dashboard-empty">Caught up. No reminders, no review suggestions, nothing flagged.</p>
@@ -2041,15 +2081,35 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 </div>
                 {dashboardProjects.length ? (
                   <div className="dashboard-list">
-                    {dashboardProjects.slice(0, 5).map((project) => (
-                      <button key={project.id} className="dashboard-row" type="button" onClick={() => openProject(project)} aria-label={`Open project ${project.name}`}>
-                        <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
-                        <span>
-                          <strong>{project.name}</strong>
-                          <small>{project.mention_count ? `${project.mention_count} notes` : project.kind === "inbox" ? "Inbox" : "Project"}</small>
-                        </span>
-                      </button>
-                    ))}
+                    {dashboardProjects.slice(0, 5).map((project) => {
+                      const last = project.last_note_at;
+                      const daysSince = last ? daysSinceNow(last) : null;
+                      const stale = daysSince !== null && daysSince > 14;
+                      const openTasks = Number(project.open_task_count || 0);
+                      const notes = Number(project.mention_count || 0);
+                      const facts: string[] = [];
+                      if (openTasks > 0) facts.push(`${openTasks} open task${openTasks === 1 ? "" : "s"}`);
+                      if (notes > 0) facts.push(`${notes} note${notes === 1 ? "" : "s"}`);
+                      if (!facts.length) facts.push(project.kind === "inbox" ? "Inbox" : "Project");
+                      return (
+                        <button
+                          key={project.id}
+                          className={stale ? "dashboard-row stale" : "dashboard-row"}
+                          type="button"
+                          onClick={() => openProject(project)}
+                          aria-label={`Open project ${project.name}`}
+                        >
+                          <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                          <span>
+                            <strong>{project.name}</strong>
+                            <small>
+                              {facts.join(" - ")}
+                              {daysSince !== null && ` - ${humanRelativeTime(last)}`}
+                            </small>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="dashboard-empty">No active projects yet.</p>
@@ -2063,15 +2123,35 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 </div>
                 {dashboardPeople.length ? (
                   <div className="dashboard-list">
-                    {dashboardPeople.slice(0, 5).map((person) => (
-                      <button key={person.id} className="dashboard-row" type="button" onClick={() => openPerson(person)} aria-label={`Open ${person.name} timeline`}>
-                        <span className="row-icon"><UserRound size={15} /></span>
-                        <span>
-                          <strong>{person.name}</strong>
-                          <small>{person.company || `${person.confirmed_note_count || 0} notes`}</small>
-                        </span>
-                      </button>
-                    ))}
+                    {dashboardPeople.slice(0, 5).map((person) => {
+                      const last = person.last_note_at;
+                      const daysSince = last ? daysSinceNow(last) : null;
+                      const stale = daysSince !== null && daysSince > 30;
+                      const company = person.company;
+                      const noteCount = Number(person.mention_count || person.confirmed_note_count || 0);
+                      const facts: string[] = [];
+                      if (company) facts.push(company);
+                      if (noteCount > 0) facts.push(`${noteCount} note${noteCount === 1 ? "" : "s"}`);
+                      if (!facts.length) facts.push("Person");
+                      return (
+                        <button
+                          key={person.id}
+                          className={stale ? "dashboard-row stale" : "dashboard-row"}
+                          type="button"
+                          onClick={() => openPerson(person)}
+                          aria-label={`Open ${person.name} timeline`}
+                        >
+                          <span className="row-icon"><UserRound size={15} /></span>
+                          <span>
+                            <strong>{person.name}</strong>
+                            <small>
+                              {facts.join(" - ")}
+                              {daysSince !== null && ` - ${humanRelativeTime(last)}`}
+                            </small>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="dashboard-empty">No people yet.</p>
@@ -2688,6 +2768,25 @@ function ReviewSheet({
   );
 }
 
+function daysSinceNow(value?: string | null): number | null {
+  if (!value) return null;
+  const ts = new Date(value).getTime();
+  if (Number.isNaN(ts)) return null;
+  const diff = Date.now() - ts;
+  return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
+}
+
+function humanRelativeTime(value?: string | null): string {
+  const days = daysSinceNow(value);
+  if (days === null) return "";
+  if (days === 0) return "today";
+  if (days === 1) return "1 day ago";
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 365) return `${Math.floor(days / 30)} months ago`;
+  return `${Math.floor(days / 365)} years ago`;
+}
+
 function personSourceLabel(source?: string, state?: string): string | null {
   const src = (source || "").toLowerCase();
   if (src === "manual" || src === "user" || src === "human") return "Manual";
@@ -3008,18 +3107,27 @@ function MemoryDetailSheet({
         {!!people.length && (
           <div className="mini-section">
             <strong>People</strong>
-            {people.map((person: any) => (
-              <span key={`${person.id}-${person.relation || person.attendance_status || "person"}`}>
-                {[person.name, person.role || person.relation || person.attendance_status, person.company].filter(Boolean).join(" - ")}
-              </span>
-            ))}
+            {people.map((person: any) => {
+              const role = person.role || person.relation || person.attendance_status;
+              const company = person.company;
+              return (
+                <span key={`${person.id}-${role || "person"}`} className="mini-relation">
+                  <span>{person.name}</span>
+                  {role && <span className="mini-relation-tag">{role}</span>}
+                  {company && <small>{company}</small>}
+                </span>
+              );
+            })}
           </div>
         )}
         {!!companies.length && (
           <div className="mini-section">
             <strong>Companies</strong>
             {companies.map((company: any) => (
-              <span key={company.id}>{[company.name, company.domain].filter(Boolean).join(" - ")}</span>
+              <span key={company.id} className="mini-relation">
+                <span>{company.name}</span>
+                {company.domain && <small>{company.domain}</small>}
+              </span>
             ))}
           </div>
         )}

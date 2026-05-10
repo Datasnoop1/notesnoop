@@ -357,7 +357,9 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Processing lane" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Memory map" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("group", { name: "Interactive memory graph" })).toBeInTheDocument();
-    expect(within(dashboard).getByText(/Reminder due/i)).toBeInTheDocument();
+    expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
+    expect(within(dashboard).getByText("Reminders")).toBeInTheDocument();
+    expect(within(dashboard).getByText(/^Due /i)).toBeInTheDocument();
     expect(within(dashboard).getAllByText("sourced_from").length).toBeGreaterThan(0);
     fireEvent.change(within(dashboard).getByLabelText("Ask memory question"), { target: { value: "What is blocked on Apollo?" } });
     fireEvent.click(within(dashboard).getByRole("button", { name: /^Ask$/i }));
@@ -388,8 +390,12 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByRole("button", { name: /Mark task done/i }));
     await waitFor(() => expect(calls.some((call) => call.includes("PATCH /api/tasks/note-task-1"))).toBe(true));
     fireEvent.click(within(screen.getByRole("tabpanel", { name: "Open tasks" })).getByText("Send Apollo follow-up"));
-    expect(await screen.findByText("Reminders")).toBeInTheDocument();
-    const memorySheet = document.querySelector(".memory-detail-sheet") as HTMLElement;
+    const memorySheet = await waitFor(() => {
+      const el = document.querySelector(".memory-detail-sheet") as HTMLElement | null;
+      if (!el) throw new Error("memory sheet not mounted");
+      if (!within(el).queryByText("Reminders")) throw new Error("memory sheet not ready");
+      return el;
+    });
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Quick brief/i }));
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Full brief/i }));
     fireEvent.click(within(memorySheet).getByLabelText("Jordan Kim"));
@@ -627,7 +633,7 @@ describe("NoteSnoopApp", () => {
     const workbench = await screen.findByLabelText("Memory workbench");
     expect(within(workbench).getByText("Manual")).toBeInTheDocument();
     expect(within(workbench).getByText("1 task / 1 company")).toBeInTheDocument();
-    expect(await screen.findByText("AI suggestions")).toBeInTheDocument();
+    expect((await screen.findAllByText("AI suggestions")).length).toBeGreaterThan(0);
     expect(await screen.findByText("Structured memory from this note")).toBeInTheDocument();
     expect(await screen.findByText("Prepare Apollo follow-up")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Accept/i }));
