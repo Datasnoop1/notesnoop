@@ -295,6 +295,42 @@ def test_end_to_end_capture_review_accept_dashboard_happy_path(client):
     assert "Send Apollo diligence pack" in company_tasks
 
 
+def test_note_archive_restore_round_trip(client):
+    """Archiving a note hides it from /home recent_notes; restoring brings it back."""
+    user_id = f"archive_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Archive workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    note = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Test note to archive"},
+        headers=headers,
+    )
+    note_id = note.json()["data"]["id"]
+
+    home_before = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    titles_before = [n["title"] for n in home_before.json()["data"]["recent_notes"]]
+    assert any("Test note to archive" in (t or "") for t in titles_before)
+
+    archived = client.post(f"/api/notes/{note_id}/archive", headers=headers)
+    assert archived.status_code == 200
+    assert archived.json()["data"]["archived"] is True
+
+    home_after = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    titles_after = [n["title"] for n in home_after.json()["data"]["recent_notes"]]
+    assert not any("Test note to archive" in (t or "") for t in titles_after)
+
+    restored = client.post(f"/api/notes/{note_id}/restore", headers=headers)
+    assert restored.status_code == 200
+    assert restored.json()["data"]["archived"] is False
+
+    home_final = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    titles_final = [n["title"] for n in home_final.json()["data"]["recent_notes"]]
+    assert any("Test note to archive" in (t or "") for t in titles_final)
+
+
 def test_review_queue_exposes_source_people_and_source_companies(client):
     """Verify slice D's backend addition: source-note people + companies are surfaced
     on the review-queue list so the Review Sheet can pre-seed its pickers.
