@@ -244,6 +244,70 @@ def test_personal_project_mutual_exclusivity_trigger(conn):
         conn.rollback()
 
 
+def test_base_note_links_reject_cross_workspace_targets(conn):
+    suffix = uuid.uuid4().hex[:8]
+    user_a = f"u_guard_a_{suffix}"
+    user_b = f"u_guard_b_{suffix}"
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("RESET ROLE")
+        cur.execute(
+            "INSERT INTO user_profiles (clerk_user_id) VALUES (%s), (%s)",
+            (user_a, user_b),
+        )
+        cur.execute(
+            "INSERT INTO workspaces (clerk_org_id, name) VALUES (%s, 'Guard A') RETURNING id",
+            (f"org_guard_a_{suffix}",),
+        )
+        ws_a = cur.fetchone()["id"]
+        cur.execute(
+            "INSERT INTO workspaces (clerk_org_id, name) VALUES (%s, 'Guard B') RETURNING id",
+            (f"org_guard_b_{suffix}",),
+        )
+        ws_b = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
+            VALUES (%s, %s, 'admin'), (%s, %s, 'admin')
+            """,
+            (ws_a, user_a, ws_b, user_b),
+        )
+        cur.execute(
+            "INSERT INTO notes (workspace_id, body, created_by) VALUES (%s, 'guard note', %s) RETURNING id",
+            (ws_a, user_a),
+        )
+        note_a = cur.fetchone()["id"]
+        cur.execute(
+            "INSERT INTO projects (workspace_id, name, kind, created_by) VALUES (%s, 'Guard Project B', 'user', %s) RETURNING id",
+            (ws_b, user_b),
+        )
+        project_b = cur.fetchone()["id"]
+        cur.execute(
+            "INSERT INTO people (workspace_id, name, created_by) VALUES (%s, 'Guard Person B', %s) RETURNING id",
+            (ws_b, user_b),
+        )
+        person_b = cur.fetchone()["id"]
+
+        cur.execute("SAVEPOINT note_project_guard")
+        with pytest.raises(psycopg2.Error):
+            cur.execute(
+                "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s)",
+                (note_a, project_b, user_a),
+            )
+        cur.execute("ROLLBACK TO SAVEPOINT note_project_guard")
+
+        cur.execute("SAVEPOINT note_people_guard")
+        with pytest.raises(psycopg2.Error):
+            cur.execute(
+                """
+                INSERT INTO note_people_links (note_id, person_id, state, confidence, source, source_user_id)
+                VALUES (%s, %s, 'confirmed', 1, 'user', %s)
+                """,
+                (note_a, person_b, user_a),
+            )
+        cur.execute("ROLLBACK TO SAVEPOINT note_people_guard")
+        conn.commit()
+
+
 def test_workspace_scoped_tables_have_rls_policies(conn):
     expected = {
         "workspaces",
