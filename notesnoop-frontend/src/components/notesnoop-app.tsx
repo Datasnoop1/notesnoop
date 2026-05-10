@@ -1810,6 +1810,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         {inbox && (
           <button className={`nav-item ${activeProject === inbox.id ? "active" : ""}`} onClick={() => openProject(inbox)}>
             <Inbox size={17} /> Inbox
+            {pipelineCounts.received > 0 && <span className="sidebar-count" aria-label={`${pipelineCounts.received} unprocessed`}>{pipelineCounts.received}</span>}
           </button>
         )}
         {personal && (
