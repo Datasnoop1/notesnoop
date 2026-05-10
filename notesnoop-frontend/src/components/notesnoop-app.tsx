@@ -3132,6 +3132,18 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         onFlag={() => selectedNote && flag({ note_id: selectedNote.id })}
         onProcess={() => selectedNote && processWithAI(selectedNote.id)}
         onBlockSender={() => selectedNote && blockSender(selectedNote)}
+        onArchive={async () => {
+          if (!selectedNote) return;
+          const target = selectedNote.archived_at ? "restore" : "archive";
+          try {
+            await api(`/api/notes/${selectedNote.id}/${target}`, { method: "POST" });
+            setToast(target === "archive" ? "Note archived." : "Note restored.");
+            closeNoteSheet();
+            await refreshWorkspaceData();
+          } catch (err) {
+            setToast(err instanceof Error ? err.message : "Could not update note");
+          }
+        }}
         onUpdate={updateNote}
         onSetProjects={setNoteProjects}
         onReviewDecision={async (reviewId, decision) => {
@@ -4735,6 +4747,7 @@ function LinkedSheet({
   onFlag,
   onProcess,
   onBlockSender,
+  onArchive,
   onUpdate,
   onSetProjects,
   onReviewDecision,
@@ -4756,6 +4769,7 @@ function LinkedSheet({
   onFlag: () => void;
   onProcess: () => void;
   onBlockSender: () => void;
+  onArchive?: () => Promise<void>;
   onUpdate: (noteId: string, title: string, body: string, noteKind: string, occurredAt: string) => Promise<void>;
   onSetProjects: (note: any, projectIds: string[], confirmPersonalMove?: boolean) => Promise<void>;
   onReviewDecision: (reviewId: string, decision: "accept" | "reject") => Promise<void>;
@@ -5168,6 +5182,11 @@ function LinkedSheet({
           <button onClick={() => setEditMode(true)}><Settings size={17} /> Edit</button>
           <button onClick={onProcess}><Sparkles size={17} /> Extract memory</button>
           {note.raw_email_metadata && <button onClick={onBlockSender}><X size={17} /> Block sender</button>}
+          {onArchive && (
+            note.archived_at
+              ? <button onClick={onArchive}><Archive size={17} /> Restore</button>
+              : <button onClick={onArchive}><Archive size={17} /> Archive</button>
+          )}
         </div>
       </aside>
     </div>

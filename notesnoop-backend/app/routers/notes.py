@@ -71,6 +71,32 @@ def create_note(workspace_id: str, payload: NoteCreate, user: CurrentUser = Depe
         return {"data": get_note_payload(cur, str(note["id"]))}
 
 
+@router.post("/notes/{note_id}/archive")
+def archive_note(note_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        note = one(cur, "SELECT id FROM notes WHERE id = %s", (note_id,))
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        cur.execute(
+            "UPDATE notes SET archived_at = now(), updated_at = now() WHERE id = %s",
+            (note_id,),
+        )
+        return {"data": {"id": note_id, "archived": True}}
+
+
+@router.post("/notes/{note_id}/restore")
+def restore_note(note_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        note = one(cur, "SELECT id FROM notes WHERE id = %s", (note_id,))
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        cur.execute(
+            "UPDATE notes SET archived_at = NULL, updated_at = now() WHERE id = %s",
+            (note_id,),
+        )
+        return {"data": {"id": note_id, "archived": False}}
+
+
 @router.patch("/notes/{note_id}")
 def update_note(note_id: str, payload: NoteUpdate, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
@@ -931,6 +957,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                     SELECT *
                     FROM notes n
                     WHERE n.workspace_id = %s
+                      AND n.archived_at IS NULL
                       AND (
                         %s::uuid IS NULL
                         OR EXISTS (
