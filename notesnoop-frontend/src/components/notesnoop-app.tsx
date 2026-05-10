@@ -69,6 +69,12 @@ type HomeState = {
   pipeline_counts?: PipelineCounts;
   pipeline_recent_failed?: any[];
   pipeline_recent_received?: any[];
+  loose_ends?: {
+    notes_without_project?: any[];
+    tasks_without_owner?: any[];
+    people_without_company?: any[];
+    stale_reviews_count?: number;
+  };
 };
 
 type SearchFilters = {
@@ -1411,6 +1417,16 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   );
   const workflows = home?.workflows || [];
   const companies = home?.companies || [];
+  const looseEnds = home?.loose_ends || {};
+  const looseNotesWithoutProject = (looseEnds.notes_without_project || []) as any[];
+  const looseTasksWithoutOwner = (looseEnds.tasks_without_owner || []) as any[];
+  const loosePeopleWithoutCompany = (looseEnds.people_without_company || []) as any[];
+  const looseStaleReviews = Number(looseEnds.stale_reviews_count || 0);
+  const looseEndsTotal =
+    looseNotesWithoutProject.length +
+    looseTasksWithoutOwner.length +
+    loosePeopleWithoutCompany.length +
+    (looseStaleReviews > 0 ? 1 : 0);
   const pipelineCounts: PipelineCounts = home?.pipeline_counts || {
     received: 0,
     processing: 0,
@@ -2189,6 +2205,106 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   </div>
                 ) : (
                   <p className="dashboard-empty">No notes yet. Paste a meeting note, forward an email, or hit Capture to start.</p>
+                )}
+              </section>
+
+              <section className="dashboard-panel loose-ends-panel">
+                <div className="panel-head">
+                  <h2>Loose ends</h2>
+                  <ClipboardList size={18} />
+                </div>
+                {looseEndsTotal === 0 ? (
+                  <p className="dashboard-empty">All tied up. Notes are tagged, tasks have owners, people have companies.</p>
+                ) : (
+                  <div className="loose-ends-groups">
+                    {looseNotesWithoutProject.length > 0 && (
+                      <div className="loose-ends-group">
+                        <div className="loose-ends-head">
+                          <span>Notes without a project</span>
+                          <strong>{looseNotesWithoutProject.length}</strong>
+                        </div>
+                        <div className="dashboard-list">
+                          {looseNotesWithoutProject.slice(0, 3).map((note: any) => (
+                            <button
+                              key={`loose-note-${note.id}`}
+                              className="dashboard-row"
+                              type="button"
+                              onClick={() => openNote(note.id)}
+                            >
+                              <span className="row-icon"><FileText size={15} /></span>
+                              <span>
+                                <strong>{note.title || "Untitled note"}</strong>
+                                <small>{NOTE_KIND_LABELS[note.note_kind || "note"] || "Note"} - tag a project</small>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {looseTasksWithoutOwner.length > 0 && (
+                      <div className="loose-ends-group">
+                        <div className="loose-ends-head">
+                          <span>Tasks without an owner</span>
+                          <strong>{looseTasksWithoutOwner.length}</strong>
+                        </div>
+                        <div className="dashboard-list">
+                          {looseTasksWithoutOwner.slice(0, 3).map((task: any) => (
+                            <button
+                              key={`loose-task-${task.id}`}
+                              className="dashboard-row"
+                              type="button"
+                              onClick={() => openMemoryItem("tasks", task)}
+                            >
+                              <span className="row-icon"><ClipboardList size={15} /></span>
+                              <span>
+                                <strong>{task.title || "Untitled task"}</strong>
+                                <small>{task.status || "todo"} - assign someone</small>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {loosePeopleWithoutCompany.length > 0 && (
+                      <div className="loose-ends-group">
+                        <div className="loose-ends-head">
+                          <span>People without a company</span>
+                          <strong>{loosePeopleWithoutCompany.length}</strong>
+                        </div>
+                        <div className="dashboard-list">
+                          {loosePeopleWithoutCompany.slice(0, 3).map((person: any) => (
+                            <button
+                              key={`loose-person-${person.id}`}
+                              className="dashboard-row"
+                              type="button"
+                              onClick={() => openPerson(person)}
+                            >
+                              <span className="row-icon"><UserRound size={15} /></span>
+                              <span>
+                                <strong>{person.name}</strong>
+                                <small>Set a company</small>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {looseStaleReviews > 0 && (
+                      <div className="loose-ends-group">
+                        <div className="loose-ends-head">
+                          <span>Stale review suggestions</span>
+                          <strong>{looseStaleReviews}</strong>
+                        </div>
+                        <button type="button" className="dashboard-row stale-review-row" onClick={openReviewQueue}>
+                          <span className="row-icon"><Bell size={15} /></span>
+                          <span>
+                            <strong>{looseStaleReviews} suggestion{looseStaleReviews === 1 ? "" : "s"} waiting &gt; 7 days</strong>
+                            <small>Open the review queue to decide or dismiss</small>
+                          </span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </section>
 

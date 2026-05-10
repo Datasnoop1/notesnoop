@@ -736,6 +736,94 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             """,
             (workspace_id, project_id, project_id),
         )
+        loose_notes_without_project = many(
+            cur,
+            """
+            SELECT n.id, n.title, n.note_kind, n.created_at
+            FROM notes n
+            WHERE n.workspace_id = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM note_projects np
+                WHERE np.note_id = n.id
+                  AND EXISTS (
+                    SELECT 1 FROM projects p
+                    WHERE p.id = np.project_id AND p.kind <> 'inbox'
+                  )
+              )
+              AND n.created_at > now() - interval '30 days'
+            ORDER BY n.created_at DESC
+            LIMIT 5
+            """,
+            (workspace_id,),
+        )
+        loose_tasks_without_owner = many(
+            cur,
+            """
+            SELECT t.id, t.title, t.status, t.due_at, t.created_at
+            FROM tasks t
+            WHERE t.workspace_id = %s
+              AND t.status IN ('todo','doing','blocked')
+              AND NOT EXISTS (
+                SELECT 1 FROM task_people tp
+                WHERE tp.task_id = t.id AND tp.relation = 'assignee'
+              )
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1 FROM task_projects tpr
+                  WHERE tpr.task_id = t.id AND tpr.project_id = %s::uuid
+                )
+              )
+            ORDER BY t.created_at DESC
+            LIMIT 5
+            """,
+            (workspace_id, project_id, project_id),
+        )
+        loose_people_without_company = many(
+            cur,
+            """
+            SELECT p.id, p.name, p.created_at
+            FROM people p
+            WHERE p.workspace_id = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM company_people cp
+                WHERE cp.person_id = p.id
+              )
+              AND EXISTS (
+                SELECT 1 FROM note_people_links npl
+                WHERE npl.person_id = p.id
+                  AND npl.state IN ('confirmed','auto_linked')
+              )
+            ORDER BY p.created_at DESC
+            LIMIT 5
+            """,
+            (workspace_id,),
+        )
+        loose_stale_reviews_row = one(
+            cur,
+            """
+            SELECT count(*) AS count
+            FROM review_queue rq
+            WHERE rq.workspace_id = %s
+              AND rq.target_user_id = %s
+              AND rq.state = 'open'
+              AND rq.created_at < now() - interval '7 days'
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1 FROM note_projects np
+                  WHERE np.note_id = rq.entity_id AND np.project_id = %s::uuid
+                )
+              )
+            """,
+            (workspace_id, user.clerk_user_id, project_id, project_id),
+        )
+        loose_ends = {
+            "notes_without_project": loose_notes_without_project,
+            "tasks_without_owner": loose_tasks_without_owner,
+            "people_without_company": loose_people_without_company,
+            "stale_reviews_count": int((loose_stale_reviews_row or {}).get("count") or 0),
+        }
         pipeline_recent_received = many(
             cur,
             """
@@ -828,6 +916,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                 "pipeline_counts": pipeline_counts,
                 "pipeline_recent_failed": pipeline_recent_failed,
                 "pipeline_recent_received": pipeline_recent_received,
+                "loose_ends": loose_ends,
             }
         }
 

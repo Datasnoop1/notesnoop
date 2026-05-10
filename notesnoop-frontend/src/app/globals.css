@@ -597,6 +597,43 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .recent-memory {
   grid-column: span 8;
 }
+.loose-ends-panel {
+  grid-column: span 4;
+  border-color: #d8d2c2;
+  background: #fbf8ee;
+}
+.loose-ends-groups {
+  display: grid;
+  gap: 12px;
+}
+.loose-ends-group {
+  display: grid;
+  gap: 6px;
+}
+.loose-ends-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.loose-ends-head span {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.loose-ends-head strong {
+  font-size: 11px;
+  background: #fff;
+  border: 1px solid #d8d2c2;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: #6b5300;
+}
+.stale-review-row {
+  border-color: #e1cf94;
+  background: #fffaf0;
+}
 .panel-head {
   display: flex;
   align-items: center;
