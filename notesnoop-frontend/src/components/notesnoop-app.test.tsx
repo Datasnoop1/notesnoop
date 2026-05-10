@@ -289,6 +289,10 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     }
     if (url.includes("/api/projects/project-1/timeline")) return json({ data: projectTimeline });
     if (url.includes("/api/people/person-1/timeline")) return json({ data: personTimeline });
+    if (url.includes("/api/people/person-1") && init?.method === "PATCH") {
+      const body = JSON.parse(String(init.body));
+      return json({ data: { ...people[0], ...body } });
+    }
     if (url.includes("/api/people/person-1/merge")) return json({ data: { undo_id: "undo-1" } });
     if (url.includes("/api/person-merges/undo-1/undo")) return json({ data: { undone: true } });
     if (url.includes("/api/briefs/")) return json({ data: { markdown: "Brief markdown" } });
@@ -802,6 +806,26 @@ describe("NoteSnoopApp", () => {
     expect(diligenceIdx).toBeLessThan(pausedIdx);
     expect(within(paused).getByText("paused")).toBeInTheDocument();
     expect(diligence).toBeInTheDocument();
+  });
+
+  it("edits a person's contact info from the timeline profile card", async () => {
+    const { calls } = installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByPlaceholderText(/Search notes/i);
+    fireEvent.click((await screen.findAllByRole("button", { name: /Open Morgan Lee timeline/i }))[0]);
+
+    const editBtn = await screen.findByRole("button", { name: /Edit contact/i });
+    fireEvent.click(editBtn);
+
+    const form = document.querySelector(".person-contact-editor") as HTMLElement;
+    fireEvent.change(within(form).getByLabelText("Role"), { target: { value: "Operating Partner" } });
+    fireEvent.change(within(form).getByLabelText("Company"), { target: { value: "Northstar Advisory" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.startsWith("PATCH /api/people/person-1") && !call.includes("merge"))).toBe(true);
+    });
   });
 
   it("opens the keyboard shortcuts cheat sheet on ? and closes on Esc", async () => {

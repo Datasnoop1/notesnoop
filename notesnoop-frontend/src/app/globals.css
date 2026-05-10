@@ -3236,6 +3236,85 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   padding-top: 12px;
   border-top: 1px solid var(--line);
 }
+
+.person-contact-display {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+.person-contact-display dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+.person-contact-display dt {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  align-self: center;
+}
+.person-contact-display dd { margin: 0; color: var(--text); }
+.person-contact-display .muted { color: var(--muted); font-size: 12px; margin: 0; }
+.person-contact-edit-btn {
+  background: transparent;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+}
+.person-contact-edit-btn:hover { color: var(--text); border-color: var(--text); }
+.person-contact-editor {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.person-contact-editor label {
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.person-contact-editor label.full { grid-column: 1 / -1; }
+.person-contact-editor input, .person-contact-editor textarea {
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+.person-contact-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.person-contact-actions button {
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.person-contact-actions button[type="submit"] {
+  background: #e6f0ea;
+  border-color: #c2dcc8;
+  color: #1f5a3a;
+}
 .palette-title {
   font-size: 14px;
   font-weight: 500;

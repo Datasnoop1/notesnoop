@@ -1521,6 +1521,22 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
+  async function updatePersonProfile(personId: string, updates: Record<string, string | null>) {
+    try {
+      const res = await api(`/api/people/${personId}`, {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      });
+      setToast("Person updated.");
+      await refreshWorkspaceData();
+      if (personTimeline?.person?.id === personId) {
+        await openPerson(res.data || personTimeline.person);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not update person");
+    }
+  }
+
   async function renamePerson(personId: string, nextName: string) {
     if (!nextName.trim()) return;
     try {
@@ -3307,6 +3323,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   onMerge={mergePerson}
                   onCreateTask={createTaskForAnchor}
                   onRename={(next) => renamePerson(personTimeline.person.id, next)}
+                  onUpdateProfile={(updates) => updatePersonProfile(personTimeline.person.id, updates)}
                   onBack={closePersonTimeline}
                 />
               ) : projectTimeline ? (
@@ -4368,6 +4385,77 @@ function personSourceBadgeClass(source?: string, state?: string): string {
   return "";
 }
 
+function PersonContactEditor({
+  person,
+  onSave,
+}: {
+  person: any;
+  onSave: (updates: Record<string, string | null>) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [role, setRole] = useState(String(person.role || ""));
+  const [company, setCompany] = useState(String(person.company || ""));
+  const [email, setEmail] = useState(String(person.email || ""));
+  const [details, setDetails] = useState(String(person.details || ""));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setRole(String(person.role || ""));
+    setCompany(String(person.company || ""));
+    setEmail(String(person.email || ""));
+    setDetails(String(person.details || ""));
+  }, [person.id, person.role, person.company, person.email, person.details]);
+
+  if (!editing) {
+    const hasContact = person.role || person.company || person.email || person.details;
+    return (
+      <div className="person-contact-display">
+        {hasContact ? (
+          <dl>
+            {person.role && <><dt>Role</dt><dd>{person.role}</dd></>}
+            {person.company && <><dt>Company</dt><dd>{person.company}</dd></>}
+            {person.email && <><dt>Email</dt><dd>{person.email}</dd></>}
+            {person.details && <><dt>Notes</dt><dd>{person.details}</dd></>}
+          </dl>
+        ) : (
+          <p className="muted">No contact details yet.</p>
+        )}
+        <button type="button" className="person-contact-edit-btn" onClick={() => setEditing(true)}>
+          <Settings size={13} /> Edit contact
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="person-contact-editor"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setSaving(true);
+        const payload: Record<string, string | null> = {
+          role: role.trim() || null,
+          company: company.trim() || null,
+          email: email.trim() || null,
+          details: details.trim() || null,
+        };
+        onSave(payload).finally(() => {
+          setSaving(false);
+          setEditing(false);
+        });
+      }}
+    >
+      <label>Role<input value={role} onChange={(e) => setRole(e.target.value)} placeholder="e.g. Operating Partner" /></label>
+      <label>Company<input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="e.g. Northstar Advisory" /></label>
+      <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="someone@example.com" /></label>
+      <label className="full">Notes<textarea rows={2} value={details} onChange={(e) => setDetails(e.target.value)} placeholder="Quick context: how you met, key topics, etc." /></label>
+      <div className="person-contact-actions">
+        <button type="button" onClick={() => setEditing(false)}>Cancel</button>
+        <button type="submit" disabled={saving}>Save</button>
+      </div>
+    </form>
+  );
+}
+
 function ProfileNameEditor({ initial, onSave }: { initial: string; onSave: (next: string) => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(initial);
@@ -4988,6 +5076,7 @@ function TimelinePanel({
   onGenerateReport,
   onBack,
   onSetProjectStatus,
+  onUpdateProfile,
 }: {
   timeline: any;
   kind: "person" | "project";
@@ -5001,6 +5090,7 @@ function TimelinePanel({
   onCreateTask?: (input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null }) => Promise<void>;
   onRename?: (nextName: string) => Promise<void>;
   onSetProjectStatus?: (status: "active" | "closed") => Promise<void>;
+  onUpdateProfile?: (updates: Record<string, string | null>) => Promise<void>;
   inviteEmail?: string;
   onInviteEmailChange?: (email: string) => void;
   onInvite?: (project: any, email: string) => Promise<void>;
@@ -5100,6 +5190,9 @@ function TimelinePanel({
         </div>
         {!!profile.companies?.length && <p>{profile.companies.join(" - ")}</p>}
         {!!profile.top_projects?.length && <p>{profile.top_projects.join(" - ")}</p>}
+        {kind === "person" && onUpdateProfile && timeline.person && (
+          <PersonContactEditor person={timeline.person} onSave={onUpdateProfile} />
+        )}
       </div>
       {kind === "person" && (
         <div className="merge-row">
