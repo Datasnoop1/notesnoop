@@ -671,6 +671,90 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             """,
             (workspace_id, project_id, project_id),
         )
+        pipeline_row = one(
+            cur,
+            """
+            WITH scoped AS (
+              SELECT n.id,
+                     n.ai_processing_status,
+                     EXISTS (
+                       SELECT 1 FROM review_queue rq
+                       WHERE rq.entity_id = n.id
+                         AND rq.workspace_id = n.workspace_id
+                         AND rq.state = 'open'
+                     ) AS has_open_review
+              FROM notes n
+              WHERE n.workspace_id = %s
+                AND (
+                  %s::uuid IS NULL
+                  OR EXISTS (
+                    SELECT 1 FROM note_projects np
+                    WHERE np.note_id = n.id AND np.project_id = %s::uuid
+                  )
+                )
+            )
+            SELECT
+              count(*) FILTER (
+                WHERE ai_processing_status IN ('unprocessed','skipped')
+                  AND NOT has_open_review
+              ) AS received,
+              count(*) FILTER (WHERE ai_processing_status = 'processing') AS processing,
+              count(*) FILTER (
+                WHERE has_open_review
+              ) AS needs_review,
+              count(*) FILTER (
+                WHERE ai_processing_status = 'processed' AND NOT has_open_review
+              ) AS accepted,
+              count(*) FILTER (WHERE ai_processing_status = 'failed') AS failed
+            FROM scoped
+            """,
+            (workspace_id, project_id, project_id),
+        )
+        pipeline_counts = {
+            "received": int((pipeline_row or {}).get("received") or 0),
+            "processing": int((pipeline_row or {}).get("processing") or 0),
+            "needs_review": int((pipeline_row or {}).get("needs_review") or 0),
+            "accepted": int((pipeline_row or {}).get("accepted") or 0),
+            "failed": int((pipeline_row or {}).get("failed") or 0),
+        }
+        pipeline_recent_failed = many(
+            cur,
+            """
+            SELECT id, title, note_kind, ai_processing_error, created_at
+            FROM notes n
+            WHERE n.workspace_id = %s
+              AND n.ai_processing_status = 'failed'
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1 FROM note_projects np
+                  WHERE np.note_id = n.id AND np.project_id = %s::uuid
+                )
+              )
+            ORDER BY n.created_at DESC
+            LIMIT 3
+            """,
+            (workspace_id, project_id, project_id),
+        )
+        pipeline_recent_received = many(
+            cur,
+            """
+            SELECT id, title, note_kind, ai_processing_status, created_at
+            FROM notes n
+            WHERE n.workspace_id = %s
+              AND n.ai_processing_status IN ('unprocessed','skipped')
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1 FROM note_projects np
+                  WHERE np.note_id = n.id AND np.project_id = %s::uuid
+                )
+              )
+            ORDER BY n.created_at DESC
+            LIMIT 3
+            """,
+            (workspace_id, project_id, project_id),
+        )
         return {
             "data": {
                 "pending_review": pending_review,
@@ -741,6 +825,9 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                 "workflows": workflows,
                 "companies": companies,
                 "project_intelligence": project_intelligence,
+                "pipeline_counts": pipeline_counts,
+                "pipeline_recent_failed": pipeline_recent_failed,
+                "pipeline_recent_received": pipeline_recent_received,
             }
         }
 

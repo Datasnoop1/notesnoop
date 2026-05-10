@@ -40,6 +40,14 @@ type ApiState = {
   inbound_address?: string;
 };
 
+type PipelineCounts = {
+  received: number;
+  processing: number;
+  needs_review: number;
+  accepted: number;
+  failed: number;
+};
+
 type HomeState = {
   pending_review: any[];
   recent_projects: any[];
@@ -58,6 +66,9 @@ type HomeState = {
   workflows?: any[];
   companies?: any[];
   project_intelligence?: any[];
+  pipeline_counts?: PipelineCounts;
+  pipeline_recent_failed?: any[];
+  pipeline_recent_received?: any[];
 };
 
 type SearchFilters = {
@@ -538,7 +549,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       setOccurredAt("");
       setSelectedProjectIds([]);
       setSheetOpen(true);
-      setToast("Saved. AI structuring is queued when allowed.");
+      setToast("Saved. Memory extraction is queued when allowed.");
       await refreshWorkspaceData();
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Could not save note");
@@ -1383,6 +1394,28 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   );
   const workflows = home?.workflows || [];
   const companies = home?.companies || [];
+  const pipelineCounts: PipelineCounts = home?.pipeline_counts || {
+    received: 0,
+    processing: 0,
+    needs_review: 0,
+    accepted: 0,
+    failed: 0,
+  };
+  const pipelineRecentFailed = home?.pipeline_recent_failed || [];
+  const pipelineRecentReceived = home?.pipeline_recent_received || [];
+  const pipelineTotal =
+    pipelineCounts.received +
+    pipelineCounts.processing +
+    pipelineCounts.needs_review +
+    pipelineCounts.accepted +
+    pipelineCounts.failed;
+  const pipelineStages: { id: keyof PipelineCounts; label: string; tone: string }[] = [
+    { id: "received", label: "Received", tone: "neutral" },
+    { id: "processing", label: "Processing", tone: "info" },
+    { id: "needs_review", label: "Needs review", tone: "warn" },
+    { id: "accepted", label: "Accepted", tone: "ok" },
+    { id: "failed", label: "Failed", tone: "danger" },
+  ];
   const projectIntelligence = home?.project_intelligence?.length
     ? home.project_intelligence
     : dashboardProjects.map((project) => ({
@@ -1749,9 +1782,120 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             </div>
 
             <div className="dashboard-grid">
+              <section className="dashboard-panel attention-panel">
+                <div className="panel-head">
+                  <h2>Needs attention</h2>
+                  <Bell size={18} />
+                </div>
+                {dashboardReviewItems.length || dashboardFlagged.length || upcomingReminders.length ? (
+                  <div className="dashboard-list attention-grid">
+                    {upcomingReminders.map((task) => (
+                      <button key={`reminder-${task.id}`} className="dashboard-row" type="button" onClick={() => openMemoryItem("tasks", task)}>
+                        <span className="row-icon"><CalendarDays size={15} /></span>
+                        <span>
+                          <strong>{task.title}</strong>
+                          <small>Reminder due {new Date(task.attention_at || task.remind_at || task.due_at).toLocaleDateString()}</small>
+                        </span>
+                      </button>
+                    ))}
+                    {dashboardReviewItems.slice(0, 5).map((item) => (
+                      <button key={item.id} className="dashboard-row" type="button" onClick={openReviewQueue}>
+                        <span className="row-icon"><Bell size={15} /></span>
+                        <span>
+                          <strong>{item.payload?.name || item.payload?.title || item.entity_kind}</strong>
+                          <small>Review {item.entity_kind || "suggestion"}{typeof item.payload?.confidence === "number" ? ` - ${Math.round(item.payload.confidence * 100)}%` : ""}</small>
+                        </span>
+                      </button>
+                    ))}
+                    {dashboardFlagged.slice(0, 3).map((item) => (
+                      <button key={item.id} className="dashboard-row" type="button" onClick={() => item.note_id && openNote(item.note_id)}>
+                        <span className="row-icon warning"><Flag size={15} /></span>
+                        <span>
+                          <strong>{item.label || item.target_kind}</strong>
+                          <small>Flagged {item.target_kind}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="dashboard-empty">Caught up. No reminders, no review suggestions, nothing flagged.</p>
+                )}
+              </section>
+
+              <section className="dashboard-panel capture-panel">
+                <div className="panel-head">
+                  <h2>Capture</h2>
+                  <Send size={18} />
+                </div>
+                {composerSection}
+              </section>
+
+              <section className="dashboard-panel pipeline-panel">
+                <div className="panel-head">
+                  <h2>Processing lane</h2>
+                  <Workflow size={18} />
+                </div>
+                <div className="pipeline-stages" role="list" aria-label="Note processing pipeline">
+                  {pipelineStages.map((stage) => (
+                    <div
+                      key={stage.id}
+                      role="listitem"
+                      className={`pipeline-stage pipeline-stage-${stage.tone}${pipelineCounts[stage.id] ? "" : " pipeline-stage-zero"}`}
+                    >
+                      <strong>{pipelineCounts[stage.id]}</strong>
+                      <span>{stage.label}</span>
+                    </div>
+                  ))}
+                </div>
+                {pipelineTotal === 0 ? (
+                  <p className="dashboard-empty">No notes captured yet.</p>
+                ) : (
+                  <div className="pipeline-detail">
+                    {pipelineRecentReceived.length > 0 && (
+                      <div className="pipeline-bucket">
+                        <span className="pipeline-bucket-label">Awaiting extraction</span>
+                        {pipelineRecentReceived.map((note: any) => (
+                          <button
+                            key={`pipe-recv-${note.id}`}
+                            type="button"
+                            className="dashboard-row pipeline-row"
+                            onClick={() => openNote(note.id)}
+                          >
+                            <span className="row-icon"><Inbox size={14} /></span>
+                            <span>
+                              <strong>{note.title || "Untitled"}</strong>
+                              <small>{NOTE_KIND_LABELS[note.note_kind || "note"] || "Note"} - click to extract memory</small>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {pipelineRecentFailed.length > 0 && (
+                      <div className="pipeline-bucket">
+                        <span className="pipeline-bucket-label">Failed</span>
+                        {pipelineRecentFailed.map((note: any) => (
+                          <button
+                            key={`pipe-fail-${note.id}`}
+                            type="button"
+                            className="dashboard-row pipeline-row pipeline-row-failed"
+                            onClick={() => openNote(note.id)}
+                          >
+                            <span className="row-icon warning"><X size={14} /></span>
+                            <span>
+                              <strong>{note.title || "Untitled"}</strong>
+                              <small>{note.ai_processing_error ? String(note.ai_processing_error).slice(0, 80) : "Retry from note view"}</small>
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+
               <section className="dashboard-panel memory-system-panel">
                 <div className="panel-head">
-                  <h2>Memory system</h2>
+                  <h2>Active work</h2>
                   <Sparkles size={18} />
                 </div>
                 <div className="memory-tabs" role="tablist" aria-label="Memory categories">
@@ -1873,6 +2017,71 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 </div>
               </section>
 
+              <section className="dashboard-panel relationships-panel">
+                <div className="panel-head">
+                  <h2>Active projects</h2>
+                  <Archive size={18} />
+                </div>
+                {dashboardProjects.length ? (
+                  <div className="dashboard-list">
+                    {dashboardProjects.slice(0, 5).map((project) => (
+                      <button key={project.id} className="dashboard-row" type="button" onClick={() => openProject(project)} aria-label={`Open project ${project.name}`}>
+                        <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
+                        <span>
+                          <strong>{project.name}</strong>
+                          <small>{project.mention_count ? `${project.mention_count} notes` : project.kind === "inbox" ? "Inbox" : "Project"}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="dashboard-empty">No active projects yet.</p>
+                )}
+              </section>
+
+              <section className="dashboard-panel relationships-panel">
+                <div className="panel-head">
+                  <h2>People</h2>
+                  <Users size={18} />
+                </div>
+                {dashboardPeople.length ? (
+                  <div className="dashboard-list">
+                    {dashboardPeople.slice(0, 5).map((person) => (
+                      <button key={person.id} className="dashboard-row" type="button" onClick={() => openPerson(person)} aria-label={`Open ${person.name} timeline`}>
+                        <span className="row-icon"><UserRound size={15} /></span>
+                        <span>
+                          <strong>{person.name}</strong>
+                          <small>{person.company || `${person.confirmed_note_count || 0} notes`}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="dashboard-empty">No people yet.</p>
+                )}
+              </section>
+
+              <section className="dashboard-panel recent-memory">
+                <div className="panel-head">
+                  <h2>Recent memory</h2>
+                  <Sparkles size={18} />
+                </div>
+                {dashboardNotes.length ? (
+                  <div className="dashboard-list">
+                    {dashboardNotes.slice(0, 4).map((note) => (
+                      <button key={note.id} className="dashboard-row memory-row" type="button" onClick={() => openNote(note.id)}>
+                        <span>
+                          <strong>{note.title}</strong>
+                          <small>{NOTE_KIND_LABELS[note.note_kind || "note"] || "Note"} - {note.body}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="dashboard-empty">No notes yet.</p>
+                )}
+              </section>
+
               <section className="dashboard-panel memory-map-panel">
                 <div className="panel-head">
                   <h2>Memory map</h2>
@@ -1932,129 +2141,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                         ))}
                       </div>
                     )}
-                    <div className="graph-edge-list">
-                      {graphPreviewEdges.map((edge, index) => (
-                        <span key={`${edge.from_kind}-${edge.from_id}-${edge.to_kind}-${edge.to_id}-${index}`}>
-                          {edge.from?.title || edge.from?.name || edge.from_kind} <strong>{edge.relation}</strong> {edge.to?.title || edge.to?.name || edge.to_kind}
-                        </span>
-                      ))}
-                    </div>
                   </>
                 ) : (
                   <p className="dashboard-empty">Links appear here once notes connect to people, projects, tasks, meetings, reports, workflows, or companies.</p>
-                )}
-              </section>
-
-              <section className="dashboard-panel attention-panel">
-                <div className="panel-head">
-                  <h2>Needs attention</h2>
-                  <Bell size={18} />
-                </div>
-                {dashboardReviewItems.length || dashboardFlagged.length || upcomingReminders.length ? (
-                  <div className="dashboard-list">
-                    {upcomingReminders.map((task) => (
-                      <button key={`reminder-${task.id}`} className="dashboard-row" type="button" onClick={() => openMemoryItem("tasks", task)}>
-                        <span className="row-icon"><CalendarDays size={15} /></span>
-                        <span>
-                          <strong>{task.title}</strong>
-                          <small>Reminder due {new Date(task.attention_at || task.remind_at || task.due_at).toLocaleDateString()}</small>
-                        </span>
-                      </button>
-                    ))}
-                    {dashboardReviewItems.slice(0, 3).map((item) => (
-                      <button key={item.id} className="dashboard-row" type="button" onClick={openReviewQueue}>
-                        <span className="row-icon"><Bell size={15} /></span>
-                        <span>
-                          <strong>{item.payload?.name || item.entity_kind}</strong>
-                          <small>Review suggestion</small>
-                        </span>
-                      </button>
-                    ))}
-                    {dashboardFlagged.slice(0, 3).map((item) => (
-                      <button key={item.id} className="dashboard-row" type="button" onClick={() => item.note_id && openNote(item.note_id)}>
-                        <span className="row-icon warning"><Flag size={15} /></span>
-                        <span>
-                          <strong>{item.label || item.target_kind}</strong>
-                          <small>Flagged {item.target_kind}</small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="dashboard-empty">Caught up.</p>
-                )}
-              </section>
-
-              <section className="dashboard-panel capture-panel">
-                <div className="panel-head">
-                  <h2>Capture</h2>
-                  <Send size={18} />
-                </div>
-                {composerSection}
-              </section>
-
-              <section className="dashboard-panel">
-                <div className="panel-head">
-                  <h2>Active projects</h2>
-                  <Archive size={18} />
-                </div>
-                {dashboardProjects.length ? (
-                  <div className="dashboard-list">
-                    {dashboardProjects.slice(0, 5).map((project) => (
-                      <button key={project.id} className="dashboard-row" type="button" onClick={() => openProject(project)} aria-label={`Open project ${project.name}`}>
-                        <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
-                        <span>
-                          <strong>{project.name}</strong>
-                          <small>{project.mention_count ? `${project.mention_count} notes` : project.kind === "inbox" ? "Inbox" : "Project"}</small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="dashboard-empty">No active projects yet.</p>
-                )}
-              </section>
-
-              <section className="dashboard-panel">
-                <div className="panel-head">
-                  <h2>People</h2>
-                  <Users size={18} />
-                </div>
-                {dashboardPeople.length ? (
-                  <div className="dashboard-list">
-                    {dashboardPeople.slice(0, 5).map((person) => (
-                      <button key={person.id} className="dashboard-row" type="button" onClick={() => openPerson(person)} aria-label={`Open ${person.name} timeline`}>
-                        <span className="row-icon"><UserRound size={15} /></span>
-                        <span>
-                          <strong>{person.name}</strong>
-                          <small>{person.company || `${person.confirmed_note_count || 0} notes`}</small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="dashboard-empty">No people yet.</p>
-                )}
-              </section>
-
-              <section className="dashboard-panel recent-memory">
-                <div className="panel-head">
-                  <h2>Recent memory</h2>
-                  <Sparkles size={18} />
-                </div>
-                {dashboardNotes.length ? (
-                  <div className="dashboard-list">
-                    {dashboardNotes.slice(0, 4).map((note) => (
-                      <button key={note.id} className="dashboard-row memory-row" type="button" onClick={() => openNote(note.id)}>
-                        <span>
-                          <strong>{note.title}</strong>
-                          <small>{NOTE_KIND_LABELS[note.note_kind || "note"] || "Note"} - {note.body}</small>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="dashboard-empty">No notes yet.</p>
                 )}
               </section>
             </div>
@@ -3344,7 +3433,7 @@ function LinkedSheet({
           <button onClick={onFullCopy}><Copy size={17} /> Full brief</button>
           <button onClick={onFlag}><Flag size={17} /> Flag</button>
           <button onClick={() => setEditMode(true)}><Settings size={17} /> Edit</button>
-          <button onClick={onProcess}><Sparkles size={17} /> Process with AI</button>
+          <button onClick={onProcess}><Sparkles size={17} /> Extract memory</button>
           {note.raw_email_metadata && <button onClick={onBlockSender}><X size={17} /> Block sender</button>}
         </div>
       </aside>

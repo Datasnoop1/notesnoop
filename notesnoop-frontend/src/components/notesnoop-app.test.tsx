@@ -353,7 +353,8 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByText("Workspace memory")).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Capture" })).toBeInTheDocument();
-    expect(within(dashboard).getByRole("heading", { name: "Memory system" })).toBeInTheDocument();
+    expect(within(dashboard).getByRole("heading", { name: "Active work" })).toBeInTheDocument();
+    expect(within(dashboard).getByRole("heading", { name: "Processing lane" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Memory map" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("group", { name: "Interactive memory graph" })).toBeInTheDocument();
     expect(within(dashboard).getByText(/Reminder due/i)).toBeInTheDocument();
@@ -637,7 +638,7 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(screen.getByRole("button", { name: /Quick brief/i }));
     fireEvent.click(screen.getByRole("button", { name: /Full brief/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Flag$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Process with AI/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Extract memory/i }));
 
     fireEvent.click(screen.getByRole("button", { name: /Edit/i }));
     fireEvent.change(screen.getByLabelText("Note title"), { target: { value: "Edited title" } });
