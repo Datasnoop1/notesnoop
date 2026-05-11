@@ -1022,6 +1022,36 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setToast(status === "done" ? "Task completed." : `Task moved to ${status}.`);
   }
 
+  async function bulkUpdateTaskStatus(
+    taskIds: string[],
+    status: "todo" | "doing" | "blocked" | "done" | "archived",
+  ) {
+    if (!taskIds.length) return;
+    try {
+      const results = await Promise.allSettled(
+        taskIds.map((id) =>
+          api(`/api/tasks/${id}`, { method: "PATCH", body: JSON.stringify({ status }) }),
+        ),
+      );
+      const ok = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - ok;
+      await refreshWorkspaceData();
+      const verb =
+        status === "done" ? "completed" :
+        status === "archived" ? "archived" :
+        `moved to ${status}`;
+      if (failed === 0) {
+        setToast(`${ok} task${ok === 1 ? "" : "s"} ${verb}.`);
+      } else if (ok === 0) {
+        setToast(`Could not update ${failed} task${failed === 1 ? "" : "s"}.`);
+      } else {
+        setToast(`${ok} ${verb}; ${failed} failed.`);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Bulk update failed");
+    }
+  }
+
   async function updateMemoryItem(sectionId: string, itemId: string, payload: Record<string, unknown>) {
     const endpointBySection: Record<string, string> = {
       tasks: `/api/tasks/${itemId}`,
@@ -3034,6 +3064,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     emptyMessage={activeMemorySection.empty}
                     onOpenTask={(task) => openMemoryItem("tasks", task)}
                     onStatusChange={updateTaskStatus}
+                    onBulkStatusChange={bulkUpdateTaskStatus}
                   />
                 ) : (
                   <div className="memory-card-grid" role="tabpanel" aria-label={activeMemorySection.title}>
@@ -4129,12 +4160,23 @@ function TaskStatusBoard({
   emptyMessage,
   onOpenTask,
   onStatusChange,
+  onBulkStatusChange,
 }: {
   tasks: any[];
   emptyMessage: string;
   onOpenTask: (task: any) => void;
   onStatusChange: (taskId: string, status: "todo" | "doing" | "blocked" | "done") => Promise<void>;
+  onBulkStatusChange?: (taskIds: string[], status: "todo" | "doing" | "blocked" | "done" | "archived") => Promise<void>;
 }) {
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const visibleIds = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
+  useEffect(() => {
+    setSelected((prev) => {
+      const next = new Set<string>();
+      prev.forEach((id) => { if (visibleIds.has(id)) next.add(id); });
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleIds]);
   const byStatus = TASK_BOARD_COLUMNS.map((col) => ({
     ...col,
     items: tasks.filter((task) => (task.status || "todo") === col.status),
@@ -4142,8 +4184,38 @@ function TaskStatusBoard({
   if (!tasks.length) {
     return <p className="dashboard-empty memory-empty">{emptyMessage}</p>;
   }
+  const toggleSelected = (id: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+  const runBulk = async (status: "todo" | "doing" | "blocked" | "done" | "archived") => {
+    if (!onBulkStatusChange || !selected.size) return;
+    const ids = Array.from(selected);
+    setSelected(new Set());
+    await onBulkStatusChange(ids, status);
+  };
   return (
     <div className="task-board" role="tabpanel" aria-label="Tasks by status">
+      {selected.size > 0 && onBulkStatusChange && (
+        <div className="task-board-bulkbar" role="toolbar" aria-label="Bulk task actions">
+          <span className="task-board-bulkbar-count">{selected.size} selected</span>
+          <button type="button" onClick={() => runBulk("todo")}>→ To do</button>
+          <button type="button" onClick={() => runBulk("doing")}>→ Doing</button>
+          <button type="button" onClick={() => runBulk("blocked")}>→ Blocked</button>
+          <button type="button" className="task-board-bulkbar-done" onClick={() => runBulk("done")}>
+            <Check size={13} /> Mark done
+          </button>
+          <button type="button" className="task-board-bulkbar-archive" onClick={() => runBulk("archived")}>
+            <Archive size={13} /> Archive
+          </button>
+          <button type="button" className="task-board-bulkbar-clear" onClick={() => setSelected(new Set())}>
+            Clear
+          </button>
+        </div>
+      )}
+      <div className="task-board-columns">
       {byStatus.map((column) => (
         <div className={`task-board-column task-board-${column.status}`} key={column.status}>
           <header>
@@ -4158,10 +4230,11 @@ function TaskStatusBoard({
                 const priorityLabel = priorityRaw && priorityRaw !== "p3" ? priorityRaw.toUpperCase() : "";
                 const priorityTone = priorityRaw === "p1" || priorityRaw === "p2" ? "urgent" : priorityRaw === "p5" ? "muted" : "";
                 const overdue = isOverdue(dueAt);
+                const isSelected = selected.has(task.id);
                 return (
                   <article
                     key={task.id}
-                    className="task-board-card"
+                    className={`task-board-card${isSelected ? " task-board-card-selected" : ""}`}
                     role="button"
                     tabIndex={0}
                     onClick={() => onOpenTask(task)}
@@ -4172,6 +4245,16 @@ function TaskStatusBoard({
                       }
                     }}
                   >
+                    {onBulkStatusChange && (
+                      <label className="task-board-card-select" onClick={(event) => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelected(task.id)}
+                          aria-label={`Select ${task.title || "task"}`}
+                        />
+                      </label>
+                    )}
                     <div className="task-board-card-title">{task.title || "Untitled task"}</div>
                     <div className="task-board-card-meta">
                       {task.assignee_name && (
@@ -4213,6 +4296,7 @@ function TaskStatusBoard({
           </div>
         </div>
       ))}
+      </div>
     </div>
   );
 }
