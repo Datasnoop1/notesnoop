@@ -17,6 +17,12 @@ def derive_title(body: str, title: str | None) -> tuple[str, bool]:
     first = next((line.strip() for line in body.splitlines() if line.strip()), "")
     if not first:
         return "[Untitled note]", True
+    # Trim to the end of the first sentence so very long opening paragraphs
+    # don't end up as 80-char ellipsis titles like
+    # "Met Morgan from Northstar today about the Apollo deal. They want a t".
+    sentence_match = re.search(r"^(.{8,160}?[.!?])\s", first + " ")
+    if sentence_match:
+        return sentence_match.group(1).rstrip(" .!?").strip()[:80] or "[Untitled note]", True
     return first[:80], True
 
 

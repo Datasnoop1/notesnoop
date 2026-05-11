@@ -1122,6 +1122,37 @@ def _enrich_company_links_from_context(
     return _dedupe_strings(linked_ids)
 
 
+_LIST_HEADER_PREFIXES = (
+    "action items",
+    "action item",
+    "todos",
+    "to-dos",
+    "to do list",
+    "to-do list",
+    "tasks",
+    "decisions",
+    "follow-ups",
+    "follow ups",
+    "next steps",
+    "summary",
+)
+
+
+def _is_list_header_title(title: str) -> bool:
+    """True when the proposed task title is a structural list header rather
+    than a concrete actionable phrase (e.g. "Action items: (1) draft..."
+    that the LLM occasionally extracts alongside the real tasks)."""
+    if not title:
+        return False
+    head = title.strip().lower()
+    if len(head) > 220:
+        return True  # paragraph-length titles are never real tasks
+    for prefix in _LIST_HEADER_PREFIXES:
+        if head == prefix or head.startswith(prefix + ":") or head.startswith(prefix + " ("):
+            return True
+    return False
+
+
 def _structured_memory_candidates(
     note: dict,
     data: dict[str, Any],
@@ -1149,6 +1180,11 @@ def _structured_memory_candidates(
     seen_task_titles: set[str] = set()
     for item in data.get("tasks", []):
         title = _materialize_title(item)
+        if _is_list_header_title(title):
+            # LLM sometimes lifts the "Action items:" / "Decisions:" line itself
+            # as a standalone task — drop those so the review queue only shows
+            # actionable phrases.
+            continue
         key = title.casefold()
         if not title or key in seen_task_titles:
             continue
