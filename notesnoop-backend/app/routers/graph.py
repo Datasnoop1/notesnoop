@@ -59,7 +59,8 @@ def person_timeline(person_id: str, user: CurrentUser = Depends(current_user)):
             """
             SELECT t.*,
                    min(p.name) AS project_name,
-                   bool_or(tp.relation = 'assignee') AS is_assignee
+                   bool_or(tp.relation = 'assignee') AS is_assignee,
+                   coalesce((SELECT count(*)::int FROM task_comments tcc WHERE tcc.task_id = t.id), 0) AS comment_count
             FROM tasks t
             JOIN task_people tp ON tp.task_id = t.id AND tp.person_id = %s
             LEFT JOIN task_projects tpr ON tpr.task_id = t.id
@@ -202,7 +203,8 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
             """
             SELECT t.*,
                    min(pe.name) AS assignee_name,
-                   min(pe.id::text) AS assignee_id
+                   min(pe.id::text) AS assignee_id,
+                   coalesce((SELECT count(*)::int FROM task_comments tcc WHERE tcc.task_id = t.id), 0) AS comment_count
             FROM tasks t
             JOIN task_projects tp ON tp.task_id = t.id
             LEFT JOIN task_people tpe ON tpe.task_id = t.id AND tpe.relation = 'assignee'

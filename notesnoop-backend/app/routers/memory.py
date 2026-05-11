@@ -1985,7 +1985,8 @@ def _company_payload(cur, company_id: str) -> dict | None:
     company["tasks"] = many(
         cur,
         """
-        SELECT t.*, asg.name AS assignee_name, asg.id AS assignee_id
+        SELECT t.*, asg.name AS assignee_name, asg.id AS assignee_id,
+               coalesce((SELECT count(*)::int FROM task_comments tcc WHERE tcc.task_id = t.id), 0) AS comment_count
         FROM tasks t
         JOIN task_companies tc ON tc.task_id = t.id
         LEFT JOIN task_people tp ON tp.task_id = t.id AND tp.relation = 'assignee'
