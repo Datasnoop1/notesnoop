@@ -1731,6 +1731,18 @@ async def _process_extract(job: dict) -> None:
             _enqueue_structured_memory_reviews(cur, note, data, target_user_id, person_ids)
             upsert_note_embedding(cur, note, embedding)
 
+            suggested_title = str(data.get("note_title") or "").strip()
+            if suggested_title and note.get("title_is_derived") and 0 < len(suggested_title) <= 80:
+                cur.execute(
+                    """
+                    UPDATE notes
+                    SET title = %s
+                    WHERE id = %s
+                      AND title_is_derived = true
+                    """,
+                    (suggested_title, note_id),
+                )
+
             cur.execute(
                 """
                 UPDATE notes

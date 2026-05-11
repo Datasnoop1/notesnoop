@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
 import httpx
@@ -388,21 +388,26 @@ async def extract_entities(
 ) -> dict[str, Any]:
     if _is_cloud_host() and not OLLAMA_API_KEY:
         raise RuntimeError("OLLAMA_API_KEY is not configured")
+    today = datetime.now(timezone.utc).date().isoformat()
     prompt = {
+        "today": today,
         "note": note_body[:12000],
         "known_people": known_people[:200],
         "known_projects": known_projects[:200],
         "known_companies": (known_companies or [])[:200],
         "instructions": [
+            f"Today's date is {today}. Resolve relative dates ('Friday', 'next week', 'tomorrow', 'May 22') against this. Never invent a year — if the note says 'May 22' use the next occurrence on or after today.",
             "Match known_people, known_projects, known_companies before creating new ones.",
             "Never invent UUIDs. If the note literally contains a UUID for a project / company / task, copy it; otherwise omit *_ids fields.",
-            "For each task: title (required), description (1 sentence, optional), status ('todo' unless the note says doing/blocked/done), priority (1-5; 1 if urgent words like ASAP/urgent/today, else 3), due_date (YYYY-MM-DD if explicit, else null), person_names (assignee + watchers, list of names), company_names (list).",
+            "Do not extract structural prefixes ('Action items:', 'TODOs:', 'Decisions:') as standalone tasks. Each task entry must be a discrete actionable phrase, not a list header.",
+            "For each task: title (required, short imperative phrase max 80 chars — never copy a list header or paragraph), description (1 sentence, optional), status ('todo' unless the note says doing/blocked/done), priority (1-5; 1 if urgent words like ASAP/urgent/today, else 3), due_date (YYYY-MM-DD if the note specifies a date explicitly or relatively, else null), person_names (assignee + watchers, list of names), company_names (list).",
             "For each meeting: title (required), occurred_date (YYYY-MM-DD or null), summary (2-3 sentences), person_names (attendees), company_names, decisions (list of short statements), follow_ups (list of short action statements).",
             "For each workflow: name (required), description (1-2 sentences), status (draft / active / paused / retired), person_names (owners), company_names.",
             "For each report: title (required), summary (3-4 sentences), status (draft / published / archived), person_names, company_names.",
             "For each company: name (required), domain (only if explicitly written), summary (optional 1 sentence).",
             "For each person mention: name (required) and optional role/company hint.",
             "relationship_hints: short strings describing why entities link (e.g. 'Acme is the customer', 'Alice is the new owner'). Optional but valued.",
+            "If the note has a clear central topic in 6 words or fewer, propose it as `note_title` at the top level. Otherwise omit `note_title`.",
             "Return entities only when explicitly grounded in the note. No speculation.",
             "Output valid JSON only. No markdown, no commentary.",
         ],
