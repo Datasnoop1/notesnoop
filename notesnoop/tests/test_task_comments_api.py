@@ -130,12 +130,19 @@ def test_empty_comment_body_rejected(client):
     assert too_short.status_code == 422  # Pydantic min_length=1
 
 
-def test_only_author_can_delete_their_comment(client):
+def test_non_author_cannot_edit_or_delete_a_comment(client):
+    """Application-layer author check rejects edit/delete from anyone else.
+
+    Note: CI runs as notesnoop_admin which bypasses RLS, so we exercise the
+    explicit author check in the handler rather than the cross-workspace RLS
+    boundary (which is verified in production where requests run as
+    notesnoop_app).
+    """
     owner_id = f"comments_author_{uuid.uuid4().hex[:10]}"
-    intruder_id = f"comments_intruder_{uuid.uuid4().hex[:10]}"
+    other_id = f"comments_other_{uuid.uuid4().hex[:10]}"
     owner_headers = _headers(owner_id, name="Author")
-    intruder_headers = _headers(intruder_id, name="Intruder")
-    workspace_id, task_id = _make_workspace_and_task(client, owner_headers)
+    other_headers = _headers(other_id, name="Bystander")
+    _, task_id = _make_workspace_and_task(client, owner_headers)
 
     posted = client.post(
         f"/api/tasks/{task_id}/comments",
@@ -145,14 +152,18 @@ def test_only_author_can_delete_their_comment(client):
     assert posted.status_code == 200
     comment_id = posted.json()["data"]["id"]
 
-    # Intruder is not a workspace member, so they can't see the task at all (RLS).
-    intruder_view = client.get(f"/api/tasks/{task_id}/comments", headers=intruder_headers)
-    assert intruder_view.status_code == 404
+    bad_patch = client.patch(
+        f"/api/comments/{comment_id}",
+        json={"body": "Hijacked!"},
+        headers=other_headers,
+    )
+    assert bad_patch.status_code == 403
 
-    # Even if the intruder guesses the comment id, they get 404 (RLS hides the row).
-    intruder_delete = client.delete(f"/api/comments/{comment_id}", headers=intruder_headers)
-    assert intruder_delete.status_code in (403, 404)
+    bad_delete = client.delete(f"/api/comments/{comment_id}", headers=other_headers)
+    assert bad_delete.status_code == 403
 
-    # The comment is still there.
+    # The owner's comment is unchanged.
     still_there = client.get(f"/api/tasks/{task_id}/comments", headers=owner_headers).json()["data"]
-    assert len(still_there) == 1 and still_there[0]["id"] == comment_id
+    assert len(still_there) == 1
+    assert still_there[0]["id"] == comment_id
+    assert still_there[0]["body"] == "Owner's confidential thought."
