@@ -58,6 +58,7 @@ type HomeState = {
   recent_notes: any[];
   open_tasks?: any[];
   reminders?: any[];
+  recent_comments?: any[];
   tasks?: any[];
   meetings_calls?: any[];
   meetings?: any[];
@@ -1941,6 +1942,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   }, [openTasks]);
   const pipelineFailed = home?.pipeline_recent_failed || [];
   const staleReviewCount = Number(home?.loose_ends?.stale_reviews_count || 0);
+  const recentComments = useMemo(() => {
+    const all: any[] = home?.recent_comments || [];
+    return all.filter((c) => c.author_user_id !== (state?.user?.clerk_user_id || "dev_user")).slice(0, 5);
+  }, [home?.recent_comments, state?.user?.clerk_user_id]);
   const dueTodayTasks = useMemo(() => {
     const list: any[] = [];
     for (const task of openTasks) {
@@ -1950,7 +1955,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
     return list.slice(0, 6);
   }, [openTasks]);
-  const notifCount = overdueTasks.length + pipelineFailed.length + (staleReviewCount > 0 ? 1 : 0);
+  const notifCount = overdueTasks.length + pipelineFailed.length + (staleReviewCount > 0 ? 1 : 0) + recentComments.length;
   const meetingsCalls = (
     home?.meetings_calls?.length
       ? home.meetings_calls
@@ -3991,6 +3996,30 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                       <span className="notif-row-title">{staleReviewCount} review{staleReviewCount === 1 ? "" : "s"} pending more than 3 days</span>
                       <span className="notif-row-meta">Click to open the review queue</span>
                     </button>
+                  </section>
+                )}
+                {recentComments.length > 0 && (
+                  <section className="notif-section">
+                    <h4>Recent comments</h4>
+                    {recentComments.map((comment: any) => (
+                      <button
+                        key={`notif-comment-${comment.comment_id}`}
+                        type="button"
+                        className="notif-row"
+                        onClick={() => {
+                          setNotifOpen(false);
+                          openMemoryItem("tasks", { id: comment.task_id, title: comment.task_title }).catch(() => undefined);
+                        }}
+                      >
+                        <span className="notif-row-title">
+                          {comment.author_display_name || "Someone"} commented on {comment.task_title || "a task"}
+                        </span>
+                        <span className="notif-row-meta">
+                          {comment.body_preview ? `"${comment.body_preview}"` : ""}
+                          {comment.created_at ? ` · ${humanRelativeTime(comment.created_at)}` : ""}
+                        </span>
+                      </button>
+                    ))}
                   </section>
                 )}
               </>

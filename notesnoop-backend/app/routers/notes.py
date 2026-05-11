@@ -717,6 +717,31 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             """,
             (workspace_id, project_id, project_id),
         )
+        recent_comments = many(
+            cur,
+            """
+            SELECT tc.id AS comment_id,
+                   tc.task_id,
+                   tc.created_at,
+                   tc.author_user_id,
+                   coalesce(up.display_name, tc.author_name, tc.author_user_id) AS author_display_name,
+                   up.avatar_url AS author_avatar_url,
+                   left(tc.body, 160) AS body_preview,
+                   t.title AS task_title,
+                   t.status AS task_status
+            FROM task_comments tc
+            JOIN tasks t ON t.id = tc.task_id
+            LEFT JOIN user_profiles up ON up.clerk_user_id = tc.author_user_id
+            LEFT JOIN task_projects tp ON tp.task_id = t.id
+            WHERE tc.workspace_id = %s
+              AND tc.created_at >= now() - INTERVAL '7 days'
+              AND (%s::uuid IS NULL OR tp.project_id = %s::uuid)
+            GROUP BY tc.id, t.id, up.display_name, up.avatar_url
+            ORDER BY tc.created_at DESC
+            LIMIT 8
+            """,
+            (workspace_id, project_id, project_id),
+        )
         meetings_calls = many(
             cur,
             """
@@ -1211,6 +1236,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                 ),
                 "open_tasks": open_tasks,
                 "reminders": reminders,
+                "recent_comments": recent_comments,
                 "meetings_calls": meetings_calls,
                 "reports_briefs": reports_briefs,
                 "workflows": workflows,
