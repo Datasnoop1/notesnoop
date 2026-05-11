@@ -1,3 +1,12 @@
+# Service definitions for the NoteSnoop side of the Hetzner staging host.
+#
+# Build contexts are absolute (`/opt/notesnoop`) on purpose. This file is
+# merged with /opt/leadpeek/docker-compose.staging.yml at deploy time
+# (`-f leadpeek -f notesnoop -p leadpeek-staging`) and Docker Compose's
+# merge strategy preserves the FIRST file's `build.context` even when the
+# second file restates it. Absolute paths sidestep that quirk and make
+# the build source unambiguous regardless of file order.
+
 services:
   notesnoop-postgres-staging:
     image: pgvector/pgvector:pg16
@@ -37,7 +46,7 @@ services:
 
   notesnoop-backend-staging:
     build:
-      context: .
+      context: /opt/notesnoop
       dockerfile: notesnoop-backend/Dockerfile
     restart: always
     env_file: .env.staging
@@ -76,7 +85,7 @@ services:
 
   notesnoop-frontend-staging:
     build:
-      context: ./notesnoop-frontend
+      context: /opt/notesnoop/notesnoop-frontend
       args:
         NEXT_PUBLIC_NOTESNOOP_API_URL: ""
         NEXT_PUBLIC_NOTESNOOP_DEV_AUTH: "${NOTESNOOP_DEV_AUTH:-false}"
@@ -108,7 +117,7 @@ services:
 
   notesnoop-worker-staging:
     build:
-      context: .
+      context: /opt/notesnoop
       dockerfile: notesnoop-worker/Dockerfile
     restart: always
     env_file: .env.staging
