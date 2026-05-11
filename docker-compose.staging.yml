@@ -1,0 +1,143 @@
+services:
+  notesnoop-postgres-staging:
+    image: pgvector/pgvector:pg16
+    restart: always
+    env_file: .env.staging
+    environment:
+      POSTGRES_DB: "${NOTESNOOP_POSTGRES_DB:-notesnoop_staging}"
+      POSTGRES_USER: "${NOTESNOOP_POSTGRES_ADMIN_USER:-notesnoop_admin}"
+      POSTGRES_PASSWORD: "${NOTESNOOP_POSTGRES_ADMIN_PASSWORD}"
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    command:
+      [
+        "postgres",
+        "-c", "wal_level=replica",
+        "-c", "archive_mode=on",
+        "-c", "archive_command=test ! -f /var/lib/postgresql/wal-archive/%f && cp %p /var/lib/postgresql/wal-archive/%f",
+      ]
+    ports:
+      - "127.0.0.1:${NOTESNOOP_POSTGRES_HOST_PORT:-5434}:5432"
+    volumes:
+      - notesnoop_postgres_staging_data:/var/lib/postgresql/data
+      - ${NOTESNOOP_WAL_ARCHIVE_DIR:-/mnt/volume-hel1-1/notesnoop-wal-archive}:/var/lib/postgresql/wal-archive
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    mem_limit: 1536m
+    mem_reservation: 512m
+    deploy:
+      resources:
+        limits:
+          memory: 1536M
+        reservations:
+          memory: 512M
+
+  notesnoop-backend-staging:
+    build:
+      context: .
+      dockerfile: notesnoop-backend/Dockerfile
+    restart: always
+    env_file: .env.staging
+    environment:
+      NOTESNOOP_DATABASE_URL: "postgresql://notesnoop_app:${NOTESNOOP_POSTGRES_APP_PASSWORD}@notesnoop-postgres-staging:5432/${NOTESNOOP_POSTGRES_DB:-notesnoop_staging}"
+      NOTESNOOP_FRONTEND_BASE_URL: "https://staging.notesnoop.app"
+      NOTESNOOP_BACKEND_BASE_URL: "https://staging.notesnoop.app"
+      NOTESNOOP_EMAIL_AI_DEFAULT: "${NOTESNOOP_EMAIL_AI_DEFAULT:-manual}"
+      NOTESNOOP_EXTRACTION_MODEL: "${NOTESNOOP_EXTRACTION_MODEL:-qwen3-coder-next}"
+      NOTESNOOP_DEV_AUTH: "${NOTESNOOP_DEV_AUTH:-false}"
+      NOTESNOOP_POSTMARK_SERVER_TOKEN: "${NOTESNOOP_POSTMARK_SERVER_TOKEN:-}"
+      NOTESNOOP_POSTMARK_MESSAGE_STREAM: "${NOTESNOOP_POSTMARK_MESSAGE_STREAM:-outbound}"
+      NOTESNOOP_POSTMARK_FROM: "${NOTESNOOP_POSTMARK_FROM:-NoteSnoop staging <hello@notesnoop.app>}"
+      NOTESNOOP_POSTMARK_DRY_RUN: "${NOTESNOOP_POSTMARK_DRY_RUN:-false}"
+      NOTESNOOP_UNSUBSCRIBE_SECRET: "${NOTESNOOP_UNSUBSCRIBE_SECRET:-}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    expose:
+      - "8010"
+    depends_on:
+      notesnoop-postgres-staging:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    mem_limit: 768m
+    mem_reservation: 192m
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 192M
+
+  notesnoop-frontend-staging:
+    build:
+      context: ./notesnoop-frontend
+      args:
+        NEXT_PUBLIC_NOTESNOOP_API_URL: ""
+        NEXT_PUBLIC_NOTESNOOP_DEV_AUTH: "${NOTESNOOP_DEV_AUTH:-false}"
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "${NEXT_PUBLIC_NOTESNOOP_CLERK_PUBLISHABLE_KEY:-${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:-pk_test_xxx}}"
+    env_file: .env.staging
+    environment:
+      NEXT_PUBLIC_NOTESNOOP_API_URL: ""
+      NEXT_PUBLIC_NOTESNOOP_DEV_AUTH: "${NOTESNOOP_DEV_AUTH:-false}"
+    restart: always
+    expose:
+      - "3010"
+    depends_on:
+      notesnoop-backend-staging:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3010/', r => process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 768m
+    mem_reservation: 256m
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
+
+  notesnoop-worker-staging:
+    build:
+      context: .
+      dockerfile: notesnoop-worker/Dockerfile
+    restart: always
+    env_file: .env.staging
+    environment:
+      NOTESNOOP_DATABASE_URL: "postgresql://notesnoop_worker:${NOTESNOOP_POSTGRES_WORKER_PASSWORD}@notesnoop-postgres-staging:5432/${NOTESNOOP_POSTGRES_DB:-notesnoop_staging}"
+      NOTESNOOP_FRONTEND_BASE_URL: "https://staging.notesnoop.app"
+      NOTESNOOP_BACKEND_BASE_URL: "https://staging.notesnoop.app"
+      NOTESNOOP_EXTRACTION_MODEL: "${NOTESNOOP_EXTRACTION_MODEL:-qwen3-coder-next}"
+      NOTESNOOP_POSTMARK_SERVER_TOKEN: "${NOTESNOOP_POSTMARK_SERVER_TOKEN:-}"
+      NOTESNOOP_POSTMARK_MESSAGE_STREAM: "${NOTESNOOP_POSTMARK_MESSAGE_STREAM:-outbound}"
+      NOTESNOOP_POSTMARK_FROM: "${NOTESNOOP_POSTMARK_FROM:-NoteSnoop staging <hello@notesnoop.app>}"
+      NOTESNOOP_POSTMARK_DRY_RUN: "${NOTESNOOP_POSTMARK_DRY_RUN:-false}"
+      NOTESNOOP_UNSUBSCRIBE_SECRET: "${NOTESNOOP_UNSUBSCRIBE_SECRET:-}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      notesnoop-postgres-staging:
+        condition: service_healthy
+      notesnoop-backend-staging:
+        condition: service_healthy
+    command: ["python", "-m", "app.worker"]
+    mem_limit: 768m
+    mem_reservation: 192m
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 192M
+
+volumes:
+  notesnoop_postgres_staging_data:
