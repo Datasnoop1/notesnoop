@@ -3444,6 +3444,21 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   justify-content: center;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+.topbar-dev-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px dashed #d2a55c;
+  background: #fff5e1;
+  color: #7a4a16;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: help;
+  user-select: none;
+}
 .notif-backdrop {
   position: fixed;
   inset: 0;

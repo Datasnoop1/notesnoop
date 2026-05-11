@@ -2371,7 +2371,13 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             <AlertCircle size={18} />
             {notifCount > 0 && <span className="topbar-notif-count">{notifCount}</span>}
           </button>
-          <UserButton />
+          {DEV_AUTH ? (
+            <span className="topbar-dev-badge" title="Authentication disabled — single shared dev workspace">
+              Dev mode
+            </span>
+          ) : (
+            <UserButton />
+          )}
         </header>
 
         {!quickCapture && (
