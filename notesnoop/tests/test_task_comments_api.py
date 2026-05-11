@@ -130,6 +130,36 @@ def test_empty_comment_body_rejected(client):
     assert too_short.status_code == 422  # Pydantic min_length=1
 
 
+def test_comment_count_and_activity_feed(client):
+    """task payloads expose a comment_count, and /activity surfaces task_comment events."""
+    user_id = f"comments_count_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id, name="Counter")
+    workspace_id, task_id = _make_workspace_and_task(client, headers)
+
+    before = client.get(f"/api/tasks/{task_id}", headers=headers).json()["data"]
+    assert before["comment_count"] == 0
+
+    for body in ("first", "second"):
+        client.post(
+            f"/api/tasks/{task_id}/comments",
+            json={"body": body},
+            headers=headers,
+        )
+
+    after = client.get(f"/api/tasks/{task_id}", headers=headers).json()["data"]
+    assert after["comment_count"] == 2
+
+    listed = client.get(f"/api/workspaces/{workspace_id}/tasks", headers=headers).json()["data"]
+    found = next(t for t in listed if t["id"] == task_id)
+    assert found["comment_count"] == 2
+
+    activity = client.get(f"/api/workspaces/{workspace_id}/activity?days=1", headers=headers).json()["data"]
+    comment_events = [e for e in activity if e["kind"] == "task_comment"]
+    assert len(comment_events) == 2
+    assert all(e["id"] == task_id for e in comment_events)
+    assert all(e["detail"] == "Counter" for e in comment_events)
+
+
 def test_non_author_cannot_edit_or_delete_a_comment(client):
     """Application-layer author check rejects edit/delete from anyone else.
 

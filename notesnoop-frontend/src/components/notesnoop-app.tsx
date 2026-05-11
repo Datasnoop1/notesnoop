@@ -19,6 +19,7 @@ import {
   Lightbulb,
   Link,
   Menu,
+  MessageCircle,
   Plus,
   Search,
   Send,
@@ -118,6 +119,7 @@ const ACTIVITY_KIND_LABEL: Record<string, string> = {
   task_done: "Task done",
   note_archived: "Archived",
   project_closed: "Closed",
+  task_comment: "Comment",
 };
 
 const NOTE_KIND_LABELS: Record<string, string> = {
@@ -3670,6 +3672,13 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           });
           return res.data;
         }}
+        onEditTaskComment={async (commentId, body) => {
+          const res = await api(`/api/comments/${commentId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ body }),
+          });
+          return res.data;
+        }}
         onDeleteTaskComment={async (commentId) => {
           await api(`/api/comments/${commentId}`, { method: "DELETE" });
         }}
@@ -3784,7 +3793,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     setActivityOpen(false);
                     if (event.kind === "note_created" || event.kind === "note_archived") {
                       openNote(event.id).catch(() => undefined);
-                    } else if (event.kind === "task_done") {
+                    } else if (event.kind === "task_done" || event.kind === "task_comment") {
                       openMemoryItem("tasks", { id: event.id, title: event.title }).catch(() => undefined);
                     } else if (event.kind === "project_closed") {
                       const project = (state?.projects || []).find((p) => p.id === event.id) || { id: event.id, name: event.title };
@@ -4287,6 +4296,11 @@ function TaskStatusBoard({
                           {overdue ? "Overdue " : ""}Due {humanRelativeTime(dueAt)}
                         </span>
                       )}
+                      {Number(task.comment_count) > 0 && (
+                        <span className="task-board-comments" title={`${task.comment_count} comment${task.comment_count === 1 ? "" : "s"}`}>
+                          <MessageCircle size={12} /> {task.comment_count}
+                        </span>
+                      )}
                     </div>
                     <div className="task-board-card-actions" onClick={(event) => event.stopPropagation()}>
                       {column.status !== "doing" && (
@@ -4375,6 +4389,11 @@ function MemoryCard({
         )}
         {isTask && Number(item.priority) === 5 && (
           <span className="priority-chip priority-low">Low</span>
+        )}
+        {isTask && Number(item.comment_count) > 0 && (
+          <span className="memory-card-comments" title={`${item.comment_count} comment${item.comment_count === 1 ? "" : "s"}`}>
+            <MessageCircle size={12} /> {item.comment_count}
+          </span>
         )}
       </span>
       <span className="memory-card-title">{title}</span>
@@ -5129,6 +5148,7 @@ function MemoryDetailSheet({
   onCreateReminder,
   onListTaskComments,
   onAddTaskComment,
+  onEditTaskComment,
   onDeleteTaskComment,
   currentUserId,
 }: {
@@ -5151,6 +5171,7 @@ function MemoryDetailSheet({
   onCreateReminder?: (taskId: string, remindAt: string) => Promise<void>;
   onListTaskComments?: (taskId: string) => Promise<any[]>;
   onAddTaskComment?: (taskId: string, body: string) => Promise<any>;
+  onEditTaskComment?: (commentId: string, body: string) => Promise<any>;
   onDeleteTaskComment?: (commentId: string) => Promise<void>;
   currentUserId?: string | null;
 }) {
@@ -5548,6 +5569,7 @@ function MemoryDetailSheet({
             currentUserId={currentUserId || null}
             onList={onListTaskComments}
             onAdd={onAddTaskComment}
+            onEdit={onEditTaskComment}
             onDelete={onDeleteTaskComment}
           />
         )}
@@ -5701,18 +5723,22 @@ function TaskCommentsThread({
   currentUserId,
   onList,
   onAdd,
+  onEdit,
   onDelete,
 }: {
   taskId: string;
   currentUserId: string | null;
   onList: (taskId: string) => Promise<any[]>;
   onAdd: (taskId: string, body: string) => Promise<any>;
+  onEdit?: (commentId: string, body: string) => Promise<any>;
   onDelete?: (commentId: string) => Promise<void>;
 }) {
   const [comments, setComments] = useState<any[] | null>(null);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
   const refresh = useCallback(async () => {
     try {
       const list = await onList(taskId);
@@ -5724,6 +5750,7 @@ function TaskCommentsThread({
   }, [onList, taskId]);
   useEffect(() => {
     setComments(null);
+    setEditingId(null);
     refresh();
   }, [refresh]);
   const submit = async () => {
@@ -5749,6 +5776,27 @@ function TaskCommentsThread({
       setError(err instanceof Error ? err.message : "Could not delete comment");
     }
   };
+  const startEdit = (comment: any) => {
+    setEditingId(comment.id);
+    setEditDraft(comment.body || "");
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditDraft("");
+  };
+  const saveEdit = async () => {
+    if (!onEdit || !editingId) return;
+    const body = editDraft.trim();
+    if (!body) return;
+    try {
+      await onEdit(editingId, body);
+      setEditingId(null);
+      setEditDraft("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save edit");
+    }
+  };
   const count = comments?.length || 0;
   return (
     <div className="mini-section task-comments">
@@ -5763,14 +5811,28 @@ function TaskCommentsThread({
           {comments.map((comment) => {
             const author = comment.author_display_name || comment.author_name || comment.author_user_id || "Unknown";
             const when = comment.created_at ? humanRelativeTime(comment.created_at) : "";
-            const canDelete = onDelete && currentUserId && comment.author_user_id === currentUserId;
+            const isAuthor = currentUserId && comment.author_user_id === currentUserId;
+            const canEdit = onEdit && isAuthor;
+            const canDelete = onDelete && isAuthor;
+            const isEditing = editingId === comment.id;
+            const wasEdited = comment.updated_at && comment.created_at && comment.updated_at !== comment.created_at;
             return (
               <li key={comment.id} className="task-comments-row">
                 <div className="task-comments-row-head">
                   <PersonAvatar name={String(author)} size={20} />
                   <strong>{author}</strong>
-                  {when && <span className="task-comments-when">{when}</span>}
-                  {canDelete && (
+                  {when && <span className="task-comments-when">{when}{wasEdited ? " · edited" : ""}</span>}
+                  {!isEditing && canEdit && (
+                    <button
+                      type="button"
+                      className="task-comments-edit"
+                      onClick={() => startEdit(comment)}
+                      aria-label="Edit comment"
+                    >
+                      Edit
+                    </button>
+                  )}
+                  {!isEditing && canDelete && (
                     <button
                       type="button"
                       className="task-comments-delete"
@@ -5781,7 +5843,31 @@ function TaskCommentsThread({
                     </button>
                   )}
                 </div>
-                <p>{comment.body}</p>
+                {isEditing ? (
+                  <div className="task-comments-edit-row">
+                    <textarea
+                      value={editDraft}
+                      onChange={(event) => setEditDraft(event.target.value)}
+                      rows={2}
+                      autoFocus
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelEdit();
+                        } else if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                          event.preventDefault();
+                          saveEdit();
+                        }
+                      }}
+                    />
+                    <div className="task-comments-edit-actions">
+                      <button type="button" className="secondary" onClick={cancelEdit}>Cancel</button>
+                      <button type="button" disabled={!editDraft.trim()} onClick={saveEdit}>Save</button>
+                    </div>
+                  </div>
+                ) : (
+                  <p>{comment.body}</p>
+                )}
               </li>
             );
           })}

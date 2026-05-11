@@ -1909,6 +1909,18 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   cursor: pointer;
 }
 .reminder-add-row button:disabled { opacity: 0.55; cursor: not-allowed; }
+.task-board-comments,
+.memory-card-comments {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+  background: #eef4ee;
+  border: 1px solid #c7dccd;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
 .task-comments { display: grid; gap: 8px; }
 .task-comments-error {
   color: #8a2a2a;
@@ -1960,6 +1972,50 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   display: inline-flex;
 }
 .task-comments-delete:hover { background: #e8e6dd; color: #8a2a2a; }
+.task-comments-edit {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.task-comments-edit:hover { background: #e8e6dd; color: var(--text); }
+.task-comments-edit + .task-comments-delete { margin-left: 0; }
+.task-comments-edit-row {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+.task-comments-edit-row textarea {
+  resize: vertical;
+  min-height: 44px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+.task-comments-edit-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.task-comments-edit-actions button {
+  border: 1px solid var(--line);
+  background: #173832;
+  color: white;
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.task-comments-edit-actions button.secondary {
+  background: transparent;
+  color: var(--text);
+}
+.task-comments-edit-actions button:disabled { opacity: 0.55; cursor: not-allowed; }
 .task-comments-composer {
   display: flex;
   gap: 8px;

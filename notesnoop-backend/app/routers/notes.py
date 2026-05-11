@@ -261,6 +261,24 @@ def workspace_activity(workspace_id: str, days: int = 7, user: CurrentUser = Dep
                 (workspace_id, days),
             )
         )
+        rows.extend(
+            many(
+                cur,
+                """
+                SELECT 'task_comment' AS kind,
+                       tc.task_id AS id,
+                       t.title AS title,
+                       tc.created_at AS event_at,
+                       coalesce(up.display_name, tc.author_name, tc.author_user_id) AS detail
+                FROM task_comments tc
+                JOIN tasks t ON t.id = tc.task_id
+                LEFT JOIN user_profiles up ON up.clerk_user_id = tc.author_user_id
+                WHERE tc.workspace_id = %s
+                  AND tc.created_at >= now() - (%s::int * INTERVAL '1 day')
+                """,
+                (workspace_id, days),
+            )
+        )
         rows.sort(key=lambda row: str(row.get("event_at") or ""), reverse=True)
         return {"data": rows[:100], "meta": {"days": days, "count": len(rows[:100])}}
 
@@ -639,7 +657,8 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                    coalesce(jsonb_agg(DISTINCT jsonb_build_object('id', pe.id, 'name', pe.name, 'company', pe.company, 'role', pe.role))
                      FILTER (WHERE pe.id IS NOT NULL), '[]'::jsonb) AS people,
                    min(p.name) AS project_name,
-                   min(pe.name) AS assignee_name
+                   min(pe.name) AS assignee_name,
+                   coalesce((SELECT count(*)::int FROM task_comments tcc WHERE tcc.task_id = t.id), 0) AS comment_count
             FROM tasks t
             LEFT JOIN task_projects tp ON tp.task_id = t.id
             LEFT JOIN projects p ON p.id = tp.project_id

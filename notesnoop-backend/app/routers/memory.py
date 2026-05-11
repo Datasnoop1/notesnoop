@@ -162,7 +162,8 @@ def list_tasks(workspace_id: str, project_id: str | None = None, user: CurrentUs
                        coalesce(json_agg(DISTINCT pe.*) FILTER (WHERE pe.id IS NOT NULL), '[]') AS people,
                        coalesce(json_agg(DISTINCT c.*) FILTER (WHERE c.id IS NOT NULL), '[]') AS companies,
                        coalesce(json_agg(DISTINCT n.*) FILTER (WHERE n.id IS NOT NULL), '[]') AS notes,
-                       coalesce(json_agg(DISTINCT tr.*) FILTER (WHERE tr.id IS NOT NULL), '[]') AS reminders
+                       coalesce(json_agg(DISTINCT tr.*) FILTER (WHERE tr.id IS NOT NULL), '[]') AS reminders,
+                       coalesce((SELECT count(*)::int FROM task_comments tcc WHERE tcc.task_id = t.id), 0) AS comment_count
                 FROM tasks t
                 LEFT JOIN task_projects tp ON tp.task_id = t.id
                 LEFT JOIN projects p ON p.id = tp.project_id
@@ -1933,6 +1934,8 @@ def _task_payload(cur, task_id: str) -> dict | None:
     assignee_row = one(cur, "SELECT p.id, p.name FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s AND tp.relation = 'assignee' LIMIT 1", (task_id,))
     task["assignee_id"] = str(assignee_row["id"]) if assignee_row else None
     task["assignee_name"] = (assignee_row or {}).get("name")
+    comment_row = one(cur, "SELECT count(*)::int AS n FROM task_comments WHERE task_id = %s", (task_id,))
+    task["comment_count"] = (comment_row or {}).get("n", 0) or 0
     return task
 
 
