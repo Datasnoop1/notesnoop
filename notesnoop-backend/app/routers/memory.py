@@ -17,6 +17,8 @@ from ..schemas import (
     ProjectReportGenerateRequest,
     ReportCreate,
     ReportUpdate,
+    TaskCommentCreate,
+    TaskCommentUpdate,
     TaskCreate,
     TaskReminderUpdate,
     TaskUpdate,
@@ -24,6 +26,7 @@ from ..schemas import (
     WorkflowUpdate,
 )
 from ..ollama_client import generate_project_report
+from ..services import upsert_user_profile
 
 
 router = APIRouter(prefix="/api", tags=["memory"])
@@ -290,6 +293,97 @@ def get_task(task_id: str, user: CurrentUser = Depends(current_user)):
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
         return {"data": task}
+
+
+@router.get("/tasks/{task_id}/comments")
+def list_task_comments(task_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        task = one(cur, "SELECT id FROM tasks WHERE id = %s", (task_id,))
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return {
+            "data": many(
+                cur,
+                """
+                SELECT tc.id, tc.task_id, tc.body, tc.author_user_id, tc.author_name,
+                       tc.created_at, tc.updated_at,
+                       up.display_name AS author_display_name,
+                       up.avatar_url AS author_avatar_url
+                FROM task_comments tc
+                LEFT JOIN user_profiles up ON up.clerk_user_id = tc.author_user_id
+                WHERE tc.task_id = %s
+                ORDER BY tc.created_at ASC
+                """,
+                (task_id,),
+            )
+        }
+
+
+@router.post("/tasks/{task_id}/comments")
+def create_task_comment(task_id: str, payload: TaskCommentCreate, user: CurrentUser = Depends(current_user)):
+    body = payload.body.strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Comment body is required")
+    with transaction(user.clerk_user_id) as cur:
+        upsert_user_profile(cur, user)
+        task = one(cur, "SELECT id, workspace_id FROM tasks WHERE id = %s", (task_id,))
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        cur.execute(
+            """
+            INSERT INTO task_comments (workspace_id, task_id, author_user_id, author_name, body)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id, task_id, body, author_user_id, author_name, created_at, updated_at
+            """,
+            (task["workspace_id"], task_id, user.clerk_user_id, user.display_name, body),
+        )
+        row = dict(cur.fetchone())
+        row["author_display_name"] = user.display_name
+        row["author_avatar_url"] = user.avatar_url
+        return {"data": row}
+
+
+@router.patch("/comments/{comment_id}")
+def update_task_comment(comment_id: str, payload: TaskCommentUpdate, user: CurrentUser = Depends(current_user)):
+    body = payload.body.strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Comment body is required")
+    with transaction(user.clerk_user_id) as cur:
+        comment = one(
+            cur,
+            "SELECT id, author_user_id FROM task_comments WHERE id = %s",
+            (comment_id,),
+        )
+        if not comment:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        if comment["author_user_id"] != user.clerk_user_id:
+            raise HTTPException(status_code=403, detail="Only the author can edit this comment")
+        cur.execute(
+            """
+            UPDATE task_comments
+            SET body = %s, updated_at = now()
+            WHERE id = %s
+            RETURNING id, task_id, body, author_user_id, author_name, created_at, updated_at
+            """,
+            (body, comment_id),
+        )
+        return {"data": dict(cur.fetchone())}
+
+
+@router.delete("/comments/{comment_id}")
+def delete_task_comment(comment_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        comment = one(
+            cur,
+            "SELECT id, author_user_id FROM task_comments WHERE id = %s",
+            (comment_id,),
+        )
+        if not comment:
+            raise HTTPException(status_code=404, detail="Comment not found")
+        if comment["author_user_id"] != user.clerk_user_id:
+            raise HTTPException(status_code=403, detail="Only the author can delete this comment")
+        cur.execute("DELETE FROM task_comments WHERE id = %s", (comment_id,))
+        return {"data": {"id": comment_id, "deleted": True}}
 
 
 @router.get("/workspaces/{workspace_id}/reminders")

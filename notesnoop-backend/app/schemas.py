@@ -169,6 +169,14 @@ class TaskReminderUpdate(BaseModel):
     snoozed_until: datetime | None = None
 
 
+class TaskCommentCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=8000)
+
+
+class TaskCommentUpdate(BaseModel):
+    body: str = Field(min_length=1, max_length=8000)
+
+
 class MeetingCreate(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     occurred_at: datetime | None = None

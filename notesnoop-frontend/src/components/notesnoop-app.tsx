@@ -551,10 +551,11 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         method: "POST",
         body: JSON.stringify({ workspace_name: "My NoteSnoop workspace", inbox_mode: "per_user_private" }),
       });
-      setState(boot.data);
+      setState({ ...boot.data, user: me.data.user });
       return;
     }
     setState({
+      user: me.data.user,
       workspace: me.data.workspace,
       workspaces: me.data.workspaces || [],
       projects: me.data.projects || [],
@@ -3657,6 +3658,21 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           if (project) openProject(project);
         }}
         onOpenMemory={openMemoryItem}
+        currentUserId={state?.user?.clerk_user_id || (DEV_AUTH ? "dev_user" : null)}
+        onListTaskComments={async (taskId) => {
+          const res = await api(`/api/tasks/${taskId}/comments`);
+          return res.data || [];
+        }}
+        onAddTaskComment={async (taskId, body) => {
+          const res = await api(`/api/tasks/${taskId}/comments`, {
+            method: "POST",
+            body: JSON.stringify({ body }),
+          });
+          return res.data;
+        }}
+        onDeleteTaskComment={async (commentId) => {
+          await api(`/api/comments/${commentId}`, { method: "DELETE" });
+        }}
         onCreateReminder={async (taskId, remindAt) => {
           try {
             await api(`/api/tasks/${taskId}/reminders`, {
@@ -5111,6 +5127,10 @@ function MemoryDetailSheet({
   onOpenMemory,
   onCreateTaskForCompany,
   onCreateReminder,
+  onListTaskComments,
+  onAddTaskComment,
+  onDeleteTaskComment,
+  currentUserId,
 }: {
   memory: { sectionId: string; item: any } | null;
   allProjects: any[];
@@ -5129,6 +5149,10 @@ function MemoryDetailSheet({
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
   onCreateTaskForCompany?: (companyId: string, title: string, dueAt: string | null, assigneeId: string | null) => Promise<void>;
   onCreateReminder?: (taskId: string, remindAt: string) => Promise<void>;
+  onListTaskComments?: (taskId: string) => Promise<any[]>;
+  onAddTaskComment?: (taskId: string, body: string) => Promise<any>;
+  onDeleteTaskComment?: (commentId: string) => Promise<void>;
+  currentUserId?: string | null;
 }) {
   const sectionId = memory?.sectionId || "";
   const item = memory?.item || {};
@@ -5518,6 +5542,15 @@ function MemoryDetailSheet({
             </button>
           </div>
         )}
+        {isTask && item.id && onListTaskComments && onAddTaskComment && (
+          <TaskCommentsThread
+            taskId={String(item.id)}
+            currentUserId={currentUserId || null}
+            onList={onListTaskComments}
+            onAdd={onAddTaskComment}
+            onDelete={onDeleteTaskComment}
+          />
+        )}
         {!!projects.length && (
           <div className="mini-section">
             <strong>Projects</strong>
@@ -5659,6 +5692,118 @@ function MemoryDetailSheet({
           </div>
         )}
       </aside>
+    </div>
+  );
+}
+
+function TaskCommentsThread({
+  taskId,
+  currentUserId,
+  onList,
+  onAdd,
+  onDelete,
+}: {
+  taskId: string;
+  currentUserId: string | null;
+  onList: (taskId: string) => Promise<any[]>;
+  onAdd: (taskId: string, body: string) => Promise<any>;
+  onDelete?: (commentId: string) => Promise<void>;
+}) {
+  const [comments, setComments] = useState<any[] | null>(null);
+  const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = useCallback(async () => {
+    try {
+      const list = await onList(taskId);
+      setComments(Array.isArray(list) ? list : []);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load comments");
+    }
+  }, [onList, taskId]);
+  useEffect(() => {
+    setComments(null);
+    refresh();
+  }, [refresh]);
+  const submit = async () => {
+    const body = draft.trim();
+    if (!body || pending) return;
+    setPending(true);
+    try {
+      await onAdd(taskId, body);
+      setDraft("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add comment");
+    } finally {
+      setPending(false);
+    }
+  };
+  const remove = async (commentId: string) => {
+    if (!onDelete) return;
+    try {
+      await onDelete(commentId);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete comment");
+    }
+  };
+  const count = comments?.length || 0;
+  return (
+    <div className="mini-section task-comments">
+      <strong>Comments {count > 0 ? `(${count})` : ""}</strong>
+      {error && <p className="task-comments-error">{error}</p>}
+      {comments === null ? (
+        <p className="task-comments-empty">Loading…</p>
+      ) : comments.length === 0 ? (
+        <p className="task-comments-empty">No comments yet — start the thread below.</p>
+      ) : (
+        <ul className="task-comments-list">
+          {comments.map((comment) => {
+            const author = comment.author_display_name || comment.author_name || comment.author_user_id || "Unknown";
+            const when = comment.created_at ? humanRelativeTime(comment.created_at) : "";
+            const canDelete = onDelete && currentUserId && comment.author_user_id === currentUserId;
+            return (
+              <li key={comment.id} className="task-comments-row">
+                <div className="task-comments-row-head">
+                  <PersonAvatar name={String(author)} size={20} />
+                  <strong>{author}</strong>
+                  {when && <span className="task-comments-when">{when}</span>}
+                  {canDelete && (
+                    <button
+                      type="button"
+                      className="task-comments-delete"
+                      onClick={() => remove(comment.id)}
+                      aria-label="Delete comment"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+                <p>{comment.body}</p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="task-comments-composer">
+        <textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Add a comment…"
+          rows={2}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <button type="button" disabled={!draft.trim() || pending} onClick={submit}>
+          {pending ? "Posting…" : "Post"}
+        </button>
+      </div>
     </div>
   );
 }
