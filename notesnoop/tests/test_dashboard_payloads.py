@@ -562,19 +562,16 @@ def test_close_project_archives_only_open_single_project_tasks(client):
     assert body["closed_at"] is not None
     assert body["archived_task_count"] == 2
 
-    open_tasks_after = client.get(
-        f"/api/workspaces/{workspace_id}/tasks?status=open",
-        headers=headers,
-    ).json()["data"]
-    open_ids = {t["id"] for t in open_tasks_after}
-    assert task_open_todo["id"] not in open_ids
-    assert task_open_doing["id"] not in open_ids
-    assert task_multi["id"] in open_ids, "task linked to another active project must not be archived"
-
-    archived_todo = client.get(f"/api/tasks/{task_open_todo['id']}", headers=headers).json()["data"]
-    assert archived_todo["status"] == "archived"
-    still_done = client.get(f"/api/tasks/{task_done['id']}", headers=headers).json()["data"]
-    assert still_done["status"] == "done"
+    status_by_id = {
+        task_open_todo["id"]: client.get(f"/api/tasks/{task_open_todo['id']}", headers=headers).json()["data"]["status"],
+        task_open_doing["id"]: client.get(f"/api/tasks/{task_open_doing['id']}", headers=headers).json()["data"]["status"],
+        task_done["id"]: client.get(f"/api/tasks/{task_done['id']}", headers=headers).json()["data"]["status"],
+        task_multi["id"]: client.get(f"/api/tasks/{task_multi['id']}", headers=headers).json()["data"]["status"],
+    }
+    assert status_by_id[task_open_todo["id"]] == "archived"
+    assert status_by_id[task_open_doing["id"]] == "archived"
+    assert status_by_id[task_done["id"]] == "done", "previously-done task must not change"
+    assert status_by_id[task_multi["id"]] == "todo", "task linked to another active project must stay open"
 
 
 def test_close_project_without_flag_leaves_tasks_alone(client):
@@ -608,7 +605,7 @@ def test_close_project_without_flag_leaves_tasks_alone(client):
     assert body["archived_task_count"] == 0
 
     task_after = client.get(f"/api/tasks/{task['id']}", headers=headers).json()["data"]
-    assert task_after["status"] == "todo"
+    assert task_after["status"] == "todo", "task must keep its status when close_open_tasks is omitted"
 
 
 def test_triage_endpoint_lists_unprocessed_and_bulk_actions(client):
