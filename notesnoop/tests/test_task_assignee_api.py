@@ -121,6 +121,52 @@ def test_task_assignee_picker_writes_assignee_and_watcher_roles(client):
     assert all(row["id"] == alice_id for row in payload2["people"])
 
 
+def test_patch_assignee_only_preserves_existing_watchers(client):
+    """PATCH /tasks/{id} with ONLY assignee_id (no person_ids) must keep the
+    existing watchers — needed by the bulk-reassign path on the status board.
+    Before this fix, a single-field PATCH silently dropped every watcher.
+    """
+    user_id = f"reassign_keep_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Preserve watchers"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    alice = client.post(f"/api/workspaces/{workspace_id}/people", json={"name": "Alice"}, headers=headers).json()["data"]
+    bob = client.post(f"/api/workspaces/{workspace_id}/people", json={"name": "Bob"}, headers=headers).json()["data"]
+    carol = client.post(f"/api/workspaces/{workspace_id}/people", json={"name": "Carol"}, headers=headers).json()["data"]
+
+    created = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={
+            "title": "Coordinate Apollo demo",
+            "assignee_id": alice["id"],
+            "person_ids": [alice["id"], bob["id"], carol["id"]],
+        },
+        headers=headers,
+    ).json()["data"]
+    task_id = created["id"]
+    assert created["assignee_id"] == alice["id"]
+    relations = {row["id"]: row["relation"] for row in created["people"]}
+    assert relations[alice["id"]] == "assignee"
+    assert relations[bob["id"]] == "watcher"
+    assert relations[carol["id"]] == "watcher"
+
+    # Bulk-reassign sends ONLY assignee_id. Watchers must survive.
+    reassigned = client.patch(
+        f"/api/tasks/{task_id}",
+        json={"assignee_id": bob["id"]},
+        headers=headers,
+    )
+    assert reassigned.status_code == 200
+    payload = reassigned.json()["data"]
+    assert payload["assignee_id"] == bob["id"]
+    after = {row["id"]: row["relation"] for row in payload["people"]}
+    assert after[bob["id"]] == "assignee"
+    assert after[alice["id"]] == "watcher", "previous assignee should drop to watcher, not vanish"
+    assert after[carol["id"]] == "watcher", "unrelated watcher must survive the swap"
+
+
 def test_rename_project_and_person(client):
     user_id = f"rename_user_{uuid.uuid4().hex[:10]}"
     headers = _headers(user_id)

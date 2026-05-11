@@ -281,7 +281,20 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
         if payload.company_ids is not None:
             _replace_links(cur, "task_companies", "task_id", "company_id", task_id, workspace_id, payload.company_ids, user.clerk_user_id)
         if payload.person_ids is not None or "assignee_id" in payload.model_fields_set:
-            _apply_task_people(cur, task_id, workspace_id, payload.person_ids or [], payload.assignee_id, user.clerk_user_id, replace=True)
+            if payload.person_ids is None:
+                # Caller only changed the assignee — preserve any existing watchers
+                # so a single-field PATCH doesn't silently drop people from the task.
+                existing_ids = [
+                    str(row["person_id"]) for row in many(
+                        cur,
+                        "SELECT person_id FROM task_people WHERE task_id = %s",
+                        (task_id,),
+                    )
+                ]
+                effective_person_ids = existing_ids
+            else:
+                effective_person_ids = payload.person_ids
+            _apply_task_people(cur, task_id, workspace_id, effective_person_ids, payload.assignee_id, user.clerk_user_id, replace=True)
         if payload.note_ids is not None:
             _replace_links(cur, "task_notes", "task_id", "note_id", task_id, workspace_id, payload.note_ids, user.clerk_user_id)
         return {"data": _task_payload(cur, task_id)}

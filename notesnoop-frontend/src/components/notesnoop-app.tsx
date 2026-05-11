@@ -1056,6 +1056,31 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
+  async function bulkUpdateTaskAssignee(taskIds: string[], assigneeId: string | null) {
+    if (!taskIds.length) return;
+    try {
+      const body = JSON.stringify({ assignee_id: assigneeId });
+      const results = await Promise.allSettled(
+        taskIds.map((id) => api(`/api/tasks/${id}`, { method: "PATCH", body })),
+      );
+      const ok = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - ok;
+      await refreshWorkspaceData();
+      const noun = assigneeId
+        ? (state?.people || []).find((p: any) => p.id === assigneeId)?.name || "selected user"
+        : "Unassigned";
+      if (failed === 0) {
+        setToast(`${ok} task${ok === 1 ? "" : "s"} assigned to ${noun}.`);
+      } else if (ok === 0) {
+        setToast(`Could not reassign ${failed} task${failed === 1 ? "" : "s"}.`);
+      } else {
+        setToast(`${ok} assigned to ${noun}; ${failed} failed.`);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Bulk reassign failed");
+    }
+  }
+
   async function updateMemoryItem(sectionId: string, itemId: string, payload: Record<string, unknown>) {
     const endpointBySection: Record<string, string> = {
       tasks: `/api/tasks/${itemId}`,
@@ -3073,6 +3098,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     onOpenTask={(task) => openMemoryItem("tasks", task)}
                     onStatusChange={updateTaskStatus}
                     onBulkStatusChange={bulkUpdateTaskStatus}
+                    onBulkAssign={bulkUpdateTaskAssignee}
+                    workspacePeople={state?.people || []}
                   />
                 ) : (
                   <div className="memory-card-grid" role="tabpanel" aria-label={activeMemorySection.title}>
@@ -4215,12 +4242,16 @@ function TaskStatusBoard({
   onOpenTask,
   onStatusChange,
   onBulkStatusChange,
+  onBulkAssign,
+  workspacePeople,
 }: {
   tasks: any[];
   emptyMessage: string;
   onOpenTask: (task: any) => void;
   onStatusChange: (taskId: string, status: "todo" | "doing" | "blocked" | "done") => Promise<void>;
   onBulkStatusChange?: (taskIds: string[], status: "todo" | "doing" | "blocked" | "done" | "archived") => Promise<void>;
+  onBulkAssign?: (taskIds: string[], assigneeId: string | null) => Promise<void>;
+  workspacePeople?: any[];
 }) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const visibleIds = useMemo(() => new Set(tasks.map((task) => task.id)), [tasks]);
@@ -4264,6 +4295,28 @@ function TaskStatusBoard({
           <button type="button" className="task-board-bulkbar-archive" onClick={() => runBulk("archived")}>
             <Archive size={13} /> Archive
           </button>
+          {onBulkAssign && (workspacePeople?.length || 0) > 0 && (
+            <select
+              className="task-board-bulkbar-assign"
+              defaultValue=""
+              aria-label="Assign selected tasks"
+              onChange={async (event) => {
+                const value = event.target.value;
+                event.currentTarget.value = "";
+                if (!value) return;
+                if (!onBulkAssign) return;
+                const ids = Array.from(selected);
+                setSelected(new Set());
+                await onBulkAssign(ids, value === "__none__" ? null : value);
+              }}
+            >
+              <option value="" disabled>Assign to…</option>
+              <option value="__none__">Unassigned</option>
+              {(workspacePeople || []).map((person: any) => (
+                <option key={person.id} value={person.id}>{person.name}</option>
+              ))}
+            </select>
+          )}
           <button type="button" className="task-board-bulkbar-clear" onClick={() => setSelected(new Set())}>
             Clear
           </button>

@@ -3116,6 +3116,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .task-board-bulkbar .task-board-bulkbar-done:hover { background: #cae0d2; }
 .task-board-bulkbar .task-board-bulkbar-archive { background: #f1ece2; border-color: #d8cba9; color: #6d5a1a; }
 .task-board-bulkbar .task-board-bulkbar-archive:hover { background: #e8dec9; }
+.task-board-bulkbar .task-board-bulkbar-assign {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+}
 .task-board-bulkbar .task-board-bulkbar-clear {
   margin-left: auto;
   background: transparent;
