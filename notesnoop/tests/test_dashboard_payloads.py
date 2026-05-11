@@ -506,6 +506,111 @@ def test_inbox_project_cannot_be_closed(client):
     assert response.status_code == 400
 
 
+def test_close_project_archives_only_open_single_project_tasks(client):
+    """Closing a project with close_open_tasks=True archives its open tasks but
+    spares done tasks and any task that is also linked to another active project."""
+    user_id = f"proj_close_tasks_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Close-with-tasks"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    project_a = client.post(
+        f"/api/workspaces/{workspace_id}/projects",
+        json={"name": "Project Alpha", "color_hex": "#888888"},
+        headers=headers,
+    ).json()["data"]
+    project_b = client.post(
+        f"/api/workspaces/{workspace_id}/projects",
+        json={"name": "Project Beta", "color_hex": "#aaaaaa"},
+        headers=headers,
+    ).json()["data"]
+
+    task_open_todo = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={"title": "Open todo on Alpha", "status": "todo", "project_ids": [project_a["id"]]},
+        headers=headers,
+    ).json()["data"]
+    task_open_doing = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={"title": "Open doing on Alpha", "status": "doing", "project_ids": [project_a["id"]]},
+        headers=headers,
+    ).json()["data"]
+    task_done = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={"title": "Finished on Alpha", "status": "done", "project_ids": [project_a["id"]]},
+        headers=headers,
+    ).json()["data"]
+    task_multi = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={
+            "title": "Spans Alpha and Beta",
+            "status": "todo",
+            "project_ids": [project_a["id"], project_b["id"]],
+        },
+        headers=headers,
+    ).json()["data"]
+
+    closed = client.patch(
+        f"/api/projects/{project_a['id']}",
+        json={"status": "closed", "close_open_tasks": True},
+        headers=headers,
+    )
+    assert closed.status_code == 200
+    body = closed.json()["data"]
+    assert body["status"] == "closed"
+    assert body["closed_at"] is not None
+    assert body["archived_task_count"] == 2
+
+    open_tasks_after = client.get(
+        f"/api/workspaces/{workspace_id}/tasks?status=open",
+        headers=headers,
+    ).json()["data"]
+    open_ids = {t["id"] for t in open_tasks_after}
+    assert task_open_todo["id"] not in open_ids
+    assert task_open_doing["id"] not in open_ids
+    assert task_multi["id"] in open_ids, "task linked to another active project must not be archived"
+
+    archived_todo = client.get(f"/api/tasks/{task_open_todo['id']}", headers=headers).json()["data"]
+    assert archived_todo["status"] == "archived"
+    still_done = client.get(f"/api/tasks/{task_done['id']}", headers=headers).json()["data"]
+    assert still_done["status"] == "done"
+
+
+def test_close_project_without_flag_leaves_tasks_alone(client):
+    """Default close (no close_open_tasks flag) does not touch task statuses."""
+    user_id = f"proj_close_default_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Default close"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+
+    project = client.post(
+        f"/api/workspaces/{workspace_id}/projects",
+        json={"name": "Quiet close", "color_hex": "#dddddd"},
+        headers=headers,
+    ).json()["data"]
+
+    task = client.post(
+        f"/api/workspaces/{workspace_id}/tasks",
+        json={"title": "Still open after project closes", "status": "todo", "project_ids": [project["id"]]},
+        headers=headers,
+    ).json()["data"]
+
+    closed = client.patch(
+        f"/api/projects/{project['id']}",
+        json={"status": "closed"},
+        headers=headers,
+    )
+    assert closed.status_code == 200
+    body = closed.json()["data"]
+    assert body["status"] == "closed"
+    assert body["archived_task_count"] == 0
+
+    task_after = client.get(f"/api/tasks/{task['id']}", headers=headers).json()["data"]
+    assert task_after["status"] == "todo"
+
+
 def test_triage_endpoint_lists_unprocessed_and_bulk_actions(client):
     """Triage view returns unprocessed notes; bulk-process queues each and bulk-archive hides them."""
     from app.db import transaction

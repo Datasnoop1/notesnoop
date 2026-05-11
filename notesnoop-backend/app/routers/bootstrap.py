@@ -200,8 +200,10 @@ def update_project(project_id: str, payload: ProjectUpdate, user: CurrentUser = 
             raise HTTPException(status_code=400, detail="System projects cannot be renamed")
         if payload.status is not None and project["kind"] in ("inbox", "personal"):
             raise HTTPException(status_code=400, detail="System projects cannot be closed")
-        next_status = payload.status if payload.status is not None else project.get("status") or "active"
-        closed_at_sql = "now()" if next_status == "closed" and (project.get("status") != "closed") else (
+        prev_status = project.get("status") or "active"
+        next_status = payload.status if payload.status is not None else prev_status
+        is_close_transition = next_status == "closed" and prev_status != "closed"
+        closed_at_sql = "now()" if is_close_transition else (
             "NULL" if next_status == "active" else "closed_at"
         )
         cur.execute(
@@ -225,7 +227,34 @@ def update_project(project_id: str, payload: ProjectUpdate, user: CurrentUser = 
                 project_id,
             ),
         )
-        return {"data": dict(cur.fetchone())}
+        updated = dict(cur.fetchone())
+        archived_task_count = 0
+        if is_close_transition and payload.close_open_tasks:
+            cur.execute(
+                """
+                UPDATE tasks
+                SET status = 'archived'
+                WHERE id IN (
+                    SELECT t.id
+                    FROM tasks t
+                    JOIN task_projects tp ON tp.task_id = t.id AND tp.project_id = %s
+                    WHERE t.status NOT IN ('done', 'archived')
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM task_projects tp2
+                          JOIN projects p2 ON p2.id = tp2.project_id
+                          WHERE tp2.task_id = t.id
+                            AND tp2.project_id <> %s
+                            AND coalesce(p2.status, 'active') = 'active'
+                      )
+                )
+                RETURNING id
+                """,
+                (project_id, project_id),
+            )
+            archived_task_count = len(cur.fetchall())
+        updated["archived_task_count"] = archived_task_count
+        return {"data": updated}
 
 
 @router.get("/workspaces/{workspace_id}/projects")

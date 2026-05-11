@@ -3298,6 +3298,43 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   max-height: 70vh;
   overflow: auto;
 }
+.close-project-sheet {
+  width: min(480px, 92vw);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(16, 32, 28, .22);
+  padding: 22px 24px;
+}
+.close-project-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.close-project-head h2 { margin: 0; font-size: 17px; }
+.close-project-sheet p { font-size: 13px; color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
+.close-project-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.close-project-actions button {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.close-project-actions button.primary {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: white;
+}
+.close-project-actions button:hover { filter: brightness(0.97); }
 .shortcuts-head {
   display: flex;
   align-items: center;

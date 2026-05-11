@@ -57,6 +57,7 @@ class ProjectUpdate(BaseModel):
     ai_mode: str | None = Field(default=None, pattern="^(on|manual)$")
     status: str | None = Field(default=None, pattern="^(active|closed)$")
     description: str | None = None
+    close_open_tasks: bool = False
 
 
 class PersonUpdate(BaseModel):

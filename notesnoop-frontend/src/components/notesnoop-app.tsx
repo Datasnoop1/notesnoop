@@ -422,6 +422,11 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [activityOpen, setActivityOpen] = useState(false);
   const [activityItems, setActivityItems] = useState<any[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
+  const [closeProjectPrompt, setCloseProjectPrompt] = useState<{
+    projectId: string;
+    projectName: string;
+    openTaskCount: number;
+  } | null>(null);
   const activityGroups = useMemo(() => {
     const groups: Record<string, any[]> = {};
     for (const event of activityItems) {
@@ -1610,13 +1615,45 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
-  async function setProjectStatus(projectId: string, status: "active" | "closed") {
+  async function setProjectStatus(
+    projectId: string,
+    status: "active" | "closed",
+    options: { closeOpenTasks?: boolean; skipConfirm?: boolean } = {},
+  ) {
+    if (
+      status === "closed"
+      && !options.skipConfirm
+      && projectTimeline?.project?.id === projectId
+    ) {
+      const openTasks = (projectTimeline.tasks || []).filter(
+        (t: any) => t.status !== "done" && t.status !== "archived",
+      );
+      if (openTasks.length > 0) {
+        setCloseProjectPrompt({
+          projectId,
+          projectName: String(projectTimeline.project?.name || "this project"),
+          openTaskCount: openTasks.length,
+        });
+        return;
+      }
+    }
     try {
+      const body: Record<string, unknown> = { status };
+      if (status === "closed" && options.closeOpenTasks) body.close_open_tasks = true;
       const res = await api(`/api/projects/${projectId}`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(body),
       });
-      setToast(status === "closed" ? "Project closed." : "Project reopened.");
+      const archived = Number(res.data?.archived_task_count || 0);
+      if (status === "closed") {
+        setToast(
+          archived > 0
+            ? `Project closed; ${archived} open task${archived === 1 ? "" : "s"} archived.`
+            : "Project closed.",
+        );
+      } else {
+        setToast("Project reopened.");
+      }
       await refreshWorkspaceData();
       if (projectTimeline?.project?.id === projectId) {
         if (status === "closed") {
@@ -3902,6 +3939,60 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 )}
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {closeProjectPrompt && (
+        <div
+          className="palette-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Close project with open tasks"
+          onClick={() => setCloseProjectPrompt(null)}
+        >
+          <div className="close-project-sheet" onClick={(event) => event.stopPropagation()}>
+            <div className="close-project-head">
+              <h2>Close {closeProjectPrompt.projectName}?</h2>
+              <button
+                className="icon-btn"
+                onClick={() => setCloseProjectPrompt(null)}
+                aria-label="Cancel"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p>
+              This project has <strong>{closeProjectPrompt.openTaskCount} open task
+              {closeProjectPrompt.openTaskCount === 1 ? "" : "s"}</strong>. Tasks linked to
+              another active project are kept open in either case.
+            </p>
+            <div className="close-project-actions">
+              <button
+                className="secondary"
+                onClick={async () => {
+                  const target = closeProjectPrompt;
+                  setCloseProjectPrompt(null);
+                  await setProjectStatus(target.projectId, "closed", { skipConfirm: true });
+                }}
+              >
+                Keep tasks open
+              </button>
+              <button
+                className="primary"
+                onClick={async () => {
+                  const target = closeProjectPrompt;
+                  setCloseProjectPrompt(null);
+                  await setProjectStatus(target.projectId, "closed", {
+                    closeOpenTasks: true,
+                    skipConfirm: true,
+                  });
+                }}
+              >
+                Close project & archive {closeProjectPrompt.openTaskCount} task
+                {closeProjectPrompt.openTaskCount === 1 ? "" : "s"}
+              </button>
+            </div>
           </div>
         </div>
       )}
