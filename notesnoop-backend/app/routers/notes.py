@@ -1742,6 +1742,17 @@ def get_note_payload(cur, note_id: str) -> dict | None:
         """,
         (note_id,),
     )
+    note["companies"] = many(
+        cur,
+        """
+        SELECT c.*
+        FROM companies c
+        JOIN company_notes cn ON cn.company_id = c.id
+        WHERE cn.note_id = %s
+        ORDER BY c.name
+        """,
+        (note_id,),
+    )
     note["versions"] = many(
         cur,
         """
