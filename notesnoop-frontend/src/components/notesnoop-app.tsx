@@ -2285,8 +2285,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       </div>
       <div className="composer-actions">
         <span>{saveProjectIds.length ? `Saving to ${saveProjectIds.length} project${saveProjectIds.length > 1 ? "s" : ""}` : "Saving to Inbox"}</span>
-        <span className="composer-shortcut-hint" aria-hidden="true">⌘/Ctrl + Enter</span>
-        <button onClick={saveNote} disabled={busy || !body.trim()} title="Save (Cmd+Enter)">
+        <button onClick={saveNote} disabled={busy || !body.trim()} title="Save  ·  ⌘/Ctrl + Enter">
           <Send size={17} /> Save
         </button>
       </div>
@@ -2476,53 +2475,74 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           )}
         </header>
 
-        {!quickCapture && (
-          <div className="search-filter-row">
-            <select
-              value={searchFilters.person_id || ""}
-              onChange={(e) => applySearchFilters({ ...searchFilters, person_id: e.target.value || undefined })}
-              aria-label="Filter by person"
-            >
-              <option value="">All people</option>
-              {state?.people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-            </select>
-            <label>
-              <CalendarDays size={15} />
-              <input
-                type="date"
-                value={searchFilters.date_from || ""}
-                onChange={(e) => applySearchFilters({ ...searchFilters, date_from: e.target.value || undefined })}
-                aria-label="Search from date"
-              />
-            </label>
-            <label>
-              <CalendarDays size={15} />
-              <input
-                type="date"
-                value={searchFilters.date_to || ""}
-                onChange={(e) => applySearchFilters({ ...searchFilters, date_to: e.target.value || undefined })}
-                aria-label="Search to date"
-              />
-            </label>
-            <select
-              value={searchFilters.note_kind || ""}
-              onChange={(e) => applySearchFilters({ ...searchFilters, note_kind: e.target.value || undefined })}
-              aria-label="Filter by note kind"
-            >
-              <option value="">All kinds</option>
-              {Object.entries(NOTE_KIND_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <button
-              className={searchFilters.flagged_only ? "filter-toggle active" : "filter-toggle"}
-              onClick={() => applySearchFilters({ ...searchFilters, flagged_only: !searchFilters.flagged_only })}
-            >
-              <Flag size={15} /> Flagged
-            </button>
-            {!!searchMeta?.semantic_excluded && <span>{searchMeta.semantic_excluded} unindexed</span>}
-          </div>
-        )}
+        {!quickCapture && (() => {
+          const hasActiveFilters = Boolean(
+            searchFilters.person_id
+              || searchFilters.date_from
+              || searchFilters.date_to
+              || searchFilters.note_kind
+              || searchFilters.flagged_only
+          );
+          const show = query.trim().length > 0 || hasActiveFilters;
+          if (!show) return null;
+          return (
+            <div className="search-filter-row">
+              <select
+                value={searchFilters.person_id || ""}
+                onChange={(e) => applySearchFilters({ ...searchFilters, person_id: e.target.value || undefined })}
+                aria-label="Filter by person"
+              >
+                <option value="">All people</option>
+                {state?.people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+              </select>
+              <label>
+                <CalendarDays size={15} />
+                <input
+                  type="date"
+                  value={searchFilters.date_from || ""}
+                  onChange={(e) => applySearchFilters({ ...searchFilters, date_from: e.target.value || undefined })}
+                  aria-label="Search from date"
+                />
+              </label>
+              <label>
+                <CalendarDays size={15} />
+                <input
+                  type="date"
+                  value={searchFilters.date_to || ""}
+                  onChange={(e) => applySearchFilters({ ...searchFilters, date_to: e.target.value || undefined })}
+                  aria-label="Search to date"
+                />
+              </label>
+              <select
+                value={searchFilters.note_kind || ""}
+                onChange={(e) => applySearchFilters({ ...searchFilters, note_kind: e.target.value || undefined })}
+                aria-label="Filter by note kind"
+              >
+                <option value="">All kinds</option>
+                {Object.entries(NOTE_KIND_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <button
+                className={searchFilters.flagged_only ? "filter-toggle active" : "filter-toggle"}
+                onClick={() => applySearchFilters({ ...searchFilters, flagged_only: !searchFilters.flagged_only })}
+              >
+                <Flag size={15} /> Flagged
+              </button>
+              {hasActiveFilters && (
+                <button
+                  className="filter-toggle"
+                  onClick={() => applySearchFilters({})}
+                  aria-label="Clear all filters"
+                  title="Clear filters"
+                >
+                  <X size={14} /> Clear
+                </button>
+              )}
+              {!!searchMeta?.semantic_excluded && <span>{searchMeta.semantic_excluded} unindexed</span>}
+            </div>
+          );
+        })()}
 
         {quickCapture ? (
           composerSection
