@@ -717,6 +717,37 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             """,
             (workspace_id, project_id, project_id),
         )
+        team_capacity = many(
+            cur,
+            """
+            SELECT p.id AS person_id,
+                   p.name AS person_name,
+                   p.company,
+                   count(*) FILTER (WHERE t.status = 'todo')::int AS todo_count,
+                   count(*) FILTER (WHERE t.status = 'doing')::int AS doing_count,
+                   count(*) FILTER (WHERE t.status = 'blocked')::int AS blocked_count,
+                   count(*) FILTER (
+                     WHERE t.status IN ('todo','doing','blocked')
+                       AND t.due_at IS NOT NULL
+                       AND t.due_at < now()
+                   )::int AS overdue_count,
+                   count(*) FILTER (WHERE t.status IN ('todo','doing','blocked'))::int AS open_count
+            FROM people p
+            JOIN task_people tp ON tp.person_id = p.id AND tp.relation = 'assignee'
+            JOIN tasks t ON t.id = tp.task_id
+            WHERE p.workspace_id = %s
+              AND t.status IN ('todo','doing','blocked')
+              AND (%s::uuid IS NULL OR EXISTS (
+                SELECT 1 FROM task_projects xp
+                WHERE xp.task_id = t.id AND xp.project_id = %s::uuid
+              ))
+            GROUP BY p.id, p.name, p.company
+            HAVING count(*) FILTER (WHERE t.status IN ('todo','doing','blocked')) > 0
+            ORDER BY open_count DESC, overdue_count DESC, p.name
+            LIMIT 8
+            """,
+            (workspace_id, project_id, project_id),
+        )
         recent_comments = many(
             cur,
             """
@@ -1237,6 +1268,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                 "open_tasks": open_tasks,
                 "reminders": reminders,
                 "recent_comments": recent_comments,
+                "team_capacity": team_capacity,
                 "meetings_calls": meetings_calls,
                 "reports_briefs": reports_briefs,
                 "workflows": workflows,

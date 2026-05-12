@@ -59,6 +59,7 @@ type HomeState = {
   open_tasks?: any[];
   reminders?: any[];
   recent_comments?: any[];
+  team_capacity?: any[];
   tasks?: any[];
   meetings_calls?: any[];
   meetings?: any[];
@@ -3163,6 +3164,51 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   </div>
                 )}
               </section>
+
+              {(home?.team_capacity || []).length > 0 && (
+                <section className="dashboard-panel capacity-panel">
+                  <div className="panel-head">
+                    <h2>Team capacity</h2>
+                    <Users size={18} />
+                  </div>
+                  <div className="capacity-list">
+                    {(home?.team_capacity || []).map((row: any) => {
+                      const total = Number(row.open_count || 0);
+                      const overdue = Number(row.overdue_count || 0);
+                      const blocked = Number(row.blocked_count || 0);
+                      const doing = Number(row.doing_count || 0);
+                      const todo = Number(row.todo_count || 0);
+                      const heat = overdue > 0 ? "hot" : total >= 8 ? "warm" : "calm";
+                      return (
+                        <button
+                          key={row.person_id}
+                          type="button"
+                          className={`capacity-row capacity-row-${heat}`}
+                          onClick={() => {
+                            const person = (state?.people || []).find((p) => p.id === row.person_id)
+                              || { id: row.person_id, name: row.person_name };
+                            openPerson(person).catch(() => undefined);
+                          }}
+                          aria-label={`${row.person_name}: ${total} open task${total === 1 ? "" : "s"}${overdue > 0 ? `, ${overdue} overdue` : ""}`}
+                        >
+                          <span className="capacity-row-head">
+                            <PersonAvatar name={String(row.person_name)} size={20} />
+                            <span className="capacity-row-name">{row.person_name}</span>
+                            {row.company && <small className="capacity-row-company">{row.company}</small>}
+                            <strong className="capacity-row-total">{total}</strong>
+                          </span>
+                          <span className="capacity-row-bar">
+                            {overdue > 0 && <span className="capacity-seg capacity-seg-overdue" style={{ flex: overdue }} title={`${overdue} overdue`}>{overdue} overdue</span>}
+                            {blocked > 0 && <span className="capacity-seg capacity-seg-blocked" style={{ flex: blocked }} title={`${blocked} blocked`}>{blocked}</span>}
+                            {doing > 0 && <span className="capacity-seg capacity-seg-doing" style={{ flex: doing }} title={`${doing} doing`}>{doing}</span>}
+                            {todo > 0 && <span className="capacity-seg capacity-seg-todo" style={{ flex: todo }} title={`${todo} to do`}>{todo}</span>}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
 
               <section className="dashboard-panel relationships-panel">
                 <div className="panel-head">

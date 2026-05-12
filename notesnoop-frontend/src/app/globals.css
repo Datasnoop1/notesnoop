@@ -1938,6 +1938,54 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border-radius: 999px;
   padding: 1px 6px;
 }
+.capacity-list { display: grid; gap: 8px; }
+.capacity-row {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.capacity-row:hover { border-color: #b4c8be; }
+.capacity-row-hot { border-color: #f0c8bf; background: #fdf3f0; }
+.capacity-row-warm { border-color: #e1cf94; background: #fffaf0; }
+.capacity-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.capacity-row-name { font-weight: 600; }
+.capacity-row-company { color: var(--muted); font-size: 11px; }
+.capacity-row-total {
+  margin-left: auto;
+  font-size: 16px;
+  color: var(--text);
+}
+.capacity-row-bar {
+  display: flex;
+  gap: 2px;
+  height: 16px;
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 10px;
+}
+.capacity-seg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  padding: 0 4px;
+  white-space: nowrap;
+  text-overflow: clip;
+}
+.capacity-seg-overdue { background: #c83a3a; }
+.capacity-seg-blocked { background: #c97a17; }
+.capacity-seg-doing { background: #1f6a4a; }
+.capacity-seg-todo { background: #7a99a0; }
 .task-blockers { display: grid; gap: 6px; }
 .task-blockers-empty { font-size: 12px; color: var(--muted); margin: 0; }
 .task-blockers-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
