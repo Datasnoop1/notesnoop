@@ -247,6 +247,63 @@ def test_ollama_extraction_payload_and_validation(monkeypatch):
     assert answer["source_counts"] == {"notes": 1, "memory": 1}
     assert notes._memory_query_terms("What is blocked on Apollo?") == ["blocked", "apollo"]
 
+    busy_answer = ollama_client.deterministic_memory_answer(
+        "What diligence memory exists for Apollo?",
+        [],
+        [{"id": "report-1", "kind": "report", "title": "Apollo relationship memory report", "subtitle": "Quarterly update"}]
+        + [
+            {"id": f"context-{index}", "kind": "workflow", "title": f"Apollo context {index}", "subtitle": "Generic context"}
+            for index in range(8)
+        ]
+        + [
+            {
+                "id": "task-2",
+                "kind": "task",
+                "title": "Prepare Apollo diligence pack",
+                "subtitle": "Morgan needs the revised diligence timeline.",
+            },
+        ],
+    )
+    assert "Prepare Apollo diligence pack" in busy_answer["answer"]
+
+    class MemoryAnswerResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"message": {"content": json.dumps({"answer": "Apollo has diligence context.", "confidence": 0.8})}}
+
+    class MemoryAnswerClient:
+        def __init__(self, *_, **__):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return MemoryAnswerResponse()
+
+    monkeypatch.setattr(ollama_client.httpx, "AsyncClient", MemoryAnswerClient)
+    monkeypatch.setattr(ollama_client, "OLLAMA_API_KEY", "test-key")
+    generated_answer = asyncio.run(
+        ollama_client.generate_memory_answer(
+            "What diligence memory exists for Apollo?",
+            [],
+            [
+                {
+                    "id": "task-2",
+                    "kind": "task",
+                    "title": "Prepare Apollo diligence pack",
+                    "subtitle": "Morgan needs the revised diligence timeline.",
+                },
+            ],
+        )
+    )
+    assert "Prepare Apollo diligence pack" in generated_answer["answer"]
+
     class RateLimitedResponse:
         status_code = 429
 

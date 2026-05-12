@@ -345,9 +345,61 @@ def _citation(kind: str, item: dict[str, Any], label: str) -> dict[str, Any]:
     }
 
 
+def _memory_answer_terms(query: str) -> list[str]:
+    stop_words = {
+        "a", "an", "and", "are", "about", "for", "from", "has", "have", "is", "me", "of", "on", "or",
+        "show", "tell", "the", "to", "what", "which", "who", "with",
+    }
+    terms: list[str] = []
+    for term in "".join(char.lower() if char.isalnum() else " " for char in query).split():
+        if len(term) < 3 or term in stop_words or term in terms:
+            continue
+        terms.append(term)
+    return terms or [query.strip().casefold()]
+
+
+def _memory_answer_score(query: str, memory: dict[str, Any]) -> int:
+    terms = _memory_answer_terms(query)
+    title = _first_text(memory, "title", "name", limit=260).casefold()
+    detail = _first_text(memory, "subtitle", "description", "body", limit=600).casefold()
+    score = 0
+    for term in terms:
+        if term in title:
+            score += 3
+        if term in detail:
+            score += 1
+    return score
+
+
+def _memories_for_answer(query: str, memories: list[dict[str, Any]], limit: int = 10) -> list[dict[str, Any]]:
+    indexed = [(index, _memory_answer_score(query, memory), memory) for index, memory in enumerate(memories)]
+    indexed.sort(key=lambda row: (row[1] > 0, row[1], -row[0]), reverse=True)
+    return [memory for _, _, memory in indexed[:limit]]
+
+
+def _ensure_structured_memory_visible(answer: str, citations: list[dict[str, Any]]) -> str:
+    answer_key = answer.casefold()
+    missing: list[dict[str, Any]] = []
+    for citation in citations:
+        if citation.get("kind") == "note":
+            continue
+        title = str(citation.get("title") or "").strip()
+        if title and title.casefold() not in answer_key:
+            missing.append(citation)
+    if not missing:
+        return answer
+    lines = ["", "Referenced memory:"]
+    for citation in missing[:6]:
+        label = str(citation.get("label") or "").strip()
+        title = str(citation.get("title") or "").strip()
+        lines.append(f"- [{label}] {title}" if label else f"- {title}")
+    return f"{answer.rstrip()}\n" + "\n".join(lines)
+
+
 def deterministic_memory_answer(query: str, notes: list[dict[str, Any]], memories: list[dict[str, Any]]) -> dict[str, Any]:
     citations: list[dict[str, Any]] = []
     answer_lines = [f"### Answer", ""]
+    answer_memories = _memories_for_answer(query, memories)
     if not notes and not memories:
         return {
             "answer": "I do not have enough matching memory to answer that yet.",
@@ -365,7 +417,7 @@ def deterministic_memory_answer(query: str, notes: list[dict[str, Any]], memorie
     if memories:
         answer_lines.append("")
         answer_lines.append("Structured memory:")
-        for index, memory in enumerate(memories[:6], start=1):
+        for index, memory in enumerate(answer_memories, start=1):
             label = f"M{index}"
             citations.append(_citation(str(memory.get("kind") or "memory"), memory, label))
             title = _first_text(memory, "title", "name", limit=160)
@@ -523,6 +575,7 @@ async def generate_memory_answer(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     fallback = deterministic_memory_answer(query, notes, memories)
+    ranked_memories = _memories_for_answer(query, memories, limit=18)
     if _is_cloud_host() and not OLLAMA_API_KEY:
         if REPORT_ALLOW_DETERMINISTIC_FALLBACK:
             return fallback
@@ -531,7 +584,7 @@ async def generate_memory_answer(
         "query": query,
         "context": context or {},
         "notes": notes[:12],
-        "structured_memory": memories[:18],
+        "structured_memory": ranked_memories,
         "citation_labels": fallback["citations"],
         "instructions": [
             "Answer the user question directly.",
@@ -562,6 +615,7 @@ async def generate_memory_answer(
         answer = str(data.get("answer") or "").strip()
         if not answer:
             raise ValueError("Ollama memory answer response is missing answer")
+        answer = _ensure_structured_memory_visible(answer, fallback["citations"])
         confidence = float(data.get("confidence") or fallback["confidence"])
         return {
             "answer": answer,
