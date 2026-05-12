@@ -20,6 +20,7 @@ from ..schemas import (
     TaskCommentCreate,
     TaskCommentUpdate,
     TaskCreate,
+    TaskDependencyCreate,
     TaskReminderUpdate,
     TaskUpdate,
     WorkflowCreate,
@@ -382,6 +383,55 @@ def update_task_comment(comment_id: str, payload: TaskCommentUpdate, user: Curre
             (body, comment_id),
         )
         return {"data": dict(cur.fetchone())}
+
+
+@router.post("/tasks/{task_id}/dependencies")
+def add_task_dependency(task_id: str, payload: TaskDependencyCreate, user: CurrentUser = Depends(current_user)):
+    blocking_id = (payload.blocking_task_id or "").strip()
+    if not blocking_id:
+        raise HTTPException(status_code=400, detail="blocking_task_id is required")
+    if blocking_id == task_id:
+        raise HTTPException(status_code=422, detail="A task cannot block itself")
+    with transaction(user.clerk_user_id) as cur:
+        blocked = one(cur, "SELECT id, workspace_id FROM tasks WHERE id = %s", (task_id,))
+        if not blocked:
+            raise HTTPException(status_code=404, detail="Task not found")
+        blocking = one(cur, "SELECT id, workspace_id FROM tasks WHERE id = %s", (blocking_id,))
+        if not blocking:
+            raise HTTPException(status_code=404, detail="Blocking task not found")
+        if blocked["workspace_id"] != blocking["workspace_id"]:
+            raise HTTPException(status_code=422, detail="Both tasks must belong to the same workspace")
+        # Refuse the obvious A↔B cycle. Transitive cycles are caught lazily on
+        # display rather than enforced here.
+        inverse = one(
+            cur,
+            "SELECT 1 FROM task_dependencies WHERE blocked_task_id = %s AND blocking_task_id = %s",
+            (blocking_id, task_id),
+        )
+        if inverse:
+            raise HTTPException(status_code=422, detail="That dependency would create a cycle")
+        cur.execute(
+            """
+            INSERT INTO task_dependencies (blocked_task_id, blocking_task_id, workspace_id, created_by)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+            """,
+            (task_id, blocking_id, blocked["workspace_id"], user.clerk_user_id),
+        )
+        return {"data": _task_payload(cur, task_id)}
+
+
+@router.delete("/tasks/{task_id}/dependencies/{blocking_task_id}")
+def remove_task_dependency(task_id: str, blocking_task_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        task = one(cur, "SELECT id FROM tasks WHERE id = %s", (task_id,))
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        cur.execute(
+            "DELETE FROM task_dependencies WHERE blocked_task_id = %s AND blocking_task_id = %s",
+            (task_id, blocking_task_id),
+        )
+        return {"data": _task_payload(cur, task_id)}
 
 
 @router.delete("/comments/{comment_id}")
@@ -1949,6 +1999,28 @@ def _task_payload(cur, task_id: str) -> dict | None:
     task["assignee_name"] = (assignee_row or {}).get("name")
     comment_row = one(cur, "SELECT count(*)::int AS n FROM task_comments WHERE task_id = %s", (task_id,))
     task["comment_count"] = (comment_row or {}).get("n", 0) or 0
+    task["blocked_by"] = many(
+        cur,
+        """
+        SELECT t.id, t.title, t.status, t.due_at, td.created_at AS linked_at
+        FROM task_dependencies td
+        JOIN tasks t ON t.id = td.blocking_task_id
+        WHERE td.blocked_task_id = %s
+        ORDER BY td.created_at
+        """,
+        (task_id,),
+    )
+    task["blocking"] = many(
+        cur,
+        """
+        SELECT t.id, t.title, t.status, t.due_at, td.created_at AS linked_at
+        FROM task_dependencies td
+        JOIN tasks t ON t.id = td.blocked_task_id
+        WHERE td.blocking_task_id = %s
+        ORDER BY td.created_at
+        """,
+        (task_id,),
+    )
     return task
 
 

@@ -173,6 +173,10 @@ class TaskCommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=8000)
 
 
+class TaskDependencyCreate(BaseModel):
+    blocking_task_id: str
+
+
 class TaskCommentUpdate(BaseModel):
     body: str = Field(min_length=1, max_length=8000)
 

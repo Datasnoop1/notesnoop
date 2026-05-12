@@ -1938,6 +1938,84 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border-radius: 999px;
   padding: 1px 6px;
 }
+.task-blockers { display: grid; gap: 6px; }
+.task-blockers-empty { font-size: 12px; color: var(--muted); margin: 0; }
+.task-blockers-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.task-blockers-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fdf6e9;
+  border: 1px solid #e6d3a0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.task-blockers-row-done {
+  background: #f1f7f0;
+  border-color: #c5dcc1;
+  opacity: 0.7;
+  text-decoration: line-through;
+}
+.task-blockers-link {
+  background: transparent;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text);
+  padding: 0;
+}
+.task-blockers-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+.task-blockers-status-blocked { background: #fdedea; color: #8a2a2a; }
+.task-blockers-status-doing { background: #eef7f0; color: #1f6a4a; }
+.task-blockers-status-todo { background: #fff5e1; color: #6c5113; }
+.task-blockers-status-done, .task-blockers-status-archived { background: #f1f1f0; color: var(--muted); }
+.task-blockers-remove {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.task-blockers-remove:hover { background: #e8e6dd; color: #8a2a2a; }
+.task-blockers-add { display: flex; gap: 6px; align-items: center; }
+.task-blockers-add select { flex: 1; min-height: 32px; padding: 4px 8px; }
+.task-blockers-add button {
+  background: var(--ink);
+  color: white;
+  border: 1px solid var(--ink);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.task-blockers-add button:disabled { opacity: 0.55; cursor: not-allowed; }
+.task-blockers-blocking {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+.task-blockers-inline {
+  background: transparent;
+  border: none;
+  color: var(--teal);
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 12px;
+}
+.task-blockers-inline:hover { text-decoration: underline; }
 .task-comments { display: grid; gap: 8px; }
 .task-comments-error {
   color: #8a2a2a;

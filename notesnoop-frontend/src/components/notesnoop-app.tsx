@@ -3765,6 +3765,32 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             setToast(err instanceof Error ? err.message : "Merge failed");
           }
         }}
+        allOpenTasks={openTasks}
+        onAddBlocker={async (taskId, blockingTaskId) => {
+          try {
+            const res = await api(`/api/tasks/${taskId}/dependencies`, {
+              method: "POST",
+              body: JSON.stringify({ blocking_task_id: blockingTaskId }),
+            });
+            setSelectedMemory({ sectionId: "tasks", item: res.data });
+            setToast("Dependency added.");
+            await refreshWorkspaceData();
+          } catch (err) {
+            setToast(err instanceof Error ? err.message : "Could not add dependency");
+          }
+        }}
+        onRemoveBlocker={async (taskId, blockingTaskId) => {
+          try {
+            const res = await api(`/api/tasks/${taskId}/dependencies/${blockingTaskId}`, {
+              method: "DELETE",
+            });
+            setSelectedMemory({ sectionId: "tasks", item: res.data });
+            setToast("Dependency removed.");
+            await refreshWorkspaceData();
+          } catch (err) {
+            setToast(err instanceof Error ? err.message : "Could not remove dependency");
+          }
+        }}
         onCreateReminder={async (taskId, remindAt) => {
           try {
             await api(`/api/tasks/${taskId}/reminders`, {
@@ -5304,6 +5330,9 @@ function MemoryDetailSheet({
   onEditTaskComment,
   onDeleteTaskComment,
   onMergeCompany,
+  allOpenTasks,
+  onAddBlocker,
+  onRemoveBlocker,
   currentUserId,
 }: {
   memory: { sectionId: string; item: any } | null;
@@ -5328,9 +5357,13 @@ function MemoryDetailSheet({
   onEditTaskComment?: (commentId: string, body: string) => Promise<any>;
   onDeleteTaskComment?: (commentId: string) => Promise<void>;
   onMergeCompany?: (sourceCompanyId: string, targetCompanyId: string) => Promise<void>;
+  allOpenTasks?: any[];
+  onAddBlocker?: (taskId: string, blockingTaskId: string) => Promise<void>;
+  onRemoveBlocker?: (taskId: string, blockingTaskId: string) => Promise<void>;
   currentUserId?: string | null;
 }) {
   const [mergeCompanyTargetId, setMergeCompanyTargetId] = useState("");
+  const [newBlockerId, setNewBlockerId] = useState("");
   const sectionId = memory?.sectionId || "";
   const item = memory?.item || {};
   const title = item.title || item.name || "Memory";
@@ -5717,6 +5750,80 @@ function MemoryDetailSheet({
             >
               <Bell size={15} /> Add reminder
             </button>
+          </div>
+        )}
+        {isTask && item.id && (onAddBlocker || (item.blocked_by || []).length > 0) && (
+          <div className="mini-section task-blockers">
+            <strong>Blocked by{(item.blocked_by || []).length > 0 ? ` (${(item.blocked_by || []).length})` : ""}</strong>
+            {(item.blocked_by || []).length === 0 ? (
+              <p className="task-blockers-empty">Not waiting on another task.</p>
+            ) : (
+              <ul className="task-blockers-list">
+                {(item.blocked_by || []).map((blocker: any) => {
+                  const done = blocker.status === "done" || blocker.status === "archived";
+                  return (
+                    <li key={blocker.id} className={`task-blockers-row${done ? " task-blockers-row-done" : ""}`}>
+                      <button type="button" className="task-blockers-link" onClick={() => onOpenMemory("tasks", blocker)}>
+                        <span className={`task-blockers-status task-blockers-status-${blocker.status || "todo"}`}>{blocker.status || "todo"}</span>
+                        <span>{blocker.title || "Untitled task"}</span>
+                      </button>
+                      {onRemoveBlocker && (
+                        <button
+                          type="button"
+                          className="task-blockers-remove"
+                          onClick={() => onRemoveBlocker(String(item.id), String(blocker.id))}
+                          aria-label={`Stop blocking on ${blocker.title || "task"}`}
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {onAddBlocker && (allOpenTasks || []).filter((t: any) => t.id !== item.id && !(item.blocked_by || []).some((b: any) => b.id === t.id)).length > 0 && (
+              <div className="task-blockers-add">
+                <select
+                  value={newBlockerId}
+                  onChange={(event) => setNewBlockerId(event.target.value)}
+                  aria-label="Block on another task"
+                >
+                  <option value="">Add a task this is waiting on…</option>
+                  {(allOpenTasks || [])
+                    .filter((t: any) => t.id !== item.id && !(item.blocked_by || []).some((b: any) => b.id === t.id))
+                    .slice(0, 50)
+                    .map((t: any) => (
+                      <option key={t.id} value={t.id}>{t.title || "Untitled task"}</option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!newBlockerId}
+                  onClick={async () => {
+                    if (!onAddBlocker || !newBlockerId) return;
+                    await onAddBlocker(String(item.id), newBlockerId);
+                    setNewBlockerId("");
+                  }}
+                >
+                  Add
+                </button>
+              </div>
+            )}
+            {(item.blocking || []).length > 0 && (
+              <p className="task-blockers-blocking">
+                Blocking: {(item.blocking || []).map((row: any, idx: number) => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className="task-blockers-inline"
+                    onClick={() => onOpenMemory("tasks", row)}
+                  >
+                    {row.title || "Untitled task"}{idx < (item.blocking || []).length - 1 ? "," : ""}
+                  </button>
+                ))}
+              </p>
+            )}
           </div>
         )}
         {isTask && item.id && onListTaskComments && onAddTaskComment && (
