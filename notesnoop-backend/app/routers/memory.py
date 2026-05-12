@@ -318,15 +318,17 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
                     next_task_id = str(new_row["id"])
                     # Carry over the link tables so the new instance has the same
                     # projects/people/companies/notes the operator set up once.
-                    for table, peer_col in (
-                        ("task_projects", "project_id"),
-                        ("task_companies", "company_id"),
-                        ("task_notes", "note_id"),
+                    # task_notes doesn't have linked_via — drop it from the copy.
+                    for table, peer_col, has_linked_via in (
+                        ("task_projects", "project_id", True),
+                        ("task_companies", "company_id", True),
+                        ("task_notes", "note_id", False),
                     ):
+                        extra_cols = ", linked_via" if has_linked_via else ""
                         cur.execute(
                             f"""
-                            INSERT INTO {table} (task_id, {peer_col}, workspace_id, linked_by, linked_via)
-                            SELECT %s, {peer_col}, workspace_id, linked_by, linked_via
+                            INSERT INTO {table} (task_id, {peer_col}, workspace_id, linked_by{extra_cols})
+                            SELECT %s, {peer_col}, workspace_id, linked_by{extra_cols}
                             FROM {table} WHERE task_id = %s
                             ON CONFLICT DO NOTHING
                             """,
