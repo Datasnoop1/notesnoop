@@ -461,19 +461,21 @@ def _linked_person_ids(cur, note_id: str) -> list[str]:
 
 
 def _link_task_people(cur, task_id: str, workspace_id: str, person_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
-    # AI-extracted "people on a task" are people the task is ABOUT, not
-    # necessarily the people responsible for it. Default to watcher so the
-    # task lands unassigned; the operator promotes one to assignee from the
-    # UI picker. (Previously every linked person became an assignee, which
-    # made "Follow up with Olivia" silently assigned to Olivia.)
-    for person_id in person_ids:
+    # AI-extracted people on a task with multiple participants are *involved*,
+    # not necessarily *responsible*. Mark them all as watchers so the task
+    # lands unassigned and the operator picks the right assignee. The single-
+    # person case is unambiguous — if only one person is on the task, treat
+    # them as the assignee (preserves the existing single-link semantics).
+    deduped = [pid for pid in (person_ids or []) if pid]
+    default_relation = "assignee" if len(deduped) == 1 else "watcher"
+    for person_id in deduped:
         cur.execute(
             """
             INSERT INTO task_people (task_id, person_id, workspace_id, relation, linked_by, linked_via)
-            VALUES (%s, %s, %s, 'watcher', %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT DO NOTHING
             """,
-            (task_id, person_id, workspace_id, linked_by, linked_via),
+            (task_id, person_id, workspace_id, default_relation, linked_by, linked_via),
         )
 
 
