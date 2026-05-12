@@ -1474,30 +1474,8 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
             project_filter.format(link_table="company_projects", id_column="company_id"),
             person_filter.format(link_table="company_people", id_column="company_id"),
         ),
-        # Anchors: people and projects themselves. Both filter slots always
-        # receive 2 placeholder params (project_id, project_id) /
-        # (person_id, person_id), so the passthrough must consume both. We use
-        # `%s IS DISTINCT FROM %s OR TRUE` to swallow them as a tautology when
-        # the filter would otherwise be redundant (a person-anchor filtered
-        # by person_id is just `item.id = person_id`).
-        (
-            "person",
-            "people",
-            "name",
-            "concat_ws(' - ', company, role)",
-            "created_at",
-            "%s::uuid IS DISTINCT FROM %s::uuid OR TRUE",
-            "%s::uuid IS NULL OR item.id = %s::uuid",
-        ),
-        (
-            "project",
-            "projects",
-            "name",
-            "description",
-            "created_at",
-            "%s::uuid IS NULL OR item.id = %s::uuid",
-            "%s::uuid IS DISTINCT FROM %s::uuid OR TRUE",
-        ),
+        # People and Projects are covered by dedicated query blocks below this
+        # loop — don't duplicate them here.
     ]
     results: list[dict] = []
     for kind, table, title_column, subtitle_column, sort_column, project_sql, person_sql in searches:
