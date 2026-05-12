@@ -14,6 +14,7 @@ from ..services import consume_ai_quota, derive_title, enqueue_ai_if_allowed
 
 
 router = APIRouter(prefix="/api", tags=["notes"])
+SEARCH_KEYWORD_FAST_PATH_MIN_ROWS = 20
 
 
 def _default_inbox(cur, workspace_id: str, user_id: str) -> str:
@@ -663,6 +664,10 @@ def _prepare_home_scope(cur, workspace_id: str, project_id: str | None) -> None:
         (workspace_id, project_id, project_id),
     )
     cur.execute("CREATE INDEX home_project_task_stats_project_idx ON home_project_task_stats(project_id)")
+
+
+def _should_run_semantic_search(query: str, keyword_row_count: int) -> bool:
+    return len(query.strip()) >= 3 and keyword_row_count < SEARCH_KEYWORD_FAST_PATH_MIN_ROWS
 
 
 @router.get("/workspaces/{workspace_id}/home")
@@ -1393,11 +1398,7 @@ def search(
 ):
     query = q.strip()
     query_embedding = None
-    if len(query) >= 3:
-        try:
-            query_embedding = embed_text_sync(query)
-        except Exception:
-            query_embedding = None
+    semantic_skipped_reason = None
     with transaction(user.clerk_user_id) as cur:
         where_sql, where_params = _search_where(
             workspace_id,
@@ -1438,25 +1439,8 @@ def search(
                 """,
                 (query, *where_params, query),
             )
-            semantic_rows = []
-            if query_embedding:
-                literal = vector_literal(query_embedding.vector)
-                semantic_rows = many(
-                    cur,
-                    f"""
-                    SELECT n.*,
-                           'semantic' AS search_source,
-                           (1 - (e.embedding <=> %s::vector)) AS search_score
-                    FROM embeddings e
-                    JOIN notes n ON n.id = e.note_id
-                    WHERE {where_sql}
-                      AND e.model_version = %s
-                    ORDER BY e.embedding <=> %s::vector
-                    LIMIT 50
-                    """,
-                    (literal, *where_params, query_embedding.model, literal),
-                )
-            rows = _merge_search_rows(keyword_rows, semantic_rows)
+            if not _should_run_semantic_search(query, len(keyword_rows)):
+                semantic_skipped_reason = "keyword_fast_path" if len(query) >= 3 else "short_query"
             excluded = one(
                 cur,
                 f"""
@@ -1471,20 +1455,61 @@ def search(
                 """,
                 tuple(where_params),
             )
-            meta = {
-                "semantic_enabled": bool(query_embedding),
-                "semantic_excluded": int(excluded["count"] if excluded else 0),
-                "memory_results": _memory_search_results(cur, workspace_id, query, project_id, person_id),
-                "filters": {
-                    "project_id": project_id,
-                    "person_id": person_id,
-                    "date_from": date_from,
-                    "date_to": date_to,
-                    "flagged_only": flagged_only,
-                    "note_kind": note_kind,
-                },
-            }
+            memory_results = _memory_search_results(cur, workspace_id, query, project_id, person_id)
+    if not query:
         return {"data": rows, "meta": meta}
+
+    semantic_rows = []
+    if semantic_skipped_reason is None:
+        try:
+            query_embedding = embed_text_sync(query)
+        except Exception:
+            query_embedding = None
+    if query_embedding:
+        with transaction(user.clerk_user_id) as cur:
+            where_sql, where_params = _search_where(
+                workspace_id,
+                user.clerk_user_id,
+                project_id,
+                person_id,
+                date_from,
+                date_to,
+                flagged_only,
+                note_kind,
+                include_archived,
+            )
+            literal = vector_literal(query_embedding.vector)
+            semantic_rows = many(
+                cur,
+                f"""
+                SELECT n.*,
+                       'semantic' AS search_source,
+                       (1 - (e.embedding <=> %s::vector)) AS search_score
+                FROM embeddings e
+                JOIN notes n ON n.id = e.note_id
+                WHERE {where_sql}
+                  AND e.model_version = %s
+                ORDER BY e.embedding <=> %s::vector
+                LIMIT 50
+                """,
+                (literal, *where_params, query_embedding.model, literal),
+            )
+    rows = _merge_search_rows(keyword_rows, semantic_rows)
+    meta = {
+        "semantic_enabled": bool(query_embedding),
+        "semantic_skipped_reason": semantic_skipped_reason,
+        "semantic_excluded": int(excluded["count"] if excluded else 0),
+        "memory_results": memory_results,
+        "filters": {
+            "project_id": project_id,
+            "person_id": person_id,
+            "date_from": date_from,
+            "date_to": date_to,
+            "flagged_only": flagged_only,
+            "note_kind": note_kind,
+        },
+    }
+    return {"data": rows, "meta": meta}
 
 
 @router.post("/workspaces/{workspace_id}/ask")

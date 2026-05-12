@@ -498,6 +498,13 @@ def test_home_rls_fast_path_migration_preserves_project_visibility_helpers():
     assert "WITH CHECK (can_access_note(note_id) AND can_access_project(project_id))" in migration.sql
 
 
+def test_search_skips_semantic_when_keyword_results_are_plentiful():
+    assert notes._should_run_semantic_search("Apollo", 0) is True
+    assert notes._should_run_semantic_search("Apollo", notes.SEARCH_KEYWORD_FAST_PATH_MIN_ROWS - 1) is True
+    assert notes._should_run_semantic_search("Apollo", notes.SEARCH_KEYWORD_FAST_PATH_MIN_ROWS) is False
+    assert notes._should_run_semantic_search("ap", 0) is False
+
+
 def test_project_summary_helper_is_deterministic():
     summary = memory.build_project_summary(
         {"id": "project-1", "name": "Apollo"},
