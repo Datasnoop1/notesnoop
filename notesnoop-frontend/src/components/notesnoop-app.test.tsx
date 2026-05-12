@@ -488,7 +488,13 @@ describe("NoteSnoopApp", () => {
     expect(dashboardComposer).toContainElement(screen.getByPlaceholderText(/Dump a note/i));
     expect(document.querySelector(".content-grid")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Briefing off/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Workspace settings" }));
+    const settingsMenu = await waitFor(() => {
+      const el = document.querySelector(".topbar-settings-popover") as HTMLElement | null;
+      if (!el) throw new Error("settings menu not mounted");
+      return el;
+    });
+    fireEvent.click(within(settingsMenu).getByRole("button", { name: /Briefing/i }));
 
     expect(await screen.findByText("Morning briefing is on.")).toBeInTheDocument();
     expect(calls.some((call) => call.includes("PATCH /api/workspaces/workspace-1/settings"))).toBe(true);
@@ -1026,7 +1032,11 @@ describe("NoteSnoopApp", () => {
 
     const settings = await screen.findByRole("button", { name: "Workspace settings" });
     fireEvent.click(settings);
-    const menu = document.querySelector(".topbar-settings-popover") as HTMLElement;
+    const menu = await waitFor(() => {
+      const el = document.querySelector(".topbar-settings-popover") as HTMLElement | null;
+      if (!el) throw new Error("settings menu not mounted");
+      return el;
+    });
     fireEvent.click(within(menu).getByRole("button", { name: /Briefing/i }));
 
     expect(await screen.findByText("Morning briefing is on.")).toBeInTheDocument();

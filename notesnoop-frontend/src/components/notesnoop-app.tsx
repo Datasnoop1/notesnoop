@@ -2065,6 +2065,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   useEffect(() => {
     if (quickCapture) return;
     const key = routeKey(routeTarget);
+    const currentRouteKey = typeof window === "undefined"
+      ? key
+      : routeKey(routeFromPath(window.location.pathname, window.location.search));
+    if (currentRouteKey !== key) return;
     if (appliedRouteRef.current === key) return;
     if (routeTarget.kind === "dashboard") {
       appliedRouteRef.current = key;
@@ -2692,7 +2696,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               ))}
             </select>
           )}
-          <div className="topbar-settings-mobile hide-desktop">
+          <div className="topbar-settings">
             <button
               className="topbar-settings-btn"
               onClick={() => {
@@ -2731,14 +2735,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               </div>
             )}
           </div>
-          <button className="mode-btn" onClick={toggleEmailAI} title="Email AI default is Manual for v1">
-            <Settings size={18} />
-            {state?.workspace?.email_ai_mode === "auto" ? "Auto" : "Manual"}
-          </button>
-          <button className="mode-btn" onClick={toggleMorningBriefing} title="Daily count-only morning briefing">
-            <Bell size={18} />
-            {state?.workspace?.morning_briefing_optin ? "Briefing on" : "Briefing off"}
-          </button>
           <button
             className={`topbar-notif-btn${notifCount > 0 ? " has-notifs" : ""}`}
             onClick={() => {
