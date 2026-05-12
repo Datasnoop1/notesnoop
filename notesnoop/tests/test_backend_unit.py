@@ -1513,6 +1513,9 @@ def test_worker_materializes_review_candidate_with_current_note_company_links():
     task_params = next(params for sql, params in cur.executed if "INSERT INTO tasks" in sql)
     assert json.loads(task_params[11])["company_ids"] == [company_id]
     assert payload["company_ids"] == [company_id]
+    company_context_sql = next(sql for sql, _params in cur.executed if "FROM company_notes" in sql)
+    assert "ORDER BY linked_at" in company_context_sql
+    assert "created_at" not in company_context_sql
 
 
 def test_worker_merges_review_payload_and_current_note_person_company_links():

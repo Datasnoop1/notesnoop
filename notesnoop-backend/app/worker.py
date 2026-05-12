@@ -585,7 +585,7 @@ def _linked_company_ids(cur, note_id: str) -> list[str]:
         SELECT company_id
         FROM company_notes
         WHERE note_id = %s
-        ORDER BY created_at
+        ORDER BY linked_at
         """,
         (note_id,),
     )
