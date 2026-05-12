@@ -3020,10 +3020,21 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
     display: grid;
     grid-template-columns: 40px minmax(0, 1fr) 40px 40px;
     gap: 8px;
+    align-items: center;
+    width: 100%;
+    max-width: 100%;
   }
-  .topbar-dev-badge, .topbar-user-menu { display: none; }
-  .search-box { min-width: 0; grid-column: 2; }
-  .search-box input { min-width: 0; min-height: 40px; }
+  .topbar > * { min-width: 0; }
+  .topbar-dev-badge, .topbar-user-menu { display: none !important; }
+  .search-box {
+    min-width: 0;
+    grid-column: 2;
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    align-items: center;
+    overflow: hidden;
+  }
+  .search-box input { min-width: 0; width: 100%; min-height: 40px; }
   .mode-btn {
     display: none;
   }
@@ -3037,6 +3048,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .topbar-notif-btn {
     width: 40px;
     height: 40px;
+    min-width: 40px;
+    padding: 0;
     border-radius: 8px;
   }
   .topbar-notif-btn {
@@ -3130,6 +3143,23 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   }
   .dashboard-composer .composer-actions button {
     width: 100%;
+  }
+  .dashboard-ask {
+    min-width: 0;
+  }
+  .ask-row {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+  .ask-row button {
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+    font-size: 0;
+  }
+  .ask-row button svg {
+    width: 16px;
+    height: 16px;
   }
   .context-picker {
     grid-template-columns: 1fr;
@@ -4010,6 +4040,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   letter-spacing: 0.02em;
   cursor: help;
   user-select: none;
+}
+@media (max-width: 767px) {
+  .topbar-dev-badge, .topbar-user-menu { display: none !important; }
+  .topbar-settings-btn,
+  .topbar-notif-btn {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    padding: 0;
+    border-radius: 8px;
+  }
 }
 .notif-backdrop {
   position: fixed;

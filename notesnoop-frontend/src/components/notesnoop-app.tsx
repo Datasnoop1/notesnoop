@@ -412,6 +412,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [mergeUndoId, setMergeUndoId] = useState("");
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [mobileNav, setMobileNav] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [reviewSheetOpen, setReviewSheetOpen] = useState(false);
   const [reviewItems, setReviewItems] = useState<any[]>([]);
@@ -551,6 +552,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const selectedNoteIsFirstCapture = Boolean(
     selectedNote?.id && firstCaptureNoteId && String(selectedNote.id) === firstCaptureNoteId,
   );
+  const mobileSidebarHidden = isMobileViewport && !mobileNav;
 
   const appRouteUrl = useCallback(
     (target: RouteTarget) => {
@@ -678,6 +680,16 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   useEffect(() => {
     if (isSignedIn || DEV_AUTH) refresh().catch((err) => setToast(err.message));
   }, [isSignedIn, refresh]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    if (typeof window.matchMedia !== "function") return undefined;
+    const media = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsMobileViewport(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -2446,7 +2458,11 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
 
   const appBody = (
     <main className={`app-shell ${quickCapture ? "quick-mode" : ""}`}>
-      <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
+      <aside
+        className={`sidebar ${mobileNav ? "open" : ""}`}
+        aria-hidden={mobileSidebarHidden || undefined}
+        inert={mobileSidebarHidden ? true : undefined}
+      >
         <div className="brand-row">
           <img src="/icon.svg" alt="" />
           <strong>NoteSnoop</strong>
@@ -2834,7 +2850,13 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     placeholder={activeProjectRecord ? `Ask about ${activeProjectRecord.name}` : "Ask memory..."}
                     aria-label="Ask memory question"
                   />
-                  <button type="button" onClick={askMemory} disabled={busy || askQuestion.trim().length < 3}>
+                  <button
+                    type="button"
+                    onClick={askMemory}
+                    disabled={busy || askQuestion.trim().length < 3}
+                    aria-label="Ask"
+                    title="Ask memory"
+                  >
                     <Search size={16} /> Ask
                   </button>
                 </div>
@@ -4970,7 +4992,11 @@ function ReviewSheet({
   function updatePayload(itemId: string, key: string, value: string) {
     setPayloadDrafts((current) => ({
       ...current,
-      [itemId]: nextReviewPayload(current[itemId] || {}, key, value),
+      [itemId]: nextReviewPayload(
+        current[itemId] || reviewItems.find((item) => item.id === itemId)?.payload || {},
+        key,
+        value,
+      ),
     }));
   }
 
