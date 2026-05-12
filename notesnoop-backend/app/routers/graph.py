@@ -659,7 +659,14 @@ def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
             confidence_override=payload.confidence,
             materialize=payload.materialize,
         )
-        return {"data": response}
+        # Preserve the historical single-accept response shape (state + optional
+        # entity_kind/entity_id when something was materialized). The bulk
+        # endpoint exposes review_id separately to identify each row.
+        legacy = {"state": response["state"]}
+        if "entity_id" in response:
+            legacy["entity_kind"] = response["entity_kind"]
+            legacy["entity_id"] = response["entity_id"]
+        return {"data": legacy}
 
 
 @router.post("/reviews/accept-many")
