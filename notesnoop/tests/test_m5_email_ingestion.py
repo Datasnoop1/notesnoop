@@ -6,6 +6,8 @@ import sys
 import uuid
 from pathlib import Path
 
+import psycopg2
+import psycopg2.extras
 import pytest
 
 
@@ -72,6 +74,29 @@ def _mailgun_payload(inbound_address: str, message_id: str, sender: str = "sende
         "subject": "Mailgun diligence note",
         "body-plain": "Mailgun email body for Apollo and Morgan.",
     }
+
+
+def _insert_inbox_project(workspace_id: str, user_id: str, *, shared: bool) -> str:
+    with psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO projects (workspace_id, name, kind, color_hex, shared, created_by)
+                VALUES (%s, 'Inbox', 'inbox', '#0f766e', %s, %s)
+                RETURNING id
+                """,
+                (workspace_id, shared, user_id),
+            )
+            project_id = str(cur.fetchone()["id"])
+            cur.execute(
+                """
+                INSERT INTO project_members (project_id, clerk_user_id)
+                VALUES (%s, %s)
+                ON CONFLICT DO NOTHING
+                """,
+                (project_id, user_id),
+            )
+    return project_id
 
 
 def test_postmark_manual_email_path_test_email_and_block_sender(client):
@@ -155,3 +180,59 @@ def test_mailgun_adapter_and_unknown_provider_are_gated(client):
     note = client.get(f"/api/notes/{note_id}", headers=headers)
     assert note.status_code == 200
     assert note.json()["data"]["raw_email_metadata"]["provider"] == "mailgun"
+
+
+def test_email_ingestion_respects_private_and_shared_inbox_modes(client):
+    suffix = uuid.uuid4().hex[:10]
+
+    private_user = f"m5_private_{suffix}"
+    private_headers = _headers(private_user)
+    private_boot = client.post(
+        "/api/bootstrap",
+        json={"workspace_name": "M5 private inbox workspace", "inbox_mode": "per_user_private"},
+        headers=private_headers,
+    )
+    assert private_boot.status_code == 200
+    private_state = private_boot.json()["data"]
+    private_workspace_id = private_state["workspace"]["id"]
+    private_inbox_id = next(project["id"] for project in private_state["projects"] if project["kind"] == "inbox")
+    stale_shared_inbox_id = _insert_inbox_project(private_workspace_id, private_user, shared=True)
+
+    private_message_id = f"postmark-private-{uuid.uuid4()}"
+    private_inbound = client.post(
+        "/webhooks/email/inbound",
+        json=_postmark_payload(private_state["inbound_address"], private_message_id),
+    )
+    assert private_inbound.status_code == 200
+    private_note_id = private_inbound.json()["data"]["note_id"]
+    private_note = client.get(f"/api/notes/{private_note_id}", headers=private_headers)
+    assert private_note.status_code == 200
+    private_project_ids = {project["id"] for project in private_note.json()["data"]["projects"]}
+    assert private_inbox_id in private_project_ids
+    assert stale_shared_inbox_id not in private_project_ids
+
+    shared_user = f"m5_shared_{suffix}"
+    shared_headers = _headers(shared_user)
+    shared_boot = client.post(
+        "/api/bootstrap",
+        json={"workspace_name": "M5 shared inbox workspace", "inbox_mode": "shared"},
+        headers=shared_headers,
+    )
+    assert shared_boot.status_code == 200
+    shared_state = shared_boot.json()["data"]
+    shared_workspace_id = shared_state["workspace"]["id"]
+    shared_inbox_id = next(project["id"] for project in shared_state["projects"] if project["kind"] == "inbox")
+    stale_private_inbox_id = _insert_inbox_project(shared_workspace_id, shared_user, shared=False)
+
+    shared_message_id = f"postmark-shared-{uuid.uuid4()}"
+    shared_inbound = client.post(
+        "/webhooks/email/inbound",
+        json=_postmark_payload(shared_state["inbound_address"], shared_message_id),
+    )
+    assert shared_inbound.status_code == 200
+    shared_note_id = shared_inbound.json()["data"]["note_id"]
+    shared_note = client.get(f"/api/notes/{shared_note_id}", headers=shared_headers)
+    assert shared_note.status_code == 200
+    shared_project_ids = {project["id"] for project in shared_note.json()["data"]["projects"]}
+    assert shared_inbox_id in shared_project_ids
+    assert stale_private_inbox_id not in shared_project_ids

@@ -6,7 +6,7 @@ from email.utils import parseaddr
 from bs4 import BeautifulSoup
 
 from .db import one
-from .services import derive_title, enqueue_ai_if_allowed
+from .services import derive_title, enqueue_ai_if_allowed, ensure_member_default_projects
 
 
 def html_to_text(html: str | None) -> str:
@@ -100,7 +100,7 @@ def save_inbound_envelope(cur, envelope: dict) -> dict:
     membership = one(
         cur,
         """
-        SELECT w.id AS workspace_id, wm.email_ai_mode, w.ai_mode
+        SELECT w.id AS workspace_id, wm.email_ai_mode, w.ai_mode, w.inbox_mode
         FROM workspace_members wm
         JOIN workspaces w ON w.id = wm.workspace_id
         WHERE wm.clerk_user_id = %s
@@ -116,15 +116,29 @@ def save_inbound_envelope(cur, envelope: dict) -> dict:
         )
         return {"outcome": "no_workspace"}
 
+    ensure_member_default_projects(
+        cur,
+        str(membership["workspace_id"]),
+        user_id,
+        membership.get("inbox_mode") or "per_user_private",
+    )
     inbox = one(
         cur,
         """
-        SELECT id, ai_mode
-        FROM projects
-        WHERE workspace_id = %s
-          AND kind = 'inbox'
-          AND (shared = TRUE OR created_by = %s)
-        ORDER BY shared ASC, created_at
+        SELECT p.id, p.ai_mode
+        FROM projects p
+        JOIN workspaces w ON w.id = p.workspace_id
+        WHERE p.workspace_id = %s
+          AND p.kind = 'inbox'
+          AND (
+              (coalesce(w.inbox_mode, 'per_user_private') = 'shared' AND p.shared = TRUE)
+              OR (
+                  coalesce(w.inbox_mode, 'per_user_private') <> 'shared'
+                  AND p.shared = FALSE
+                  AND p.created_by = %s
+              )
+          )
+        ORDER BY p.created_at
         LIMIT 1
         """,
         (membership["workspace_id"], user_id),

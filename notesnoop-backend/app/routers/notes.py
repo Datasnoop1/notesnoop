@@ -10,7 +10,7 @@ from ..db import many, one, transaction
 from ..embeddings import embed_text_sync, vector_literal
 from ..ollama_client import generate_memory_answer
 from ..schemas import FlagRequest, MemoryAskRequest, NoteCreate, NoteLinkPerson, NoteProjectSet, NoteUpdate
-from ..services import consume_ai_quota, derive_title, enqueue_ai_if_allowed
+from ..services import consume_ai_quota, derive_title, enqueue_ai_if_allowed, ensure_member_default_projects
 
 
 router = APIRouter(prefix="/api", tags=["notes"])
@@ -21,12 +21,20 @@ def _default_inbox(cur, workspace_id: str, user_id: str) -> str:
     inbox = one(
         cur,
         """
-        SELECT id
-        FROM projects
-        WHERE workspace_id = %s
-          AND kind = 'inbox'
-          AND (shared = TRUE OR created_by = %s)
-        ORDER BY shared ASC, created_at
+        SELECT p.id
+        FROM projects p
+        JOIN workspaces w ON w.id = p.workspace_id
+        WHERE p.workspace_id = %s
+          AND p.kind = 'inbox'
+          AND (
+              (coalesce(w.inbox_mode, 'per_user_private') = 'shared' AND p.shared = TRUE)
+              OR (
+                  coalesce(w.inbox_mode, 'per_user_private') <> 'shared'
+                  AND p.shared = FALSE
+                  AND p.created_by = %s
+              )
+          )
+        ORDER BY p.created_at
         LIMIT 1
         """,
         (workspace_id, user_id),
@@ -39,7 +47,18 @@ def _default_inbox(cur, workspace_id: str, user_id: str) -> str:
 @router.post("/workspaces/{workspace_id}/notes")
 def create_note(workspace_id: str, payload: NoteCreate, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
-        project_ids = payload.project_ids or [_default_inbox(cur, workspace_id, user.clerk_user_id)]
+        project_ids = payload.project_ids
+        if not project_ids:
+            workspace = one(cur, "SELECT inbox_mode FROM workspaces WHERE id = %s", (workspace_id,))
+            if not workspace:
+                raise HTTPException(status_code=404, detail="Workspace not found")
+            ensure_member_default_projects(
+                cur,
+                workspace_id,
+                user.clerk_user_id,
+                workspace.get("inbox_mode") or "per_user_private",
+            )
+            project_ids = [_default_inbox(cur, workspace_id, user.clerk_user_id)]
         _validate_project_selection(cur, workspace_id, project_ids, confirm_personal_move=True)
         title, derived = derive_title(payload.body, payload.title)
         cur.execute(
@@ -2035,14 +2054,20 @@ def _validate_project_selection(
     projects = many(
         cur,
         """
-        SELECT id, kind, name
-        FROM projects
-        WHERE workspace_id = %s AND id = ANY(%s::uuid[])
+        SELECT p.id, p.kind, p.name, p.shared, w.inbox_mode
+        FROM projects p
+        JOIN workspaces w ON w.id = p.workspace_id
+        WHERE p.workspace_id = %s AND p.id = ANY(%s::uuid[])
         """,
         (workspace_id, project_ids),
     )
     if len(projects) != len(project_ids):
         raise HTTPException(status_code=422, detail="One or more projects are unavailable")
+    for project in projects:
+        if project["kind"] == "inbox":
+            inbox_mode = project.get("inbox_mode") or "per_user_private"
+            if (inbox_mode == "shared") != bool(project["shared"]):
+                raise HTTPException(status_code=422, detail="One or more projects are unavailable")
     has_personal = any(project["kind"] == "personal" for project in projects)
     if has_personal and len(projects) > 1:
         raise HTTPException(status_code=422, detail="Personal notes cannot be linked to other projects")

@@ -8,6 +8,7 @@ from ..schemas import BootstrapRequest, PersonCreate, PersonUpdate, ProjectCreat
 from ..services import (
     accept_pending_project_invites,
     bootstrap_workspace,
+    ensure_member_default_projects,
     get_bootstrap_state,
     normalize_email,
     project_invite_url,
@@ -63,16 +64,12 @@ def update_workspace_settings(
         if payload.email_ai_mode is not None or payload.morning_briefing_optin is not None:
             cur.execute(
                 """
-                UPDATE workspace_members
-                SET email_ai_mode = COALESCE(%s, email_ai_mode),
-                    morning_briefing_optin = COALESCE(%s, morning_briefing_optin)
-                WHERE workspace_id = %s AND clerk_user_id = %s
+                SELECT update_own_workspace_member_settings(%s, %s, %s)
                 """,
                 (
+                    workspace_id,
                     payload.email_ai_mode,
                     payload.morning_briefing_optin,
-                    workspace_id,
-                    user.clerk_user_id,
                 ),
             )
         return {"data": get_bootstrap_state(cur, user.clerk_user_id, workspace_id)}
@@ -260,6 +257,11 @@ def update_project(project_id: str, payload: ProjectUpdate, user: CurrentUser = 
 @router.get("/workspaces/{workspace_id}/projects")
 def list_projects(workspace_id: str, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
+        workspace = one(cur, "SELECT inbox_mode FROM workspaces WHERE id = %s", (workspace_id,))
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        inbox_mode = workspace.get("inbox_mode") or "per_user_private"
+        ensure_member_default_projects(cur, workspace_id, user.clerk_user_id, inbox_mode)
         return {
             "data": many(
                 cur,
@@ -271,10 +273,21 @@ def list_projects(workspace_id: str, user: CurrentUser = Depends(current_user)):
                 LEFT JOIN note_projects np ON np.project_id = p.id
                 LEFT JOIN notes n ON n.id = np.note_id
                 WHERE p.workspace_id = %s
+                  AND (
+                      p.kind = 'user'
+                      OR (p.kind = 'personal' AND p.created_by = %s)
+                      OR (
+                          p.kind = 'inbox'
+                          AND (
+                              (p.shared = TRUE AND %s = 'shared')
+                              OR (p.shared = FALSE AND %s <> 'shared' AND p.created_by = %s)
+                          )
+                      )
+                  )
                 GROUP BY p.id
                 ORDER BY p.kind, coalesce(max(n.created_at), p.created_at) DESC
                 """,
-                (workspace_id,),
+                (workspace_id, user.clerk_user_id, inbox_mode, inbox_mode, user.clerk_user_id),
             )
         }
 

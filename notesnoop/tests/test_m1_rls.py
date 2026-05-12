@@ -308,6 +308,449 @@ def test_base_note_links_reject_cross_workspace_targets(conn):
         conn.commit()
 
 
+def test_stale_shared_inbox_in_private_workspace_does_not_grant_note_access(conn):
+    suffix = uuid.uuid4().hex[:8]
+    owner = f"u_inbox_owner_{suffix}"
+    member = f"u_inbox_member_{suffix}"
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("RESET ROLE")
+        cur.execute(
+            """
+            INSERT INTO user_profiles (clerk_user_id, email, display_name)
+            VALUES
+              (%s, %s, 'Inbox Owner'),
+              (%s, %s, 'Inbox Member')
+            """,
+            (owner, f"{owner}@example.test", member, f"{member}@example.test"),
+        )
+        cur.execute(
+            """
+            INSERT INTO workspaces (clerk_org_id, name, inbox_mode)
+            VALUES (%s, 'Private Inbox RLS', 'per_user_private')
+            RETURNING id
+            """,
+            (f"org_inbox_{suffix}",),
+        )
+        workspace_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
+            VALUES (%s, %s, 'admin'), (%s, %s, 'member')
+            """,
+            (workspace_id, owner, workspace_id, member),
+        )
+        cur.execute(
+            """
+            INSERT INTO projects (workspace_id, name, kind, shared, created_by)
+            VALUES (%s, 'Inbox', 'inbox', TRUE, %s)
+            RETURNING id
+            """,
+            (workspace_id, owner),
+        )
+        stale_shared_inbox = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO project_members (project_id, clerk_user_id)
+            VALUES (%s, %s), (%s, %s)
+            """,
+            (stale_shared_inbox, owner, stale_shared_inbox, member),
+        )
+        cur.execute(
+            """
+            INSERT INTO notes (workspace_id, title, body, created_by)
+            VALUES (%s, 'Stale shared inbox note', 'This should stay with the owner only.', %s)
+            RETURNING id
+            """,
+            (workspace_id, owner),
+        )
+        note_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO note_projects (note_id, project_id, linked_by)
+            VALUES (%s, %s, %s)
+            """,
+            (note_id, stale_shared_inbox, owner),
+        )
+        conn.commit()
+
+        _as_user(cur, member)
+        assert _fetch_ids(cur, "SELECT id FROM projects WHERE id = %s", (stale_shared_inbox,)) == []
+        assert _fetch_ids(cur, "SELECT id FROM notes WHERE id = %s", (note_id,)) == []
+        conn.commit()
+
+
+def test_shared_inbox_in_shared_workspace_grants_member_note_access(conn):
+    suffix = uuid.uuid4().hex[:8]
+    owner = f"u_shared_owner_{suffix}"
+    member = f"u_shared_member_{suffix}"
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("RESET ROLE")
+        cur.execute(
+            """
+            INSERT INTO user_profiles (clerk_user_id, email, display_name)
+            VALUES
+              (%s, %s, 'Shared Owner'),
+              (%s, %s, 'Shared Member')
+            """,
+            (owner, f"{owner}@example.test", member, f"{member}@example.test"),
+        )
+        cur.execute(
+            """
+            INSERT INTO workspaces (clerk_org_id, name, inbox_mode)
+            VALUES (%s, 'Shared Inbox RLS', 'shared')
+            RETURNING id
+            """,
+            (f"org_shared_{suffix}",),
+        )
+        workspace_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
+            VALUES (%s, %s, 'admin'), (%s, %s, 'member')
+            """,
+            (workspace_id, owner, workspace_id, member),
+        )
+        cur.execute(
+            """
+            INSERT INTO projects (workspace_id, name, kind, shared, created_by)
+            VALUES (%s, 'Inbox', 'inbox', TRUE, %s)
+            RETURNING id
+            """,
+            (workspace_id, owner),
+        )
+        shared_inbox = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO notes (workspace_id, title, body, created_by)
+            VALUES (%s, 'Shared inbox note', 'Members should see shared inbox notes.', %s)
+            RETURNING id
+            """,
+            (workspace_id, owner),
+        )
+        note_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO note_projects (note_id, project_id, linked_by)
+            VALUES (%s, %s, %s)
+            """,
+            (note_id, shared_inbox, owner),
+        )
+        conn.commit()
+
+        _as_user(cur, member)
+        assert _fetch_ids(cur, "SELECT id FROM projects WHERE id = %s", (shared_inbox,)) == [str(shared_inbox)]
+        assert _fetch_ids(cur, "SELECT id FROM notes WHERE id = %s", (note_id,)) == [str(note_id)]
+        conn.commit()
+
+
+def test_stale_private_inbox_in_shared_workspace_does_not_grant_access(conn):
+    suffix = uuid.uuid4().hex[:8]
+    owner = f"u_private_owner_{suffix}"
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("RESET ROLE")
+        cur.execute(
+            "INSERT INTO user_profiles (clerk_user_id, email, display_name) VALUES (%s, %s, 'Private Owner')",
+            (owner, f"{owner}@example.test"),
+        )
+        cur.execute(
+            """
+            INSERT INTO workspaces (clerk_org_id, name, inbox_mode)
+            VALUES (%s, 'Shared Workspace With Stale Private Inbox', 'shared')
+            RETURNING id
+            """,
+            (f"org_private_{suffix}",),
+        )
+        workspace_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
+            VALUES (%s, %s, 'admin')
+            """,
+            (workspace_id, owner),
+        )
+        cur.execute(
+            """
+            INSERT INTO projects (workspace_id, name, kind, shared, created_by)
+            VALUES (%s, 'Inbox', 'inbox', FALSE, %s)
+            RETURNING id
+            """,
+            (workspace_id, owner),
+        )
+        stale_private_inbox = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO project_members (project_id, clerk_user_id)
+            VALUES (%s, %s)
+            """,
+            (stale_private_inbox, owner),
+        )
+        conn.commit()
+
+        _as_user(cur, owner)
+        assert _fetch_ids(cur, "SELECT id FROM projects WHERE id = %s", (stale_private_inbox,)) == []
+        conn.commit()
+
+
+def test_personal_project_membership_does_not_grant_cross_user_access(conn):
+    suffix = uuid.uuid4().hex[:8]
+    owner = f"u_personal_owner_{suffix}"
+    member = f"u_personal_member_{suffix}"
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("RESET ROLE")
+        cur.execute(
+            """
+            INSERT INTO user_profiles (clerk_user_id, email, display_name)
+            VALUES
+              (%s, %s, 'Personal Owner'),
+              (%s, %s, 'Personal Member')
+            """,
+            (owner, f"{owner}@example.test", member, f"{member}@example.test"),
+        )
+        cur.execute(
+            "INSERT INTO workspaces (clerk_org_id, name) VALUES (%s, 'Personal Backdoor RLS') RETURNING id",
+            (f"org_personal_{suffix}",),
+        )
+        workspace_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
+            VALUES (%s, %s, 'admin'), (%s, %s, 'member')
+            """,
+            (workspace_id, owner, workspace_id, member),
+        )
+        cur.execute(
+            """
+            INSERT INTO projects (workspace_id, name, kind, created_by)
+            VALUES (%s, 'Personal', 'personal', %s)
+            RETURNING id
+            """,
+            (workspace_id, owner),
+        )
+        personal_project = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO project_members (project_id, clerk_user_id)
+            VALUES (%s, %s), (%s, %s)
+            """,
+            (personal_project, owner, personal_project, member),
+        )
+        cur.execute(
+            """
+            INSERT INTO notes (workspace_id, title, body, created_by)
+            VALUES (%s, 'Personal note', 'This note is private.', %s)
+            RETURNING id
+            """,
+            (workspace_id, owner),
+        )
+        note_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO note_projects (note_id, project_id, linked_by)
+            VALUES (%s, %s, %s)
+            """,
+            (note_id, personal_project, owner),
+        )
+        conn.commit()
+
+        _as_user(cur, member)
+        assert _fetch_ids(cur, "SELECT id FROM projects WHERE id = %s", (personal_project,)) == []
+        assert _fetch_ids(cur, "SELECT project_id FROM project_members WHERE project_id = %s", (personal_project,)) == []
+        assert _fetch_ids(cur, "SELECT id FROM notes WHERE id = %s", (note_id,)) == []
+        conn.commit()
+
+
+def test_fresh_personal_workspace_allows_self_bootstrap_membership(conn):
+    suffix = uuid.uuid4().hex[:8]
+    user_id = f"u_bootstrap_{suffix}"
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("RESET ROLE")
+        cur.execute(
+            "INSERT INTO user_profiles (clerk_user_id, email, display_name) VALUES (%s, %s, 'Bootstrap User')",
+            (user_id, f"{user_id}@example.test"),
+        )
+        cur.execute(
+            """
+            INSERT INTO workspaces (clerk_org_id, name, inbox_mode)
+            VALUES (%s, 'Fresh Bootstrap Workspace', 'per_user_private')
+            RETURNING id
+            """,
+            (f"personal:{user_id}",),
+        )
+        workspace_id = cur.fetchone()["id"]
+        conn.commit()
+
+        _as_user(cur, user_id)
+        cur.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
+            VALUES (%s, %s, 'admin')
+            """,
+            (workspace_id, user_id),
+        )
+        assert _fetch_ids(
+            cur,
+            "SELECT workspace_id FROM workspace_members WHERE workspace_id = %s AND clerk_user_id = %s",
+            (workspace_id, user_id),
+        ) == [str(workspace_id)]
+        conn.commit()
+
+
+def test_removed_workspace_member_cannot_use_stale_project_access(conn):
+    suffix = uuid.uuid4().hex[:8]
+    owner = f"u_removed_owner_{suffix}"
+    member = f"u_removed_member_{suffix}"
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("RESET ROLE")
+        cur.execute(
+            """
+            INSERT INTO user_profiles (clerk_user_id, email, display_name)
+            VALUES
+              (%s, %s, 'Removed Owner'),
+              (%s, %s, 'Removed Member')
+            """,
+            (owner, f"{owner}@example.test", member, f"{member}@example.test"),
+        )
+        cur.execute(
+            "INSERT INTO workspaces (clerk_org_id, name) VALUES (%s, 'Removed Member RLS') RETURNING id",
+            (f"org_removed_{suffix}",),
+        )
+        workspace_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
+            VALUES (%s, %s, 'admin'), (%s, %s, 'member')
+            """,
+            (workspace_id, owner, workspace_id, member),
+        )
+        cur.execute(
+            """
+            INSERT INTO projects (workspace_id, name, kind, shared, created_by)
+            VALUES (%s, 'Removed Project', 'user', TRUE, %s)
+            RETURNING id
+            """,
+            (workspace_id, owner),
+        )
+        project_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO project_members (project_id, clerk_user_id)
+            VALUES (%s, %s), (%s, %s)
+            """,
+            (project_id, owner, project_id, member),
+        )
+        cur.execute(
+            """
+            INSERT INTO notes (workspace_id, title, body, created_by)
+            VALUES (%s, 'Removed project note', 'Stale project membership should not expose this.', %s)
+            RETURNING id
+            """,
+            (workspace_id, owner),
+        )
+        note_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO note_projects (note_id, project_id, linked_by)
+            VALUES (%s, %s, %s)
+            """,
+            (note_id, project_id, owner),
+        )
+        conn.commit()
+
+        _as_user(cur, member)
+        cur.execute(
+            """
+            UPDATE workspace_members
+            SET role = 'admin'
+            WHERE workspace_id = %s AND clerk_user_id = %s
+            """,
+            (workspace_id, member),
+        )
+        assert cur.rowcount == 0
+        cur.execute(
+            """
+            SELECT role
+            FROM workspace_members
+            WHERE workspace_id = %s AND clerk_user_id = %s
+            """,
+            (workspace_id, member),
+        )
+        assert cur.fetchone()["role"] == "member"
+        conn.commit()
+
+        cur.execute("RESET ROLE")
+        cur.execute(
+            "INSERT INTO workspaces (clerk_org_id, name) VALUES (%s, 'Attacker Workspace') RETURNING id",
+            (f"org_attacker_{suffix}",),
+        )
+        attacker_workspace_id = cur.fetchone()["id"]
+        cur.execute(
+            """
+            INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
+            VALUES (%s, %s, 'member')
+            """,
+            (attacker_workspace_id, member),
+        )
+        conn.commit()
+
+        _as_user(cur, member)
+        cur.execute(
+            """
+            UPDATE workspace_members
+            SET workspace_id = %s
+            WHERE workspace_id = %s AND clerk_user_id = %s
+            """,
+            (workspace_id, attacker_workspace_id, member),
+        )
+        assert cur.rowcount == 0
+        assert _fetch_ids(
+            cur,
+            "SELECT workspace_id FROM workspace_members WHERE clerk_user_id = %s ORDER BY workspace_id",
+            (member,),
+        ) == sorted([str(attacker_workspace_id), str(workspace_id)])
+        cur.execute(
+            """
+            SELECT (update_own_workspace_member_settings(%s, 'auto', TRUE)).morning_briefing_optin
+            """,
+            (attacker_workspace_id,),
+        )
+        assert cur.fetchone()["morning_briefing_optin"] is True
+        conn.commit()
+
+        cur.execute("RESET ROLE")
+        cur.execute(
+            """
+            DELETE FROM workspace_members
+            WHERE workspace_id = %s AND clerk_user_id IN (%s, %s)
+            """,
+            (workspace_id, owner, member),
+        )
+        conn.commit()
+
+        for removed_user in (owner, member):
+            _as_user(cur, removed_user)
+            assert _fetch_ids(cur, "SELECT id FROM projects WHERE id = %s", (project_id,)) == []
+            assert _fetch_ids(cur, "SELECT project_id FROM project_members WHERE project_id = %s", (project_id,)) == []
+            assert _fetch_ids(cur, "SELECT id FROM notes WHERE id = %s", (note_id,)) == []
+            for role in ("member", "admin"):
+                cur.execute("SAVEPOINT rejoin_guard")
+                with pytest.raises(psycopg2.Error):
+                    cur.execute(
+                        """
+                        INSERT INTO workspace_members (workspace_id, clerk_user_id, role)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (workspace_id, removed_user, role),
+                    )
+                cur.execute("ROLLBACK TO SAVEPOINT rejoin_guard")
+            conn.commit()
+
+
 def test_workspace_scoped_tables_have_rls_policies(conn):
     expected = {
         "workspaces",

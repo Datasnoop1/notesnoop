@@ -189,18 +189,46 @@ def ensure_member_default_projects(cur, workspace_id: str, user_id: str, inbox_m
         defaults.append(("Inbox", "inbox", "#0f766e", False))
 
     for name, kind, color, shared in defaults:
-        existing = one(
-            cur,
-            """
-            SELECT id
-            FROM projects
-            WHERE workspace_id = %s
-              AND kind = %s
-              AND created_by = %s
-            LIMIT 1
-            """,
-            (workspace_id, kind, user_id),
-        )
+        if kind == "inbox" and shared:
+            existing = one(
+                cur,
+                """
+                SELECT id
+                FROM projects
+                WHERE workspace_id = %s
+                  AND kind = 'inbox'
+                  AND shared = TRUE
+                LIMIT 1
+                """,
+                (workspace_id,),
+            )
+        elif kind == "inbox":
+            existing = one(
+                cur,
+                """
+                SELECT id
+                FROM projects
+                WHERE workspace_id = %s
+                  AND kind = 'inbox'
+                  AND shared = FALSE
+                  AND created_by = %s
+                LIMIT 1
+                """,
+                (workspace_id, user_id),
+            )
+        else:
+            existing = one(
+                cur,
+                """
+                SELECT id
+                FROM projects
+                WHERE workspace_id = %s
+                  AND kind = %s
+                  AND created_by = %s
+                LIMIT 1
+                """,
+                (workspace_id, kind, user_id),
+            )
         if existing:
             project_id = existing["id"]
         else:
@@ -384,7 +412,34 @@ def get_bootstrap_state(cur, user_id: str, workspace_id: str) -> dict:
     )
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    projects = many(cur, "SELECT * FROM projects WHERE workspace_id = %s ORDER BY kind, created_at", (workspace_id,))
+    ensure_member_default_projects(cur, workspace_id, user_id, workspace.get("inbox_mode") or "per_user_private")
+    projects = many(
+        cur,
+        """
+        SELECT *
+        FROM projects
+        WHERE workspace_id = %s
+          AND (
+              kind = 'user'
+              OR (kind = 'personal' AND created_by = %s)
+              OR (
+                  kind = 'inbox'
+                  AND (
+                      (shared = TRUE AND %s = 'shared')
+                      OR (shared = FALSE AND %s <> 'shared' AND created_by = %s)
+                  )
+              )
+          )
+        ORDER BY kind, created_at
+        """,
+        (
+            workspace_id,
+            user_id,
+            workspace.get("inbox_mode") or "per_user_private",
+            workspace.get("inbox_mode") or "per_user_private",
+            user_id,
+        ),
+    )
     people = many(cur, "SELECT * FROM people WHERE workspace_id = %s ORDER BY created_at", (workspace_id,))
     workspaces = many(
         cur,
