@@ -1160,6 +1160,42 @@ def _is_list_header_title(title: str) -> bool:
     return False
 
 
+_TASK_STOP_WORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "do", "for", "from", "has",
+    "have", "he", "her", "his", "in", "is", "it", "its", "me", "my", "of", "on",
+    "or", "our", "she", "that", "the", "their", "them", "they", "this", "to",
+    "was", "we", "will", "with", "you", "your", "i", "need",
+})
+
+
+def _task_signature(title: str) -> frozenset[str]:
+    """Return the meaningful word tokens of a task title for dedup matching."""
+    tokens = []
+    for char in title.lower():
+        tokens.append(char if char.isalnum() else " ")
+    return frozenset(
+        word for word in "".join(tokens).split()
+        if len(word) >= 3 and word not in _TASK_STOP_WORDS
+    )
+
+
+def _is_near_duplicate_task(signature: frozenset[str], seen: list[frozenset[str]]) -> bool:
+    """True when the candidate task shares >=70% of its meaningful tokens with
+    any task we've already accepted from this note's extraction. Catches the
+    common LLM mistake of emitting both the original and a slightly rephrased
+    version of the same action."""
+    if not signature:
+        return False
+    for prior in seen:
+        union = signature | prior
+        if not union:
+            continue
+        overlap = len(signature & prior) / max(len(signature), len(prior))
+        if overlap >= 0.7:
+            return True
+    return False
+
+
 def _structured_memory_candidates(
     note: dict,
     data: dict[str, Any],
@@ -1185,6 +1221,7 @@ def _structured_memory_candidates(
         candidates.append(("company", payload))
 
     seen_task_titles: set[str] = set()
+    seen_task_signatures: list[frozenset[str]] = []
     for item in data.get("tasks", []):
         title = _materialize_title(item)
         if _is_list_header_title(title):
@@ -1195,7 +1232,14 @@ def _structured_memory_candidates(
         key = title.casefold()
         if not title or key in seen_task_titles:
             continue
+        signature = _task_signature(title)
+        if _is_near_duplicate_task(signature, seen_task_signatures):
+            # Catches the LLM emitting both "Circle back with Priya on legal
+            # terms" and "Need to circle back with her by Thursday on legal
+            # terms" — same action, near-duplicate wording.
+            continue
         seen_task_titles.add(key)
+        seen_task_signatures.append(signature)
         payload = _base_candidate("task", note, title, "action_item", item, project_ids, person_ids)
         payload["title"] = title
         payload["description"] = payload.get("description") or payload.get("summary") or str(note.get("body") or "")[:2000]

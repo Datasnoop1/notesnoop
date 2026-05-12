@@ -1312,13 +1312,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setToast(nextOptIn ? "Morning briefing is on." : "Morning briefing is off.");
   }
 
-  async function sendTestEmail() {
-    if (!workspaceId) return;
-    const res = await api(`/api/workspaces/${workspaceId}/send-test-email`, { method: "POST" });
-    setToast(res.data.outcome === "saved" ? "Test email saved to Inbox." : "Test email was not saved.");
-    await refreshWorkspaceData();
-  }
-
   async function askMemory() {
     if (!workspaceId || !askQuestion.trim()) return;
     setBusy(true);
@@ -2237,7 +2230,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           <small>Anything you forward lands here as a note.</small>
         </div>
       )}
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Optional title" />
       <div className="context-picker" aria-label="Memory context">
         <select value={noteKind} onChange={(e) => setNoteKind(e.target.value)} aria-label="Memory type">
           {Object.entries(NOTE_KIND_LABELS).map(([value, label]) => (
@@ -2418,12 +2410,16 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           </>
         )}
         <div className="inbound">
-          <span>Inbound</span>
-          <button onClick={() => state?.inbound_address && navigator.clipboard.writeText(state.inbound_address)}>
-            <Copy size={15} /> {state?.inbound_address || "Loading"}
-          </button>
-          <button onClick={sendTestEmail}>
-            <Send size={15} /> Send test email
+          <span>Inbound email</span>
+          <button
+            onClick={() => {
+              if (!state?.inbound_address) return;
+              navigator.clipboard.writeText(state.inbound_address);
+              setToast("Inbound address copied. Forward any email here.");
+            }}
+            title={state?.inbound_address ? `Copy ${state.inbound_address}` : "Loading"}
+          >
+            <Copy size={14} /> {state?.inbound_address || "Loading…"}
           </button>
         </div>
       </aside>
@@ -2547,7 +2543,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   if (tasksDone > 0) parts.push(`${tasksDone} task${tasksDone === 1 ? "" : "s"} done`);
                   if (reviewsAccepted > 0) parts.push(`${reviewsAccepted} review${reviewsAccepted === 1 ? "" : "s"} accepted`);
                   if (parts.length === 0) return null;
-                  return <p className="dashboard-today">Today: {parts.join(" - ")}</p>;
+                  return <p className="dashboard-today">Today: {parts.join(" · ")}</p>;
                 })()}
                 {(() => {
                   const weekCounts = home?.week_counts || {};
@@ -2563,7 +2559,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   if (notesArchived > 0) parts.push(`${notesArchived} archived`);
                   if (projectsClosed > 0) parts.push(`${projectsClosed} project${projectsClosed === 1 ? "" : "s"} closed`);
                   if (parts.length === 0) return null;
-                  return <p className="dashboard-week">Past 7 days: {parts.join(" - ")}</p>;
+                  return <p className="dashboard-week">Past 7 days: {parts.join(" · ")}</p>;
                 })()}
               </div>
               <div className="dashboard-actions">
@@ -2657,21 +2653,44 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 <strong>{dashboardReviewCount}</strong>
                 <small>{dashboardReviewCount ? "needs decisions" : "clear"}</small>
               </button>
-              <div className="metric-card">
+              <button
+                className="metric-card metric-button"
+                type="button"
+                onClick={() => {
+                  document.querySelector(".memory-system-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                aria-label={`Jump to memory items, ${dashboardNotes.length} in context`}
+              >
                 <span><Archive size={16} /> Memory items</span>
                 <strong>{dashboardNotes.length}</strong>
                 <small>{activeProjectRecord ? "in context" : "latest"}</small>
-              </div>
-              <div className="metric-card">
+              </button>
+              <button
+                className="metric-card metric-button"
+                type="button"
+                onClick={() => {
+                  setActiveMemoryTab("tasks");
+                  document.querySelector(".memory-system-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                aria-label={`Jump to open tasks, ${openTasks.length} active`}
+              >
                 <span><ClipboardList size={16} /> Open tasks</span>
                 <strong>{openTasks.length}</strong>
                 <small>{openTasks.length ? "active loops" : "none open"}</small>
-              </div>
-              <div className="metric-card">
+              </button>
+              <button
+                className="metric-card metric-button"
+                type="button"
+                onClick={() => {
+                  setActiveMemoryTab("intel");
+                  document.querySelector(".memory-system-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                aria-label={`Jump to project intelligence, ${projectIntelligence.length} items`}
+              >
                 <span><Lightbulb size={16} /> Intelligence</span>
                 <strong>{projectIntelligence.length}</strong>
                 <small>{activeProjectRecord ? "project signals" : "project views"}</small>
-              </div>
+              </button>
             </div>
 
             <div className="dashboard-grid">

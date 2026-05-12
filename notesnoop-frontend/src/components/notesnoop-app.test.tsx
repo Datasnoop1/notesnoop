@@ -732,7 +732,7 @@ describe("NoteSnoopApp", () => {
     });
   });
 
-  it("uses search filters, creates entities, and sends a test email", async () => {
+  it("uses search filters and creates entities", async () => {
     const { calls } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
@@ -745,7 +745,6 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
     fireEvent.change(screen.getByPlaceholderText("Quick-add person"), { target: { value: "Avery Chen" } });
     fireEvent.click(screen.getByRole("button", { name: "Add person" }));
-    fireEvent.click(screen.getByRole("button", { name: /Send test email/i }));
 
     expect(await screen.findByText("Memory matches")).toBeInTheDocument();
     expect((await screen.findAllByText("Northstar")).length).toBeGreaterThan(0);
@@ -753,7 +752,6 @@ describe("NoteSnoopApp", () => {
       expect(calls.some((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/projects"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/people"))).toBe(true);
-      expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/send-test-email"))).toBe(true);
     });
   });
 
