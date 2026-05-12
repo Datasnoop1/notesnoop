@@ -2890,7 +2890,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 <div className="onboarding-copy">
                   <span><Sparkles size={16} /> First capture</span>
                   <h2>Start with one messy note</h2>
-                  <p>Use the starter note, or paste your own meeting fragment in Capture.</p>
+                  <p>Use the starter note, or paste your own meeting fragment below.</p>
+                  <div className="onboarding-steps" aria-label="First capture path">
+                    <span>Capture</span>
+                    <span>Extract</span>
+                    <span>Accept all</span>
+                  </div>
                 </div>
                 <div className="onboarding-sample" aria-label="Starter note">
                   <small>Starter note</small>
@@ -2904,6 +2909,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     <ClipboardList size={16} /> Edit starter note
                   </button>
                 </div>
+              </section>
+            )}
+
+            {showFirstCapture && (
+              <section className="first-capture-composer" aria-label="First capture composer">
+                {composerSection}
               </section>
             )}
 
@@ -3188,13 +3199,15 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 )}
               </section>
 
-              <section className="dashboard-panel capture-panel">
-                <div className="panel-head">
-                  <h2>Capture</h2>
-                  <Send size={18} />
-                </div>
-                {composerSection}
-              </section>
+              {!showFirstCapture && (
+                <section className="dashboard-panel capture-panel">
+                  <div className="panel-head">
+                    <h2>Capture</h2>
+                    <Send size={18} />
+                  </div>
+                  {composerSection}
+                </section>
+              )}
 
               <section className="dashboard-panel pipeline-panel">
                 <div className="panel-head">

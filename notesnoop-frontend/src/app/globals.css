@@ -296,6 +296,21 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   margin: 0;
   color: var(--muted);
 }
+.onboarding-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.onboarding-steps span {
+  border: 1px solid #cfe3dd;
+  background: #fff;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+}
 .onboarding-sample {
   display: grid;
   gap: 6px;
@@ -334,6 +349,19 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .onboarding-actions button:disabled {
   opacity: .55;
   cursor: not-allowed;
+}
+.first-capture-composer {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffefb;
+  padding: 14px;
+}
+.first-capture-composer .composer {
+  margin: 0;
+  max-width: none;
 }
 
 .composer {
@@ -1071,12 +1099,14 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .dashboard-row > .dot {
   justify-self: center;
 }
-.dashboard-row > span:last-child {
+.dashboard-row > span:not(.row-icon):not(.loose-end-actions) {
   min-width: 0;
   display: grid;
   gap: 2px;
 }
 .dashboard-row strong, .dashboard-row small {
+  display: block;
+  max-width: 100%;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

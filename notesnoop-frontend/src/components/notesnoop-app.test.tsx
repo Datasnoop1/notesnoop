@@ -534,6 +534,11 @@ describe("NoteSnoopApp", () => {
     render(<NoteSnoopApp quickCapture={false} />);
 
     expect(await screen.findByRole("region", { name: "First capture" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "First capture composer" })).toContainElement(screen.getByPlaceholderText(/Dump a note/i));
+    expect(screen.getByText("Capture")).toBeInTheDocument();
+    expect(screen.getByText("Extract")).toBeInTheDocument();
+    expect(screen.getByText("Accept all")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Capture" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Edit starter note/i }));
     expect((screen.getByPlaceholderText(/Dump a note/i) as HTMLTextAreaElement).value).toContain("Project Meridian");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
