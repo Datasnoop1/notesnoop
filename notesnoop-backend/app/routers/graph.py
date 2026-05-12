@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
-from ..schemas import CompanyMergeRequest, PersonMergeRequest, ReviewBulkAccept, ReviewDecision
+from ..schemas import CompanyMergeRequest, PersonMergeRequest, ProjectMergeRequest, ReviewBulkAccept, ReviewDecision
 from ..worker import _materialize_review_candidate
 
 
@@ -774,6 +774,152 @@ def merge_company(source_company_id: str, payload: CompanyMergeRequest, user: Cu
         )
         cur.execute("DELETE FROM companies WHERE id = %s", (source_company_id,))
         return {"data": {"merged": True, "target_company_id": payload.target_company_id}}
+
+
+@router.post("/projects/{source_project_id}/merge")
+def merge_project(source_project_id: str, payload: ProjectMergeRequest, user: CurrentUser = Depends(current_user)):
+    if source_project_id == payload.target_project_id:
+        raise HTTPException(status_code=422, detail="Choose a different target project")
+    with transaction(user.clerk_user_id) as cur:
+        source = one(cur, "SELECT * FROM projects WHERE id = %s", (source_project_id,))
+        target = one(cur, "SELECT * FROM projects WHERE id = %s", (payload.target_project_id,))
+        if not source or not target or source["workspace_id"] != target["workspace_id"]:
+            raise HTTPException(status_code=404, detail="Merge projects not found")
+        if source["kind"] != "user" or target["kind"] != "user":
+            raise HTTPException(status_code=422, detail="System projects cannot be merged")
+        admin = one(
+            cur,
+            "SELECT 1 FROM workspace_members WHERE workspace_id = %s AND clerk_user_id = %s AND role = 'admin'",
+            (source["workspace_id"], user.clerk_user_id),
+        )
+        if (source["created_by"] != user.clerk_user_id or target["created_by"] != user.clerk_user_id) and not admin:
+            raise HTTPException(status_code=403, detail="Only workspace admins or both project creators can merge projects")
+
+        # Collapse every project-scoped link into the target before deleting
+        # the source anchor, preserving provenance where the link tables store it.
+        for table, peer_col, has_workspace_id, has_linked_via in (
+            ("note_projects", "note_id", False, False),
+            ("task_projects", "task_id", True, True),
+            ("meeting_projects", "meeting_id", True, True),
+            ("report_projects", "report_id", True, True),
+            ("workflow_projects", "workflow_id", True, True),
+            ("company_projects", "company_id", True, True),
+        ):
+            extra_cols = ", linked_via" if has_linked_via else ""
+            if has_workspace_id:
+                cur.execute(
+                    f"""
+                    INSERT INTO {table} ({peer_col}, project_id, workspace_id, linked_at, linked_by{extra_cols})
+                    SELECT {peer_col}, %s, workspace_id, linked_at, linked_by{extra_cols}
+                    FROM {table}
+                    WHERE project_id = %s
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (payload.target_project_id, source_project_id),
+                )
+            else:
+                cur.execute(
+                    f"""
+                    INSERT INTO {table} ({peer_col}, project_id, linked_at, linked_by)
+                    SELECT {peer_col}, %s, linked_at, linked_by
+                    FROM {table}
+                    WHERE project_id = %s
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (payload.target_project_id, source_project_id),
+                )
+            cur.execute(f"DELETE FROM {table} WHERE project_id = %s", (source_project_id,))
+
+        cur.execute(
+            """
+            INSERT INTO project_members (project_id, clerk_user_id, joined_at)
+            SELECT %s, clerk_user_id, joined_at
+            FROM project_members
+            WHERE project_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (payload.target_project_id, source_project_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO project_invites (
+              workspace_id, project_id, email, display_name, status,
+              invited_by, accepted_by, accepted_at, created_at
+            )
+            SELECT pi.workspace_id, %s, pi.email, pi.display_name, pi.status,
+                   %s, pi.accepted_by, pi.accepted_at, pi.created_at
+            FROM project_invites pi
+            WHERE pi.project_id = %s
+              AND NOT EXISTS (
+                SELECT 1
+                FROM project_invites existing
+                WHERE existing.project_id = %s
+                  AND lower(existing.email) = lower(pi.email)
+                  AND existing.status = pi.status
+              )
+            """,
+            (payload.target_project_id, user.clerk_user_id, source_project_id, payload.target_project_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO flags (flagged_user_id, workspace_id, project_id, flagged_at, position)
+            SELECT flagged_user_id, workspace_id, %s, flagged_at, position
+            FROM flags
+            WHERE project_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (payload.target_project_id, source_project_id),
+        )
+
+        for review in many(
+            cur,
+            "SELECT id, payload FROM review_queue WHERE workspace_id = %s AND payload IS NOT NULL",
+            (source["workspace_id"],),
+        ):
+            data = dict(review.get("payload") or {})
+            changed = False
+            if data.get("matched_project_id") == source_project_id:
+                data["matched_project_id"] = payload.target_project_id
+                changed = True
+            if isinstance(data.get("project_ids"), list):
+                next_project_ids = []
+                for project_id in data["project_ids"]:
+                    next_project_id = payload.target_project_id if project_id == source_project_id else project_id
+                    if next_project_id not in next_project_ids:
+                        next_project_ids.append(next_project_id)
+                if next_project_ids != data["project_ids"]:
+                    data["project_ids"] = next_project_ids
+                    changed = True
+            if changed:
+                cur.execute("UPDATE review_queue SET payload = %s::jsonb WHERE id = %s", (json.dumps(data), review["id"]))
+
+        next_status = "active" if (source.get("status") or "active") == "active" or (target.get("status") or "active") == "active" else "closed"
+        cur.execute(
+            """
+            UPDATE projects
+            SET color_hex = coalesce(color_hex, %s),
+                ai_mode = coalesce(ai_mode, %s),
+                shared = shared OR %s,
+                status = %s,
+                closed_at = CASE WHEN %s = 'active' THEN NULL ELSE coalesce(closed_at, %s) END,
+                description = coalesce(description, %s)
+            WHERE id = %s
+            RETURNING *
+            """,
+            (
+                source.get("color_hex"),
+                source.get("ai_mode"),
+                bool(source.get("shared")),
+                next_status,
+                next_status,
+                source.get("closed_at"),
+                source.get("description"),
+                payload.target_project_id,
+            ),
+        )
+        target_after = dict(cur.fetchone())
+        cur.execute("DELETE FROM projects WHERE id = %s", (source_project_id,))
+        return {"data": {"merged": True, "target_project_id": payload.target_project_id, "target_project": target_after}}
 
 
 @router.post("/people/{source_person_id}/merge")

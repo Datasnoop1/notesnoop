@@ -294,5 +294,9 @@ class CompanyMergeRequest(BaseModel):
     target_company_id: str
 
 
+class ProjectMergeRequest(BaseModel):
+    target_project_id: str
+
+
 class ApiResponse(BaseModel):
     data: Any

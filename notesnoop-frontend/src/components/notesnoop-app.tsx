@@ -465,6 +465,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const appliedRouteRef = useRef("");
   const openProjectRef = useRef<((project: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
   const openMemoryItemRef = useRef<((sectionId: string, item: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
+  const activeProjectRef = useRef<string | null>(null);
+  const staleProjectRefreshIdsRef = useRef<Set<string>>(new Set());
 
   const api = useCallback(
     async (path: string, init: RequestInit = {}) => {
@@ -490,6 +492,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   );
 
   const workspaceId = state?.workspace?.id;
+  useEffect(() => {
+    activeProjectRef.current = activeProject;
+  }, [activeProject]);
   const inbox = useMemo(() => state?.projects.find((p) => p.kind === "inbox"), [state]);
   const personal = useMemo(() => state?.projects.find((p) => p.kind === "personal"), [state]);
   const closedProjects = useMemo(
@@ -576,28 +581,44 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const refreshWorkspaceData = useCallback(async () => {
     if (!workspaceId) return;
     const projectQuery = activeProject ? `?project_id=${activeProject}` : "";
-    const [homeRes, graphRes, notesRes, peopleRes, projectsRes] = await Promise.all([
-      api(`/api/workspaces/${workspaceId}/home${projectQuery}`),
-      api(`/api/workspaces/${workspaceId}/memory-graph${projectQuery}`),
-      api(`/api/workspaces/${workspaceId}/notes${activeProject ? `?project_id=${activeProject}` : ""}`),
-      api(`/api/workspaces/${workspaceId}/people`),
-      api(`/api/workspaces/${workspaceId}/projects`),
-    ]);
-    setHome(homeRes.data);
-    setMemoryGraph(graphRes.data?.nodes ? graphRes.data : { nodes: [], edges: [] });
-    setNotes(notesRes.data);
-    setState((prev) => (prev ? { ...prev, people: peopleRes.data, projects: projectsRes.data } : prev));
+    try {
+      const [homeRes, graphRes, notesRes, peopleRes, projectsRes] = await Promise.all([
+        api(`/api/workspaces/${workspaceId}/home${projectQuery}`),
+        api(`/api/workspaces/${workspaceId}/memory-graph${projectQuery}`),
+        api(`/api/workspaces/${workspaceId}/notes${activeProject ? `?project_id=${activeProject}` : ""}`),
+        api(`/api/workspaces/${workspaceId}/people`),
+        api(`/api/workspaces/${workspaceId}/projects`),
+      ]);
+      setHome(homeRes.data);
+      setMemoryGraph(graphRes.data?.nodes ? graphRes.data : { nodes: [], edges: [] });
+      setNotes(notesRes.data);
+      setState((prev) => (prev ? { ...prev, people: peopleRes.data, projects: projectsRes.data } : prev));
+    } catch (err) {
+      if (
+        activeProject
+        && (activeProjectRef.current !== activeProject || staleProjectRefreshIdsRef.current.has(activeProject))
+      ) return;
+      throw err;
+    }
   }, [activeProject, api, workspaceId]);
 
   const refreshSignals = useCallback(async () => {
     if (!workspaceId) return;
     const projectQuery = activeProject ? `&project_id=${activeProject}` : "";
-    const [countRes, activityRes] = await Promise.all([
-      api(`/api/review-queue/count?workspace_id=${workspaceId}${projectQuery}`),
-      api(`/api/collaborator-activity/${workspaceId}`),
-    ]);
-    setReviewCount(countRes.data.count || 0);
-    setActivity(activityRes.data || []);
+    try {
+      const [countRes, activityRes] = await Promise.all([
+        api(`/api/review-queue/count?workspace_id=${workspaceId}${projectQuery}`),
+        api(`/api/collaborator-activity/${workspaceId}`),
+      ]);
+      setReviewCount(countRes.data.count || 0);
+      setActivity(activityRes.data || []);
+    } catch (err) {
+      if (
+        activeProject
+        && (activeProjectRef.current !== activeProject || staleProjectRefreshIdsRef.current.has(activeProject))
+      ) return;
+      throw err;
+    }
   }, [activeProject, api, workspaceId]);
 
   useEffect(() => {
@@ -1619,6 +1640,28 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setPersonTimeline(null);
     setToast("People merged.");
     await refreshWorkspaceData();
+  }
+
+  async function mergeProject(sourceProjectId: string, targetProjectId: string) {
+    staleProjectRefreshIdsRef.current.add(sourceProjectId);
+    try {
+      const res = await api(`/api/projects/${sourceProjectId}/merge`, {
+        method: "POST",
+        body: JSON.stringify({ target_project_id: targetProjectId }),
+      });
+      const targetProject = res.data.target_project || (state?.projects || []).find((project) => project.id === targetProjectId);
+      setToast("Projects merged.");
+      if (targetProject) {
+        await openProject(targetProject);
+      } else {
+        setActiveProject(null);
+        setProjectTimeline(null);
+      }
+      await refresh();
+    } catch (err) {
+      staleProjectRefreshIdsRef.current.delete(sourceProjectId);
+      setToast(err instanceof Error ? err.message : "Project merge failed");
+    }
   }
 
   async function undoMerge() {
@@ -3675,6 +3718,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   timeline={personTimeline}
                   kind="person"
                   people={state?.people || []}
+                  projects={state?.projects || []}
                   onOpenNote={openNote}
                   onOpenMemory={openMemoryItem}
                   onCopy={() => copyBrief("person", personTimeline.person)}
@@ -3691,12 +3735,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   timeline={projectTimeline}
                   kind="project"
                   people={state?.people || []}
+                  projects={state?.projects || []}
                   onOpenNote={openNote}
                   onOpenMemory={openMemoryItem}
                   onCopy={() => copyBrief("project", projectTimeline.project)}
                   onCopyLink={() => copyRouteLink({ kind: "project", id: projectTimeline.project.id }, "Project")}
                   onFlag={() => flag({ project_id: projectTimeline.project.id })}
                   onMerge={mergePerson}
+                  onMergeProject={mergeProject}
                   inviteEmail={inviteEmail}
                   onInviteEmailChange={setInviteEmail}
                   onInvite={inviteProjectMember}
@@ -6254,12 +6300,14 @@ function TimelinePanel({
   timeline,
   kind,
   people,
+  projects,
   onOpenNote,
   onOpenMemory,
   onCopy,
   onCopyLink,
   onFlag,
   onMerge,
+  onMergeProject,
   onCreateTask,
   onRename,
   inviteEmail = "",
@@ -6274,12 +6322,14 @@ function TimelinePanel({
   timeline: any;
   kind: "person" | "project";
   people: any[];
+  projects: any[];
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
   onCopy: () => void;
   onCopyLink: () => void;
   onFlag: () => void;
   onMerge: (sourcePersonId: string, targetPersonId: string) => Promise<void>;
+  onMergeProject?: (sourceProjectId: string, targetProjectId: string) => Promise<void>;
   onCreateTask?: (input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null }) => Promise<void>;
   onRename?: (nextName: string) => Promise<void>;
   onSetProjectStatus?: (status: "active" | "closed") => Promise<void>;
@@ -6296,6 +6346,10 @@ function TimelinePanel({
   const [quickTaskDue, setQuickTaskDue] = useState("");
   const [quickTaskAssignee, setQuickTaskAssignee] = useState("");
   const [personTaskFilter, setPersonTaskFilter] = useState<"all" | "owner" | "watcher">("all");
+  const timelineEntityId = String(kind === "project" ? timeline.project?.id : timeline.person?.id || "");
+  useEffect(() => {
+    setMergeTargetId("");
+  }, [kind, timelineEntityId]);
   const notes = timeline.notes || [];
   const events = Array.isArray(timeline.events) && timeline.events.length
     ? timeline.events
@@ -6404,8 +6458,35 @@ function TimelinePanel({
               .filter((person) => person.id !== timeline.person.id)
               .map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
           </select>
-          <button disabled={!mergeTargetId} onClick={() => onMerge(timeline.person.id, mergeTargetId)}>
+          <button
+            disabled={!mergeTargetId}
+            onClick={async () => {
+              const targetId = mergeTargetId;
+              setMergeTargetId("");
+              await onMerge(timeline.person.id, targetId);
+            }}
+          >
             <Users size={16} /> Merge
+          </button>
+        </div>
+      )}
+      {kind === "project" && timeline.project?.kind === "user" && onMergeProject && (
+        <div className="merge-row">
+          <select value={mergeTargetId} onChange={(event) => setMergeTargetId(event.target.value)} aria-label="Merge target project">
+            <option value="">Merge project into...</option>
+            {projects
+              .filter((project) => project.kind === "user" && project.id !== timeline.project.id)
+              .map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+          <button
+            disabled={!mergeTargetId || mergeTargetId === timeline.project.id}
+            onClick={async () => {
+              const targetId = mergeTargetId;
+              setMergeTargetId("");
+              await onMergeProject(timeline.project.id, targetId);
+            }}
+          >
+            <Archive size={16} /> Merge project
           </button>
         </div>
       )}

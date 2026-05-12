@@ -120,11 +120,13 @@ function streamResponse() {
   );
 }
 
-function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<string, unknown>; pendingItems?: any[] } = {}) {
+function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<string, unknown>; pendingItems?: any[]; projects?: any[] } = {}) {
   const calls: string[] = [];
   const responsePeople = options.people ?? people;
   const responseNotes = options.notes ?? [note, taskNote, meetingNote, reportNote];
   const responsePending = options.pendingItems ?? pending;
+  const responseProjects = options.projects ?? projects;
+  let sourceProjectMerged = false;
   const memoryResults = [
     { id: "task-1", kind: "task", title: "Send Apollo diligence follow-up", subtitle: "Ask Morgan for the revised timeline." },
     { id: "company-1", kind: "company", title: "Northstar", subtitle: "northstar.example" },
@@ -132,6 +134,9 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     calls.push(`${init?.method || "GET"} ${url}`);
+    if (sourceProjectMerged && url.includes("project_id=project-1")) {
+      return new Response("Project not found", { status: 404 });
+    }
     if (url.includes("/api/events/")) return streamResponse();
     if (url.includes("/api/me")) {
       return json({
@@ -139,7 +144,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
           bootstrapped: true,
           workspace,
           workspaces: [{ id: workspace.id, name: workspace.name, role: "admin" }],
-          projects,
+          projects: responseProjects,
           people: responsePeople,
           inbound_address: "dev@in.notesnoop.app",
         },
@@ -149,7 +154,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
       return json({
         data: {
           pending_review: responsePending,
-          recent_projects: [projects[2]],
+          recent_projects: [responseProjects[2]],
           recent_people: responsePeople,
           companies: [{ id: "company-1", name: "Northstar", domain: "northstar.example" }],
           workflows: [
@@ -187,7 +192,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
           ...item,
           source_note_title: "Apollo update",
           source_snippet: "Morgan mentioned Apollo follow-up.",
-          projects: [projects[2]],
+          projects: [responseProjects[2]],
         })),
         meta: { count: responsePending.length },
       });
@@ -222,10 +227,10 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
       });
     }
     if (url.includes("/api/workspaces/workspace-1/ask/report") && init?.method === "POST") {
-      return json({ data: { id: "report-created", ...JSON.parse(String(init.body)), status: "draft", projects: [projects[2]] } });
+      return json({ data: { id: "report-created", ...JSON.parse(String(init.body)), status: "draft", projects: [responseProjects[2]] } });
     }
     if (url.includes("/api/workspaces/workspace-1/ask/task") && init?.method === "POST") {
-      return json({ data: { id: "task-created", ...JSON.parse(String(init.body)), status: "todo", projects: [projects[2]] } });
+      return json({ data: { id: "task-created", ...JSON.parse(String(init.body)), status: "todo", projects: [responseProjects[2]] } });
     }
     if (url.includes("/api/workspaces/workspace-1/ask")) {
       return json({
@@ -266,9 +271,13 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
       return json({ data: { id: `person-created-${calls.length}`, ...JSON.parse(String(init.body)), confirmed_note_count: 0 } });
     }
     if (url.includes("/api/workspaces/workspace-1/people")) return json({ data: responsePeople });
-    if (url.includes("/api/workspaces/workspace-1/projects")) return json({ data: projects });
+    if (url.includes("/api/workspaces/workspace-1/projects")) return json({ data: responseProjects });
     if (url.includes("/api/projects/project-1/invites")) {
       return json({ data: { id: "invite-created", email: JSON.parse(String(init?.body)).email, status: "pending" } });
+    }
+    if (url.includes("/api/projects/project-1/merge")) {
+      sourceProjectMerged = true;
+      return json({ data: { merged: true, target_project_id: "project-2", target_project: responseProjects[3] } });
     }
     if (url.includes("/api/projects/project-1/reports/generate")) {
       return json({
@@ -277,7 +286,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
           title: "Apollo generated report",
           body: "# Apollo generated report\n\n## Executive summary\n- Grounded in memory.",
           status: "draft",
-          projects: [projects[2]],
+          projects: [responseProjects[2]],
           people,
           notes: [note],
           tasks: [{ id: "task-1", title: "Send diligence pack", status: "todo" }],
@@ -288,6 +297,9 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
       });
     }
     if (url.includes("/api/projects/project-1/timeline")) return json({ data: projectTimeline });
+    if (url.includes("/api/projects/project-2/timeline")) {
+      return json({ data: { ...projectTimeline, project: responseProjects[3] } });
+    }
     if (url.includes("/api/people/person-1/timeline")) return json({ data: personTimeline });
     if (url.includes("/api/people/person-1") && init?.method === "PATCH") {
       const body = JSON.parse(String(init.body));
@@ -299,7 +311,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/flags")) return json({ data: { flagged: true } });
     if (url.includes("/api/notes/note-1/process-with-ai")) return json({ data: { queued: true } });
     if (url.includes("/api/tasks/note-task-1") && (!init?.method || init.method === "GET")) {
-      return json({ data: { ...taskNote, id: "note-task-1", projects: [projects[2]], people: [people[0]], notes: [note] } });
+      return json({ data: { ...taskNote, id: "note-task-1", projects: [responseProjects[2]], people: [people[0]], notes: [note] } });
     }
     if (url.includes("/api/reports/report-1") && (!init?.method || init.method === "GET")) {
       return json({
@@ -308,7 +320,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
           title: "Apollo weekly brief",
           body: "# Apollo weekly brief\n\nProgress and blockers.",
           status: "draft",
-          projects: [projects[2]],
+          projects: [responseProjects[2]],
           people,
           notes: [note],
           tasks: [{ id: "task-1", title: "Send diligence pack", status: "todo" }],
@@ -327,7 +339,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
           ...taskNote,
           ...payload,
           id: url.split("/api/tasks/")[1]?.split("?")[0] || "note-task-1",
-          projects: projects.filter((project) => payload.project_ids?.includes(project.id)),
+          projects: responseProjects.filter((project) => payload.project_ids?.includes(project.id)),
           people: people.filter((person) => payload.person_ids?.includes(person.id)),
           companies: [{ id: "company-1", name: "Northstar", domain: "northstar.example" }]
             .filter((company) => payload.company_ids?.includes(company.id)),
@@ -700,7 +712,11 @@ describe("NoteSnoopApp", () => {
   });
 
   it("opens project and person timelines, then merges and undoes people", async () => {
-    const { calls } = installFetch();
+    const duplicateProjects = [
+      ...projects,
+      { id: "project-2", name: "Apollo duplicate", kind: "user", color_hex: "#2563eb" },
+    ];
+    const { calls } = installFetch({ projects: duplicateProjects });
     render(<NoteSnoopApp quickCapture={false} />);
 
     const projectButtons = await screen.findAllByRole("button", { name: /^Apollo$/i });
@@ -713,6 +729,13 @@ describe("NoteSnoopApp", () => {
     expect(await screen.findByText("Invite ready for peer@example.test.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^Brief$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^Flag$/i }));
+    fireEvent.change(screen.getByLabelText("Merge target project"), { target: { value: "project-2" } });
+    fireEvent.click(screen.getByRole("button", { name: /Merge project/i }));
+    await waitFor(() => expect(calls.some((call) => call.includes("GET /api/projects/project-2/timeline"))).toBe(true));
+    window.dispatchEvent(new Event("notesnoop:refresh"));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(screen.getByLabelText("Merge target project")).toHaveValue("");
+    expect(screen.getByRole("button", { name: /Merge project/i })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /^Close$/i }));
 
     fireEvent.click((await screen.findAllByRole("button", { name: /Open Morgan Lee timeline/i }))[0]);
@@ -726,6 +749,8 @@ describe("NoteSnoopApp", () => {
     await waitFor(() => {
       expect(calls.some((call) => call.includes("GET /api/projects/project-1/timeline"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/projects/project-1/invites"))).toBe(true);
+      expect(calls.some((call) => call.includes("POST /api/projects/project-1/merge"))).toBe(true);
+      expect(calls.some((call) => call.includes("GET /api/projects/project-2/timeline"))).toBe(true);
       expect(calls.some((call) => call.includes("GET /api/people/person-1/timeline"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/people/person-1/merge"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/person-merges/undo-1/undo"))).toBe(true);
