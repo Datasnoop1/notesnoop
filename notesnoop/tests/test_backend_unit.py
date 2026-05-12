@@ -1092,6 +1092,80 @@ def test_memory_list_filters_reject_malformed_project_id_before_query(monkeypatc
         assert exc.value.status_code == 422
 
 
+def test_default_notes_and_tasks_lists_hide_archived_items(monkeypatch):
+    user = SimpleNamespace(clerk_user_id="owner-1")
+
+    note_cur = FakeCursor()
+
+    @contextmanager
+    def fake_note_transaction(_user_id):
+        yield note_cur
+
+    monkeypatch.setattr(notes, "transaction", fake_note_transaction)
+    notes.list_notes("workspace-1", user=user)
+    note_sql, note_params = next((sql, params) for sql, params in note_cur.executed if "FROM notes n" in sql)
+    assert "n.archived_at IS NULL" in note_sql
+    assert note_params == ("workspace-1",)
+
+    include_note_cur = FakeCursor()
+
+    @contextmanager
+    def fake_include_note_transaction(_user_id):
+        yield include_note_cur
+
+    monkeypatch.setattr(notes, "transaction", fake_include_note_transaction)
+    notes.list_notes("workspace-1", include_archived=True, user=user)
+    include_note_sql, _ = next((sql, params) for sql, params in include_note_cur.executed if "FROM notes n" in sql)
+    assert "n.archived_at IS NULL" not in include_note_sql
+
+    task_cur = FakeCursor()
+
+    @contextmanager
+    def fake_task_transaction(_user_id):
+        yield task_cur
+
+    monkeypatch.setattr(memory, "transaction", fake_task_transaction)
+    memory.list_tasks("workspace-1", user=user)
+    task_sql, task_params = next((sql, params) for sql, params in task_cur.executed if "FROM tasks t" in sql)
+    assert "t.status <> 'archived'" in task_sql
+    assert task_params == ("workspace-1",)
+
+    include_task_cur = FakeCursor()
+
+    @contextmanager
+    def fake_include_task_transaction(_user_id):
+        yield include_task_cur
+
+    monkeypatch.setattr(memory, "transaction", fake_include_task_transaction)
+    memory.list_tasks("workspace-1", include_archived=True, user=user)
+    include_task_sql, _ = next((sql, params) for sql, params in include_task_cur.executed if "FROM tasks t" in sql)
+    assert "t.status <> 'archived'" not in include_task_sql
+
+
+def test_memory_search_defaults_hide_archived_tasks_and_reports():
+    cur = FakeCursor()
+
+    notes._memory_search_results(cur, "workspace-1", "weekly", None, None)
+    task_sql = next(sql for sql, _params in cur.executed if "FROM tasks item" in sql)
+    report_sql = next(sql for sql, _params in cur.executed if "FROM reports item" in sql)
+    assert "item.status <> 'archived'" in task_sql
+    assert "item.status <> 'archived'" in report_sql
+
+    include_cur = FakeCursor()
+    notes._memory_search_results(include_cur, "workspace-1", "weekly", None, None, include_archived=True)
+    include_task_sql = next(sql for sql, _params in include_cur.executed if "FROM tasks item" in sql)
+    include_report_sql = next(sql for sql, _params in include_cur.executed if "FROM reports item" in sql)
+    assert "item.status <> 'archived'" not in include_task_sql
+    assert "item.status <> 'archived'" not in include_report_sql
+
+    context_cur = FakeCursor()
+    notes._memory_context_results(context_cur, "workspace-1", "project-1", None)
+    context_task_sql = next(sql for sql, _params in context_cur.executed if "FROM tasks item" in sql)
+    context_report_sql = next(sql for sql, _params in context_cur.executed if "FROM reports item" in sql)
+    assert "item.status <> 'archived'" in context_task_sql
+    assert "item.status <> 'archived'" in context_report_sql
+
+
 def test_note_payload_scopes_review_suggestions_to_target_user():
     cur = FakeCursor(
         fetchone_values=[

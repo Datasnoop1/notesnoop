@@ -136,10 +136,17 @@ def get_company(company_id: str, user: CurrentUser = Depends(current_user)):
 
 
 @router.get("/workspaces/{workspace_id}/tasks")
-def list_tasks(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
+def list_tasks(
+    workspace_id: str,
+    project_id: str | None = None,
+    include_archived: bool = False,
+    user: CurrentUser = Depends(current_user),
+):
     with transaction(user.clerk_user_id) as cur:
         params: list = [workspace_id]
         where = "t.workspace_id = %s"
+        if not include_archived:
+            where += " AND t.status <> 'archived'"
         if project_id:
             project_id = _normalize_uuid_or_422(project_id, "One or more projects are unavailable")
             where += """

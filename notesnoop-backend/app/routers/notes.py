@@ -421,10 +421,17 @@ def triage_archive(workspace_id: str, payload: dict, user: CurrentUser = Depends
 
 
 @router.get("/workspaces/{workspace_id}/notes")
-def list_notes(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
+def list_notes(
+    workspace_id: str,
+    project_id: str | None = None,
+    include_archived: bool = False,
+    user: CurrentUser = Depends(current_user),
+):
     with transaction(user.clerk_user_id) as cur:
         params: list = [workspace_id]
         where = "n.workspace_id = %s"
+        if not include_archived:
+            where += " AND n.archived_at IS NULL"
         if project_id:
             project_id = _resolve_project_filter_id(cur, workspace_id, project_id)
             params.append(project_id)
@@ -1529,7 +1536,7 @@ def search(
                 """,
                 tuple(where_params),
             )
-            memory_results = _memory_search_results(cur, workspace_id, query, project_id, person_id)
+            memory_results = _memory_search_results(cur, workspace_id, query, project_id, person_id, include_archived)
     if not query:
         return {"data": rows, "meta": meta}
 
@@ -1651,7 +1658,14 @@ def ask_memory(workspace_id: str, payload: MemoryAskRequest, user: CurrentUser =
     return {"data": answer}
 
 
-def _memory_search_results(cur, workspace_id: str, query: str, project_id: str | None, person_id: str | None) -> list[dict]:
+def _memory_search_results(
+    cur,
+    workspace_id: str,
+    query: str,
+    project_id: str | None,
+    person_id: str | None,
+    include_archived: bool = False,
+) -> list[dict]:
     terms = _memory_query_terms(query)
     project_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.project_id = %s::uuid)"
     person_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.person_id = %s::uuid)"
@@ -1708,6 +1722,11 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
     for kind, table, title_column, subtitle_column, sort_column, project_sql, person_sql in searches:
         match_sql = _memory_match_sql("item", title_column=title_column, subtitle_column=subtitle_column, term_count=len(terms))
         match_params = [f"%{term}%" for term in terms for _ in range(2)]
+        active_filter = "TRUE"
+        if not include_archived and kind == "task":
+            active_filter = "item.status <> 'archived'"
+        if not include_archived and kind == "report":
+            active_filter = "item.status <> 'archived'"
         rows = many(
             cur,
             f"""
@@ -1719,6 +1738,7 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
             FROM {table} item
             WHERE item.workspace_id = %s
               AND ({match_sql})
+              AND {active_filter}
               AND ({project_sql})
               AND ({person_sql})
             ORDER BY {sort_column} DESC
@@ -1834,6 +1854,11 @@ def _memory_context_results(cur, workspace_id: str, project_id: str | None, pers
     ]
     results: list[dict] = []
     for kind, table, title_column, subtitle_column, sort_column, project_sql, person_sql in searches:
+        active_filter = "TRUE"
+        if kind == "task":
+            active_filter = "item.status <> 'archived'"
+        if kind == "report":
+            active_filter = "item.status <> 'archived'"
         rows = many(
             cur,
             f"""
@@ -1844,6 +1869,7 @@ def _memory_context_results(cur, workspace_id: str, project_id: str | None, pers
                    {sort_column} AS sort_at
             FROM {table} item
             WHERE item.workspace_id = %s
+              AND {active_filter}
               AND ({project_sql})
               AND ({person_sql})
             ORDER BY {sort_column} DESC
