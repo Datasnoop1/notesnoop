@@ -6471,6 +6471,9 @@ function LinkedSheet({
     if (note.ai_processing_status !== "processing" && note.ai_processing_status !== "queued" && note.ai_processing_status !== "pending") return;
     let cancelled = false;
     let attempts = 0;
+    // Short polls early so quick extractions surface fast, longer polls
+    // later so long ones don't hammer the API. Sequence covers ~62 sec total.
+    const intervals = [800, 1200, 1800, 2500, 3000, 3000, 3000, 3500, 4000, 4000, 5000, 5000, 5000, 6000, 6000];
     const tick = async () => {
       if (cancelled) return;
       attempts += 1;
@@ -6479,11 +6482,11 @@ function LinkedSheet({
       } catch {
         // network jitter is fine; we'll try again
       }
-      if (!cancelled && attempts < 20) {
-        timer = setTimeout(tick, 3000);
+      if (!cancelled && attempts < intervals.length) {
+        timer = setTimeout(tick, intervals[Math.min(attempts, intervals.length - 1)]);
       }
     };
-    let timer: ReturnType<typeof setTimeout> = setTimeout(tick, 3000);
+    let timer: ReturnType<typeof setTimeout> = setTimeout(tick, intervals[0]);
     return () => {
       cancelled = true;
       clearTimeout(timer);
