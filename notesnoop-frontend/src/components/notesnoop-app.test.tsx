@@ -456,11 +456,11 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(within(memorySheet).getByLabelText("Northstar"));
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Save memory/i }));
     await waitFor(() => {
-      const relationPatch = fetchMock.mock.calls.find(([input, init]) => (
+      const relationPatch = fetchMock.mock.calls.filter(([input, init]) => (
         String(input).includes("/api/tasks/note-task-1")
         && init?.method === "PATCH"
         && String(init.body).includes("person_ids")
-      ));
+      )).at(-1);
       expect(JSON.parse(String(relationPatch?.[1]?.body))).toMatchObject({
         project_ids: ["project-1"],
         person_ids: ["person-1", "person-2"],
@@ -820,7 +820,7 @@ describe("NoteSnoopApp", () => {
     const { calls } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
-    fireEvent.change(await screen.findByPlaceholderText(/Search notes/i), { target: { value: "Apollo" } });
+    fireEvent.change(await screen.findByPlaceholderText(/Search memory/i), { target: { value: "Apollo" } });
     expect(await screen.findByRole("heading", { name: "Notes" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Filter by person"), { target: { value: "person-1" } });
     const filters = document.querySelector(".search-filter-row") as HTMLElement;
@@ -862,7 +862,7 @@ describe("NoteSnoopApp", () => {
     installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
-    await screen.findByPlaceholderText(/Search notes/i);
+    await screen.findByPlaceholderText(/Search memory/i);
 
     const boardToggle = await screen.findByRole("tab", { name: "Board" });
     fireEvent.click(boardToggle);
@@ -878,7 +878,7 @@ describe("NoteSnoopApp", () => {
     installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
-    await screen.findByPlaceholderText(/Search notes/i);
+    await screen.findByPlaceholderText(/Search memory/i);
     const diligence = await screen.findByRole("button", { name: /Open workflow Diligence loop/i });
     const paused = await screen.findByRole("button", { name: /Open workflow Paused outreach/i });
     const sidebar = document.querySelector(".sidebar") as HTMLElement;
@@ -894,7 +894,7 @@ describe("NoteSnoopApp", () => {
     const { calls } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
-    await screen.findByPlaceholderText(/Search notes/i);
+    await screen.findByPlaceholderText(/Search memory/i);
     fireEvent.click((await screen.findAllByRole("button", { name: /Open Morgan Lee timeline/i }))[0]);
 
     const editBtn = await screen.findByRole("button", { name: /Edit contact/i });
@@ -942,11 +942,24 @@ describe("NoteSnoopApp", () => {
     expect(within(container).getByText(/2 reviews pending more than 3 days/i)).toBeInTheDocument();
   });
 
+  it("keeps workspace toggles reachable from the compact settings menu", async () => {
+    const { calls } = installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const settings = await screen.findByRole("button", { name: "Workspace settings" });
+    fireEvent.click(settings);
+    const menu = document.querySelector(".topbar-settings-popover") as HTMLElement;
+    fireEvent.click(within(menu).getByRole("button", { name: /Briefing/i }));
+
+    expect(await screen.findByText("Morning briefing is on.")).toBeInTheDocument();
+    expect(calls.some((call) => call.includes("PATCH /api/workspaces/workspace-1/settings"))).toBe(true);
+  });
+
   it("opens the keyboard shortcuts cheat sheet on ? and closes on Esc", async () => {
     installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
-    await screen.findByPlaceholderText(/Search notes/i);
+    await screen.findByPlaceholderText(/Search memory/i);
 
     fireEvent.keyDown(window, { key: "?", shiftKey: true });
     const dialog = await screen.findByRole("dialog", { name: /Keyboard shortcuts/i });
@@ -962,7 +975,7 @@ describe("NoteSnoopApp", () => {
     const { calls } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
-    await screen.findByPlaceholderText(/Search notes/i);
+    await screen.findByPlaceholderText(/Search memory/i);
 
     fireEvent.keyDown(window, { key: "k", code: "KeyK", metaKey: true });
     const paletteInput = await screen.findByPlaceholderText(/Jump to a note, person, project, task/i);

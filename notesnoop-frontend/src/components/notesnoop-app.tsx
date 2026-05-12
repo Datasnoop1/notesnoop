@@ -420,6 +420,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   });
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [triageOpen, setTriageOpen] = useState(false);
   const [triageItems, setTriageItems] = useState<any[]>([]);
   const [triageLoading, setTriageLoading] = useState(false);
@@ -1567,6 +1568,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setProjectTimeline(null);
     clearNoteSheetState();
     setSelectedMemory(null);
+    setMobileNav(false);
     const target = { kind: "dashboard" } as const;
     appliedRouteRef.current = routeKey(target);
     setRouteTarget(target);
@@ -2545,7 +2547,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               ref={searchInputRef}
               value={query}
               onChange={(e) => scheduleSearch(e.target.value)}
-              placeholder="Search notes, people, projects... (press / to focus)"
+              aria-label="Search memory"
+              placeholder="Search memory..."
             />
           </div>
           {!!state?.workspaces?.length && state.workspaces.length > 1 && (
@@ -2560,6 +2563,45 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               ))}
             </select>
           )}
+          <div className="topbar-settings-mobile hide-desktop">
+            <button
+              className="topbar-settings-btn"
+              onClick={() => {
+                setNotifOpen(false);
+                setSettingsOpen((open) => !open);
+              }}
+              aria-label="Workspace settings"
+              aria-expanded={settingsOpen}
+            >
+              <Settings size={18} />
+            </button>
+            {settingsOpen && (
+              <div className="topbar-settings-popover">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    void toggleEmailAI();
+                  }}
+                >
+                  <Settings size={16} />
+                  <span>Email AI</span>
+                  <strong>{state?.workspace?.email_ai_mode === "auto" ? "Auto" : "Manual"}</strong>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    void toggleMorningBriefing();
+                  }}
+                >
+                  <Bell size={16} />
+                  <span>Briefing</span>
+                  <strong>{state?.workspace?.morning_briefing_optin ? "On" : "Off"}</strong>
+                </button>
+              </div>
+            )}
+          </div>
           <button className="mode-btn" onClick={toggleEmailAI} title="Email AI default is Manual for v1">
             <Settings size={18} />
             {state?.workspace?.email_ai_mode === "auto" ? "Auto" : "Manual"}
@@ -2570,7 +2612,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           </button>
           <button
             className={`topbar-notif-btn${notifCount > 0 ? " has-notifs" : ""}`}
-            onClick={() => setNotifOpen((open) => !open)}
+            onClick={() => {
+              setSettingsOpen(false);
+              setNotifOpen((open) => !open);
+            }}
             aria-label={`Notifications${notifCount > 0 ? ` (${notifCount} items)` : ""}`}
             aria-expanded={notifOpen}
           >
@@ -2582,7 +2627,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               Dev mode
             </span>
           ) : (
-            <UserButton />
+            <span className="topbar-user-menu">
+              <UserButton />
+            </span>
           )}
         </header>
 
@@ -2745,7 +2792,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     onKeyDown={(event) => {
                       if (event.key === "Enter") askMemory();
                     }}
-                    placeholder={activeProjectRecord ? `Ask about ${activeProjectRecord.name}` : "Ask across notes, people, tasks, meetings, and reports"}
+                    placeholder={activeProjectRecord ? `Ask about ${activeProjectRecord.name}` : "Ask memory..."}
                     aria-label="Ask memory question"
                   />
                   <button type="button" onClick={askMemory} disabled={busy || askQuestion.trim().length < 3}>
