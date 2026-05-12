@@ -1181,14 +1181,20 @@ def _task_signature(title: str) -> frozenset[str]:
 
 def _is_near_duplicate_task(signature: frozenset[str], seen: list[frozenset[str]]) -> bool:
     """True when the candidate task shares >=70% of its meaningful tokens with
-    any task we've already accepted from this note's extraction. Catches the
-    common LLM mistake of emitting both the original and a slightly rephrased
-    version of the same action."""
+    any task we've already accepted from this same extraction.
+
+    Kept conservative on purpose. Under-deduping costs the operator one
+    extra "Reject" click in the Review queue; over-deduping silently
+    swallows a real task. Strong duplicate signals (e.g. "Send Daniel
+    the LP overview" + "Email Daniel about the LP overview", shared
+    {daniel, overview} of {send, daniel, overview} = 0.67 overlap) sit
+    below this threshold and rely on the prompt's "never emit two tasks
+    that describe the SAME action" instruction to suppress them.
+    """
     if not signature:
         return False
     for prior in seen:
-        union = signature | prior
-        if not union:
+        if not prior:
             continue
         overlap = len(signature & prior) / max(len(signature), len(prior))
         if overlap >= 0.7:
