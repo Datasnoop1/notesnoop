@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
-from ..schemas import PersonMergeRequest, ReviewBulkAccept, ReviewDecision
+from ..schemas import CompanyMergeRequest, PersonMergeRequest, ReviewBulkAccept, ReviewDecision
 from ..worker import _materialize_review_candidate
 
 
@@ -707,6 +707,73 @@ def reject_review(review_id: str, payload: ReviewDecision, user: CurrentUser = D
             (review["workspace_id"], confidence),
         )
         return {"data": {"state": "rejected"}}
+
+
+@router.post("/companies/{source_company_id}/merge")
+def merge_company(source_company_id: str, payload: CompanyMergeRequest, user: CurrentUser = Depends(current_user)):
+    if source_company_id == payload.target_company_id:
+        raise HTTPException(status_code=422, detail="Choose a different target company")
+    with transaction(user.clerk_user_id) as cur:
+        source = one(cur, "SELECT * FROM companies WHERE id = %s", (source_company_id,))
+        target = one(cur, "SELECT * FROM companies WHERE id = %s", (payload.target_company_id,))
+        if not source or not target or source["workspace_id"] != target["workspace_id"]:
+            raise HTTPException(status_code=404, detail="Merge companies not found")
+        admin = one(
+            cur,
+            "SELECT 1 FROM workspace_members WHERE workspace_id = %s AND clerk_user_id = %s AND role = 'admin'",
+            (source["workspace_id"], user.clerk_user_id),
+        )
+        allowed = source["created_by"] == user.clerk_user_id or target["created_by"] == user.clerk_user_id
+        if not allowed and not admin:
+            raise HTTPException(status_code=403, detail="Not allowed to merge these companies")
+        # For each company-linked table, INSERT the target side with the same
+        # peer-id where it doesn't already exist, then drop the source's rows.
+        # company_notes + report_companies do not carry linked_via, the others do.
+        for table, peer_col, has_linked_via in (
+            ("company_notes", "note_id", False),
+            ("company_people", "person_id", True),
+            ("company_projects", "project_id", True),
+            ("task_companies", "task_id", True),
+            ("meeting_companies", "meeting_id", True),
+            ("report_companies", "report_id", False),
+            ("workflow_companies", "workflow_id", True),
+        ):
+            extra_cols = ", linked_via" if has_linked_via else ""
+            cur.execute(
+                f"""
+                INSERT INTO {table} (company_id, {peer_col}, workspace_id, linked_by{extra_cols})
+                SELECT %s, {peer_col}, workspace_id, linked_by{extra_cols}
+                FROM {table}
+                WHERE company_id = %s
+                ON CONFLICT DO NOTHING
+                """,
+                (payload.target_company_id, source_company_id),
+            )
+            cur.execute(f"DELETE FROM {table} WHERE company_id = %s", (source_company_id,))
+        # Re-point any open review_queue suggestions that referenced the source.
+        cur.execute(
+            """
+            UPDATE review_queue
+            SET payload = jsonb_set(payload, '{matched_company_id}', to_jsonb(%s::text), true)
+            WHERE workspace_id = %s
+              AND entity_kind = 'company'
+              AND payload->>'matched_company_id' = %s
+            """,
+            (payload.target_company_id, source["workspace_id"], source_company_id),
+        )
+        # Top up the target's metadata from the source if it had any holes.
+        cur.execute(
+            """
+            UPDATE companies
+            SET domain = coalesce(domain, %s),
+                description = coalesce(description, %s),
+                updated_at = now()
+            WHERE id = %s
+            """,
+            (source.get("domain"), source.get("description"), payload.target_company_id),
+        )
+        cur.execute("DELETE FROM companies WHERE id = %s", (source_company_id,))
+        return {"data": {"merged": True, "target_company_id": payload.target_company_id}}
 
 
 @router.post("/people/{source_person_id}/merge")

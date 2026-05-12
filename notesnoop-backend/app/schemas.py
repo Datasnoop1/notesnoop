@@ -284,5 +284,9 @@ class PersonMergeRequest(BaseModel):
     target_person_id: str
 
 
+class CompanyMergeRequest(BaseModel):
+    target_company_id: str
+
+
 class ApiResponse(BaseModel):
     data: Any

@@ -3753,6 +3753,18 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         onDeleteTaskComment={async (commentId) => {
           await api(`/api/comments/${commentId}`, { method: "DELETE" });
         }}
+        onMergeCompany={async (sourceId, targetId) => {
+          try {
+            await api(`/api/companies/${sourceId}/merge`, {
+              method: "POST",
+              body: JSON.stringify({ target_company_id: targetId }),
+            });
+            setToast("Companies merged.");
+            await refreshWorkspaceData();
+          } catch (err) {
+            setToast(err instanceof Error ? err.message : "Merge failed");
+          }
+        }}
         onCreateReminder={async (taskId, remindAt) => {
           try {
             await api(`/api/tasks/${taskId}/reminders`, {
@@ -5291,6 +5303,7 @@ function MemoryDetailSheet({
   onAddTaskComment,
   onEditTaskComment,
   onDeleteTaskComment,
+  onMergeCompany,
   currentUserId,
 }: {
   memory: { sectionId: string; item: any } | null;
@@ -5314,8 +5327,10 @@ function MemoryDetailSheet({
   onAddTaskComment?: (taskId: string, body: string) => Promise<any>;
   onEditTaskComment?: (commentId: string, body: string) => Promise<any>;
   onDeleteTaskComment?: (commentId: string) => Promise<void>;
+  onMergeCompany?: (sourceCompanyId: string, targetCompanyId: string) => Promise<void>;
   currentUserId?: string | null;
 }) {
+  const [mergeCompanyTargetId, setMergeCompanyTargetId] = useState("");
   const sectionId = memory?.sectionId || "";
   const item = memory?.item || {};
   const title = item.title || item.name || "Memory";
@@ -5805,6 +5820,36 @@ function MemoryDetailSheet({
               <Plus size={16} /> Add task
             </button>
           </div>
+        )}
+        {sectionId === "companies" && item.id && onMergeCompany && allCompanies.length > 1 && (
+          <details className="company-merge">
+            <summary>Merge with another company…</summary>
+            <p>This collapses every link (people, projects, notes, tasks, meetings, reports, workflows) onto the chosen target. The current company is deleted.</p>
+            <div className="merge-row">
+              <select
+                value={mergeCompanyTargetId}
+                onChange={(event) => setMergeCompanyTargetId(event.target.value)}
+                aria-label="Merge target company"
+              >
+                <option value="">Choose target…</option>
+                {allCompanies
+                  .filter((c) => c.id !== item.id)
+                  .map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <button
+                type="button"
+                disabled={!mergeCompanyTargetId}
+                onClick={async () => {
+                  if (!onMergeCompany || !mergeCompanyTargetId) return;
+                  await onMergeCompany(String(item.id), mergeCompanyTargetId);
+                  setMergeCompanyTargetId("");
+                  onClose();
+                }}
+              >
+                Merge
+              </button>
+            </div>
+          </details>
         )}
         {!!tasks.length && (
           <div className="timeline-list">

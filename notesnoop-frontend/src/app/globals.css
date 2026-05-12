@@ -1666,6 +1666,23 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   gap: 8px;
 }
 .merge-row button:disabled { opacity: .55; cursor: not-allowed; }
+.company-merge {
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+  display: grid;
+  gap: 8px;
+}
+.company-merge > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.company-merge > p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
 .mini-section {
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
