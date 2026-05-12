@@ -333,8 +333,8 @@ def test_note_archive_restore_round_trip(client):
         )
         task_id = str(cur.fetchone()["id"])
         cur.execute(
-            "INSERT INTO task_projects (task_id, project_id, linked_by) VALUES (%s, %s, %s)",
-            (task_id, inbox_project_id, user_id),
+            "INSERT INTO task_projects (task_id, project_id, workspace_id, linked_by) VALUES (%s, %s, %s, %s)",
+            (task_id, inbox_project_id, workspace_id, user_id),
         )
 
     home_before = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
