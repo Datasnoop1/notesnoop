@@ -1200,7 +1200,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
         loose_notes_without_project = many(
             cur,
             """
-            SELECT n.id, n.title, n.note_kind, n.created_at
+            SELECT n.id, n.title, n.note_kind, n.is_personal, n.created_at
             FROM notes n
             WHERE n.workspace_id = %s
               AND n.archived_at IS NULL

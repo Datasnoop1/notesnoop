@@ -232,6 +232,10 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/workspaces/workspace-1/ask/task") && init?.method === "POST") {
       return json({ data: { id: "task-created", ...JSON.parse(String(init.body)), status: "todo", projects: [responseProjects[2]] } });
     }
+    if (url.includes("/api/workspaces/workspace-1/companies") && init?.method === "POST") {
+      const body = JSON.parse(String(init.body));
+      return json({ data: { id: "company-1", name: body.name, people: body.person_ids?.map((id: string) => ({ id })) || [] } });
+    }
     if (url.includes("/api/workspaces/workspace-1/ask")) {
       return json({
         data: {
@@ -576,6 +580,75 @@ describe("NoteSnoopApp", () => {
     fireEvent.change(within(dashboard).getByLabelText("New company"), { target: { value: "Northstar" } });
     fireEvent.click(within(dashboard).getByRole("button", { name: /Add company/i }));
     await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/companies"))).toBe(true));
+  });
+
+  it("resolves loose ends from the dashboard controls", async () => {
+    const { fetchMock } = installFetch({
+      home: {
+        loose_ends: {
+          notes_without_project: [{ id: "note-1", title: "Apollo update", note_kind: "note" }],
+          tasks_without_owner: [{ id: "note-task-1", title: "Send Apollo follow-up", status: "todo" }],
+          people_without_company: [{ id: "person-1", name: "Morgan Lee" }],
+          stale_reviews_count: 0,
+        },
+      },
+    });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const dashboard = await screen.findByLabelText("Memory dashboard");
+    const noteProjectSelect = await within(dashboard).findByLabelText("Tag Apollo update to project");
+    fireEvent.change(noteProjectSelect, { target: { value: "project-1" } });
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([input, init]) => String(input).includes("/api/notes/note-1/projects") && init?.method === "PUT");
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ project_ids: ["project-1"], confirm_personal_move: false });
+    });
+
+    fireEvent.change(await within(dashboard).findByLabelText("Assign Send Apollo follow-up to owner"), { target: { value: "person-1" } });
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([input, init]) => String(input).includes("/api/tasks/note-task-1") && init?.method === "PATCH");
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ assignee_id: "person-1" });
+    });
+
+    fireEvent.change(await within(dashboard).findByLabelText("Link Morgan Lee to company"), { target: { value: "company-1" } });
+    await waitFor(() => {
+      const companyCall = fetchMock.mock.calls.find(([input, init]) => String(input).includes("/api/workspaces/workspace-1/companies") && init?.method === "POST");
+      expect(companyCall).toBeTruthy();
+      expect(JSON.parse(String(companyCall?.[1]?.body))).toMatchObject({ name: "Northstar", person_ids: ["person-1"] });
+      const personCall = fetchMock.mock.calls.find(([input, init]) => String(input).includes("/api/people/person-1") && init?.method === "PATCH");
+      expect(personCall).toBeTruthy();
+      expect(JSON.parse(String(personCall?.[1]?.body))).toMatchObject({ company: "Northstar" });
+    });
+  });
+
+  it("asks before tagging a Personal loose note to a project", async () => {
+    const { fetchMock } = installFetch({
+      home: {
+        loose_ends: {
+          notes_without_project: [{ id: "note-1", title: "Personal memo", note_kind: "note", is_personal: true }],
+          tasks_without_owner: [],
+          people_without_company: [],
+          stale_reviews_count: 0,
+        },
+      },
+    });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const dashboard = await screen.findByLabelText("Memory dashboard");
+    const noteProjectSelect = await within(dashboard).findByLabelText("Tag Personal memo to project");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
+
+    fireEvent.change(noteProjectSelect, { target: { value: "project-1" } });
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls.some(([input, init]) => String(input).includes("/api/notes/note-1/projects") && init?.method === "PUT")).toBe(false);
+
+    fireEvent.change(noteProjectSelect, { target: { value: "project-1" } });
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([input, init]) => String(input).includes("/api/notes/note-1/projects") && init?.method === "PUT");
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ project_ids: ["project-1"], confirm_personal_move: true });
+    });
   });
 
   it("generates a grounded project report from project memory", async () => {

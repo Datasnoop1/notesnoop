@@ -1103,6 +1103,35 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
 }
+.loose-end-row {
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+.loose-end-actions {
+  grid-column: 2;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+.loose-end-actions select {
+  min-height: 34px;
+  padding: 5px 8px;
+  min-width: 0;
+}
+.loose-end-open {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 0 9px;
+  font-size: 12px;
+}
+.loose-end-open:hover {
+  border-color: #bdd7d0;
+  background: #f7fbf8;
+}
 .memory-row {
   grid-template-columns: minmax(0, 1fr);
 }

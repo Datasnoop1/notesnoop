@@ -458,6 +458,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [quickWorkflowName, setQuickWorkflowName] = useState("");
   const [quickCompanyName, setQuickCompanyName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resolvingLooseEnd, setResolvingLooseEnd] = useState("");
   const [toast, setToast] = useState("");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState("");
@@ -1751,6 +1752,73 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     await refreshWorkspaceData();
   }
 
+  async function resolveLooseNoteProject(note: any, projectId: string) {
+    if (!note?.id || !projectId) return;
+    const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
+    const movingPersonalNote = Boolean(note.is_personal) && project?.kind !== "personal";
+    const confirmPersonalMove = movingPersonalNote
+      ? window.confirm("Move this note out of Personal before linking it to this project?")
+      : false;
+    if (movingPersonalNote && !confirmPersonalMove) return;
+    const key = `note:${note.id}`;
+    setResolvingLooseEnd(key);
+    try {
+      await api(`/api/notes/${note.id}/projects`, {
+        method: "PUT",
+        body: JSON.stringify({ project_ids: [projectId], confirm_personal_move: confirmPersonalMove }),
+      });
+      setToast(`Tagged ${note.title || "note"} to ${project?.name || "project"}.`);
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not tag note");
+    } finally {
+      setResolvingLooseEnd("");
+    }
+  }
+
+  async function resolveLooseTaskOwner(task: any, personId: string) {
+    if (!task?.id || !personId) return;
+    const key = `task:${task.id}`;
+    setResolvingLooseEnd(key);
+    try {
+      const person = (state?.people || []).find((candidate) => candidate.id === personId);
+      await api(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ assignee_id: personId }),
+      });
+      setToast(`Assigned ${task.title || "task"} to ${person?.name || "owner"}.`);
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not assign task");
+    } finally {
+      setResolvingLooseEnd("");
+    }
+  }
+
+  async function resolveLoosePersonCompany(person: any, companyId: string) {
+    if (!workspaceId || !person?.id || !companyId) return;
+    const company = companies.find((candidate: any) => candidate.id === companyId);
+    if (!company?.name) return;
+    const key = `person:${person.id}`;
+    setResolvingLooseEnd(key);
+    try {
+      await api(`/api/workspaces/${workspaceId}/companies`, {
+        method: "POST",
+        body: JSON.stringify({ name: company.name, person_ids: [person.id] }),
+      });
+      await api(`/api/people/${person.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ company: company.name }),
+      });
+      setToast(`Linked ${person.name || "person"} to ${company.name}.`);
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not link company");
+    } finally {
+      setResolvingLooseEnd("");
+    }
+  }
+
   async function mergePerson(sourcePersonId: string, targetPersonId: string) {
     const res = await api(`/api/people/${sourcePersonId}/merge`, {
       method: "POST",
@@ -2172,7 +2240,13 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     });
     return list.slice(0, 5);
   }, [home?.workflows]);
-  const companies = useMemo(() => home?.companies || [], [home?.companies]);
+  const companies = (home?.companies || []) as any[];
+  const belongsToCurrentWorkspace = (item: any) => !workspaceId || !item?.workspace_id || String(item.workspace_id) === workspaceId;
+  const looseEndProjects = ((state?.projects || []) as any[]).filter(
+    (project) => belongsToCurrentWorkspace(project) && project.kind !== "inbox" && (project.status || "active") === "active",
+  );
+  const looseEndPeople = ((state?.people || []) as any[]).filter((person) => belongsToCurrentWorkspace(person) && !person.clerk_user_id);
+  const looseEndCompanies = companies.filter((company: any) => belongsToCurrentWorkspace(company) && company.id && company.name);
   const looseEnds = home?.loose_ends || {};
   const looseNotesWithoutProject = (looseEnds.notes_without_project || []) as any[];
   const looseTasksWithoutOwner = (looseEnds.tasks_without_owner || []) as any[];
@@ -2362,7 +2436,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         if (allMatch) hits.push({ kind: "person", id: person.id, label: person.name });
       }
     }
-    for (const company of companies || []) {
+    for (const company of home?.companies || []) {
       if (!company?.name) continue;
       const name = String(company.name).toLowerCase();
       if (name.length >= 3 && lower.includes(name)) {
@@ -2376,7 +2450,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       seen.add(key);
       return true;
     }).slice(0, 6);
-  }, [body, state?.projects, state?.people, companies]);
+  }, [body, state?.projects, state?.people, home?.companies]);
 
   const composerSection = (
     <section className={`composer ${quickCapture ? "" : "dashboard-composer"}`}>
@@ -3631,18 +3705,34 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                         </div>
                         <div className="dashboard-list">
                           {looseNotesWithoutProject.slice(0, 3).map((note: any) => (
-                            <button
+                            <div
                               key={`loose-note-${note.id}`}
-                              className="dashboard-row"
-                              type="button"
-                              onClick={() => openNote(note.id)}
+                              className="dashboard-row loose-end-row"
                             >
                               <span className="row-icon"><FileText size={15} /></span>
                               <span>
                                 <strong>{note.title || "Untitled note"}</strong>
                                 <small>{NOTE_KIND_LABELS[note.note_kind || "note"] || "Note"} - tag a project</small>
                               </span>
-                            </button>
+                              <span className="loose-end-actions">
+                                <button type="button" className="loose-end-open" onClick={() => openNote(note.id)}>Open</button>
+                                <select
+                                  aria-label={`Tag ${note.title || "note"} to project`}
+                                  defaultValue=""
+                                  disabled={resolvingLooseEnd === `note:${note.id}` || looseEndProjects.length === 0}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    event.currentTarget.value = "";
+                                    if (value) void resolveLooseNoteProject(note, value);
+                                  }}
+                                >
+                                  <option value="" disabled>{looseEndProjects.length ? "Tag project" : "No projects"}</option>
+                                  {looseEndProjects.map((project) => (
+                                    <option key={project.id} value={project.id}>{project.name}</option>
+                                  ))}
+                                </select>
+                              </span>
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -3655,18 +3745,34 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                         </div>
                         <div className="dashboard-list">
                           {looseTasksWithoutOwner.slice(0, 3).map((task: any) => (
-                            <button
+                            <div
                               key={`loose-task-${task.id}`}
-                              className="dashboard-row"
-                              type="button"
-                              onClick={() => openMemoryItem("tasks", task)}
+                              className="dashboard-row loose-end-row"
                             >
                               <span className="row-icon"><ClipboardList size={15} /></span>
                               <span>
                                 <strong>{task.title || "Untitled task"}</strong>
                                 <small>{task.status || "todo"} - assign someone</small>
                               </span>
-                            </button>
+                              <span className="loose-end-actions">
+                                <button type="button" className="loose-end-open" onClick={() => openMemoryItem("tasks", task)}>Open</button>
+                                <select
+                                  aria-label={`Assign ${task.title || "task"} to owner`}
+                                  defaultValue=""
+                                  disabled={resolvingLooseEnd === `task:${task.id}` || looseEndPeople.length === 0}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    event.currentTarget.value = "";
+                                    if (value) void resolveLooseTaskOwner(task, value);
+                                  }}
+                                >
+                                  <option value="" disabled>{looseEndPeople.length ? "Assign owner" : "No people"}</option>
+                                  {looseEndPeople.map((person) => (
+                                    <option key={person.id} value={person.id}>{person.name}</option>
+                                  ))}
+                                </select>
+                              </span>
+                            </div>
                           ))}
                         </div>
                       </div>
@@ -3679,18 +3785,34 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                         </div>
                         <div className="dashboard-list">
                           {loosePeopleWithoutCompany.slice(0, 3).map((person: any) => (
-                            <button
+                            <div
                               key={`loose-person-${person.id}`}
-                              className="dashboard-row"
-                              type="button"
-                              onClick={() => openPerson(person)}
+                              className="dashboard-row loose-end-row"
                             >
                               <span className="row-icon"><UserRound size={15} /></span>
                               <span>
                                 <strong>{person.name}</strong>
                                 <small>Set a company</small>
                               </span>
-                            </button>
+                              <span className="loose-end-actions">
+                                <button type="button" className="loose-end-open" onClick={() => openPerson(person)}>Open</button>
+                                <select
+                                  aria-label={`Link ${person.name || "person"} to company`}
+                                  defaultValue=""
+                                  disabled={resolvingLooseEnd === `person:${person.id}` || looseEndCompanies.length === 0}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    event.currentTarget.value = "";
+                                    if (value) void resolveLoosePersonCompany(person, value);
+                                  }}
+                                >
+                                  <option value="" disabled>{looseEndCompanies.length ? "Link company" : "No companies"}</option>
+                                  {looseEndCompanies.map((company: any) => (
+                                    <option key={company.id} value={company.id}>{company.name}</option>
+                                  ))}
+                                </select>
+                              </span>
+                            </div>
                           ))}
                         </div>
                       </div>
