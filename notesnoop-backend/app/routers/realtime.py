@@ -34,6 +34,12 @@ def review_queue_count(workspace_id: str | None = None, project_id: str | None =
             WHERE rq.workspace_id = %s
               AND rq.target_user_id = %s
               AND rq.state = 'open'
+              AND EXISTS (
+                SELECT 1
+                FROM notes n
+                WHERE n.id = rq.entity_id
+                  AND n.archived_at IS NULL
+              )
               AND (
                 %s::uuid IS NULL
                 OR EXISTS (
@@ -99,12 +105,18 @@ def list_review_queue(
                      '[]'::jsonb
                    ) AS source_companies
             FROM review_queue rq
-            LEFT JOIN notes n ON n.id = rq.entity_id
+            JOIN notes n ON n.id = rq.entity_id AND n.archived_at IS NULL
             LEFT JOIN note_projects np ON np.note_id = n.id
             LEFT JOIN projects p ON p.id = np.project_id
             WHERE rq.workspace_id = %s
               AND rq.target_user_id = %s
               AND rq.state = 'open'
+              AND EXISTS (
+                SELECT 1
+                FROM notes n
+                WHERE n.id = rq.entity_id
+                  AND n.archived_at IS NULL
+              )
               AND (
                 %s::uuid IS NULL
                 OR EXISTS (
@@ -128,6 +140,12 @@ def list_review_queue(
             WHERE rq.workspace_id = %s
               AND rq.target_user_id = %s
               AND rq.state = 'open'
+              AND EXISTS (
+                SELECT 1
+                FROM notes n
+                WHERE n.id = rq.entity_id
+                  AND n.archived_at IS NULL
+              )
               AND (
                 %s::uuid IS NULL
                 OR EXISTS (

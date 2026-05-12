@@ -579,6 +579,14 @@ def _accept_review_in_txn(
         if existing:
             raise HTTPException(status_code=409, detail="Review item is already decided")
         raise HTTPException(status_code=404, detail="Review item not found")
+    source_note = one(
+        cur,
+        "SELECT archived_at FROM notes WHERE id = %s AND workspace_id = %s",
+        (review["entity_id"], review["workspace_id"]),
+    )
+    if source_note and source_note.get("archived_at") is not None:
+        cur.execute("UPDATE review_queue SET state = 'archived' WHERE id = %s", (review_id,))
+        raise HTTPException(status_code=409, detail="Review item is archived")
     data = {**(review.get("payload") or {}), **(payload_override or {})}
     confidence = confidence_override or data.get("confidence") or 0.75
     if payload_override:

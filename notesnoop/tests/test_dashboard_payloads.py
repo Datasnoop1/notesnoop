@@ -296,12 +296,16 @@ def test_end_to_end_capture_review_accept_dashboard_happy_path(client):
 
 
 def test_note_archive_restore_round_trip(client):
-    """Archiving a note hides it from /home recent_notes; restoring brings it back."""
+    """Archiving a note hides note-owned active surfaces; restoring brings the note back."""
+    from app.db import transaction
+
     user_id = f"archive_user_{uuid.uuid4().hex[:10]}"
     headers = _headers(user_id)
 
     boot = client.post("/api/bootstrap", json={"workspace_name": "Archive workspace"}, headers=headers)
-    workspace_id = boot.json()["data"]["workspace"]["id"]
+    boot_data = boot.json()["data"]
+    workspace_id = boot_data["workspace"]["id"]
+    inbox_project_id = next(project["id"] for project in boot_data["projects"] if project["kind"] == "inbox")
 
     note = client.post(
         f"/api/workspaces/{workspace_id}/notes",
@@ -309,26 +313,104 @@ def test_note_archive_restore_round_trip(client):
         headers=headers,
     )
     note_id = note.json()["data"]["id"]
+    with transaction(user_id) as cur:
+        cur.execute(
+            """
+            INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
+            VALUES (%s, %s, 'task', %s, 'ai_suggestion', %s::jsonb)
+            RETURNING id
+            """,
+            (workspace_id, user_id, note_id, '{"title":"Review tied to archived note","confidence":0.82}'),
+        )
+        review_id = str(cur.fetchone()["id"])
+        cur.execute(
+            """
+            INSERT INTO tasks (workspace_id, title, status, created_by, source_note_id, source_kind)
+            VALUES (%s, 'Archived-source task', 'todo', %s, %s, 'task')
+            RETURNING id
+            """,
+            (workspace_id, user_id, note_id),
+        )
+        task_id = str(cur.fetchone()["id"])
+        cur.execute(
+            "INSERT INTO task_projects (task_id, project_id, linked_by) VALUES (%s, %s, %s)",
+            (task_id, inbox_project_id, user_id),
+        )
 
     home_before = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
-    titles_before = [n["title"] for n in home_before.json()["data"]["recent_notes"]]
+    home_before_data = home_before.json()["data"]
+    titles_before = [n["title"] for n in home_before_data["recent_notes"]]
     assert any("Test note to archive" in (t or "") for t in titles_before)
+    assert any(t["title"] == "Archived-source task" for t in home_before_data["open_tasks"])
+    assert any(t["title"] == "Archived-source task" for t in home_before_data["loose_ends"]["tasks_without_owner"])
+    assert len(home_before_data["pending_review"]) == 1
+    count_before = client.get(f"/api/review-queue/count?workspace_id={workspace_id}", headers=headers)
+    assert count_before.json()["data"]["count"] == 1
 
     archived = client.post(f"/api/notes/{note_id}/archive", headers=headers)
     assert archived.status_code == 200
     assert archived.json()["data"]["archived"] is True
 
     home_after = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
-    titles_after = [n["title"] for n in home_after.json()["data"]["recent_notes"]]
+    home_after_data = home_after.json()["data"]
+    titles_after = [n["title"] for n in home_after_data["recent_notes"]]
     assert not any("Test note to archive" in (t or "") for t in titles_after)
+    assert not any(t["title"] == "Archived-source task" for t in home_after_data["open_tasks"])
+    assert not any(t["title"] == "Archived-source task" for t in home_after_data["loose_ends"]["tasks_without_owner"])
+    assert home_after_data["pending_review"] == []
+    count_after = client.get(f"/api/review-queue/count?workspace_id={workspace_id}", headers=headers)
+    assert count_after.json()["data"]["count"] == 0
+    queue_after = client.get(f"/api/workspaces/{workspace_id}/review-queue", headers=headers)
+    assert queue_after.json()["meta"]["count"] == 0
+    with transaction(user_id) as cur:
+        cur.execute("SELECT state FROM review_queue WHERE id = %s", (review_id,))
+        assert cur.fetchone()["state"] == "archived"
 
     restored = client.post(f"/api/notes/{note_id}/restore", headers=headers)
     assert restored.status_code == 200
     assert restored.json()["data"]["archived"] is False
 
     home_final = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
-    titles_final = [n["title"] for n in home_final.json()["data"]["recent_notes"]]
+    home_final_data = home_final.json()["data"]
+    titles_final = [n["title"] for n in home_final_data["recent_notes"]]
     assert any("Test note to archive" in (t or "") for t in titles_final)
+    assert any(t["title"] == "Archived-source task" for t in home_final_data["open_tasks"])
+    assert any(t["title"] == "Archived-source task" for t in home_final_data["loose_ends"]["tasks_without_owner"])
+    assert home_final_data["pending_review"] == []
+
+
+def test_archived_source_review_is_filtered_even_if_state_remains_open(client):
+    """Legacy/racy open reviews tied to archived notes should not affect counts."""
+    from app.db import transaction
+
+    user_id = f"stale_review_user_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Stale review workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+    note = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Archived note with a legacy open review"},
+        headers=headers,
+    )
+    note_id = note.json()["data"]["id"]
+    with transaction(user_id) as cur:
+        cur.execute("UPDATE notes SET archived_at = now() WHERE id = %s", (note_id,))
+        cur.execute(
+            """
+            INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload, state)
+            VALUES (%s, %s, 'task', %s, 'ai_suggestion', %s::jsonb, 'open')
+            """,
+            (workspace_id, user_id, note_id, '{"title":"Legacy stale review","confidence":0.82}'),
+        )
+
+    home = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers).json()["data"]
+    assert home["pending_review"] == []
+    count = client.get(f"/api/review-queue/count?workspace_id={workspace_id}", headers=headers)
+    assert count.json()["data"]["count"] == 0
+    queue = client.get(f"/api/workspaces/{workspace_id}/review-queue", headers=headers)
+    assert queue.json()["data"] == []
+    assert queue.json()["meta"]["count"] == 0
 
 
 def test_review_queue_exposes_source_people_and_source_companies(client):

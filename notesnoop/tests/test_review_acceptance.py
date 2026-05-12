@@ -5,6 +5,8 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "notesnoop-backend"))
@@ -55,7 +57,7 @@ def test_accept_unknown_person_review_creates_links_and_updates_payload(monkeypa
         "reason": "ai_suggestion",
         "payload": {"name": "  New Person  ", "confidence": 0.82},
     }
-    cur = FakeCursor([review, {"id": "person-new"}])
+    cur = FakeCursor([review, {"archived_at": None}, {"id": "person-new"}])
 
     result = _accept(monkeypatch, cur)
 
@@ -83,7 +85,7 @@ def test_accept_unknown_project_review_creates_membership_links_and_updates_payl
         "reason": "ai_suggestion",
         "payload": {"name": "  Apollo  ", "confidence": 0.78},
     }
-    cur = FakeCursor([review, {"id": "project-new"}])
+    cur = FakeCursor([review, {"archived_at": None}, {"id": "project-new"}])
 
     result = _accept(monkeypatch, cur)
 
@@ -121,6 +123,27 @@ def test_accept_matched_review_does_not_create_or_rewrite_payload(monkeypatch):
     assert "INSERT INTO people" not in _sql(cur)
     assert "SET payload = %s::jsonb" not in _sql(cur)
     assert _params_for(cur, "INSERT INTO note_people_links")[0] == ("note-1", "person-existing", 0.91, "ai", "owner-1")
+
+
+def test_accept_archived_source_note_review_blocks_materialization(monkeypatch):
+    review = {
+        "id": "review-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "task",
+        "entity_id": "note-1",
+        "reason": "ai_suggestion",
+        "payload": {"title": "Stale archived task", "confidence": 0.8},
+    }
+    cur = FakeCursor([review, {"archived_at": "2026-05-12T12:00:00Z"}])
+    monkeypatch.setattr(graph, "transaction", lambda _user_id: fake_transaction(cur))
+
+    with pytest.raises(graph.HTTPException) as exc:
+        graph.accept_review("review-1", ReviewDecision(), CurrentUser(clerk_user_id="owner-1"))
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail == "Review item is archived"
+    assert _params_for(cur, "UPDATE review_queue SET state = 'archived'")[0] == ("review-1",)
+    assert "INSERT INTO calibration_events" not in _sql(cur)
 
 
 def test_accept_structured_task_review_materializes_edited_payload(monkeypatch):
