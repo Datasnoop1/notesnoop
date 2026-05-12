@@ -1938,6 +1938,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border-radius: 999px;
   padding: 1px 6px;
 }
+.task-board-recurrence {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: #4a3470;
+  background: #f1edfb;
+  border: 1px solid #d3cbef;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
 .capacity-list { display: grid; gap: 8px; }
 .capacity-row {
   display: grid;

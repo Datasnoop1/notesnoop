@@ -205,8 +205,8 @@ def create_task(workspace_id: str, payload: TaskCreate, user: CurrentUser = Depe
         completed_at_sql = "now()" if payload.status == "done" else "NULL"
         cur.execute(
             f"""
-            INSERT INTO tasks (workspace_id, title, description, status, priority, due_at, completed_at, created_by)
-            VALUES (%s, %s, %s, %s, %s, %s, {completed_at_sql}, %s)
+            INSERT INTO tasks (workspace_id, title, description, status, priority, due_at, completed_at, recurrence, created_by)
+            VALUES (%s, %s, %s, %s, %s, %s, {completed_at_sql}, %s, %s)
             RETURNING *
             """,
             (
@@ -216,6 +216,7 @@ def create_task(workspace_id: str, payload: TaskCreate, user: CurrentUser = Depe
                 payload.status,
                 payload.priority,
                 payload.due_at,
+                payload.recurrence or "none",
                 user.clerk_user_id,
             ),
         )
@@ -259,6 +260,7 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
             next_status,
             payload.priority if payload.priority is not None else task.get("priority"),
             payload.due_at if "due_at" in payload.model_fields_set else task.get("due_at"),
+            payload.recurrence if payload.recurrence is not None else (task.get("recurrence") or "none"),
         ]
         if completed_at_sql == "%s":
             params.append(next_completed_at)
@@ -271,12 +273,74 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
                 status = %s,
                 priority = %s,
                 due_at = %s,
+                recurrence = %s,
                 completed_at = {completed_at_sql},
                 updated_at = now()
             WHERE id = %s
             """,
             tuple(params),
         )
+        # Recurring tasks: when the user marks a recurring task done AND it had
+        # a due date, spawn the next instance with the due_at advanced. The
+        # spawned task inherits the same projects/people/companies/notes links.
+        prev_status = str(task.get("status") or "")
+        recurrence = (payload.recurrence if payload.recurrence is not None else task.get("recurrence")) or "none"
+        if (
+            payload.status == "done"
+            and prev_status != "done"
+            and recurrence != "none"
+            and task.get("due_at")
+        ):
+            interval_sql = {
+                "daily": "1 day",
+                "weekly": "1 week",
+                "biweekly": "2 weeks",
+                "monthly": "1 month",
+            }.get(recurrence)
+            if interval_sql:
+                cur.execute(
+                    f"""
+                    INSERT INTO tasks (
+                      workspace_id, title, description, status, priority, due_at,
+                      recurrence, created_by, source_note_id, source_kind
+                    )
+                    SELECT workspace_id, title, description, 'todo', priority,
+                           due_at + INTERVAL '{interval_sql}',
+                           recurrence, created_by, source_note_id,
+                           coalesce(source_kind, 'recurrence:') || %s
+                    FROM tasks WHERE id = %s
+                    RETURNING id
+                    """,
+                    (recurrence, task_id),
+                )
+                new_row = cur.fetchone()
+                if new_row:
+                    next_task_id = str(new_row["id"])
+                    # Carry over the link tables so the new instance has the same
+                    # projects/people/companies/notes the operator set up once.
+                    for table, peer_col in (
+                        ("task_projects", "project_id"),
+                        ("task_companies", "company_id"),
+                        ("task_notes", "note_id"),
+                    ):
+                        cur.execute(
+                            f"""
+                            INSERT INTO {table} (task_id, {peer_col}, workspace_id, linked_by, linked_via)
+                            SELECT %s, {peer_col}, workspace_id, linked_by, linked_via
+                            FROM {table} WHERE task_id = %s
+                            ON CONFLICT DO NOTHING
+                            """,
+                            (next_task_id, task_id),
+                        )
+                    cur.execute(
+                        """
+                        INSERT INTO task_people (task_id, person_id, workspace_id, relation, linked_by, linked_via)
+                        SELECT %s, person_id, workspace_id, relation, linked_by, linked_via
+                        FROM task_people WHERE task_id = %s
+                        ON CONFLICT DO NOTHING
+                        """,
+                        (next_task_id, task_id),
+                    )
         if payload.project_ids is not None:
             _replace_links(cur, "task_projects", "task_id", "project_id", task_id, workspace_id, payload.project_ids, user.clerk_user_id)
         if payload.company_ids is not None:

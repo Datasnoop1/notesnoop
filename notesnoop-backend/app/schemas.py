@@ -148,6 +148,7 @@ class TaskCreate(BaseModel):
     company_ids: list[str] | None = None
     note_ids: list[str] | None = None
     assignee_id: str | None = None
+    recurrence: str = Field(default="none", pattern="^(none|daily|weekly|biweekly|monthly)$")
 
 
 class TaskUpdate(BaseModel):
@@ -161,6 +162,7 @@ class TaskUpdate(BaseModel):
     company_ids: list[str] | None = None
     note_ids: list[str] | None = None
     assignee_id: str | None = None
+    recurrence: str | None = Field(default=None, pattern="^(none|daily|weekly|biweekly|monthly)$")
 
 
 class TaskReminderUpdate(BaseModel):

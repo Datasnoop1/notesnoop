@@ -4526,6 +4526,11 @@ function TaskStatusBoard({
                           <MessageCircle size={12} /> {task.comment_count}
                         </span>
                       )}
+                      {task.recurrence && task.recurrence !== "none" && (
+                        <span className="task-board-recurrence" title={`Recurs ${task.recurrence}`}>
+                          ↻ {task.recurrence}
+                        </span>
+                      )}
                     </div>
                     <div className="task-board-card-actions" onClick={(event) => event.stopPropagation()}>
                       {column.status !== "doing" && (
@@ -5418,6 +5423,7 @@ function MemoryDetailSheet({
   const [draftBody, setDraftBody] = useState(body);
   const [draftStatus, setDraftStatus] = useState(item.status || "");
   const [draftPriority, setDraftPriority] = useState<string>(item.priority ? String(item.priority) : "3");
+  const [draftRecurrence, setDraftRecurrence] = useState<string>(item.recurrence || "none");
   const [newReminderAt, setNewReminderAt] = useState<string>("");
   const [draftDate, setDraftDate] = useState(inputDate(item.due_at || item.occurred_at || null));
   const [draftProjectIds, setDraftProjectIds] = useState<string[]>(relationIds(item.projects));
@@ -5438,13 +5444,14 @@ function MemoryDetailSheet({
     setDraftBody(body);
     setDraftStatus(item.status || "");
     setDraftPriority(item.priority ? String(item.priority) : "3");
+    setDraftRecurrence(item.recurrence || "none");
     setDraftDate(inputDate(item.due_at || item.occurred_at || null));
     setDraftProjectIds(relationIds(item.projects));
     setDraftPersonIds(relationIds(item.people));
     setDraftCompanyIds(relationIds(item.companies));
     setDraftAssigneeId(initialAssignee);
     setDraftDomain(String(item.domain || ""));
-  }, [body, initialAssignee, item.companies, item.domain, item.due_at, item.id, item.occurred_at, item.people, item.priority, item.projects, item.status, title]);
+  }, [body, initialAssignee, item.companies, item.domain, item.due_at, item.id, item.occurred_at, item.people, item.priority, item.projects, item.recurrence, item.status, title]);
   if (!memory) return null;
   const projects = item.projects || [];
   const people = item.people || [];
@@ -5485,6 +5492,7 @@ function MemoryDetailSheet({
       if (!Number.isNaN(priorityNum) && priorityNum >= 1 && priorityNum <= 5) {
         payload.priority = priorityNum;
       }
+      if (draftRecurrence) payload.recurrence = draftRecurrence;
     }
     if (sectionId === "meetings") {
       payload.summary = draftBody || null;
@@ -5619,6 +5627,15 @@ function MemoryDetailSheet({
                 <option value="3">P3 - normal</option>
                 <option value="4">P4 - low</option>
                 <option value="5">P5 - someday</option>
+              </select>
+            )}
+            {isTask && (
+              <select value={draftRecurrence} onChange={(event) => setDraftRecurrence(event.target.value)} aria-label="Task recurrence" title="Spawn the next instance when this is marked done">
+                <option value="none">No recurrence</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Biweekly</option>
+                <option value="monthly">Monthly</option>
               </select>
             )}
             <textarea value={draftBody} onChange={(event) => setDraftBody(event.target.value)} rows={4} aria-label="Memory body" />
