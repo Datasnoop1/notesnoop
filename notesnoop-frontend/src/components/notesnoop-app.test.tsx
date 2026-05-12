@@ -526,7 +526,7 @@ describe("NoteSnoopApp", () => {
     expect(await screen.findByRole("region", { name: "First capture" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Edit starter note/i }));
     expect((screen.getByPlaceholderText(/Dump a note/i) as HTMLTextAreaElement).value).toContain("Project Meridian");
-    fireEvent.click(screen.getByRole("button", { name: /Capture starter note/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
 
     await waitFor(() => {
       const notePost = fetchMock.mock.calls.find(([input, init]) => (
@@ -538,8 +538,13 @@ describe("NoteSnoopApp", () => {
         body: expect.stringContaining("Northstar Robotics"),
       });
     });
-    expect(await screen.findByText("Starter note captured. Memory extraction is running.")).toBeInTheDocument();
+    expect(await screen.findByText("Saved. Memory extraction is queued when allowed.")).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Fresh note" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("region", { name: "First capture" })).not.toBeInTheDocument();
+    });
+    expect(await screen.findByText("Starter note captured")).toBeInTheDocument();
+    expect(screen.getByText("Extract memory to turn the starter note into reviewable people, tasks, projects, and companies.")).toBeInTheDocument();
   });
 
   it("creates meetings, reports, workflows, companies, and dated tasks from the dashboard", async () => {

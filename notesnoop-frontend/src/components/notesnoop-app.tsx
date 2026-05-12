@@ -399,6 +399,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [personEmail, setPersonEmail] = useState("");
   const [seedPeopleDrafts, setSeedPeopleDrafts] = useState(["", ""]);
   const [warmStartDismissed, setWarmStartDismissed] = useState(false);
+  const [firstCaptureDismissed, setFirstCaptureDismissed] = useState(false);
+  const [starterDraftLoaded, setStarterDraftLoaded] = useState(false);
+  const [firstCaptureNoteId, setFirstCaptureNoteId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [activeProject, setActiveProject] = useState<string | null>(null);
@@ -469,6 +472,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const openProjectRef = useRef<((project: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
   const openMemoryItemRef = useRef<((sectionId: string, item: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
   const activeProjectRef = useRef<string | null>(null);
+  const onboardingWorkspaceRef = useRef<string | null>(null);
   const staleProjectRefreshIdsRef = useRef<Set<string>>(new Set());
   const selectedNoteIdRef = useRef<string | null>(null);
   const sheetOpenRef = useRef(false);
@@ -497,6 +501,20 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   );
 
   const workspaceId = state?.workspace?.id;
+  const resetOnboardingState = useCallback(() => {
+    setWarmStartDismissed(false);
+    setFirstCaptureDismissed(false);
+    setStarterDraftLoaded(false);
+    setFirstCaptureNoteId(null);
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    if (onboardingWorkspaceRef.current === workspaceId) return;
+    onboardingWorkspaceRef.current = workspaceId;
+    resetOnboardingState();
+  }, [resetOnboardingState, workspaceId]);
+
   useEffect(() => {
     activeProjectRef.current = activeProject;
   }, [activeProject]);
@@ -528,8 +546,11 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const activityByProject = useMemo(() => new Map(activity.map((item) => [item.project_id, item])), [activity]);
   const seededPeople = useMemo(() => (state?.people || []).filter((person) => !person.clerk_user_id), [state]);
   const hasCapturedNotes = notes.length > 0 || Boolean(home?.recent_notes?.length);
-  const showFirstCapture = !quickCapture && !!state?.workspace && home !== null && !activeProject && !hasCapturedNotes;
+  const showFirstCapture = !quickCapture && !!state?.workspace && home !== null && !activeProject && !hasCapturedNotes && !firstCaptureDismissed;
   const showWarmStart = showFirstCapture && !warmStartDismissed && seededPeople.length < 2;
+  const selectedNoteIsFirstCapture = Boolean(
+    selectedNote?.id && firstCaptureNoteId && String(selectedNote.id) === firstCaptureNoteId,
+  );
 
   const appRouteUrl = useCallback(
     (target: RouteTarget) => {
@@ -839,7 +860,20 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setOccurredAt(inputDate(new Date().toISOString()));
     setSelectedProjectIds([]);
     setWarmStartDismissed(true);
+    setStarterDraftLoaded(true);
     window.setTimeout(() => composerBodyRef.current?.focus(), 0);
+  }
+
+  function rememberFirstCaptureNote(noteId?: string | null) {
+    if (!noteId) return;
+    const value = String(noteId);
+    setFirstCaptureNoteId(value);
+    setFirstCaptureDismissed(true);
+  }
+
+  function clearFirstCaptureNote(noteId?: string | null) {
+    if (noteId && firstCaptureNoteId && String(noteId) !== firstCaptureNoteId) return;
+    setFirstCaptureNoteId(null);
   }
 
   async function captureStarterNote() {
@@ -856,6 +890,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           occurred_at: eventDate(inputDate(new Date().toISOString())),
         }),
       });
+      rememberFirstCaptureNote(res.data?.id);
       showNoteSheet(res.data);
       setBody("");
       setTitle("");
@@ -863,6 +898,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       setOccurredAt("");
       setSelectedProjectIds([]);
       setWarmStartDismissed(true);
+      setStarterDraftLoaded(false);
       setToast("Starter note captured. Memory extraction is running.");
       await refreshWorkspaceData();
     } catch (err) {
@@ -887,12 +923,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           occurred_at: eventDate(occurredAt),
         }),
       });
+      if (showFirstCapture || starterDraftLoaded) rememberFirstCaptureNote(res.data?.id);
       showNoteSheet(res.data);
       setBody("");
       setTitle("");
       setNoteKind("note");
       setOccurredAt("");
       setSelectedProjectIds([]);
+      setStarterDraftLoaded(false);
       setToast("Saved. Memory extraction is queued when allowed.");
       await refreshWorkspaceData();
     } catch (err) {
@@ -1543,6 +1581,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setRequestedWorkspaceId(nextWorkspaceId);
     setActiveProject(null);
     setSelectedProjectIds([]);
+    resetOnboardingState();
     setPersonTimeline(null);
     setProjectTimeline(null);
     clearNoteSheetState();
@@ -4099,6 +4138,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               setToast(`Accepted ${accepted}; ${failed} could not be applied.`);
             }
             if (selectedNote) await openNote(selectedNote.id);
+            clearFirstCaptureNote(selectedNote?.id);
             await refreshWorkspaceData();
           } catch (err) {
             setToast(err instanceof Error ? err.message : "Bulk accept failed");
@@ -4107,6 +4147,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         onSuggestionQueued={() => setToast("Suggestion sent to Review.")}
         onOpenMemory={openMemoryItem}
         onOpenReview={openReviewQueue}
+        firstCaptureGuide={selectedNoteIsFirstCapture}
         createProject={async (name) => {
           if (!workspaceId) throw new Error("Workspace is not ready");
           const res = await api(`/api/workspaces/${workspaceId}/projects`, {
@@ -6893,6 +6934,7 @@ function LinkedSheet({
   onSuggestionQueued,
   onOpenMemory,
   onOpenReview,
+  firstCaptureGuide = false,
   createProject,
   api,
   refresh,
@@ -6916,6 +6958,7 @@ function LinkedSheet({
   onSuggestionQueued: () => void;
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
   onOpenReview: () => void;
+  firstCaptureGuide?: boolean;
   createProject: (name: string) => Promise<any>;
   api: (path: string, init?: RequestInit) => Promise<any>;
   refresh: (noteId: string) => Promise<void>;
@@ -7009,6 +7052,17 @@ function LinkedSheet({
   }
 
   async function decideSuggestions(decision: "accept" | "reject") {
+    if (decision === "accept" && onAcceptAllSuggestions) {
+      const ids = suggestions.map((suggestion: any) => suggestion.id).filter(Boolean);
+      if (!ids.length || acceptAllPending) return;
+      setAcceptAllPending(true);
+      try {
+        await onAcceptAllSuggestions(ids);
+      } finally {
+        setAcceptAllPending(false);
+      }
+      return;
+    }
     for (const suggestion of suggestions) {
       await onReviewDecision(suggestion.id, decision);
     }
@@ -7093,11 +7147,15 @@ function LinkedSheet({
           const summaryText = summaryParts.length ? summaryParts.join(", ") : "no memory yet";
           if (status === "processing" || status === "queued" || status === "pending") {
             return (
-              <div className="extraction-banner extraction-banner-progress" role="status">
+              <div className={`extraction-banner extraction-banner-progress${firstCaptureGuide ? " first-capture-extraction" : ""}`} role="status">
                 <span className="extraction-spinner" aria-hidden="true" />
                 <div>
-                  <strong>Extracting memory…</strong>
-                  <small>Reading the note for tasks, meetings, people, projects, and companies. This usually takes a few seconds.</small>
+                  <strong>{firstCaptureGuide ? "Building your first workspace memory…" : "Extracting memory…"}</strong>
+                  <small>
+                    {firstCaptureGuide
+                      ? "Looking for people, tasks, projects, companies, and follow-ups from this starter note."
+                      : "Reading the note for tasks, meetings, people, projects, and companies. This usually takes a few seconds."}
+                  </small>
                 </div>
               </div>
             );
@@ -7118,11 +7176,19 @@ function LinkedSheet({
           }
           if (status === "processed") {
             return (
-              <div className="extraction-banner extraction-banner-done">
+              <div className={`extraction-banner extraction-banner-done${firstCaptureGuide ? " first-capture-extraction" : ""}`}>
                 <Sparkles size={18} />
                 <div>
-                  <strong>Found {summaryText}{suggestions.length ? `. ${suggestions.length} need${suggestions.length === 1 ? "s" : ""} your review.` : "."}</strong>
-                  <small>Source-backed and editable. Open any item to refine its relationships.</small>
+                  <strong>
+                    {firstCaptureGuide && suggestions.length
+                      ? `First memory is ready. Accept all ${suggestions.length}.`
+                      : `Found ${summaryText}${suggestions.length ? `. ${suggestions.length} need${suggestions.length === 1 ? "s" : ""} your review.` : "."}`}
+                  </strong>
+                  <small>
+                    {firstCaptureGuide && suggestions.length
+                      ? "This seeds the workspace with the starter people, project links, tasks, and companies."
+                      : "Source-backed and editable. Open any item to refine its relationships."}
+                  </small>
                 </div>
                 {suggestions.length > 0 && onAcceptAllSuggestions && (
                   <button
@@ -7160,11 +7226,15 @@ function LinkedSheet({
           }
           if (status === "skipped" || status === "unprocessed" || !status) {
             return (
-              <div className="extraction-banner extraction-banner-idle">
+              <div className={`extraction-banner extraction-banner-idle${firstCaptureGuide ? " first-capture-extraction" : ""}`}>
                 <Sparkles size={18} />
                 <div>
-                  <strong>Memory not extracted yet</strong>
-                  <small>You&apos;re in manual mode. Extract memory pulls tasks, people, companies, meetings, and follow-ups out of this note.</small>
+                  <strong>{firstCaptureGuide ? "Starter note captured" : "Memory not extracted yet"}</strong>
+                  <small>
+                    {firstCaptureGuide
+                      ? "Extract memory to turn the starter note into reviewable people, tasks, projects, and companies."
+                      : "You&apos;re in manual mode. Extract memory pulls tasks, people, companies, meetings, and follow-ups out of this note."}
+                  </small>
                 </div>
                 <button type="button" className="extraction-banner-action primary" onClick={onProcess}>
                   <Sparkles size={14} /> Extract memory
@@ -7233,7 +7303,7 @@ function LinkedSheet({
               <strong>AI suggestions</strong>
               {suggestions.length > 1 && (
                 <span className="suggestion-bulk">
-                  <button type="button" onClick={() => decideSuggestions("accept")}><Check size={15} /> Accept all</button>
+                  <button type="button" disabled={acceptAllPending} onClick={() => decideSuggestions("accept")}><Check size={15} /> {acceptAllPending ? "Accepting..." : "Accept all"}</button>
                   <button type="button" onClick={() => decideSuggestions("reject")}><X size={15} /> Reject all</button>
                 </span>
               )}
