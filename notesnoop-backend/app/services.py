@@ -11,6 +11,19 @@ from .db import many, one, transaction
 from .schemas import BootstrapRequest
 
 
+PARTICIPANT_TAIL_RE = re.compile(r"\s+with\s+[A-Z][A-Za-z'’-]*(?:\s+[A-Z][A-Za-z'’-]*){0,2}$")
+
+
+def _clean_derived_title(title: str) -> str:
+    cleaned = title.strip()
+    participant_match = PARTICIPANT_TAIL_RE.search(cleaned)
+    if participant_match:
+        prefix = cleaned[: participant_match.start()].strip()
+        if len(prefix.split()) >= 3 and len(prefix) >= 16:
+            cleaned = prefix
+    return cleaned
+
+
 def derive_title(body: str, title: str | None) -> tuple[str, bool]:
     if title and title.strip():
         return title.strip()[:200], False
@@ -22,8 +35,10 @@ def derive_title(body: str, title: str | None) -> tuple[str, bool]:
     # "Met Morgan from Northstar today about the Apollo deal. They want a t".
     sentence_match = re.search(r"^(.{8,160}?[.!?])\s", first + " ")
     if sentence_match:
-        return sentence_match.group(1).rstrip(" .!?").strip()[:80] or "[Untitled note]", True
-    return first[:80], True
+        derived = _clean_derived_title(sentence_match.group(1).rstrip(" .!?").strip())
+        return derived[:80] or "[Untitled note]", True
+    return _clean_derived_title(first[:80]), True
+
 
 
 def inbound_address_for(user_id: str) -> str:

@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "notesnoop-backend"))
 sys.path.insert(0, str(ROOT / "notesnoop"))
 
 import migrate
-from app import auth, email_ingest, main, ollama_client, worker
+from app import auth, email_ingest, main, ollama_client, services, worker
 from app.briefing import make_unsubscribe_token, parse_unsubscribe_token
 from app.embeddings import EmbeddingResult
 from app.routers import memory, notes, realtime, webhooks
@@ -514,6 +514,15 @@ def test_project_summary_helper_is_deterministic():
         "- First note body with useful context",
         "- Named note",
     ]
+
+
+def test_derived_note_titles_trim_participant_tails_only_for_descriptive_titles():
+    assert services.derive_title("Apollo quarterly launch memo with Morgan.", None) == (
+        "Apollo quarterly launch memo",
+        True,
+    )
+    assert services.derive_title("Call with Morgan.", None) == ("Call with Morgan", True)
+    assert services.derive_title("Apollo sync", "Keep exact title with Morgan") == ("Keep exact title with Morgan", False)
 
 
 def test_generated_project_report_access_and_personal_guards(monkeypatch):
