@@ -1262,6 +1262,7 @@ def search(
     date_to: str | None = None,
     flagged_only: bool = False,
     note_kind: str | None = None,
+    include_archived: bool = False,
     user: CurrentUser = Depends(current_user),
 ):
     query = q.strip()
@@ -1281,6 +1282,7 @@ def search(
             date_to,
             flagged_only,
             note_kind,
+            include_archived,
         )
         if not query:
             rows = many(
@@ -1472,6 +1474,30 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
             project_filter.format(link_table="company_projects", id_column="company_id"),
             person_filter.format(link_table="company_people", id_column="company_id"),
         ),
+        # Anchors: people and projects themselves. Both filter slots always
+        # receive 2 placeholder params (project_id, project_id) /
+        # (person_id, person_id), so the passthrough must consume both. We use
+        # `%s IS DISTINCT FROM %s OR TRUE` to swallow them as a tautology when
+        # the filter would otherwise be redundant (a person-anchor filtered
+        # by person_id is just `item.id = person_id`).
+        (
+            "person",
+            "people",
+            "name",
+            "concat_ws(' - ', company, role)",
+            "created_at",
+            "%s::uuid IS DISTINCT FROM %s::uuid OR TRUE",
+            "%s::uuid IS NULL OR item.id = %s::uuid",
+        ),
+        (
+            "project",
+            "projects",
+            "name",
+            "description",
+            "coalesce(updated_at, created_at)",
+            "%s::uuid IS NULL OR item.id = %s::uuid",
+            "%s::uuid IS DISTINCT FROM %s::uuid OR TRUE",
+        ),
     ]
     results: list[dict] = []
     for kind, table, title_column, subtitle_column, sort_column, project_sql, person_sql in searches:
@@ -1634,9 +1660,12 @@ def _search_where(
     date_to: str | None,
     flagged_only: bool,
     note_kind: str | None = None,
+    include_archived: bool = False,
 ) -> tuple[str, list]:
     clauses = ["n.workspace_id = %s"]
     params: list = [workspace_id]
+    if not include_archived:
+        clauses.append("n.archived_at IS NULL")
     if project_id:
         clauses.append("EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s)")
         params.append(project_id)
