@@ -270,6 +270,84 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 }
 .warm-start-inputs button:disabled { opacity: .55; cursor: not-allowed; }
 
+.onboarding-flow {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  border: 1px solid #bdd7d0;
+  background: linear-gradient(135deg, #f7fbf8 0%, #fffaf0 100%);
+  border-radius: 8px;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: minmax(190px, .42fr) minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+}
+.onboarding-copy {
+  display: grid;
+  gap: 5px;
+}
+.onboarding-copy span,
+.onboarding-sample small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+.onboarding-copy h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0;
+}
+.onboarding-copy p,
+.onboarding-sample p {
+  margin: 0;
+  color: var(--muted);
+}
+.onboarding-sample {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.onboarding-sample p {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--ink);
+  line-height: 1.45;
+}
+.onboarding-actions {
+  display: grid;
+  gap: 8px;
+  min-width: 190px;
+}
+.onboarding-actions button {
+  min-height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fffefb;
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+}
+.onboarding-actions button.primary {
+  background: #173832;
+  color: white;
+  border-color: #173832;
+}
+.onboarding-actions button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
 .composer {
   margin: 18px;
   display: grid;
@@ -3036,6 +3114,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .warm-start { grid-template-columns: 1fr; }
   .warm-start-inputs { grid-template-columns: 1fr 1fr; }
   .warm-start-inputs button:not(.icon-btn) { min-width: 0; }
+  .onboarding-flow {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+  .onboarding-copy h2 {
+    font-size: 20px;
+  }
+  .onboarding-actions {
+    min-width: 0;
+    grid-template-columns: 1fr;
+  }
   .content-grid { grid-template-columns: 1fr; padding: 0 10px 22px; }
   .entity-pane { order: -1; }
   .sheet-backdrop { align-items: flex-end; justify-content: center; }

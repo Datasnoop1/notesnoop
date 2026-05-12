@@ -132,6 +132,7 @@ const NOTE_KIND_LABELS: Record<string, string> = {
   task: "Task",
   report: "Report",
 };
+const STARTER_NOTE_BODY = "Met Maya Verbruggen from Northstar Robotics about Project Meridian today. Ivo Peeters owns the pilot budget. Follow up Friday: send pricing options, ask Maya for security notes, and schedule a technical review with Cameron Lee. Northstar wants a short weekly status report and a task owner list before the steering meeting.";
 const STRUCTURED_REVIEW_KINDS = new Set(["task", "meeting", "report", "workflow", "company"]);
 const MEMORY_ROUTE_PATHS: Record<MemoryRouteKind, string> = {
   task: "tasks",
@@ -462,11 +463,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const paletteDebounceRef = useRef<number | null>(null);
   const paletteInputRef = useRef<HTMLInputElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const composerBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const appliedRouteRef = useRef("");
   const openProjectRef = useRef<((project: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
   const openMemoryItemRef = useRef<((sectionId: string, item: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
   const activeProjectRef = useRef<string | null>(null);
   const staleProjectRefreshIdsRef = useRef<Set<string>>(new Set());
+  const selectedNoteIdRef = useRef<string | null>(null);
+  const sheetOpenRef = useRef(false);
 
   const api = useCallback(
     async (path: string, init: RequestInit = {}) => {
@@ -495,6 +499,24 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   useEffect(() => {
     activeProjectRef.current = activeProject;
   }, [activeProject]);
+  const showNoteSheet = useCallback((note: any) => {
+    selectedNoteIdRef.current = note?.id ? String(note.id) : null;
+    sheetOpenRef.current = Boolean(note);
+    setSelectedNote(note);
+    setSheetOpen(Boolean(note));
+  }, []);
+
+  const replaceSelectedNote = useCallback((note: any) => {
+    selectedNoteIdRef.current = note?.id ? String(note.id) : null;
+    setSelectedNote(note);
+  }, []);
+
+  const clearNoteSheetState = useCallback(() => {
+    selectedNoteIdRef.current = null;
+    sheetOpenRef.current = false;
+    setSheetOpen(false);
+    setSelectedNote(null);
+  }, []);
   const inbox = useMemo(() => state?.projects.find((p) => p.kind === "inbox"), [state]);
   const personal = useMemo(() => state?.projects.find((p) => p.kind === "personal"), [state]);
   const closedProjects = useMemo(
@@ -504,7 +526,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const saveProjectIds = selectedProjectIds.length ? selectedProjectIds : activeProject ? [activeProject] : [];
   const activityByProject = useMemo(() => new Map(activity.map((item) => [item.project_id, item])), [activity]);
   const seededPeople = useMemo(() => (state?.people || []).filter((person) => !person.clerk_user_id), [state]);
-  const showWarmStart = !quickCapture && !warmStartDismissed && !!state?.workspace && !notes.length && seededPeople.length < 2;
+  const hasCapturedNotes = notes.length > 0 || Boolean(home?.recent_notes?.length);
+  const showFirstCapture = !quickCapture && !!state?.workspace && home !== null && !activeProject && !hasCapturedNotes;
+  const showWarmStart = showFirstCapture && !warmStartDismissed && seededPeople.length < 2;
 
   const appRouteUrl = useCallback(
     (target: RouteTarget) => {
@@ -601,6 +625,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       throw err;
     }
   }, [activeProject, api, workspaceId]);
+
+  const refreshSelectedNote = useCallback(async (noteId: string) => {
+    await refreshWorkspaceData();
+    if (!sheetOpenRef.current || selectedNoteIdRef.current !== noteId) return;
+    const res = await api(`/api/notes/${noteId}`);
+    if (!sheetOpenRef.current || selectedNoteIdRef.current !== noteId) return;
+    replaceSelectedNote(res.data);
+  }, [api, refreshWorkspaceData, replaceSelectedNote]);
 
   const refreshSignals = useCallback(async () => {
     if (!workspaceId) return;
@@ -799,6 +831,46 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     };
   }, [getToken, isSignedIn, refreshSignals, workspaceId]);
 
+  function loadStarterNote() {
+    setBody(STARTER_NOTE_BODY);
+    setTitle("");
+    setNoteKind("meeting");
+    setOccurredAt(inputDate(new Date().toISOString()));
+    setSelectedProjectIds([]);
+    setWarmStartDismissed(true);
+    window.setTimeout(() => composerBodyRef.current?.focus(), 0);
+  }
+
+  async function captureStarterNote() {
+    if (!workspaceId) return;
+    setBusy(true);
+    try {
+      const res = await api(`/api/workspaces/${workspaceId}/notes`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: null,
+          body: STARTER_NOTE_BODY,
+          project_ids: undefined,
+          note_kind: "meeting",
+          occurred_at: eventDate(inputDate(new Date().toISOString())),
+        }),
+      });
+      showNoteSheet(res.data);
+      setBody("");
+      setTitle("");
+      setNoteKind("note");
+      setOccurredAt("");
+      setSelectedProjectIds([]);
+      setWarmStartDismissed(true);
+      setToast("Starter note captured. Memory extraction is running.");
+      await refreshWorkspaceData();
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not capture starter note");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveNote() {
     if (!workspaceId || !body.trim()) return;
     setBusy(true);
@@ -814,13 +886,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           occurred_at: eventDate(occurredAt),
         }),
       });
-      setSelectedNote(res.data);
+      showNoteSheet(res.data);
       setBody("");
       setTitle("");
       setNoteKind("note");
       setOccurredAt("");
       setSelectedProjectIds([]);
-      setSheetOpen(true);
       setToast("Saved. Memory extraction is queued when allowed.");
       await refreshWorkspaceData();
     } catch (err) {
@@ -832,22 +903,21 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
 
   const openNote = useCallback(async (noteId: string, options: { push?: boolean } = {}) => {
     const res = await api(`/api/notes/${noteId}`);
-    setSelectedNote(res.data);
-    setSheetOpen(true);
+    showNoteSheet(res.data);
     const target = { kind: "note", id: noteId } as const;
     if (options.push !== false) {
       appliedRouteRef.current = routeKey(target);
       setRouteTarget(target);
       writeAppRoute(target);
     }
-  }, [api, writeAppRoute]);
+  }, [api, showNoteSheet, writeAppRoute]);
 
   async function updateNote(noteId: string, nextTitle: string, nextBody: string, nextKind: string, nextOccurredAt: string) {
     const res = await api(`/api/notes/${noteId}`, {
       method: "PATCH",
       body: JSON.stringify({ title: nextTitle || null, body: nextBody, note_kind: nextKind, occurred_at: eventDate(nextOccurredAt) }),
     });
-    setSelectedNote(res.data);
+    replaceSelectedNote(res.data);
     await refreshWorkspaceData();
     setToast("Note saved.");
   }
@@ -857,7 +927,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       method: "PUT",
       body: JSON.stringify({ project_ids: projectIds, confirm_personal_move: confirmPersonalMove }),
     });
-    setSelectedNote(res.data);
+    replaceSelectedNote(res.data);
     await refreshWorkspaceData();
   }
 
@@ -1474,9 +1544,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setSelectedProjectIds([]);
     setPersonTimeline(null);
     setProjectTimeline(null);
-    setSelectedNote(null);
+    clearNoteSheetState();
     setSelectedMemory(null);
-    setSheetOpen(false);
     setHome(null);
     setMemoryGraph({ nodes: [], edges: [] });
     setNotes([]);
@@ -1496,9 +1565,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setSelectedProjectIds([]);
     setPersonTimeline(null);
     setProjectTimeline(null);
-    setSelectedNote(null);
+    clearNoteSheetState();
     setSelectedMemory(null);
-    setSheetOpen(false);
     const target = { kind: "dashboard" } as const;
     appliedRouteRef.current = routeKey(target);
     setRouteTarget(target);
@@ -1562,7 +1630,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   }
 
   function closeNoteSheet() {
-    setSheetOpen(false);
+    clearNoteSheetState();
     if (routeTarget.kind !== "note") return;
     const target = activeProject ? { kind: "project", id: activeProject } as const : { kind: "dashboard" } as const;
     appliedRouteRef.current = routeKey(target);
@@ -1625,8 +1693,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       method: "POST",
       body: JSON.stringify({ note_id: note.id }),
     });
-    setSheetOpen(false);
-    setSelectedNote(null);
+    clearNoteSheetState();
     setToast("Sender blocked and email removed.");
     await refreshWorkspaceData();
   }
@@ -1884,9 +1951,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       setSelectedProjectIds([]);
       setPersonTimeline(null);
       setProjectTimeline(null);
-      setSelectedNote(null);
+      clearNoteSheetState();
       setSelectedMemory(null);
-      setSheetOpen(false);
       return;
     }
     if (routeTarget.kind === "project" && routeTarget.id) {
@@ -1925,7 +1991,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         setToast(err.message);
       });
     }
-  }, [isSignedIn, openNote, openPerson, openProject, quickCapture, routeTarget, state?.people, state?.projects, state?.workspace, workspaceId]);
+  }, [clearNoteSheetState, isSignedIn, openNote, openPerson, openProject, quickCapture, routeTarget, state?.people, state?.projects, state?.workspace, workspaceId]);
 
   useEffect(() => {
     if (!landingProjectId || !state?.projects?.length) return;
@@ -2286,6 +2352,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         </label>
       </div>
       <textarea
+        ref={composerBodyRef}
         value={body}
         onChange={(e) => setBody(e.target.value)}
         onKeyDown={(event) => {
@@ -2645,6 +2712,28 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 </button>
               </div>
             </div>
+
+            {showFirstCapture && (
+              <section className="onboarding-flow" aria-label="First capture">
+                <div className="onboarding-copy">
+                  <span><Sparkles size={16} /> First capture</span>
+                  <h2>Start with one messy note</h2>
+                  <p>Use the starter note, or paste your own meeting fragment in Capture.</p>
+                </div>
+                <div className="onboarding-sample" aria-label="Starter note">
+                  <small>Starter note</small>
+                  <p>{STARTER_NOTE_BODY}</p>
+                </div>
+                <div className="onboarding-actions">
+                  <button type="button" className="primary" onClick={captureStarterNote} disabled={busy}>
+                    <Send size={16} /> Capture starter note
+                  </button>
+                  <button type="button" onClick={loadStarterNote} disabled={busy}>
+                    <ClipboardList size={16} /> Edit starter note
+                  </button>
+                </div>
+              </section>
+            )}
 
             <section className="dashboard-ask" aria-label="Ask memory">
               <div className="ask-prompt">
@@ -3981,7 +4070,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           return res.data;
         }}
         api={api}
-        refresh={refreshWorkspaceData}
+        refresh={refreshSelectedNote}
       />
 
       {activityOpen && (
@@ -6782,7 +6871,7 @@ function LinkedSheet({
   onOpenReview: () => void;
   createProject: (name: string) => Promise<any>;
   api: (path: string, init?: RequestInit) => Promise<any>;
-  refresh: () => Promise<void>;
+  refresh: (noteId: string) => Promise<void>;
 }) {
   const [acceptAllPending, setAcceptAllPending] = useState(false);
   const [personId, setPersonId] = useState("");
@@ -6813,7 +6902,7 @@ function LinkedSheet({
       if (cancelled) return;
       attempts += 1;
       try {
-        await refresh();
+        await refresh(String(note.id));
       } catch {
         // network jitter is fine; we'll try again
       }
@@ -6856,7 +6945,7 @@ function LinkedSheet({
       body: JSON.stringify({ person_id: personId, state: "confirmed", source: "user" }),
     });
     if (res.data?.collaborator_suggestion) onSuggestionQueued();
-    await refresh();
+    await refresh(String(note.id));
   }
 
   async function moveToProject(projectId: string) {

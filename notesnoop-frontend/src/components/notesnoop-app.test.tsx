@@ -248,6 +248,17 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/workspaces/workspace-1/notes") && init?.method === "POST") {
       return json({ data: { ...note, title: "Fresh note", body: JSON.parse(String(init.body)).body } });
     }
+    if (url.includes("/api/notes/processing-note")) {
+      return json({
+        data: {
+          ...note,
+          id: "processing-note",
+          title: "Processing note",
+          ai_processing_status: "processed",
+          review_suggestions: [],
+        },
+      });
+    }
     if (url.includes("/api/workspaces/workspace-1/tasks") && init?.method === "POST") {
       return json({ data: { id: "task-created", ...JSON.parse(String(init.body)) } });
     }
@@ -502,6 +513,35 @@ describe("NoteSnoopApp", () => {
     expect(await screen.findByText("People added.")).toBeInTheDocument();
   });
 
+  it("guides a fresh workspace into a starter capture", async () => {
+    const selfOnly = [{ id: "person-self", name: "Dev User", clerk_user_id: "dev_user", confirmed_note_count: 0 }];
+    const { fetchMock } = installFetch({
+      people: selfOnly,
+      notes: [],
+      pendingItems: [],
+      home: { recent_people: selfOnly, recent_notes: [], pending_review: [] },
+    });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    expect(await screen.findByRole("region", { name: "First capture" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Edit starter note/i }));
+    expect((screen.getByPlaceholderText(/Dump a note/i) as HTMLTextAreaElement).value).toContain("Project Meridian");
+    fireEvent.click(screen.getByRole("button", { name: /Capture starter note/i }));
+
+    await waitFor(() => {
+      const notePost = fetchMock.mock.calls.find(([input, init]) => (
+        String(input).includes("/api/workspaces/workspace-1/notes") && init?.method === "POST"
+      ));
+      expect(notePost).toBeTruthy();
+      expect(JSON.parse(String(notePost?.[1]?.body))).toMatchObject({
+        note_kind: "meeting",
+        body: expect.stringContaining("Northstar Robotics"),
+      });
+    });
+    expect(await screen.findByText("Starter note captured. Memory extraction is running.")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Fresh note" })).toBeInTheDocument();
+  });
+
   it("creates meetings, reports, workflows, companies, and dated tasks from the dashboard", async () => {
     const { calls } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
@@ -609,6 +649,25 @@ describe("NoteSnoopApp", () => {
     expect(await screen.findByText("Fresh note")).toBeInTheDocument();
     expect(await screen.findByText("Quick brief")).toBeInTheDocument();
   });
+
+  it("does not reopen a closed processing note after polling returns", async () => {
+    const processingNote = {
+      ...note,
+      id: "processing-note",
+      title: "Processing note",
+      ai_processing_status: "processing",
+    };
+    installFetch({ notes: [processingNote] });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    fireEvent.click(await screen.findByText("Processing note"));
+    expect(await screen.findByRole("heading", { name: "Processing note" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("heading", { name: "Processing note" })).not.toBeInTheDocument();
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    expect(screen.queryByRole("heading", { name: "Processing note" })).not.toBeInTheDocument();
+  }, 10000);
 
   it("opens the review sheet and accepts a suggestion", async () => {
     const { calls } = installFetch();
