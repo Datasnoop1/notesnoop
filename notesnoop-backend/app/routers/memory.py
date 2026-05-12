@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -140,6 +141,7 @@ def list_tasks(workspace_id: str, project_id: str | None = None, user: CurrentUs
         params: list = [workspace_id]
         where = "t.workspace_id = %s"
         if project_id:
+            project_id = _normalize_uuid_or_422(project_id, "One or more projects are unavailable")
             where += """
               AND (
                 EXISTS (SELECT 1 FROM task_projects scoped_tp WHERE scoped_tp.task_id = t.id AND scoped_tp.project_id = %s)
@@ -199,7 +201,7 @@ def create_task(workspace_id: str, payload: TaskCreate, user: CurrentUser = Depe
     with transaction(user.clerk_user_id) as cur:
         _ensure_workspace_access(cur, workspace_id)
         _validate_project_ids(cur, workspace_id, payload.project_ids or [])
-        _validate_person_ids(cur, workspace_id, payload.person_ids or [])
+        _validate_person_ids(cur, workspace_id, _task_person_ids_for_validation(payload.person_ids or [], payload.assignee_id))
         _validate_company_ids(cur, workspace_id, payload.company_ids or [])
         _validate_note_ids(cur, workspace_id, payload.note_ids or [])
         completed_at_sql = "now()" if payload.status == "done" else "NULL"
@@ -237,8 +239,12 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
         workspace_id = str(task["workspace_id"])
         if payload.project_ids is not None:
             _validate_project_ids(cur, workspace_id, payload.project_ids)
-        if payload.person_ids is not None:
-            _validate_person_ids(cur, workspace_id, payload.person_ids)
+        if payload.person_ids is not None or "assignee_id" in payload.model_fields_set:
+            _validate_person_ids(
+                cur,
+                workspace_id,
+                _task_person_ids_for_validation(payload.person_ids or [], payload.assignee_id),
+            )
         if payload.company_ids is not None:
             _validate_company_ids(cur, workspace_id, payload.company_ids)
         if payload.note_ids is not None:
@@ -456,6 +462,8 @@ def add_task_dependency(task_id: str, payload: TaskDependencyCreate, user: Curre
     blocking_id = (payload.blocking_task_id or "").strip()
     if not blocking_id:
         raise HTTPException(status_code=400, detail="blocking_task_id is required")
+    task_id = _normalize_uuid_or_422(task_id, "Task not found")
+    blocking_id = _normalize_uuid_or_422(blocking_id, "Blocking task not found")
     if blocking_id == task_id:
         raise HTTPException(status_code=422, detail="A task cannot block itself")
     with transaction(user.clerk_user_id) as cur:
@@ -489,6 +497,8 @@ def add_task_dependency(task_id: str, payload: TaskDependencyCreate, user: Curre
 
 @router.delete("/tasks/{task_id}/dependencies/{blocking_task_id}")
 def remove_task_dependency(task_id: str, blocking_task_id: str, user: CurrentUser = Depends(current_user)):
+    task_id = _normalize_uuid_or_422(task_id, "Task not found")
+    blocking_task_id = _normalize_uuid_or_422(blocking_task_id, "Blocking task not found")
     with transaction(user.clerk_user_id) as cur:
         task = one(cur, "SELECT id FROM tasks WHERE id = %s", (task_id,))
         if not task:
@@ -522,6 +532,7 @@ def list_task_reminders(workspace_id: str, project_id: str | None = None, user: 
         params: list = [workspace_id]
         where = "tr.workspace_id = %s AND tr.state IN ('pending','snoozed')"
         if project_id:
+            project_id = _normalize_uuid_or_422(project_id, "One or more projects are unavailable")
             where += " AND EXISTS (SELECT 1 FROM task_projects tp WHERE tp.task_id = tr.task_id AND tp.project_id = %s)"
             params.append(project_id)
         return {
@@ -625,6 +636,7 @@ def list_meetings(workspace_id: str, project_id: str | None = None, user: Curren
         params: list = [workspace_id]
         where = "m.workspace_id = %s"
         if project_id:
+            project_id = _normalize_uuid_or_422(project_id, "One or more projects are unavailable")
             where += """
               AND (
                 EXISTS (SELECT 1 FROM meeting_projects scoped_mp WHERE scoped_mp.meeting_id = m.id AND scoped_mp.project_id = %s)
@@ -754,6 +766,7 @@ def list_reports(workspace_id: str, project_id: str | None = None, user: Current
         params: list = [workspace_id]
         where = "r.workspace_id = %s"
         if project_id:
+            project_id = _normalize_uuid_or_422(project_id, "One or more projects are unavailable")
             where += " AND EXISTS (SELECT 1 FROM report_projects rp WHERE rp.report_id = r.id AND rp.project_id = %s)"
             params.append(project_id)
         return {
@@ -821,11 +834,13 @@ def create_report(workspace_id: str, payload: ReportCreate, user: CurrentUser = 
 def update_report(report_id: str, payload: ReportUpdate, user: CurrentUser = Depends(current_user)):
     if payload.period_start and payload.period_end and payload.period_start > payload.period_end:
         raise HTTPException(status_code=422, detail="period_start must be on or before period_end")
+    report_id = _normalize_uuid_or_422(report_id, "Report not found")
     with transaction(user.clerk_user_id) as cur:
         report = one(cur, "SELECT * FROM reports WHERE id = %s", (report_id,))
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         workspace_id = str(report["workspace_id"])
+        linked_report_ids = _report_source_ids_without_self(payload.report_ids, report_id)
         if payload.project_ids is not None:
             _validate_project_ids(cur, workspace_id, payload.project_ids)
         if payload.person_ids is not None:
@@ -839,7 +854,7 @@ def update_report(report_id: str, payload: ReportUpdate, user: CurrentUser = Dep
         if payload.meeting_ids is not None:
             _validate_meeting_ids(cur, workspace_id, payload.meeting_ids)
         if payload.report_ids is not None:
-            _validate_report_ids(cur, workspace_id, [item for item in payload.report_ids if item != report_id])
+            _validate_report_ids(cur, workspace_id, linked_report_ids)
         if payload.workflow_ids is not None:
             _validate_workflow_ids(cur, workspace_id, payload.workflow_ids)
         cur.execute(
@@ -882,7 +897,7 @@ def update_report(report_id: str, payload: ReportUpdate, user: CurrentUser = Dep
                 "source_report_id",
                 report_id,
                 workspace_id,
-                [item for item in payload.report_ids if item != report_id],
+                linked_report_ids,
                 user.clerk_user_id,
             )
         if payload.workflow_ids is not None:
@@ -914,6 +929,7 @@ def save_ask_memory_report(workspace_id: str, payload: MemoryAskSaveReportReques
         _validate_meeting_ids(cur, workspace_id, source_ids["meeting"])
         _validate_report_ids(cur, workspace_id, source_ids["report"])
         _validate_workflow_ids(cur, workspace_id, source_ids["workflow"])
+        source_ids = _canonical_source_ids(source_ids)
         source_payload = {
             "kind": "ask_memory",
             "query": payload.query.strip(),
@@ -970,6 +986,7 @@ def save_ask_memory_task(workspace_id: str, payload: MemoryAskSaveTaskRequest, u
         _validate_meeting_ids(cur, workspace_id, source_ids["meeting"])
         _validate_report_ids(cur, workspace_id, source_ids["report"])
         _validate_workflow_ids(cur, workspace_id, source_ids["workflow"])
+        source_ids = _canonical_source_ids(source_ids)
         source_payload = {
             "kind": "ask_memory",
             "query": payload.query.strip(),
@@ -1024,6 +1041,7 @@ def list_workflows(workspace_id: str, project_id: str | None = None, user: Curre
         params: list = [workspace_id]
         where = "w.workspace_id = %s"
         if project_id:
+            project_id = _normalize_uuid_or_422(project_id, "One or more projects are unavailable")
             where += """
               AND (
                 EXISTS (SELECT 1 FROM workflow_projects scoped_wp WHERE scoped_wp.workflow_id = w.id AND scoped_wp.project_id = %s)
@@ -1094,7 +1112,7 @@ def create_workflow(workspace_id: str, payload: WorkflowCreate, user: CurrentUse
         workflow = dict(cur.fetchone())
         _link_many(cur, "workflow_projects", "workflow_id", "project_id", workflow["id"], workspace_id, payload.project_ids or [], user.clerk_user_id)
         _link_many(cur, "workflow_companies", "workflow_id", "company_id", workflow["id"], workspace_id, payload.company_ids or [], user.clerk_user_id)
-        for person_id in _dedupe(payload.person_ids or []):
+        for person_id in _canonical_ids(payload.person_ids or [], "One or more people are unavailable"):
             cur.execute(
                 """
                 INSERT INTO workflow_people (workflow_id, person_id, workspace_id, relation, linked_by)
@@ -1105,7 +1123,7 @@ def create_workflow(workspace_id: str, payload: WorkflowCreate, user: CurrentUse
             )
         _link_many(cur, "workflow_notes", "workflow_id", "note_id", workflow["id"], workspace_id, payload.note_ids or [], user.clerk_user_id)
         position = 0
-        for task_id in _dedupe(payload.task_ids or []):
+        for task_id in _canonical_ids(payload.task_ids or [], "One or more tasks are unavailable"):
             cur.execute(
                 """
                 INSERT INTO workflow_tasks (workflow_id, task_id, workspace_id, position, linked_by)
@@ -1157,7 +1175,7 @@ def update_workflow(workflow_id: str, payload: WorkflowUpdate, user: CurrentUser
             _replace_links(cur, "workflow_companies", "workflow_id", "company_id", workflow_id, workspace_id, payload.company_ids, user.clerk_user_id)
         if payload.person_ids is not None:
             cur.execute("DELETE FROM workflow_people WHERE workflow_id = %s", (workflow_id,))
-            for person_id in _dedupe(payload.person_ids):
+            for person_id in _canonical_ids(payload.person_ids, "One or more people are unavailable"):
                 cur.execute(
                     """
                     INSERT INTO workflow_people (workflow_id, person_id, workspace_id, relation, linked_by)
@@ -1170,7 +1188,7 @@ def update_workflow(workflow_id: str, payload: WorkflowUpdate, user: CurrentUser
             _replace_links(cur, "workflow_notes", "workflow_id", "note_id", workflow_id, workspace_id, payload.note_ids, user.clerk_user_id)
         if payload.task_ids is not None:
             cur.execute("DELETE FROM workflow_tasks WHERE workflow_id = %s", (workflow_id,))
-            for position, task_id in enumerate(_dedupe(payload.task_ids)):
+            for position, task_id in enumerate(_canonical_ids(payload.task_ids, "One or more tasks are unavailable")):
                 cur.execute(
                     """
                     INSERT INTO workflow_tasks (workflow_id, task_id, workspace_id, position, linked_by)
@@ -1196,6 +1214,7 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
     with transaction(user.clerk_user_id) as cur:
         _ensure_workspace_access(cur, workspace_id)
         if project_id:
+            project_id = _normalize_uuid_or_422(project_id, "One or more projects are unavailable")
             _validate_project_ids(cur, workspace_id, [project_id])
         notes = many(
             cur,
@@ -1536,6 +1555,7 @@ def memory_graph(workspace_id: str, project_id: str | None = None, user: Current
 
 @router.get("/projects/{project_id}/summary")
 def project_summary(project_id: str, user: CurrentUser = Depends(current_user)):
+    project_id = _normalize_uuid_or_422(project_id, "Project not found")
     with transaction(user.clerk_user_id) as cur:
         project = one(cur, "SELECT * FROM projects WHERE id = %s", (project_id,))
         if not project:
@@ -1604,6 +1624,7 @@ def project_summary(project_id: str, user: CurrentUser = Depends(current_user)):
 
 @router.post("/projects/{project_id}/reports/generate")
 def generate_project_memory_report(project_id: str, payload: ProjectReportGenerateRequest, user: CurrentUser = Depends(current_user)):
+    project_id = _normalize_uuid_or_422(project_id, "Project not found")
     with transaction(user.clerk_user_id) as cur:
         project = _load_reportable_project(cur, project_id)
         workspace_id = str(project["workspace_id"])
@@ -1782,6 +1803,7 @@ def generate_project_memory_report(project_id: str, payload: ProjectReportGenera
 
 
 def _load_reportable_project(cur, project_id: str) -> dict:
+    project_id = _normalize_uuid_or_422(project_id, "Project not found")
     project = one(cur, "SELECT * FROM projects WHERE id = %s", (project_id,))
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1969,12 +1991,76 @@ def _validate_company_ids(cur, workspace_id: str, ids: list[str]) -> None:
 
 
 def _validate_ids(cur, table: str, workspace_id: str, ids: list[str], detail: str) -> None:
-    unique_ids = _dedupe(ids)
+    unique_ids = _canonical_ids(ids, detail)
     if not unique_ids:
         return
     row = one(cur, f"SELECT count(*) AS count FROM {table} WHERE workspace_id = %s AND id = ANY(%s::uuid[])", (workspace_id, unique_ids))
     if not row or int(row["count"]) != len(unique_ids):
         raise HTTPException(status_code=422, detail=detail)
+
+
+def _normalize_uuid_or_422(value: str, detail: str) -> str:
+    try:
+        return str(uuid.UUID(str(value)))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail=detail)
+
+
+def _normalize_uuid_list_or_422(ids: list[str], detail: str) -> list[str]:
+    return [_normalize_uuid_or_422(value, detail) for value in ids]
+
+
+def _canonical_ids(ids: list[str], detail: str) -> list[str]:
+    return _dedupe(_normalize_uuid_list_or_422(ids, detail))
+
+
+def _link_detail(right_column: str) -> str:
+    return {
+        "project_id": "One or more projects are unavailable",
+        "person_id": "One or more people are unavailable",
+        "company_id": "One or more companies are unavailable",
+        "note_id": "One or more notes are unavailable",
+        "task_id": "One or more tasks are unavailable",
+        "meeting_id": "One or more meetings are unavailable",
+        "report_id": "One or more reports are unavailable",
+        "source_report_id": "One or more reports are unavailable",
+        "workflow_id": "One or more workflows are unavailable",
+    }.get(right_column, "One or more linked items are unavailable")
+
+
+def _task_person_ids_for_validation(person_ids: list[str], assignee_id: str | None) -> list[str]:
+    values = list(person_ids or [])
+    if assignee_id:
+        values.append(assignee_id)
+    return _dedupe(values)
+
+
+def _canonical_source_ids(source_ids: dict[str, list[str]]) -> dict[str, list[str]]:
+    details = {
+        "project": "One or more projects are unavailable",
+        "person": "One or more people are unavailable",
+        "company": "One or more companies are unavailable",
+        "note": "One or more notes are unavailable",
+        "task": "One or more tasks are unavailable",
+        "meeting": "One or more meetings are unavailable",
+        "report": "One or more reports are unavailable",
+        "workflow": "One or more workflows are unavailable",
+    }
+    return {
+        kind: _canonical_ids(values, details[kind])
+        for kind, values in source_ids.items()
+    }
+
+
+def _report_source_ids_without_self(report_ids: list[str] | None, report_id: str) -> list[str]:
+    if report_ids is None:
+        return []
+    normalized_report_id = _normalize_uuid_or_422(report_id, "Report not found")
+    return [
+        source_id
+        for source_id in _canonical_ids(report_ids, "One or more reports are unavailable")
+        if source_id != normalized_report_id
+    ]
 
 
 _LINK_TABLES_WITH_PROVENANCE = {
@@ -1988,7 +2074,7 @@ _LINK_TABLES_WITH_PROVENANCE = {
 
 def _link_many(cur, table: str, left_column: str, right_column: str, left_id, workspace_id: str, right_ids: list[str], user_id: str, linked_via: str = "manual") -> None:
     has_provenance = table in _LINK_TABLES_WITH_PROVENANCE
-    for right_id in _dedupe(right_ids):
+    for right_id in _canonical_ids(right_ids, _link_detail(right_column)):
         if has_provenance:
             cur.execute(
                 f"""
@@ -2031,8 +2117,8 @@ def _apply_task_people(
     the first id in person_ids gets 'assignee' (preserving legacy behaviour)
     and the rest become 'watcher'.
     """
-    deduped = _dedupe([pid for pid in (person_ids or []) if pid])
-    primary = assignee_id or (deduped[0] if deduped else None)
+    deduped = _canonical_ids([pid for pid in (person_ids or []) if pid], "One or more people are unavailable")
+    primary = _normalize_uuid_or_422(assignee_id, "One or more people are unavailable") if assignee_id else (deduped[0] if deduped else None)
     if primary and primary not in deduped:
         deduped.insert(0, primary)
     if replace:

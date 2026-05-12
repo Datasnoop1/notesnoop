@@ -53,6 +53,10 @@ class FakeCursor:
         return []
 
 
+def _params_for_backend(cur, fragment):
+    return [params for sql, params in cur.executed if fragment in sql]
+
+
 class FakeConn:
     def __init__(self, cursor: FakeCursor | None = None):
         self.cursor_obj = cursor or FakeCursor()
@@ -560,6 +564,8 @@ def test_derived_note_titles_trim_participant_tails_only_for_descriptive_titles(
 def test_generated_project_report_access_and_personal_guards(monkeypatch):
     user = auth.CurrentUser(clerk_user_id="user-1")
     payload = memory.ProjectReportGenerateRequest()
+    project_id = "00000000-0000-0000-0000-000000000211"
+    personal_project_id = "00000000-0000-0000-0000-000000000212"
 
     async def unexpected_generate(*_args, **_kwargs):
         raise AssertionError("generation should not run")
@@ -568,7 +574,7 @@ def test_generated_project_report_access_and_personal_guards(monkeypatch):
 
     inaccessible = FakeCursor(
         fetchone_values=[
-            {"id": "project-1", "workspace_id": "workspace-1", "name": "Apollo", "kind": "user"},
+            {"id": project_id, "workspace_id": "workspace-1", "name": "Apollo", "kind": "user"},
             {"allowed": False},
         ]
     )
@@ -579,12 +585,14 @@ def test_generated_project_report_access_and_personal_guards(monkeypatch):
 
     monkeypatch.setattr(memory, "transaction", inaccessible_transaction)
     with pytest.raises(HTTPException) as denied:
-        memory.generate_project_memory_report("project-1", payload, user)
+        memory.generate_project_memory_report(f"urn:uuid:{project_id}", payload, user)
     assert denied.value.status_code == 404
+    assert _params_for_backend(inaccessible, "SELECT * FROM projects WHERE id = %s")[0] == (project_id,)
+    assert _params_for_backend(inaccessible, "SELECT can_access_project(%s::uuid)")[0] == (project_id,)
 
     personal = FakeCursor(
         fetchone_values=[
-            {"id": "project-personal", "workspace_id": "workspace-1", "name": "Personal", "kind": "personal"},
+            {"id": personal_project_id, "workspace_id": "workspace-1", "name": "Personal", "kind": "personal"},
             {"allowed": True},
         ]
     )
@@ -595,15 +603,16 @@ def test_generated_project_report_access_and_personal_guards(monkeypatch):
 
     monkeypatch.setattr(memory, "transaction", personal_transaction)
     with pytest.raises(HTTPException) as blocked:
-        memory.generate_project_memory_report("project-personal", payload, user)
+        memory.generate_project_memory_report(personal_project_id, payload, user)
     assert blocked.value.status_code == 403
 
 
 def test_generated_project_report_rejects_empty_sources(monkeypatch):
     user = auth.CurrentUser(clerk_user_id="user-1")
+    project_id = "00000000-0000-0000-0000-000000000213"
     read_cursor = FakeCursor(
         fetchone_values=[
-            {"id": "project-1", "workspace_id": "workspace-1", "name": "Apollo", "kind": "user"},
+            {"id": project_id, "workspace_id": "workspace-1", "name": "Apollo", "kind": "user"},
             {"allowed": True},
         ],
         fetchall_values=[[], [], [], [], [], []],
@@ -620,26 +629,36 @@ def test_generated_project_report_rejects_empty_sources(monkeypatch):
     monkeypatch.setattr(memory, "generate_project_report", unexpected_generate)
 
     with pytest.raises(HTTPException) as empty:
-        memory.generate_project_memory_report("project-1", memory.ProjectReportGenerateRequest(), user)
+        memory.generate_project_memory_report(project_id, memory.ProjectReportGenerateRequest(), user)
     assert empty.value.status_code == 422
     assert "needs notes, tasks, meetings, or prior reports" in empty.value.detail
 
 
 def test_generated_project_report_links_deduped_sources_and_counts(monkeypatch):
     user = auth.CurrentUser(clerk_user_id="user-1")
-    project = {"id": "project-1", "workspace_id": "workspace-1", "name": "Apollo", "kind": "user"}
+    project_id = "00000000-0000-0000-0000-000000000201"
+    note_1 = "00000000-0000-0000-0000-000000000202"
+    note_2 = "00000000-0000-0000-0000-000000000203"
+    task_id = "00000000-0000-0000-0000-000000000204"
+    meeting_id = "00000000-0000-0000-0000-000000000205"
+    prior_report_id = "00000000-0000-0000-0000-000000000206"
+    person_1 = "00000000-0000-0000-0000-000000000207"
+    person_2 = "00000000-0000-0000-0000-000000000208"
+    company_id = "00000000-0000-0000-0000-000000000209"
+    report_id = "00000000-0000-0000-0000-000000000210"
+    project = {"id": project_id, "workspace_id": "workspace-1", "name": "Apollo", "kind": "user"}
     read_cursor = FakeCursor(
         fetchone_values=[project, {"allowed": True}],
         fetchall_values=[
-            [{"id": "note-1", "title": "Memo"}, {"id": "note-1", "title": "Memo again"}, {"id": "note-2", "title": "Call"}],
-            [{"id": "task-1", "title": "Follow up"}, {"id": "task-1", "title": "Follow up duplicate"}],
-            [{"id": "meeting-1", "title": "Partner sync"}],
-            [{"id": "prior-report-1", "title": "Prior"}, {"id": "prior-report-1", "title": "Prior duplicate"}],
-            [{"id": "person-1", "name": "Morgan"}, {"id": "person-1", "name": "Morgan again"}, {"id": "person-2", "name": "Jordan"}],
-            [{"id": "company-1", "name": "Northstar"}, {"id": "company-1", "name": "Northstar duplicate"}],
+            [{"id": note_1, "title": "Memo"}, {"id": note_1, "title": "Memo again"}, {"id": note_2, "title": "Call"}],
+            [{"id": task_id, "title": "Follow up"}, {"id": task_id, "title": "Follow up duplicate"}],
+            [{"id": meeting_id, "title": "Partner sync"}],
+            [{"id": prior_report_id, "title": "Prior"}, {"id": prior_report_id, "title": "Prior duplicate"}],
+            [{"id": person_1, "name": "Morgan"}, {"id": person_1, "name": "Morgan again"}, {"id": person_2, "name": "Jordan"}],
+            [{"id": company_id, "name": "Northstar"}, {"id": company_id, "name": "Northstar duplicate"}],
         ],
     )
-    write_cursor = FakeCursor(fetchone_values=[project, {"allowed": True}, {"id": "report-1", "workspace_id": "workspace-1"}])
+    write_cursor = FakeCursor(fetchone_values=[project, {"allowed": True}, {"id": report_id, "workspace_id": "workspace-1"}])
     cursors = [read_cursor, write_cursor]
     captured = {}
 
@@ -666,18 +685,18 @@ def test_generated_project_report_links_deduped_sources_and_counts(monkeypatch):
     monkeypatch.setattr(memory, "_report_payload", lambda _cur, report_id: {"id": report_id})
 
     result = memory.generate_project_memory_report(
-        "project-1",
+        project_id,
         memory.ProjectReportGenerateRequest(title="Custom report", variant="quick"),
         user,
     )
 
     assert captured == {
-        "project_people": ["person-1", "person-2"],
-        "project_companies": ["company-1"],
-        "notes": ["note-1", "note-2"],
-        "tasks": ["task-1"],
-        "meetings": ["meeting-1"],
-        "reports": ["prior-report-1"],
+        "project_people": [person_1, person_2],
+        "project_companies": [company_id],
+        "notes": [note_1, note_2],
+        "tasks": [task_id],
+        "meetings": [meeting_id],
+        "reports": [prior_report_id],
         "variant": "quick",
     }
     assert result["data"]["generation_confidence"] == 0.81
@@ -699,13 +718,13 @@ def test_generated_project_report_links_deduped_sources_and_counts(monkeypatch):
     assert insert_params[:4] == ("workspace-1", "Custom report", "Grounded body", "user-1")
     assert insert_params[4] == 0.81
     assert json.loads(insert_params[5])["source_counts"]["total"] == 9
-    assert params_for("INSERT INTO report_projects") == [("report-1", "project-1", "workspace-1", "user-1", "manual")]
-    assert [params[1] for params in params_for("INSERT INTO report_notes")] == ["note-1", "note-2"]
-    assert [params[1] for params in params_for("INSERT INTO report_tasks")] == ["task-1"]
-    assert [params[1] for params in params_for("INSERT INTO report_meetings")] == ["meeting-1"]
-    assert [params[1] for params in params_for("INSERT INTO report_reports")] == ["prior-report-1"]
-    assert [params[1] for params in params_for("INSERT INTO report_people")] == ["person-1", "person-2"]
-    assert [params[1] for params in params_for("INSERT INTO report_companies")] == ["company-1"]
+    assert params_for("INSERT INTO report_projects") == [(report_id, project_id, "workspace-1", "user-1", "manual")]
+    assert [params[1] for params in params_for("INSERT INTO report_notes")] == [note_1, note_2]
+    assert [params[1] for params in params_for("INSERT INTO report_tasks")] == [task_id]
+    assert [params[1] for params in params_for("INSERT INTO report_meetings")] == [meeting_id]
+    assert [params[1] for params in params_for("INSERT INTO report_reports")] == [prior_report_id]
+    assert [params[1] for params in params_for("INSERT INTO report_people")] == [person_1, person_2]
+    assert [params[1] for params in params_for("INSERT INTO report_companies")] == [company_id]
 
 
 def test_email_and_webhook_helpers(monkeypatch):
@@ -802,6 +821,22 @@ def test_unsubscribe_tokens_and_realtime_helpers(monkeypatch):
     with pytest.raises(HTTPException):
         realtime._ensure_workspace_access(object(), "workspace-404")
 
+    monkeypatch.setattr(realtime, "one", lambda *_args, **_kwargs: pytest.fail("malformed project_id should not query"))
+    with pytest.raises(HTTPException) as malformed_project:
+        realtime._resolve_project_filter_id(object(), "workspace-1", "not-a-uuid")
+    assert malformed_project.value.status_code == 404
+
+    project_id = "00000000-0000-0000-0000-000000000041"
+    project_calls = []
+
+    def fake_project_one(_cur, _sql, params):
+        project_calls.append(params)
+        return {"id": project_id}
+
+    monkeypatch.setattr(realtime, "one", fake_project_one)
+    assert realtime._resolve_project_filter_id(object(), "workspace-1", project_id.upper()) == project_id
+    assert project_calls == [(project_id, "workspace-1")]
+
     assert realtime._sse("ping", {"workspace_id": "workspace-1"}) == 'event: ping\ndata: {"workspace_id": "workspace-1"}\n\n'
 
     class Notify:
@@ -823,6 +858,288 @@ def test_unsubscribe_tokens_and_realtime_helpers(monkeypatch):
     assert realtime._wait_for_notification(NotifyConn(['{"event":"note","workspace_id":"workspace-1"}']), 0.01)["event"] == "note"
     assert realtime._wait_for_notification(NotifyConn(["plain text"]), 0.01) == {"event": "message", "payload": "plain text"}
     assert realtime._wait_for_notification(NotifyConn(["[1,2,3]"]), 0.01) is None
+
+
+def test_notes_filter_helpers_reject_malformed_uuid_before_query(monkeypatch):
+    monkeypatch.setattr(notes, "one", lambda *_args, **_kwargs: pytest.fail("malformed IDs should not query"))
+
+    with pytest.raises(HTTPException) as bad_project:
+        notes._resolve_project_filter_id(object(), "workspace-1", "not-a-uuid")
+    assert bad_project.value.status_code == 404
+
+    with pytest.raises(HTTPException) as bad_person:
+        notes._resolve_person_filter_id(object(), "workspace-1", "not-a-uuid")
+    assert bad_person.value.status_code == 404
+
+    with pytest.raises(HTTPException) as bad_project_list:
+        notes._normalize_project_ids_or_422(["not-a-uuid"])
+    assert bad_project_list.value.status_code == 422
+
+    with pytest.raises(HTTPException) as bad_note_list:
+        notes._normalize_note_ids_or_422(["not-a-uuid"])
+    assert bad_note_list.value.status_code == 422
+
+    project_id = "00000000-0000-0000-0000-000000000042"
+    person_id = "00000000-0000-0000-0000-000000000043"
+    note_id = "00000000-0000-0000-0000-000000000044"
+    calls = []
+
+    def fake_one(_cur, _sql, params):
+        calls.append(params)
+        return {"id": params[0]}
+
+    monkeypatch.setattr(notes, "one", fake_one)
+    assert notes._resolve_project_filter_id(object(), "workspace-1", project_id.upper()) == project_id
+    assert notes._resolve_person_filter_id(object(), "workspace-1", person_id.upper()) == person_id
+    assert calls == [(project_id, "workspace-1"), (person_id, "workspace-1")]
+    project_ids = [project_id.upper(), project_id]
+    assert notes._normalize_project_ids_or_422(project_ids) == [project_id, project_id]
+    assert notes._normalize_note_ids_or_422([f"urn:uuid:{note_id}"]) == [note_id]
+
+
+def test_notes_triage_bulk_actions_canonicalize_note_ids(monkeypatch):
+    note_id = "00000000-0000-0000-0000-000000000055"
+    process_cur = FakeCursor(fetchall_values=[[{"id": note_id, "is_personal": False, "ai_processing_status": "unprocessed"}]])
+
+    @contextmanager
+    def process_transaction(_user_id):
+        yield process_cur
+
+    monkeypatch.setattr(notes, "transaction", process_transaction)
+    monkeypatch.setattr(notes, "consume_ai_quota", lambda *_args, **_kwargs: (True, None))
+    user = SimpleNamespace(clerk_user_id="owner-1")
+
+    result = notes.triage_process("workspace-1", {"note_ids": [f"urn:uuid:{note_id}"]}, user)
+
+    assert result["data"]["queued"] == [note_id]
+    assert _params_for_backend(process_cur, "id = ANY(%s::uuid[])")[0] == ("workspace-1", [note_id])
+
+    archive_cur = FakeCursor(fetchall_values=[[{"id": note_id}]])
+
+    @contextmanager
+    def archive_transaction(_user_id):
+        yield archive_cur
+
+    monkeypatch.setattr(notes, "transaction", archive_transaction)
+    monkeypatch.setattr(notes, "_archive_note_in_txn", lambda _cur, archived_note_id: archived_note_id == note_id)
+
+    archived = notes.triage_archive("workspace-1", {"note_ids": [note_id.upper()]}, user)
+
+    assert archived["data"]["archived"] == [note_id]
+    assert _params_for_backend(archive_cur, "id = ANY(%s::uuid[])")[0] == ("workspace-1", [note_id])
+
+
+def test_memory_validate_ids_rejects_malformed_uuid_before_query(monkeypatch):
+    monkeypatch.setattr(memory, "one", lambda *_args, **_kwargs: pytest.fail("malformed IDs should not query"))
+
+    with pytest.raises(HTTPException) as bad_project:
+        memory._validate_project_ids(object(), "workspace-1", ["not-a-uuid"])
+    assert bad_project.value.status_code == 422
+
+    project_id = "00000000-0000-0000-0000-000000000044"
+    assert memory._normalize_uuid_or_422(f"urn:uuid:{project_id}", "bad") == project_id
+    calls = []
+
+    def fake_one(_cur, _sql, params):
+        calls.append(params)
+        return {"count": 1}
+
+    monkeypatch.setattr(memory, "one", fake_one)
+    memory._validate_project_ids(object(), "workspace-1", [project_id.upper()])
+    assert calls == [("workspace-1", [project_id])]
+
+
+def test_memory_link_writers_canonicalize_uuid_aliases():
+    project_id = "00000000-0000-0000-0000-000000000048"
+    person_id = "00000000-0000-0000-0000-000000000049"
+    cur = FakeCursor()
+
+    memory._link_many(
+        cur,
+        "task_projects",
+        "task_id",
+        "project_id",
+        "task-1",
+        "workspace-1",
+        [f"urn:uuid:{project_id}", project_id.upper()],
+        "owner-1",
+    )
+    memory._apply_task_people(
+        cur,
+        "task-1",
+        "workspace-1",
+        [person_id.upper()],
+        f"urn:uuid:{person_id}",
+        "owner-1",
+        replace=False,
+    )
+
+    assert _params_for_backend(cur, "INSERT INTO task_projects")[0][1] == project_id
+    people_params = _params_for_backend(cur, "INSERT INTO task_people")[0]
+    assert people_params[1] == person_id
+    assert people_params[3] == "assignee"
+
+
+def test_memory_canonicalizes_ask_source_ids():
+    project_id = "00000000-0000-0000-0000-000000000050"
+    task_id = "00000000-0000-0000-0000-000000000051"
+
+    source_ids = memory._canonical_source_ids(
+        {
+            "note": [],
+            "task": [f"urn:uuid:{task_id}"],
+            "meeting": [],
+            "report": [],
+            "workflow": [],
+            "company": [],
+            "person": [],
+            "project": [project_id.upper()],
+        }
+    )
+
+    assert source_ids["project"] == [project_id]
+    assert source_ids["task"] == [task_id]
+
+
+def test_memory_task_dependencies_canonicalize_uuid_aliases(monkeypatch):
+    task_id = "00000000-0000-0000-0000-000000000052"
+    blocking_id = "00000000-0000-0000-0000-000000000053"
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": task_id, "workspace_id": "workspace-1"},
+            {"id": blocking_id, "workspace_id": "workspace-1"},
+            None,
+        ]
+    )
+
+    @contextmanager
+    def fake_transaction(_user_id):
+        yield cur
+
+    monkeypatch.setattr(memory, "transaction", fake_transaction)
+    monkeypatch.setattr(memory, "_task_payload", lambda _cur, _task_id: {"id": _task_id})
+    user = SimpleNamespace(clerk_user_id="owner-1")
+
+    result = memory.add_task_dependency(
+        f"urn:uuid:{task_id}",
+        SimpleNamespace(blocking_task_id=f"urn:uuid:{blocking_id}"),
+        user,
+    )
+
+    assert result == {"data": {"id": task_id}}
+    assert _params_for_backend(cur, "SELECT id, workspace_id FROM tasks WHERE id = %s") == [
+        (task_id,),
+        (blocking_id,),
+    ]
+    assert _params_for_backend(cur, "INSERT INTO task_dependencies")[0] == (
+        task_id,
+        blocking_id,
+        "workspace-1",
+        "owner-1",
+    )
+
+
+def test_update_report_filters_self_report_links_after_canonicalization(monkeypatch):
+    report_id = "00000000-0000-0000-0000-000000000057"
+    source_report_id = "00000000-0000-0000-0000-000000000058"
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": report_id, "workspace_id": "workspace-1", "title": "Report", "status": "draft"},
+            {"count": 1},
+        ]
+    )
+
+    @contextmanager
+    def fake_transaction(_user_id):
+        yield cur
+
+    monkeypatch.setattr(memory, "transaction", fake_transaction)
+    monkeypatch.setattr(memory, "_report_payload", lambda _cur, normalized_report_id: {"id": normalized_report_id})
+    user = SimpleNamespace(clerk_user_id="owner-1")
+
+    result = memory.update_report(
+        f"urn:uuid:{report_id}",
+        memory.ReportUpdate(report_ids=[f"urn:uuid:{report_id}", report_id.upper(), source_report_id]),
+        user,
+    )
+
+    assert result == {"data": {"id": report_id}}
+    assert _params_for_backend(cur, "SELECT * FROM reports WHERE id = %s")[0] == (report_id,)
+    assert _params_for_backend(cur, "DELETE FROM report_reports WHERE report_id = %s") == [(report_id,)]
+    assert _params_for_backend(cur, "INSERT INTO report_reports") == [
+        (report_id, source_report_id, "workspace-1", "owner-1")
+    ]
+
+
+def test_memory_list_filters_reject_malformed_project_id_before_query(monkeypatch):
+    @contextmanager
+    def fake_transaction(_user_id):
+        yield FakeCursor()
+
+    monkeypatch.setattr(memory, "transaction", fake_transaction)
+    monkeypatch.setattr(memory, "many", lambda *_args, **_kwargs: pytest.fail("malformed project_id should not query"))
+    user = SimpleNamespace(clerk_user_id="owner-1")
+
+    for endpoint in (
+        memory.list_tasks,
+        memory.list_task_reminders,
+        memory.list_meetings,
+        memory.list_reports,
+        memory.list_workflows,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            endpoint("workspace-1", project_id="not-a-uuid", user=user)
+        assert exc.value.status_code == 422
+
+
+def test_note_payload_scopes_review_suggestions_to_target_user():
+    cur = FakeCursor(
+        fetchone_values=[
+            {
+                "id": "note-1",
+                "workspace_id": "workspace-1",
+                "title": "Note",
+                "body": "Body",
+                "note_kind": "note",
+            }
+        ],
+    )
+
+    payload = notes.get_note_payload(cur, "note-1", "owner-1")
+
+    assert payload["id"] == "note-1"
+    review_sql, review_params = next(
+        (sql, params)
+        for sql, params in cur.executed
+        if "FROM review_queue rq" in sql
+    )
+    assert "rq.target_user_id = %s" in review_sql
+    assert review_params == ("note-1", "owner-1", "note-1")
+
+
+def test_get_note_canonicalizes_route_uuid_before_payload_lookup(monkeypatch):
+    note_id = "00000000-0000-0000-0000-000000000056"
+    cur = FakeCursor()
+    looked_up = []
+
+    @contextmanager
+    def fake_transaction(_user_id):
+        yield cur
+
+    def fake_get_note_payload(_cur, normalized_note_id, target_user_id):
+        looked_up.append((normalized_note_id, target_user_id))
+        return {"id": normalized_note_id, "workspace_id": "workspace-1"}
+
+    monkeypatch.setattr(notes, "transaction", fake_transaction)
+    monkeypatch.setattr(notes, "get_note_payload", fake_get_note_payload)
+    user = SimpleNamespace(clerk_user_id="owner-1")
+
+    result = notes.get_note(f"urn:uuid:{note_id}", user)
+
+    assert result == {"data": {"id": note_id, "workspace_id": "workspace-1"}}
+    assert looked_up == [(note_id, "owner-1")]
+    assert _params_for_backend(cur, "INSERT INTO recently_accessed")[0] == ("owner-1", note_id)
+    assert _params_for_backend(cur, "INSERT INTO note_viewers")[0] == (note_id, "owner-1", "workspace-1")
 
 
 def test_worker_matching_claim_finish_and_process_extract(monkeypatch):
@@ -968,6 +1285,8 @@ def test_worker_materializes_ai_memory_idempotently():
 
 
 def test_worker_materializes_accepted_structured_review_candidate():
+    project_id = "00000000-0000-0000-0000-000000000001"
+    person_id = "00000000-0000-0000-0000-000000000002"
     review = {
         "id": "review-task-1",
         "workspace_id": "workspace-1",
@@ -982,13 +1301,18 @@ def test_worker_materializes_accepted_structured_review_candidate():
         "due_at": "2026-05-20",
         "source_kind": "action_item",
         "confidence": 0.86,
-        "project_ids": ["project-1"],
-        "person_ids": ["person-1"],
+        "project_ids": [project_id],
+        "person_ids": [person_id],
     }
     cur = FakeCursor(
         fetchone_values=[
             {"id": "note-1", "workspace_id": "workspace-1", "body": "Original note", "note_kind": "note"},
             {"id": "task-1"},
+        ],
+        fetchall_values=[
+            [{"id": project_id}],
+            [{"id": project_id}],
+            [{"id": person_id}],
         ],
     )
 
@@ -1005,6 +1329,367 @@ def test_worker_materializes_accepted_structured_review_candidate():
     assert json.loads(task_params[11])["title"] == "Send edited Apollo pack"
     assert "INSERT INTO task_projects" in "\n".join(sql for sql, _params in cur.executed)
     assert "INSERT INTO task_people" in "\n".join(sql for sql, _params in cur.executed)
+
+
+def test_worker_drops_malformed_and_cross_workspace_person_ids_from_structured_reviews():
+    accepted_person_id = "00000000-0000-0000-0000-000000000004"
+    missing_person_id = "00000000-0000-0000-0000-000000000005"
+    review = {
+        "id": "review-task-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "task",
+        "entity_id": "note-1",
+    }
+    payload = {
+        "title": "Keep person links scoped",
+        "person_ids": ["not-a-uuid", missing_person_id, accepted_person_id],
+    }
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": "note-1", "workspace_id": "workspace-1", "body": "Original note", "note_kind": "note"},
+            {"id": "task-1"},
+        ],
+        fetchall_values=[
+            [],
+            [{"id": accepted_person_id}],
+            [],
+        ],
+    )
+
+    task_id = worker._materialize_review_candidate(cur, review, payload, "owner-1")
+
+    assert task_id == "task-1"
+    linked_person_ids = [
+        params[1]
+        for sql, params in cur.executed
+        if "INSERT INTO task_people" in sql
+    ]
+    assert linked_person_ids == [accepted_person_id]
+    task_params = next(params for sql, params in cur.executed if "INSERT INTO tasks" in sql)
+    assert json.loads(task_params[11])["person_ids"] == [accepted_person_id]
+    assert payload["person_ids"] == [accepted_person_id]
+
+
+def test_worker_filters_structured_review_secondary_memory_ids_before_linking():
+    task_id = "00000000-0000-0000-0000-000000000038"
+    meeting_id = "00000000-0000-0000-0000-000000000039"
+    workflow_id = "00000000-0000-0000-0000-000000000040"
+    report_source_id = "00000000-0000-0000-0000-000000000041"
+    stale_task_id = "00000000-0000-0000-0000-000000000042"
+    review = {
+        "id": "review-report-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "report",
+        "entity_id": "note-1",
+    }
+    payload = {
+        "title": "Review secondary links",
+        "task_ids": ["not-a-uuid", stale_task_id, task_id],
+        "meeting_ids": [meeting_id],
+        "workflow_ids": [workflow_id],
+        "report_ids": [report_source_id],
+    }
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": "note-1", "workspace_id": "workspace-1", "body": "Original note", "note_kind": "note"},
+            {"id": "report-1"},
+        ],
+        fetchall_values=[
+            [],
+            [],
+            [],
+            [{"id": task_id}],
+            [{"id": meeting_id}],
+            [{"id": workflow_id}],
+            [{"id": report_source_id}],
+        ],
+    )
+
+    report_id = worker._materialize_review_candidate(cur, review, payload, "owner-1")
+
+    assert report_id == "report-1"
+    assert _params_for_backend(cur, "INSERT INTO report_tasks") == [("report-1", task_id, "workspace-1", "owner-1")]
+    assert _params_for_backend(cur, "INSERT INTO report_meetings") == [("report-1", meeting_id, "workspace-1", "owner-1")]
+    assert _params_for_backend(cur, "INSERT INTO report_workflows") == [("report-1", workflow_id, "workspace-1", "owner-1")]
+    assert _params_for_backend(cur, "INSERT INTO report_reports") == [("report-1", report_source_id, "workspace-1", "owner-1")]
+    report_params = next(params for sql, params in cur.executed if "INSERT INTO reports" in sql)
+    source_payload = json.loads(report_params[9])
+    assert source_payload["task_ids"] == [task_id]
+    assert source_payload["meeting_ids"] == [meeting_id]
+    assert source_payload["workflow_ids"] == [workflow_id]
+    assert source_payload["report_ids"] == [report_source_id]
+
+
+def test_worker_canonicalizes_uuid_aliases_before_uuid_array_queries():
+    project_id = "00000000-0000-0000-0000-000000000045"
+    task_id = "00000000-0000-0000-0000-000000000046"
+    cur = FakeCursor(
+        fetchall_values=[
+            [{"id": project_id}],
+            [{"id": task_id}],
+        ]
+    )
+
+    assert worker._visible_non_personal_project_ids(
+        cur, "workspace-1", "owner-1", [f"urn:uuid:{project_id}"]
+    ) == [project_id]
+    assert worker._visible_workspace_entity_ids(
+        cur, "tasks", "workspace-1", [f"urn:uuid:{task_id}"]
+    ) == [task_id]
+
+    assert _params_for_backend(cur, "p.id = ANY(%s::uuid[])")[0][1] == [project_id]
+    assert _params_for_backend(cur, "FROM tasks")[0][1] == [task_id]
+
+
+def test_worker_materializes_review_candidate_with_current_note_project_links():
+    inbox_id = "00000000-0000-0000-0000-000000000011"
+    meridian_id = "00000000-0000-0000-0000-000000000012"
+    review = {
+        "id": "review-task-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "task",
+        "entity_id": "note-1",
+    }
+    payload = {
+        "title": "Send Meridian pricing",
+        "description": "Accepted after the Project Meridian suggestion.",
+        "project_ids": [inbox_id],
+    }
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": "note-1", "workspace_id": "workspace-1", "body": "Original note", "note_kind": "meeting"},
+            {"id": "task-1"},
+        ],
+        fetchall_values=[
+            [{"id": inbox_id}, {"id": meridian_id}],
+            [{"id": inbox_id}, {"id": meridian_id}],
+        ],
+    )
+
+    task_id = worker._materialize_review_candidate(cur, review, payload, "owner-1")
+
+    assert task_id == "task-1"
+    linked_project_ids = [
+        params[1]
+        for sql, params in cur.executed
+        if "INSERT INTO task_projects" in sql
+    ]
+    assert linked_project_ids == [inbox_id, meridian_id]
+
+
+def test_worker_materializes_review_candidate_with_current_note_company_links():
+    company_id = "00000000-0000-0000-0000-000000000031"
+    review = {
+        "id": "review-task-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "task",
+        "entity_id": "note-1",
+    }
+    payload = {
+        "title": "Send Northstar diligence summary",
+        "description": "Accepted after the Northstar company suggestion.",
+    }
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": "note-1", "workspace_id": "workspace-1", "body": "Original note", "note_kind": "note"},
+            {"id": "task-1"},
+        ],
+        fetchall_values=[
+            [],
+            [],
+            [{"company_id": company_id}],
+        ],
+    )
+
+    task_id = worker._materialize_review_candidate(cur, review, payload, "owner-1")
+
+    assert task_id == "task-1"
+    linked_company_ids = [
+        params[1]
+        for sql, params in cur.executed
+        if "INSERT INTO task_companies" in sql
+    ]
+    assert linked_company_ids == [company_id]
+    task_params = next(params for sql, params in cur.executed if "INSERT INTO tasks" in sql)
+    assert json.loads(task_params[11])["company_ids"] == [company_id]
+    assert payload["company_ids"] == [company_id]
+
+
+def test_worker_merges_review_payload_and_current_note_person_company_links():
+    payload_person_id = "00000000-0000-0000-0000-000000000034"
+    linked_person_id = "00000000-0000-0000-0000-000000000035"
+    payload_company_id = "00000000-0000-0000-0000-000000000036"
+    linked_company_id = "00000000-0000-0000-0000-000000000037"
+    review = {
+        "id": "review-task-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "task",
+        "entity_id": "note-1",
+    }
+    payload = {
+        "title": "Merge explicit and accepted context",
+        "person_ids": [payload_person_id],
+        "company_ids": [payload_company_id],
+    }
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": "note-1", "workspace_id": "workspace-1", "body": "Original note", "note_kind": "note"},
+            {"id": "task-1"},
+        ],
+        fetchall_values=[
+            [],
+            [{"id": payload_person_id}],
+            [{"person_id": linked_person_id}],
+            [{"id": payload_company_id}],
+            [{"company_id": linked_company_id}],
+        ],
+    )
+
+    task_id = worker._materialize_review_candidate(cur, review, payload, "owner-1")
+
+    assert task_id == "task-1"
+    linked_person_ids = [
+        params[1]
+        for sql, params in cur.executed
+        if "INSERT INTO task_people" in sql
+    ]
+    linked_company_ids = [
+        params[1]
+        for sql, params in cur.executed
+        if "INSERT INTO task_companies" in sql
+    ]
+    assert linked_person_ids == [payload_person_id, linked_person_id]
+    assert linked_company_ids == [payload_company_id, linked_company_id]
+    task_params = next(params for sql, params in cur.executed if "INSERT INTO tasks" in sql)
+    source_payload = json.loads(task_params[11])
+    assert source_payload["person_ids"] == [payload_person_id, linked_person_id]
+    assert source_payload["company_ids"] == [payload_company_id, linked_company_id]
+
+
+def test_worker_drops_missing_company_ids_from_structured_review_payloads():
+    missing_company_id = "00000000-0000-0000-0000-000000000032"
+    review = {
+        "id": "review-task-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "task",
+        "entity_id": "note-1",
+    }
+    payload = {
+        "title": "Do not trust stale company IDs",
+        "company_ids": [missing_company_id],
+    }
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": "note-1", "workspace_id": "workspace-1", "body": "Original note", "note_kind": "note"},
+            {"id": "task-1"},
+        ],
+        fetchall_values=[
+            [],
+            [],
+            [],
+            [],
+        ],
+    )
+
+    task_id = worker._materialize_review_candidate(cur, review, payload, "owner-1")
+
+    assert task_id == "task-1"
+    assert "INSERT INTO task_companies" not in "\n".join(sql for sql, _params in cur.executed)
+    task_params = next(params for sql, params in cur.executed if "INSERT INTO tasks" in sql)
+    assert json.loads(task_params[11])["company_ids"] == []
+    assert payload["company_ids"] == []
+
+
+def test_worker_materializes_company_review_with_matched_company_id_without_duplicate():
+    company_id = "00000000-0000-0000-0000-000000000047"
+    review = {
+        "id": "review-company-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "company",
+        "entity_id": "note-1",
+    }
+    payload = {
+        "name": "Northstar alias",
+        "domain": "northstar.example",
+        "matched_company_id": f"urn:uuid:{company_id}",
+    }
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": "note-1", "workspace_id": "workspace-1", "body": "Original note", "note_kind": "note"},
+            {"id": company_id},
+            {"id": company_id},
+            {"id": company_id},
+        ],
+        fetchall_values=[
+            [],
+            [],
+            [{"id": company_id}],
+            [],
+        ],
+    )
+
+    materialized_id = worker._materialize_review_candidate(cur, review, payload, "owner-1")
+
+    assert materialized_id == company_id
+    executed_sql = "\n".join(sql for sql, _params in cur.executed)
+    assert "INSERT INTO companies" not in executed_sql
+    assert "UPDATE companies" in executed_sql
+    assert payload["matched_company_id"] == company_id
+    assert payload["company_ids"] == [company_id]
+    update_params = next(params for sql, params in cur.executed if "UPDATE companies" in sql)
+    assert json.loads(update_params[6])["matched_company_id"] == company_id
+
+
+def test_worker_rejects_personal_projects_from_structured_review_payloads():
+    personal_id = "00000000-0000-0000-0000-000000000021"
+    other_workspace_id = "00000000-0000-0000-0000-000000000023"
+    project_id = "00000000-0000-0000-0000-000000000022"
+    review = {
+        "id": "review-task-1",
+        "workspace_id": "workspace-1",
+        "entity_kind": "task",
+        "entity_id": "note-1",
+    }
+    payload = {
+        "title": "Keep personal project private",
+        "project_ids": [personal_id, "not-a-uuid", other_workspace_id, project_id],
+    }
+    cur = FakeCursor(
+        fetchone_values=[
+            {"id": "note-1", "workspace_id": "workspace-1", "body": "Original note", "note_kind": "note"},
+            {"id": "task-1"},
+        ],
+        fetchall_values=[
+            [],
+            [{"id": project_id}],
+        ],
+    )
+
+    task_id = worker._materialize_review_candidate(cur, review, payload, "owner-1")
+
+    assert task_id == "task-1"
+    linked_project_ids = [
+        params[1]
+        for sql, params in cur.executed
+        if "INSERT INTO task_projects" in sql
+    ]
+    assert linked_project_ids == [project_id]
+    task_params = next(params for sql, params in cur.executed if "INSERT INTO tasks" in sql)
+    assert json.loads(task_params[11])["project_ids"] == [project_id]
+    assert payload["project_ids"] == [project_id]
+    visibility_sql, visibility_params = next(
+        (sql, params)
+        for sql, params in cur.executed
+        if "JOIN workspaces w ON w.id = p.workspace_id" in sql
+    )
+    assert "coalesce(w.inbox_mode, 'per_user_private') = 'shared' AND p.shared = TRUE" in visibility_sql
+    assert "coalesce(w.inbox_mode, 'per_user_private') <> 'shared'" in visibility_sql
+    assert "p.created_by = %s" in visibility_sql
+    assert visibility_params == (
+        "workspace-1",
+        [personal_id, other_workspace_id, project_id],
+        "owner-1",
+    )
 
 
 def test_worker_materializes_full_memory_graph_from_ai_payload():

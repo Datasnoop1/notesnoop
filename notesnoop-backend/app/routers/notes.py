@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -88,7 +89,7 @@ def create_note(workspace_id: str, payload: NoteCreate, user: CurrentUser = Depe
             (note["id"], title, payload.body, user.clerk_user_id),
         )
         enqueue_ai_if_allowed(cur, workspace_id, str(note["id"]), user.clerk_user_id, project_ids)
-        return {"data": get_note_payload(cur, str(note["id"]))}
+        return {"data": get_note_payload(cur, str(note["id"]), user.clerk_user_id)}
 
 
 @router.post("/notes/{note_id}/archive")
@@ -163,7 +164,7 @@ def update_note(note_id: str, payload: NoteUpdate, user: CurrentUser = Depends(c
             and next_kind == note.get("note_kind", "note")
             and next_occurred_at == note.get("occurred_at")
         ):
-            return {"data": get_note_payload(cur, note_id)}
+            return {"data": get_note_payload(cur, note_id, user.clerk_user_id)}
         cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (note_id,))
         cur.execute(
             """
@@ -192,7 +193,7 @@ def update_note(note_id: str, payload: NoteUpdate, user: CurrentUser = Depends(c
             """,
             (note_id, next_title, next_body, user.clerk_user_id, note_id),
         )
-        return {"data": get_note_payload(cur, note_id)}
+        return {"data": get_note_payload(cur, note_id, user.clerk_user_id)}
 
 
 @router.get("/notes/{note_id}/versions")
@@ -239,7 +240,7 @@ def set_note_projects(note_id: str, payload: NoteProjectSet, user: CurrentUser =
                 """,
                 (note_id, project["id"], user.clerk_user_id),
             )
-        return {"data": get_note_payload(cur, note_id)}
+        return {"data": get_note_payload(cur, note_id, user.clerk_user_id)}
 
 
 @router.get("/workspaces/{workspace_id}/activity")
@@ -360,6 +361,7 @@ def triage_process(workspace_id: str, payload: dict, user: CurrentUser = Depends
     note_ids = payload.get("note_ids") or []
     if not isinstance(note_ids, list) or not note_ids:
         raise HTTPException(status_code=422, detail="note_ids required")
+    note_ids = _normalize_note_ids_or_422(note_ids)
     queued: list[str] = []
     skipped: list[dict] = []
     with transaction(user.clerk_user_id) as cur:
@@ -403,6 +405,7 @@ def triage_archive(workspace_id: str, payload: dict, user: CurrentUser = Depends
     note_ids = payload.get("note_ids") or []
     if not isinstance(note_ids, list) or not note_ids:
         raise HTTPException(status_code=422, detail="note_ids required")
+    note_ids = _normalize_note_ids_or_422(note_ids)
     archived: list[str] = []
     with transaction(user.clerk_user_id) as cur:
         rows = many(
@@ -423,6 +426,7 @@ def list_notes(workspace_id: str, project_id: str | None = None, user: CurrentUs
         params: list = [workspace_id]
         where = "n.workspace_id = %s"
         if project_id:
+            project_id = _resolve_project_filter_id(cur, workspace_id, project_id)
             params.append(project_id)
             where += " AND EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s)"
         return {
@@ -446,8 +450,9 @@ def list_notes(workspace_id: str, project_id: str | None = None, user: CurrentUs
 
 @router.get("/notes/{note_id}")
 def get_note(note_id: str, user: CurrentUser = Depends(current_user)):
+    note_id = _normalize_uuid_or_404(note_id, "Note not found")
     with transaction(user.clerk_user_id) as cur:
-        payload = get_note_payload(cur, note_id)
+        payload = get_note_payload(cur, note_id, user.clerk_user_id)
         if not payload:
             raise HTTPException(status_code=404, detail="Note not found")
         cur.execute(
@@ -519,7 +524,7 @@ def link_person(note_id: str, payload: NoteLinkPerson, user: CurrentUser = Depen
                         ),
                     ),
                 )
-            linked_note = get_note_payload(cur, note_id) or {}
+            linked_note = get_note_payload(cur, note_id, user.clerk_user_id) or {}
             linked_note["collaborator_suggestion"] = True
             return {"data": linked_note}
 
@@ -535,7 +540,7 @@ def link_person(note_id: str, payload: NoteLinkPerson, user: CurrentUser = Depen
             """,
             (note_id, payload.person_id, payload.state, payload.confidence, payload.source, user.clerk_user_id),
         )
-        return {"data": get_note_payload(cur, note_id)}
+        return {"data": get_note_payload(cur, note_id, user.clerk_user_id)}
 
 
 @router.post("/notes/{note_id}/process-with-ai")
@@ -568,7 +573,10 @@ def process_with_ai(note_id: str, user: CurrentUser = Depends(current_user)):
 
 @router.post("/flags")
 def toggle_flag(payload: FlagRequest, user: CurrentUser = Depends(current_user)):
-    selected = [payload.note_id, payload.project_id, payload.person_id]
+    note_id = _normalize_uuid_or_404(payload.note_id, "Flag target not found")
+    project_id = _normalize_uuid_or_404(payload.project_id, "Flag target not found")
+    person_id = _normalize_uuid_or_404(payload.person_id, "Flag target not found")
+    selected = [note_id, project_id, person_id]
     if sum(1 for value in selected if value) != 1:
         raise HTTPException(status_code=422, detail="Exactly one flag target is required")
     with transaction(user.clerk_user_id) as cur:
@@ -582,7 +590,7 @@ def toggle_flag(payload: FlagRequest, user: CurrentUser = Depends(current_user))
             SELECT workspace_id FROM people WHERE id = %s
             LIMIT 1
             """,
-            (payload.note_id, payload.project_id, payload.person_id),
+            (note_id, project_id, person_id),
         )
         if not workspace:
             raise HTTPException(status_code=404, detail="Flag target not found")
@@ -595,7 +603,7 @@ def toggle_flag(payload: FlagRequest, user: CurrentUser = Depends(current_user))
               AND project_id IS NOT DISTINCT FROM %s::uuid
               AND person_id IS NOT DISTINCT FROM %s::uuid
             """,
-            (user.clerk_user_id, payload.note_id, payload.project_id, payload.person_id),
+            (user.clerk_user_id, note_id, project_id, person_id),
         )
         if existing:
             cur.execute("DELETE FROM flags WHERE id = %s", (existing["id"],))
@@ -606,7 +614,7 @@ def toggle_flag(payload: FlagRequest, user: CurrentUser = Depends(current_user))
             VALUES (%s, %s, %s, %s, %s)
             RETURNING *
             """,
-            (user.clerk_user_id, workspace["workspace_id"], payload.note_id, payload.project_id, payload.person_id),
+            (user.clerk_user_id, workspace["workspace_id"], note_id, project_id, person_id),
         )
         return {"data": {"flagged": True, "flag": dict(cur.fetchone())}}
 
@@ -689,13 +697,56 @@ def _should_run_semantic_search(query: str, keyword_row_count: int) -> bool:
     return len(query.strip()) >= 3 and keyword_row_count < SEARCH_KEYWORD_FAST_PATH_MIN_ROWS
 
 
+def _normalize_uuid_or_404(value: str | None, detail: str) -> str | None:
+    if not value:
+        return None
+    try:
+        return str(uuid.UUID(str(value)))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail=detail)
+
+
+def _resolve_project_filter_id(cur, workspace_id: str, project_id: str) -> str:
+    normalized = _normalize_uuid_or_404(project_id, "Project not found")
+    project = one(cur, "SELECT id FROM projects WHERE id = %s AND workspace_id = %s", (normalized, workspace_id))
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return normalized
+
+
+def _resolve_person_filter_id(cur, workspace_id: str, person_id: str) -> str:
+    normalized = _normalize_uuid_or_404(person_id, "Person not found")
+    person = one(cur, "SELECT id FROM people WHERE id = %s AND workspace_id = %s", (normalized, workspace_id))
+    if not person:
+        raise HTTPException(status_code=404, detail="Person not found")
+    return normalized
+
+
+def _normalize_project_ids_or_422(project_ids: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for project_id in project_ids:
+        try:
+            normalized.append(str(uuid.UUID(str(project_id))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="One or more projects are unavailable")
+    return normalized
+
+
+def _normalize_note_ids_or_422(note_ids: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for note_id in note_ids:
+        try:
+            normalized.append(str(uuid.UUID(str(note_id))))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail="One or more notes are unavailable")
+    return normalized
+
+
 @router.get("/workspaces/{workspace_id}/home")
 def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
         if project_id:
-            project = one(cur, "SELECT id FROM projects WHERE id = %s AND workspace_id = %s", (project_id, workspace_id))
-            if not project:
-                raise HTTPException(status_code=404, detail="Project not found")
+            project_id = _resolve_project_filter_id(cur, workspace_id, project_id)
         _prepare_home_scope(cur, workspace_id, project_id)
         pending_review = many(
             cur,
@@ -1419,6 +1470,10 @@ def search(
     query_embedding = None
     semantic_skipped_reason = None
     with transaction(user.clerk_user_id) as cur:
+        if project_id:
+            project_id = _resolve_project_filter_id(cur, workspace_id, project_id)
+        if person_id:
+            person_id = _resolve_person_filter_id(cur, workspace_id, person_id)
         where_sql, where_params = _search_where(
             workspace_id,
             user.clerk_user_id,
@@ -1540,11 +1595,13 @@ def ask_memory(workspace_id: str, payload: MemoryAskRequest, user: CurrentUser =
     except Exception:
         query_embedding = None
     with transaction(user.clerk_user_id) as cur:
+        project_id = _resolve_project_filter_id(cur, workspace_id, payload.project_id) if payload.project_id else None
+        person_id = _resolve_person_filter_id(cur, workspace_id, payload.person_id) if payload.person_id else None
         where_sql, where_params = _search_where(
             workspace_id,
             user.clerk_user_id,
-            payload.project_id,
-            payload.person_id,
+            project_id,
+            person_id,
             payload.date_from,
             payload.date_to,
             False,
@@ -1581,13 +1638,13 @@ def ask_memory(workspace_id: str, payload: MemoryAskRequest, user: CurrentUser =
             )
         notes = _merge_search_rows(keyword_rows, semantic_rows)[:12]
         memory_results = _merge_memory_results(
-            _memory_search_results(cur, workspace_id, query, payload.project_id, payload.person_id),
-            _memory_context_results(cur, workspace_id, payload.project_id, payload.person_id),
+            _memory_search_results(cur, workspace_id, query, project_id, person_id),
+            _memory_context_results(cur, workspace_id, project_id, person_id),
         )[:18]
         context = {
             "workspace_id": workspace_id,
-            "project_id": payload.project_id,
-            "person_id": payload.person_id,
+            "project_id": project_id,
+            "person_id": person_id,
             "semantic_enabled": bool(query_embedding),
         }
     answer = asyncio.run(generate_memory_answer(query, notes, memory_results, context))
@@ -1893,7 +1950,7 @@ def _should_route_collaborator_person_suggestion(cur, note_id: str, note: dict, 
     )
 
 
-def get_note_payload(cur, note_id: str) -> dict | None:
+def get_note_payload(cur, note_id: str, target_user_id: str) -> dict | None:
     note = one(cur, "SELECT * FROM notes WHERE id = %s", (note_id,))
     if not note:
         return None
@@ -1951,6 +2008,7 @@ def get_note_payload(cur, note_id: str) -> dict | None:
                rq.created_at
         FROM review_queue rq
         WHERE rq.entity_id = %s
+          AND rq.target_user_id = %s
           AND rq.state = 'open'
           AND EXISTS (
             SELECT 1
@@ -1961,7 +2019,7 @@ def get_note_payload(cur, note_id: str) -> dict | None:
         ORDER BY rq.created_at DESC
         LIMIT 20
         """,
-        (note_id, note_id),
+        (note_id, target_user_id, note_id),
     )
     note["memory_links"] = _linked_memory_payload(cur, note_id)
     note["project_nudge"] = _project_nudge(cur, note)
@@ -2048,9 +2106,12 @@ def _validate_project_selection(
     confirm_personal_move: bool,
     current_is_personal: bool = False,
 ) -> list[dict]:
-    unique_ids = list(dict.fromkeys(project_ids))
+    normalized_ids = _normalize_project_ids_or_422(project_ids)
+    unique_ids = list(dict.fromkeys(normalized_ids))
     if len(unique_ids) != len(project_ids):
         project_ids[:] = unique_ids
+    else:
+        project_ids[:] = normalized_ids
     projects = many(
         cur,
         """

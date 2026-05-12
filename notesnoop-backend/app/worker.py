@@ -214,12 +214,27 @@ def _dedupe_strings(values: list[str]) -> list[str]:
     return deduped
 
 
-def _looks_like_uuid(value: Any) -> bool:
+def _normalize_uuid_or_none(value: Any) -> str | None:
     try:
-        uuid.UUID(str(value))
+        return str(uuid.UUID(str(value)))
     except (TypeError, ValueError):
-        return False
-    return True
+        return None
+
+
+def _looks_like_uuid(value: Any) -> bool:
+    return _normalize_uuid_or_none(value) is not None
+
+
+def _partition_uuid_ids(values: list[str]) -> tuple[list[str], list[str]]:
+    valid: list[str] = []
+    invalid: list[str] = []
+    for value in values:
+        normalized = _normalize_uuid_or_none(value)
+        if normalized:
+            valid.append(normalized)
+        else:
+            invalid.append(value)
+    return _dedupe_strings(valid), invalid
 
 
 def _item_company_names(item: Any) -> list[str]:
@@ -268,8 +283,7 @@ def _resolve_person_ids_from_item(cur, workspace_id: str, item: dict[str, Any]) 
     """
     resolved: list[str] = []
     raw_ids = _id_list(item.get("person_ids"))
-    valid_ids = [value for value in raw_ids if _looks_like_uuid(value)]
-    invalid_ids = [value for value in raw_ids if not _looks_like_uuid(value)]
+    valid_ids, invalid_ids = _partition_uuid_ids(raw_ids)
     if valid_ids:
         cur.execute(
             """
@@ -282,7 +296,7 @@ def _resolve_person_ids_from_item(cur, workspace_id: str, item: dict[str, Any]) 
         )
         rows = cur.fetchall()
         db_ids = [str(row["id"]) for row in rows]
-        resolved.extend(db_ids or valid_ids)
+        resolved.extend(db_ids)
 
     names = _dedupe_strings([*invalid_ids, *_item_person_names(item)])
     if names:
@@ -297,9 +311,11 @@ def _resolve_person_ids_from_item(cur, workspace_id: str, item: dict[str, Any]) 
 
 def _resolve_company_ids_from_payload(cur, workspace_id: str, payload: dict[str, Any]) -> list[str]:
     resolved: list[str] = []
+    matched_company_id = _normalize_uuid_or_none(payload.get("matched_company_id"))
     raw_ids = _id_list(payload.get("company_ids"))
-    valid_ids = [value for value in raw_ids if _looks_like_uuid(value)]
-    invalid_ids = [value for value in raw_ids if not _looks_like_uuid(value)]
+    valid_ids, invalid_ids = _partition_uuid_ids(raw_ids)
+    if matched_company_id:
+        valid_ids = _merge_ids([matched_company_id], valid_ids)
     if valid_ids:
         cur.execute(
             """
@@ -312,7 +328,7 @@ def _resolve_company_ids_from_payload(cur, workspace_id: str, payload: dict[str,
         )
         rows = cur.fetchall()
         db_ids = [str(row["id"]) for row in rows]
-        resolved.extend(db_ids or valid_ids)
+        resolved.extend(db_ids)
 
     names = _dedupe_strings([*invalid_ids, *_item_company_names(payload)])
     if names:
@@ -322,6 +338,33 @@ def _resolve_company_ids_from_payload(cur, workspace_id: str, payload: dict[str,
             company, score = _best_match(name, companies)
             if company and score >= 0.90:
                 resolved.append(str(company["id"]))
+    return _dedupe_strings(resolved)
+
+
+def _resolve_person_ids_from_payload(cur, workspace_id: str, payload: dict[str, Any]) -> list[str]:
+    resolved: list[str] = []
+    raw_ids = _id_list(payload.get("person_ids"))
+    valid_ids, invalid_ids = _partition_uuid_ids(raw_ids)
+    if valid_ids:
+        cur.execute(
+            """
+            SELECT id
+            FROM people
+            WHERE workspace_id = %s
+              AND id = ANY(%s::uuid[])
+            """,
+            (workspace_id, valid_ids),
+        )
+        resolved.extend(str(row["id"]) for row in cur.fetchall())
+
+    names = _dedupe_strings([*invalid_ids, *_item_person_names(payload)])
+    if names:
+        cur.execute("SELECT id, name FROM people WHERE workspace_id = %s ORDER BY name", (workspace_id,))
+        people = [dict(row) for row in cur.fetchall()]
+        for name in names:
+            person, score = _best_match(name, people)
+            if person and score >= 0.85:
+                resolved.append(str(person["id"]))
     return _dedupe_strings(resolved)
 
 
@@ -434,6 +477,82 @@ def _linked_project_ids(cur, note_id: str) -> list[str]:
     return [str(row["id"]) for row in cur.fetchall()]
 
 
+def _merge_ids(primary: list[str], secondary: list[str]) -> list[str]:
+    merged: list[str] = []
+    for item in [*primary, *secondary]:
+        value = str(item)
+        if value and value not in merged:
+            merged.append(value)
+    return merged
+
+
+def _visible_non_personal_project_ids(cur, workspace_id: str, target_user_id: str, project_ids: list[str]) -> list[str]:
+    ids = _merge_ids(project_ids, [])
+    valid_ids, _invalid_ids = _partition_uuid_ids(ids)
+    if not valid_ids:
+        return []
+    cur.execute(
+        """
+        SELECT p.id
+        FROM projects p
+        JOIN workspaces w ON w.id = p.workspace_id
+        WHERE p.workspace_id = %s
+          AND p.kind <> 'personal'
+          AND p.id = ANY(%s::uuid[])
+          AND (
+              p.kind <> 'inbox'
+              OR (coalesce(w.inbox_mode, 'per_user_private') = 'shared' AND p.shared = TRUE)
+              OR (
+                  coalesce(w.inbox_mode, 'per_user_private') <> 'shared'
+                  AND p.shared = FALSE
+                  AND p.created_by = %s
+              )
+          )
+        """,
+        (workspace_id, valid_ids, target_user_id),
+    )
+    allowed = {str(row["id"]) for row in cur.fetchall()}
+    return [project_id for project_id in valid_ids if project_id in allowed]
+
+
+def _visible_workspace_entity_ids(cur, table: str, workspace_id: str, ids: list[str]) -> list[str]:
+    allowed_tables = {"tasks", "meetings", "reports", "workflows"}
+    if table not in allowed_tables:
+        return []
+    unique_ids = _merge_ids(ids, [])
+    valid_ids, _invalid_ids = _partition_uuid_ids(unique_ids)
+    if not valid_ids:
+        return []
+    cur.execute(
+        f"""
+        SELECT id
+        FROM {table}
+        WHERE workspace_id = %s
+          AND id = ANY(%s::uuid[])
+        """,
+        (workspace_id, valid_ids),
+    )
+    allowed = {str(row["id"]) for row in cur.fetchall()}
+    return [entity_id for entity_id in valid_ids if entity_id in allowed]
+
+
+def _visible_company_id(cur, workspace_id: str, company_id: Any) -> str | None:
+    normalized = _normalize_uuid_or_none(company_id)
+    if not normalized:
+        return None
+    cur.execute(
+        """
+        SELECT id
+        FROM companies
+        WHERE workspace_id = %s
+          AND id = %s
+        """,
+        (workspace_id, normalized),
+    )
+    row = cur.fetchone()
+    return str(row["id"]) if row else None
+
+
 def _link_memory_projects(cur, table: str, id_column: str, entity_id: str, workspace_id: str, project_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
     for project_id in project_ids:
         cur.execute(
@@ -458,6 +577,19 @@ def _linked_person_ids(cur, note_id: str) -> list[str]:
         (note_id,),
     )
     return [str(row["person_id"]) for row in cur.fetchall()]
+
+
+def _linked_company_ids(cur, note_id: str) -> list[str]:
+    cur.execute(
+        """
+        SELECT company_id
+        FROM company_notes
+        WHERE note_id = %s
+        ORDER BY created_at
+        """,
+        (note_id,),
+    )
+    return [str(row["company_id"]) for row in cur.fetchall()]
 
 
 def _link_task_people(cur, task_id: str, workspace_id: str, person_ids: list[str], linked_by: str, linked_via: str = "ai") -> None:
@@ -642,46 +774,82 @@ def _materialize_company(
         return None
     domain = item.get("domain") if isinstance(item, dict) else None
     description = _memory_item_description(item)
-    cur.execute(
-        """
-        INSERT INTO companies (
-          workspace_id, name, domain, description, created_by, source_note_id, source_kind,
-          ai_review_state, ai_review_id, source_confidence, source_payload
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 'accepted', %s, %s, %s::jsonb)
-        ON CONFLICT (workspace_id, lower(name))
-        DO UPDATE
-          SET domain = COALESCE(EXCLUDED.domain, companies.domain),
-              description = COALESCE(EXCLUDED.description, companies.description),
-              source_note_id = COALESCE(companies.source_note_id, EXCLUDED.source_note_id),
-              source_kind = COALESCE(companies.source_kind, EXCLUDED.source_kind),
-              ai_review_state = 'accepted',
-              ai_review_id = COALESCE(EXCLUDED.ai_review_id, companies.ai_review_id),
-              source_confidence = COALESCE(EXCLUDED.source_confidence, companies.source_confidence),
-              source_payload = COALESCE(EXCLUDED.source_payload, companies.source_payload),
-              updated_at = now()
-        RETURNING id
-        """,
-        (
-            note["workspace_id"],
-            name,
-            domain,
-            description,
-            target_user_id,
-            note["id"],
-            source_kind,
-            review_id,
-            source_confidence,
-            json.dumps(source_payload) if source_payload else None,
-        ),
+    workspace_id = str(note["workspace_id"])
+    matched_company_id = _visible_company_id(
+        cur,
+        workspace_id,
+        item.get("matched_company_id") if isinstance(item, dict) else None,
     )
+    if matched_company_id:
+        cur.execute(
+            """
+            UPDATE companies
+            SET domain = COALESCE(%s, domain),
+                description = COALESCE(%s, description),
+                source_note_id = COALESCE(source_note_id, %s),
+                source_kind = COALESCE(source_kind, %s),
+                ai_review_state = 'accepted',
+                ai_review_id = COALESCE(%s, ai_review_id),
+                source_confidence = COALESCE(%s, source_confidence),
+                source_payload = COALESCE(%s::jsonb, source_payload),
+                updated_at = now()
+            WHERE id = %s
+              AND workspace_id = %s
+            RETURNING id
+            """,
+            (
+                domain,
+                description,
+                note["id"],
+                source_kind,
+                review_id,
+                source_confidence,
+                json.dumps(source_payload) if source_payload else None,
+                matched_company_id,
+                workspace_id,
+            ),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO companies (
+              workspace_id, name, domain, description, created_by, source_note_id, source_kind,
+              ai_review_state, ai_review_id, source_confidence, source_payload
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'accepted', %s, %s, %s::jsonb)
+            ON CONFLICT (workspace_id, lower(name))
+            DO UPDATE
+              SET domain = COALESCE(EXCLUDED.domain, companies.domain),
+                  description = COALESCE(EXCLUDED.description, companies.description),
+                  source_note_id = COALESCE(companies.source_note_id, EXCLUDED.source_note_id),
+                  source_kind = COALESCE(companies.source_kind, EXCLUDED.source_kind),
+                  ai_review_state = 'accepted',
+                  ai_review_id = COALESCE(EXCLUDED.ai_review_id, companies.ai_review_id),
+                  source_confidence = COALESCE(EXCLUDED.source_confidence, companies.source_confidence),
+                  source_payload = COALESCE(EXCLUDED.source_payload, companies.source_payload),
+                  updated_at = now()
+            RETURNING id
+            """,
+            (
+                note["workspace_id"],
+                name,
+                domain,
+                description,
+                target_user_id,
+                note["id"],
+                source_kind,
+                review_id,
+                source_confidence,
+                json.dumps(source_payload) if source_payload else None,
+            ),
+        )
     row = cur.fetchone()
     if not row:
         return None
     company_id = str(row["id"])
-    _link_company_note(cur, company_id, str(note["id"]), str(note["workspace_id"]), target_user_id)
-    _link_company_projects(cur, company_id, str(note["workspace_id"]), project_ids, target_user_id)
-    _link_company_people(cur, company_id, str(note["workspace_id"]), person_ids, target_user_id)
+    _link_company_note(cur, company_id, str(note["id"]), workspace_id, target_user_id)
+    _link_company_projects(cur, company_id, workspace_id, project_ids, target_user_id)
+    _link_company_people(cur, company_id, workspace_id, person_ids, target_user_id)
     return company_id
 
 
@@ -1108,7 +1276,7 @@ def _enrich_company_links_from_context(
         for item in data.get(collection, []):
             if not isinstance(item, dict):
                 continue
-            item_ids = [value for value in _id_list(item.get("company_ids")) if _looks_like_uuid(value)]
+            item_ids, _invalid_company_ids = _partition_uuid_ids(_id_list(item.get("company_ids")))
             for name in _item_company_names(item):
                 company_id = name_to_id.get(name.casefold())
                 if not company_id:
@@ -1397,9 +1565,46 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
         return None
     note = dict(note_row)
     workspace_id = str(note["workspace_id"])
-    project_ids = _id_list(payload.get("project_ids")) or _linked_project_ids(cur, str(note["id"]))
-    person_ids = _id_list(payload.get("person_ids")) or _linked_person_ids(cur, str(note["id"]))
-    company_ids = _resolve_company_ids_from_payload(cur, workspace_id, payload)
+    matched_company_id = _visible_company_id(cur, workspace_id, payload.get("matched_company_id"))
+    if matched_company_id:
+        payload["matched_company_id"] = matched_company_id
+    elif "matched_company_id" in payload:
+        payload.pop("matched_company_id", None)
+    project_ids = _visible_non_personal_project_ids(
+        cur,
+        workspace_id,
+        target_user_id,
+        _merge_ids(_id_list(payload.get("project_ids")), _linked_project_ids(cur, str(note["id"]))),
+    )
+    person_ids = _merge_ids(
+        _resolve_person_ids_from_payload(cur, workspace_id, payload),
+        _linked_person_ids(cur, str(note["id"])),
+    )
+    company_ids = _merge_ids(
+        _resolve_company_ids_from_payload(cur, workspace_id, payload),
+        _linked_company_ids(cur, str(note["id"])),
+    )
+    payload["project_ids"] = project_ids
+    payload["person_ids"] = person_ids
+    payload["company_ids"] = company_ids
+    task_ids = _visible_workspace_entity_ids(cur, "tasks", workspace_id, _id_list(payload.get("task_ids")))
+    meeting_ids = _visible_workspace_entity_ids(cur, "meetings", workspace_id, _id_list(payload.get("meeting_ids")))
+    workflow_ids = _visible_workspace_entity_ids(cur, "workflows", workspace_id, _id_list(payload.get("workflow_ids")))
+    report_ids = _visible_workspace_entity_ids(cur, "reports", workspace_id, _id_list(payload.get("report_ids")))
+    payload["task_ids"] = task_ids
+    payload["meeting_ids"] = meeting_ids
+    payload["workflow_ids"] = workflow_ids
+    payload["report_ids"] = report_ids
+    source_payload = {
+        **payload,
+        "project_ids": project_ids,
+        "person_ids": person_ids,
+        "company_ids": company_ids,
+        "task_ids": task_ids,
+        "meeting_ids": meeting_ids,
+        "workflow_ids": workflow_ids,
+        "report_ids": report_ids,
+    }
     source_kind = str(payload.get("source_kind") or f"review_{kind}")
     confidence = _item_confidence(payload)
     review_id = str(review["id"])
@@ -1421,7 +1626,7 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
             company_ids=company_ids,
             review_id=review_id,
             source_confidence=confidence,
-            source_payload=payload,
+            source_payload=source_payload,
         )
     if kind == "meeting":
         return _materialize_meeting(
@@ -1435,7 +1640,7 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
             company_ids=company_ids,
             review_id=review_id,
             source_confidence=confidence,
-            source_payload=payload,
+            source_payload=source_payload,
         )
     if kind == "report":
         return _materialize_report(
@@ -1445,15 +1650,15 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
             target_user_id,
             project_ids,
             person_ids,
-            _id_list(payload.get("task_ids")),
+            task_ids,
             company_ids,
-            _id_list(payload.get("meeting_ids")),
-            _id_list(payload.get("workflow_ids")),
-            _id_list(payload.get("report_ids")),
+            meeting_ids,
+            workflow_ids,
+            report_ids,
             source_kind,
             review_id=review_id,
             source_confidence=confidence,
-            source_payload=payload,
+            source_payload=source_payload,
         )
     if kind == "workflow":
         return _materialize_workflow(
@@ -1463,12 +1668,12 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
             target_user_id,
             project_ids,
             person_ids,
-            _id_list(payload.get("task_ids")),
+            task_ids,
             company_ids=company_ids,
             source_kind=source_kind,
             review_id=review_id,
             source_confidence=confidence,
-            source_payload=payload,
+            source_payload=source_payload,
         )
     if kind == "company":
         return _materialize_company(
@@ -1481,7 +1686,7 @@ def _materialize_review_candidate(cur, review: dict, payload: dict[str, Any], ta
             source_kind=source_kind,
             review_id=review_id,
             source_confidence=confidence,
-            source_payload=payload,
+            source_payload=source_payload,
         )
     return None
 

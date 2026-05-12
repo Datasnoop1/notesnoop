@@ -295,6 +295,83 @@ def test_end_to_end_capture_review_accept_dashboard_happy_path(client):
     assert "Send Apollo diligence pack" in company_tasks
 
 
+def test_project_review_routes_sibling_structured_memory_to_named_project(client):
+    """Accept-all may accept the project suggestion before task suggestions.
+    Structured task payloads created earlier must still inherit the source
+    note's current project links, not stay trapped in Inbox.
+    """
+    from app.db import transaction
+
+    user_id = f"project_route_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Project route workspace"}, headers=headers)
+    boot_data = boot.json()["data"]
+    workspace_id = boot_data["workspace"]["id"]
+    inbox_id = next(project["id"] for project in boot_data["projects"] if project["kind"] == "inbox")
+
+    meridian = client.post(
+        f"/api/workspaces/{workspace_id}/projects",
+        json={"name": "Project Meridian", "color_hex": "#2563eb"},
+        headers=headers,
+    )
+    meridian_id = meridian.json()["data"]["id"]
+    note = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Project Meridian: Maya needs pricing options Friday."},
+        headers=headers,
+    )
+    note_id = note.json()["data"]["id"]
+
+    with transaction(user_id) as cur:
+        cur.execute(
+            """
+            INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
+            VALUES (%s, %s, 'project', %s, 'ai_suggestion', %s::jsonb)
+            RETURNING id
+            """,
+            (
+                workspace_id,
+                user_id,
+                note_id,
+                f'{{"name":"Project Meridian","matched_project_id":"{meridian_id}","confidence":0.92}}',
+            ),
+        )
+        project_review_id = str(cur.fetchone()["id"])
+        cur.execute(
+            """
+            INSERT INTO review_queue (workspace_id, target_user_id, entity_kind, entity_id, reason, payload)
+            VALUES (%s, %s, 'task', %s, 'ai_suggestion', %s::jsonb)
+            RETURNING id
+            """,
+            (
+                workspace_id,
+                user_id,
+                note_id,
+                f'{{"title":"Send pricing options to Maya","status":"todo","project_ids":["{inbox_id}"],"confidence":0.88}}',
+            ),
+        )
+        task_review_id = str(cur.fetchone()["id"])
+
+    accepted = client.post(
+        "/api/reviews/accept-many",
+        json={"review_ids": [task_review_id, project_review_id], "materialize": True},
+        headers=headers,
+    )
+    assert accepted.status_code == 200, accepted.text
+    task_entity = next(item for item in accepted.json()["data"]["accepted"] if item["entity_kind"] == "task")
+
+    task_payload = client.get(f"/api/tasks/{task_entity['entity_id']}", headers=headers)
+    assert task_payload.status_code == 200
+    project_ids = {project["id"] for project in task_payload.json()["data"]["projects"]}
+    assert inbox_id in project_ids
+    assert meridian_id in project_ids
+
+    project_home = client.get(f"/api/workspaces/{workspace_id}/home?project_id={meridian_id}", headers=headers)
+    open_titles = [task["title"] for task in project_home.json()["data"]["open_tasks"]]
+    assert "Send pricing options to Maya" in open_titles
+
+
 def test_note_archive_restore_round_trip(client):
     """Archiving a note hides note-owned active surfaces; restoring brings the note back."""
     from app.db import transaction

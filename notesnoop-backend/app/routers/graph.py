@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -573,9 +574,18 @@ def _accept_review_in_txn(
     response envelope (without {"data": ...}) so callers can wrap it for their
     endpoint. Raises HTTPException on missing / already-decided rows.
     """
-    review = one(cur, "SELECT * FROM review_queue WHERE id = %s AND state = 'open'", (review_id,))
+    review_id = _review_id_or_404(review_id)
+    review = one(
+        cur,
+        "SELECT * FROM review_queue WHERE id = %s AND target_user_id = %s AND state = 'open'",
+        (review_id, user_id),
+    )
     if not review:
-        existing = one(cur, "SELECT state FROM review_queue WHERE id = %s", (review_id,))
+        existing = one(
+            cur,
+            "SELECT state FROM review_queue WHERE id = %s AND target_user_id = %s",
+            (review_id, user_id),
+        )
         if existing:
             raise HTTPException(status_code=409, detail="Review item is already decided")
         raise HTTPException(status_code=404, detail="Review item not found")
@@ -592,7 +602,10 @@ def _accept_review_in_txn(
     if payload_override:
         _update_review_payload(cur, review_id, data)
     person_id = data.get("matched_person_id") or data.get("person_id")
-    if review["entity_kind"] == "person" and not person_id:
+    supplied_person_id = bool(person_id)
+    if review["entity_kind"] == "person" and person_id:
+        person_id = _accepted_person_id(cur, str(review["workspace_id"]), str(person_id))
+    if review["entity_kind"] == "person" and not person_id and not supplied_person_id:
         person_id = _create_review_person(cur, review, data, user_id)
         if person_id:
             data = {**data, "matched_person_id": str(person_id)}
@@ -620,7 +633,10 @@ def _accept_review_in_txn(
             person_id=str(person_id),
         )
     project_id = data.get("matched_project_id")
-    if review["entity_kind"] == "project" and not project_id:
+    supplied_project_id = bool(project_id)
+    if review["entity_kind"] == "project" and project_id:
+        project_id = _propagatable_project_id(cur, str(review["workspace_id"]), str(project_id), user_id)
+    if review["entity_kind"] == "project" and not project_id and not supplied_project_id:
         project_id = _create_review_project(cur, review, data, user_id)
         if project_id:
             data = {**data, "matched_project_id": str(project_id)}
@@ -630,6 +646,13 @@ def _accept_review_in_txn(
         cur.execute(
             "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
             (review["entity_id"], project_id, user_id),
+        )
+        _append_project_to_open_structured_reviews(
+            cur,
+            str(review["entity_id"]),
+            str(review["workspace_id"]),
+            user_id,
+            str(project_id),
         )
         _reconcile_note_memory_links(
             cur,
@@ -645,6 +668,14 @@ def _accept_review_in_txn(
             raise HTTPException(status_code=422, detail="Review candidate could not be materialized")
         data = {**data, "materialized_id": materialized_id}
         _update_review_payload(cur, review_id, data)
+        if review["entity_kind"] == "company":
+            _reconcile_note_memory_links(
+                cur,
+                str(review["entity_id"]),
+                str(review["workspace_id"]),
+                user_id,
+                company_id=str(materialized_id),
+            )
     cur.execute("UPDATE review_queue SET state = 'accepted' WHERE id = %s", (review_id,))
     cur.execute(
         "INSERT INTO calibration_events (workspace_id, confidence, user_decision) VALUES (%s, %s, 'accepted')",
@@ -682,7 +713,7 @@ def accept_many_reviews(payload: ReviewBulkAccept, user: CurrentUser = Depends(c
     accepted: list[dict] = []
     failures: list[dict] = []
     with transaction(user.clerk_user_id) as cur:
-        for review_id in payload.review_ids:
+        for review_id in _bulk_accept_ordered_review_ids(cur, payload.review_ids, user.clerk_user_id):
             try:
                 response = _accept_review_in_txn(
                     cur, review_id, user.clerk_user_id, materialize=payload.materialize
@@ -700,10 +731,19 @@ def accept_many_reviews(payload: ReviewBulkAccept, user: CurrentUser = Depends(c
 
 @router.post("/review-queue/{review_id}/reject")
 def reject_review(review_id: str, payload: ReviewDecision, user: CurrentUser = Depends(current_user)):
+    review_id = _review_id_or_404(review_id)
     with transaction(user.clerk_user_id) as cur:
-        review = one(cur, "SELECT * FROM review_queue WHERE id = %s AND state = 'open'", (review_id,))
+        review = one(
+            cur,
+            "SELECT * FROM review_queue WHERE id = %s AND target_user_id = %s AND state = 'open'",
+            (review_id, user.clerk_user_id),
+        )
         if not review:
-            existing = one(cur, "SELECT state FROM review_queue WHERE id = %s", (review_id,))
+            existing = one(
+                cur,
+                "SELECT state FROM review_queue WHERE id = %s AND target_user_id = %s",
+                (review_id, user.clerk_user_id),
+            )
             if existing:
                 raise HTTPException(status_code=409, detail="Review item is already decided")
             raise HTTPException(status_code=404, detail="Review item not found")
@@ -1549,6 +1589,141 @@ def _update_review_payload(cur, review_id: str, data: dict) -> None:
     )
 
 
+def _bulk_accept_ordered_review_ids(cur, review_ids: list[str], user_id: str) -> list[str]:
+    valid_ids = [_review_id_or_none(review_id) for review_id in review_ids]
+    query_ids = [review_id for review_id in valid_ids if review_id]
+    if not query_ids:
+        return review_ids
+    rows = many(
+        cur,
+        """
+        SELECT id, entity_kind
+        FROM review_queue
+        WHERE target_user_id = %s
+          AND id = ANY(%s::uuid[])
+        """,
+        (user_id, list(dict.fromkeys(query_ids))),
+    )
+    priorities = {
+        str(row["id"]): _bulk_accept_priority(str(row.get("entity_kind") or ""))
+        for row in rows
+    }
+    indexed = list(enumerate(zip(review_ids, valid_ids, strict=False)))
+    indexed.sort(key=lambda item: (priorities.get(item[1][1] or "", 100), item[0]))
+    return [review_id for _index, (review_id, _valid_id) in indexed]
+
+
+def _bulk_accept_priority(entity_kind: str) -> int:
+    return {
+        "project": 0,
+        "person": 1,
+        "company": 2,
+        "task": 3,
+        "meeting": 3,
+        "report": 3,
+        "workflow": 3,
+    }.get(entity_kind, 50)
+
+
+def _review_id_or_none(review_id: str) -> str | None:
+    try:
+        return str(uuid.UUID(str(review_id)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _review_id_or_404(review_id: str) -> str:
+    normalized = _review_id_or_none(review_id)
+    if not normalized:
+        raise HTTPException(status_code=404, detail="Review item not found")
+    return normalized
+
+
+def _normalize_uuid_or_none(value) -> str | None:
+    try:
+        return str(uuid.UUID(str(value)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _looks_like_uuid(value) -> bool:
+    return _normalize_uuid_or_none(value) is not None
+
+
+def _accepted_person_id(cur, workspace_id: str, person_id: str) -> str | None:
+    normalized = _normalize_uuid_or_none(person_id)
+    if not normalized:
+        return None
+    person = one(
+        cur,
+        "SELECT id FROM people WHERE id = %s AND workspace_id = %s",
+        (normalized, workspace_id),
+    )
+    return str(person["id"]) if person else None
+
+
+def _can_propagate_project_to_memory(cur, workspace_id: str, project_id: str, user_id: str) -> bool:
+    return bool(_propagatable_project_id(cur, workspace_id, project_id, user_id))
+
+
+def _propagatable_project_id(cur, workspace_id: str, project_id: str, user_id: str) -> str | None:
+    normalized = _normalize_uuid_or_none(project_id)
+    if not normalized:
+        return None
+    project = one(
+        cur,
+        """
+        SELECT p.id
+        FROM projects p
+        JOIN workspaces w ON w.id = p.workspace_id
+        WHERE p.id = %s
+          AND p.workspace_id = %s
+          AND p.kind <> 'personal'
+          AND (
+              p.kind <> 'inbox'
+              OR (coalesce(w.inbox_mode, 'per_user_private') = 'shared' AND p.shared = TRUE)
+              OR (
+                  coalesce(w.inbox_mode, 'per_user_private') <> 'shared'
+                  AND p.shared = FALSE
+                  AND p.created_by = %s
+              )
+          )
+        """,
+        (normalized, workspace_id, user_id),
+    )
+    return str(project["id"]) if project else None
+
+
+def _append_project_to_open_structured_reviews(
+    cur,
+    note_id: str,
+    workspace_id: str,
+    target_user_id: str,
+    project_id: str,
+) -> None:
+    if not _can_propagate_project_to_memory(cur, workspace_id, project_id, target_user_id):
+        return
+    rows = many(
+        cur,
+        """
+        SELECT id, payload
+        FROM review_queue
+        WHERE workspace_id = %s
+          AND entity_id = %s
+          AND target_user_id = %s
+          AND state = 'open'
+          AND entity_kind IN ('task', 'meeting', 'report', 'workflow', 'company')
+        """,
+        (workspace_id, note_id, target_user_id),
+    )
+    for row in rows:
+        data = dict(row.get("payload") or {})
+        project_ids = [str(item) for item in data.get("project_ids") or [] if item]
+        if project_id in project_ids:
+            continue
+        _update_review_payload(cur, str(row["id"]), {**data, "project_ids": [*project_ids, project_id]})
+
+
 def _reconcile_note_memory_links(
     cur,
     note_id: str,
@@ -1557,6 +1732,7 @@ def _reconcile_note_memory_links(
     *,
     person_id: str | None = None,
     project_id: str | None = None,
+    company_id: str | None = None,
 ) -> None:
     cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"memory-reconcile:{note_id}",))
     if person_id:
@@ -1611,6 +1787,8 @@ def _reconcile_note_memory_links(
             (person_id, linked_by, note_id, workspace_id),
         )
     if project_id:
+        if not _can_propagate_project_to_memory(cur, workspace_id, project_id, linked_by):
+            return
         cur.execute(
             """
             INSERT INTO task_projects (task_id, project_id, workspace_id, linked_by)
@@ -1660,6 +1838,47 @@ def _reconcile_note_memory_links(
             ON CONFLICT DO NOTHING
             """,
             (project_id, linked_by, note_id, workspace_id),
+        )
+    if company_id:
+        cur.execute(
+            """
+            INSERT INTO task_companies (task_id, company_id, workspace_id, linked_by)
+            SELECT t.id, %s, t.workspace_id, %s
+            FROM tasks t
+            WHERE t.source_note_id = %s AND t.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (company_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO meeting_companies (meeting_id, company_id, workspace_id, linked_by)
+            SELECT m.id, %s, m.workspace_id, %s
+            FROM meetings m
+            WHERE m.source_note_id = %s AND m.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (company_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO report_companies (report_id, company_id, workspace_id, linked_by)
+            SELECT r.id, %s, r.workspace_id, %s
+            FROM reports r
+            WHERE r.source_note_id = %s AND r.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (company_id, linked_by, note_id, workspace_id),
+        )
+        cur.execute(
+            """
+            INSERT INTO workflow_companies (workflow_id, company_id, workspace_id, linked_by)
+            SELECT w.id, %s, w.workspace_id, %s
+            FROM workflows w
+            WHERE w.source_note_id = %s AND w.workspace_id = %s
+            ON CONFLICT DO NOTHING
+            """,
+            (company_id, linked_by, note_id, workspace_id),
         )
 
 

@@ -197,6 +197,8 @@ def test_review_candidates_preserve_context_and_source_fields_for_audit():
 
 
 def test_materializing_review_candidate_stores_source_payload_and_context_links():
+    project_id = "00000000-0000-0000-0000-000000000201"
+    task_id = "00000000-0000-0000-0000-000000000202"
     review = {
         "id": "review-report-1",
         "workspace_id": "workspace-1",
@@ -209,9 +211,9 @@ def test_materializing_review_candidate_stores_source_payload_and_context_links(
         "status": "draft",
         "source_kind": "ai_report:apollo weekly risk brief",
         "confidence": 0.82,
-        "project_ids": ["project-apollo"],
+        "project_ids": [project_id],
         "person_ids": ["person-morgan"],
-        "task_ids": ["task-msa"],
+        "task_ids": [task_id],
         "company_ids": ["company-northstar"],
         "source_note_id": "note-audit-1",
         "note_id": "note-audit-1",
@@ -222,7 +224,13 @@ def test_materializing_review_candidate_stores_source_payload_and_context_links(
             {"id": "report-1"},
         ],
         fetchall_values=[
+            [],
+            [{"id": project_id}],
+            [{"id": "person-morgan", "name": "person-morgan"}],
+            [],
             [{"id": "company-northstar", "name": "company-northstar"}],
+            [],
+            [{"id": task_id}],
         ],
     )
 
@@ -236,9 +244,9 @@ def test_materializing_review_candidate_stores_source_payload_and_context_links(
     assert report_params[8] == 0.82
     stored_payload = json.loads(report_params[9])
     assert stored_payload["source_note_id"] == "note-audit-1"
-    assert stored_payload["project_ids"] == ["project-apollo"]
+    assert stored_payload["project_ids"] == [project_id]
     assert stored_payload["person_ids"] == ["person-morgan"]
-    assert stored_payload["task_ids"] == ["task-msa"]
+    assert stored_payload["task_ids"] == [task_id]
     assert stored_payload["company_ids"] == ["company-northstar"]
 
     executed_sql = "\n".join(sql for sql, _params in cur.executed)

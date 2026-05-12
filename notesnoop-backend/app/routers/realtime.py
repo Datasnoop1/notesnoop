@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import select
+import uuid
 from contextlib import suppress
 from typing import Any
 
@@ -23,9 +24,7 @@ def review_queue_count(workspace_id: str | None = None, project_id: str | None =
     with transaction(user.clerk_user_id) as cur:
         resolved_workspace_id = _resolve_workspace_id(cur, user.clerk_user_id, workspace_id)
         if project_id:
-            project = one(cur, "SELECT id FROM projects WHERE id = %s AND workspace_id = %s", (project_id, resolved_workspace_id))
-            if not project:
-                raise HTTPException(status_code=404, detail="Project not found")
+            project_id = _resolve_project_filter_id(cur, resolved_workspace_id, project_id)
         row = one(
             cur,
             """
@@ -68,9 +67,7 @@ def list_review_queue(
     with transaction(user.clerk_user_id) as cur:
         _ensure_workspace_access(cur, workspace_id)
         if project_id:
-            project = one(cur, "SELECT id FROM projects WHERE id = %s AND workspace_id = %s", (project_id, workspace_id))
-            if not project:
-                raise HTTPException(status_code=404, detail="Project not found")
+            project_id = _resolve_project_filter_id(cur, workspace_id, project_id)
         rows = many(
             cur,
             """
@@ -233,6 +230,17 @@ def _ensure_workspace_access(cur, workspace_id: str) -> None:
     workspace = one(cur, "SELECT id FROM workspaces WHERE id = %s", (workspace_id,))
     if not workspace:
         raise HTTPException(status_code=404, detail="Workspace not found")
+
+
+def _resolve_project_filter_id(cur, workspace_id: str, project_id: str) -> str:
+    try:
+        normalized = str(uuid.UUID(str(project_id)))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="Project not found")
+    project = one(cur, "SELECT id FROM projects WHERE id = %s AND workspace_id = %s", (normalized, workspace_id))
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return normalized
 
 
 async def _event_stream(workspace_id: str, request: Request):
