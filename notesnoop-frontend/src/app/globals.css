@@ -601,6 +601,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+.memory-row-head strong {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.memory-row-head .pipeline-pill,
+.memory-row-head .recent-memory-when {
+  flex: 0 0 auto;
 }
 .pipeline-pill {
   font-size: 10px;
