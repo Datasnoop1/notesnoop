@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import CurrentUser, current_user
 from ..db import many, one, transaction
-from ..schemas import PersonMergeRequest, ReviewDecision
+from ..schemas import PersonMergeRequest, ReviewBulkAccept, ReviewDecision
 from ..worker import _materialize_review_candidate
 
 
@@ -560,83 +560,127 @@ def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentU
             lines.append("Thin data: this project memory is still early.")
         return {"data": {"markdown": "\n".join(lines)}}
 
+def _accept_review_in_txn(
+    cur,
+    review_id: str,
+    user_id: str,
+    *,
+    payload_override: dict | None = None,
+    confidence_override: float | None = None,
+    materialize: bool = True,
+) -> dict:
+    """Accept a single review item inside an existing transaction. Returns the
+    response envelope (without {"data": ...}) so callers can wrap it for their
+    endpoint. Raises HTTPException on missing / already-decided rows.
+    """
+    review = one(cur, "SELECT * FROM review_queue WHERE id = %s AND state = 'open'", (review_id,))
+    if not review:
+        existing = one(cur, "SELECT state FROM review_queue WHERE id = %s", (review_id,))
+        if existing:
+            raise HTTPException(status_code=409, detail="Review item is already decided")
+        raise HTTPException(status_code=404, detail="Review item not found")
+    data = {**(review.get("payload") or {}), **(payload_override or {})}
+    confidence = confidence_override or data.get("confidence") or 0.75
+    if payload_override:
+        _update_review_payload(cur, review_id, data)
+    person_id = data.get("matched_person_id") or data.get("person_id")
+    if review["entity_kind"] == "person" and not person_id:
+        person_id = _create_review_person(cur, review, data, user_id)
+        if person_id:
+            data = {**data, "matched_person_id": str(person_id)}
+            _update_review_payload(cur, review_id, data)
+    if review["entity_kind"] == "person" and person_id:
+        source = "collaborator_suggestion" if review["reason"] == "collaborator_suggestion" else "ai"
+        linked_by = data.get("suggested_by") or user_id
+        cur.execute(
+            """
+            INSERT INTO note_people_links (note_id, person_id, state, confidence, source, source_user_id)
+            VALUES (%s, %s, 'confirmed', %s, %s, %s)
+            ON CONFLICT (note_id, person_id) DO UPDATE
+              SET state = 'confirmed',
+                  confidence = EXCLUDED.confidence,
+                  source = EXCLUDED.source,
+                  source_user_id = EXCLUDED.source_user_id
+            """,
+            (review["entity_id"], person_id, confidence, source, linked_by),
+        )
+        _reconcile_note_memory_links(
+            cur,
+            str(review["entity_id"]),
+            str(review["workspace_id"]),
+            linked_by,
+            person_id=str(person_id),
+        )
+    project_id = data.get("matched_project_id")
+    if review["entity_kind"] == "project" and not project_id:
+        project_id = _create_review_project(cur, review, data, user_id)
+        if project_id:
+            data = {**data, "matched_project_id": str(project_id)}
+            _update_review_payload(cur, review_id, data)
+    if review["entity_kind"] == "project" and project_id:
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (str(review["entity_id"]),))
+        cur.execute(
+            "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+            (review["entity_id"], project_id, user_id),
+        )
+        _reconcile_note_memory_links(
+            cur,
+            str(review["entity_id"]),
+            str(review["workspace_id"]),
+            user_id,
+            project_id=str(project_id),
+        )
+    materialized_id = None
+    if review["entity_kind"] in {"task", "meeting", "report", "workflow", "company"} and materialize:
+        materialized_id = _materialize_review_candidate(cur, review, data, user_id)
+        if not materialized_id:
+            raise HTTPException(status_code=422, detail="Review candidate could not be materialized")
+        data = {**data, "materialized_id": materialized_id}
+        _update_review_payload(cur, review_id, data)
+    cur.execute("UPDATE review_queue SET state = 'accepted' WHERE id = %s", (review_id,))
+    cur.execute(
+        "INSERT INTO calibration_events (workspace_id, confidence, user_decision) VALUES (%s, %s, 'accepted')",
+        (review["workspace_id"], confidence),
+    )
+    response = {"state": "accepted", "review_id": review_id, "entity_kind": review["entity_kind"]}
+    if materialized_id:
+        response["entity_id"] = materialized_id
+    return response
+
+
 @router.post("/review-queue/{review_id}/accept")
 def accept_review(review_id: str, payload: ReviewDecision, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
-        review = one(cur, "SELECT * FROM review_queue WHERE id = %s AND state = 'open'", (review_id,))
-        if not review:
-            existing = one(cur, "SELECT state FROM review_queue WHERE id = %s", (review_id,))
-            if existing:
-                raise HTTPException(status_code=409, detail="Review item is already decided")
-            raise HTTPException(status_code=404, detail="Review item not found")
-        data = {**(review.get("payload") or {}), **(payload.payload or {})}
-        confidence = payload.confidence or data.get("confidence") or 0.75
-        if payload.payload:
-            _update_review_payload(cur, review_id, data)
-        person_id = data.get("matched_person_id") or data.get("person_id")
-        if review["entity_kind"] == "person" and not person_id:
-            person_id = _create_review_person(cur, review, data, user.clerk_user_id)
-            if person_id:
-                data = {**data, "matched_person_id": str(person_id)}
-                _update_review_payload(cur, review_id, data)
-        if review["entity_kind"] == "person" and person_id:
-            source = "collaborator_suggestion" if review["reason"] == "collaborator_suggestion" else "ai"
-            linked_by = data.get("suggested_by") or user.clerk_user_id
-            cur.execute(
-                """
-                INSERT INTO note_people_links (note_id, person_id, state, confidence, source, source_user_id)
-                VALUES (%s, %s, 'confirmed', %s, %s, %s)
-                ON CONFLICT (note_id, person_id) DO UPDATE
-                  SET state = 'confirmed',
-                      confidence = EXCLUDED.confidence,
-                      source = EXCLUDED.source,
-                      source_user_id = EXCLUDED.source_user_id
-                """,
-                (review["entity_id"], person_id, confidence, source, linked_by),
-            )
-            _reconcile_note_memory_links(
-                cur,
-                str(review["entity_id"]),
-                str(review["workspace_id"]),
-                linked_by,
-                person_id=str(person_id),
-            )
-        project_id = data.get("matched_project_id")
-        if review["entity_kind"] == "project" and not project_id:
-            project_id = _create_review_project(cur, review, data, user.clerk_user_id)
-            if project_id:
-                data = {**data, "matched_project_id": str(project_id)}
-                _update_review_payload(cur, review_id, data)
-        if review["entity_kind"] == "project" and project_id:
-            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (str(review["entity_id"]),))
-            cur.execute(
-                "INSERT INTO note_projects (note_id, project_id, linked_by) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
-                (review["entity_id"], project_id, user.clerk_user_id),
-            )
-            _reconcile_note_memory_links(
-                cur,
-                str(review["entity_id"]),
-                str(review["workspace_id"]),
-                user.clerk_user_id,
-                project_id=str(project_id),
-            )
-        materialized_id = None
-        if review["entity_kind"] in {"task", "meeting", "report", "workflow", "company"} and payload.materialize:
-            materialized_id = _materialize_review_candidate(cur, review, data, user.clerk_user_id)
-            if not materialized_id:
-                raise HTTPException(status_code=422, detail="Review candidate could not be materialized")
-            data = {**data, "materialized_id": materialized_id}
-            _update_review_payload(cur, review_id, data)
-        cur.execute("UPDATE review_queue SET state = 'accepted' WHERE id = %s", (review_id,))
-        cur.execute(
-            "INSERT INTO calibration_events (workspace_id, confidence, user_decision) VALUES (%s, %s, 'accepted')",
-            (review["workspace_id"], confidence),
+        response = _accept_review_in_txn(
+            cur,
+            review_id,
+            user.clerk_user_id,
+            payload_override=payload.payload,
+            confidence_override=payload.confidence,
+            materialize=payload.materialize,
         )
-        response = {"state": "accepted"}
-        if materialized_id:
-            response["entity_kind"] = review["entity_kind"]
-            response["entity_id"] = materialized_id
         return {"data": response}
+
+
+@router.post("/reviews/accept-many")
+def accept_many_reviews(payload: ReviewBulkAccept, user: CurrentUser = Depends(current_user)):
+    accepted: list[dict] = []
+    failures: list[dict] = []
+    with transaction(user.clerk_user_id) as cur:
+        for review_id in payload.review_ids:
+            try:
+                response = _accept_review_in_txn(
+                    cur, review_id, user.clerk_user_id, materialize=payload.materialize
+                )
+                accepted.append(response)
+            except HTTPException as exc:
+                # Skip items that are gone / already decided so a stale review id
+                # doesn't poison the whole batch. Surface anything genuinely odd.
+                if exc.status_code in (404, 409):
+                    failures.append({"review_id": review_id, "status_code": exc.status_code, "detail": exc.detail})
+                else:
+                    raise
+        return {"data": {"accepted": accepted, "failures": failures}}
 
 
 @router.post("/review-queue/{review_id}/reject")

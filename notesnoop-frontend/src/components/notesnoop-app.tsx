@@ -3779,6 +3779,26 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           await decideReview(reviewId, decision);
           if (selectedNote) await openNote(selectedNote.id);
         }}
+        onAcceptAllSuggestions={async (reviewIds) => {
+          if (!reviewIds.length) return;
+          try {
+            const res = await api(`/api/reviews/accept-many`, {
+              method: "POST",
+              body: JSON.stringify({ review_ids: reviewIds, materialize: true }),
+            });
+            const accepted = Array.isArray(res?.data?.accepted) ? res.data.accepted.length : 0;
+            const failed = Array.isArray(res?.data?.failures) ? res.data.failures.length : 0;
+            if (failed === 0) {
+              setToast(`Accepted ${accepted} suggestion${accepted === 1 ? "" : "s"}.`);
+            } else {
+              setToast(`Accepted ${accepted}; ${failed} could not be applied.`);
+            }
+            if (selectedNote) await openNote(selectedNote.id);
+            await refreshWorkspaceData();
+          } catch (err) {
+            setToast(err instanceof Error ? err.message : "Bulk accept failed");
+          }
+        }}
         onSuggestionQueued={() => setToast("Suggestion sent to Review.")}
         onOpenMemory={openMemoryItem}
         onOpenReview={openReviewQueue}
@@ -6398,6 +6418,7 @@ function LinkedSheet({
   onUpdate,
   onSetProjects,
   onReviewDecision,
+  onAcceptAllSuggestions,
   onSuggestionQueued,
   onOpenMemory,
   onOpenReview,
@@ -6420,6 +6441,7 @@ function LinkedSheet({
   onUpdate: (noteId: string, title: string, body: string, noteKind: string, occurredAt: string) => Promise<void>;
   onSetProjects: (note: any, projectIds: string[], confirmPersonalMove?: boolean) => Promise<void>;
   onReviewDecision: (reviewId: string, decision: "accept" | "reject") => Promise<void>;
+  onAcceptAllSuggestions?: (reviewIds: string[]) => Promise<void>;
   onSuggestionQueued: () => void;
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
   onOpenReview: () => void;
@@ -6427,6 +6449,7 @@ function LinkedSheet({
   api: (path: string, init?: RequestInit) => Promise<any>;
   refresh: () => Promise<void>;
 }) {
+  const [acceptAllPending, setAcceptAllPending] = useState(false);
   const [personId, setPersonId] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
@@ -6627,16 +6650,35 @@ function LinkedSheet({
                   <strong>Found {summaryText}{suggestions.length ? `. ${suggestions.length} need${suggestions.length === 1 ? "s" : ""} your review.` : "."}</strong>
                   <small>Source-backed and editable. Open any item to refine its relationships.</small>
                 </div>
-                {suggestions.length > 0 && (
+                {suggestions.length > 0 && onAcceptAllSuggestions && (
                   <button
                     type="button"
                     className="extraction-banner-action primary"
+                    onClick={async () => {
+                      const ids = suggestions.map((s: any) => s.id).filter(Boolean);
+                      if (!ids.length || acceptAllPending) return;
+                      setAcceptAllPending(true);
+                      try {
+                        await onAcceptAllSuggestions(ids);
+                      } finally {
+                        setAcceptAllPending(false);
+                      }
+                    }}
+                    disabled={acceptAllPending}
+                  >
+                    {acceptAllPending ? "Accepting…" : `Accept all ${suggestions.length}`}
+                  </button>
+                )}
+                {suggestions.length > 0 && (
+                  <button
+                    type="button"
+                    className="extraction-banner-action"
                     onClick={() => {
                       onClose();
                       onOpenReview();
                     }}
                   >
-                    Review now
+                    Review one-by-one
                   </button>
                 )}
               </div>

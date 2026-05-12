@@ -275,6 +275,11 @@ class ReviewDecision(BaseModel):
     materialize: bool = True
 
 
+class ReviewBulkAccept(BaseModel):
+    review_ids: list[str] = Field(min_length=1, max_length=200)
+    materialize: bool = True
+
+
 class PersonMergeRequest(BaseModel):
     target_person_id: str
 
