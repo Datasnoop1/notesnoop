@@ -57,10 +57,19 @@ def test_merge_company_collapses_links_and_drops_source(client):
     boot = client.post("/api/bootstrap", json={"workspace_name": "Merge co workspace"}, headers=headers)
     workspace_id = boot.json()["data"]["workspace"]["id"]
 
+    # Create the note first so the source company can be linked to it via
+    # note_ids on create (POST /notes ignores company_ids — the proper path
+    # is via the company side or the AI-extraction flow).
+    note = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Discussion with Riley about Acme."},
+        headers=headers,
+    ).json()["data"]
+
     # Two companies with the same intent — the dup the operator would clean up.
     source = client.post(
         f"/api/workspaces/{workspace_id}/companies",
-        json={"name": "Acme Corp", "domain": "acme.com"},
+        json={"name": "Acme Corp", "domain": "acme.com", "note_ids": [note["id"]]},
         headers=headers,
     ).json()["data"]
     target = client.post(
@@ -69,16 +78,11 @@ def test_merge_company_collapses_links_and_drops_source(client):
         headers=headers,
     ).json()["data"]
 
-    # A person, a note, and a task — all linked to BOTH companies through
-    # different surfaces — to make sure the join-table migration deduplicates.
+    # A person and a task — both linked to BOTH companies — to make sure the
+    # join-table migration deduplicates.
     person = client.post(
         f"/api/workspaces/{workspace_id}/people",
         json={"name": "Riley Quinn", "company_ids": [source["id"], target["id"]]},
-        headers=headers,
-    ).json()["data"]
-    note = client.post(
-        f"/api/workspaces/{workspace_id}/notes",
-        json={"body": "Discussion with Riley about Acme.", "company_ids": [source["id"]]},
         headers=headers,
     ).json()["data"]
     task = client.post(
