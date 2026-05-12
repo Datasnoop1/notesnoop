@@ -592,11 +592,32 @@ def test_fresh_personal_workspace_allows_self_bootstrap_membership(conn):
             """,
             (workspace_id, user_id),
         )
+        created_projects = []
+        for name, kind, shared in (("Personal", "personal", False), ("Inbox", "inbox", False)):
+            cur.execute(
+                """
+                INSERT INTO projects (workspace_id, name, kind, shared, created_by)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (workspace_id, name, kind, shared, user_id),
+            )
+            project_id = cur.fetchone()["id"]
+            created_projects.append(str(project_id))
+            cur.execute(
+                "INSERT INTO project_members (project_id, clerk_user_id) VALUES (%s, %s)",
+                (project_id, user_id),
+            )
         assert _fetch_ids(
             cur,
             "SELECT workspace_id FROM workspace_members WHERE workspace_id = %s AND clerk_user_id = %s",
             (workspace_id, user_id),
         ) == [str(workspace_id)]
+        assert _fetch_ids(
+            cur,
+            "SELECT id FROM projects WHERE workspace_id = %s ORDER BY name",
+            (workspace_id,),
+        ) == created_projects[::-1]
         conn.commit()
 
 

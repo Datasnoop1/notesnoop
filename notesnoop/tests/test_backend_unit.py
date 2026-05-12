@@ -498,6 +498,19 @@ def test_home_rls_fast_path_migration_preserves_project_visibility_helpers():
     assert "WITH CHECK (can_access_note(note_id) AND can_access_project(project_id))" in migration.sql
 
 
+def test_project_bootstrap_returning_migration_restores_direct_creator_select():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0036_project_bootstrap_returning.sql")
+
+    assert migration.filename == "0036_project_bootstrap_returning.sql"
+    assert "CREATE POLICY projects_creator_returning_select" in migration.sql
+    assert "FOR SELECT" in migration.sql
+    assert "created_by = current_user_id()" in migration.sql
+    assert "AND is_workspace_member(workspace_id)" in migration.sql
+    assert "coalesce(w.inbox_mode, 'per_user_private') <> 'shared'" in migration.sql
+    assert "coalesce(w.inbox_mode, 'per_user_private') = 'shared'" in migration.sql
+    assert "USING (can_access_project(id))" not in migration.sql
+
+
 def test_search_skips_semantic_when_keyword_results_are_plentiful():
     assert notes._should_run_semantic_search("Apollo", 0) is True
     assert notes._should_run_semantic_search("Apollo", notes.SEARCH_KEYWORD_FAST_PATH_MIN_ROWS - 1) is True
