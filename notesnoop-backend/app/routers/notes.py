@@ -1494,7 +1494,7 @@ def _memory_search_results(cur, workspace_id: str, query: str, project_id: str |
             "projects",
             "name",
             "description",
-            "coalesce(updated_at, created_at)",
+            "created_at",
             "%s::uuid IS NULL OR item.id = %s::uuid",
             "%s::uuid IS DISTINCT FROM %s::uuid OR TRUE",
         ),
