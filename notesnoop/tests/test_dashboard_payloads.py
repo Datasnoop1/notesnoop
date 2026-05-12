@@ -519,6 +519,32 @@ def test_home_week_counts_aggregate_last_seven_days(client):
         assert key in week
 
 
+def test_home_new_note_counts_include_notes_archived_after_capture(client):
+    """New-note counters describe capture volume even if a note was archived later."""
+    user_id = f"archived_new_count_{uuid.uuid4().hex[:10]}"
+    headers = _headers(user_id)
+
+    boot = client.post("/api/bootstrap", json={"workspace_name": "Archived count workspace"}, headers=headers)
+    workspace_id = boot.json()["data"]["workspace"]["id"]
+    note = client.post(
+        f"/api/workspaces/{workspace_id}/notes",
+        json={"body": "Captured then archived today"},
+        headers=headers,
+    )
+    assert note.status_code == 200
+    note_id = note.json()["data"]["id"]
+    archived = client.post(f"/api/notes/{note_id}/archive", headers=headers)
+    assert archived.status_code == 200
+
+    home = client.get(f"/api/workspaces/{workspace_id}/home", headers=headers)
+    assert home.status_code == 200
+    data = home.json()["data"]
+    assert data["today_counts"]["new_notes"] >= 1
+    assert data["week_counts"]["new_notes"] >= 1
+    assert data["week_counts"]["notes_archived"] >= 1
+    assert all(note["id"] != note_id for note in data["recent_notes"])
+
+
 def test_project_close_and_reopen_filters_recent_projects(client):
     """Closing a project hides it from /home recent_projects; reopening brings it back."""
     user_id = f"proj_close_user_{uuid.uuid4().hex[:10]}"

@@ -486,6 +486,18 @@ def test_task_reminder_active_uniqueness_migration_prevents_duplicate_snoozes():
     assert "IF NOT FOUND THEN" in migration.sql
 
 
+def test_home_rls_fast_path_migration_preserves_project_visibility_helpers():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0034_home_rls_fast_path.sql")
+
+    assert migration.filename == "0034_home_rls_fast_path.sql"
+    assert "CREATE POLICY notes_project_access" in migration.sql
+    assert "created_by = current_user_id() AND is_workspace_member(workspace_id)" in migration.sql
+    assert "OR can_access_note(id)" in migration.sql
+    assert "CREATE POLICY note_projects_note_access" in migration.sql
+    assert "can_access_project(project_id) OR can_access_note(note_id)" in migration.sql
+    assert "WITH CHECK (can_access_note(note_id) AND can_access_project(project_id))" in migration.sql
+
+
 def test_project_summary_helper_is_deterministic():
     summary = memory.build_project_summary(
         {"id": "project-1", "name": "Apollo"},

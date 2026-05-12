@@ -591,6 +591,80 @@ def toggle_flag(payload: FlagRequest, user: CurrentUser = Depends(current_user))
         return {"data": {"flagged": True, "flag": dict(cur.fetchone())}}
 
 
+def _prepare_home_scope(cur, workspace_id: str, project_id: str | None) -> None:
+    """Materialize visible notes once so dashboard cards do not repeat RLS-heavy scans."""
+    for table in (
+        "home_project_task_stats",
+        "home_project_note_stats",
+        "home_visible_note_projects",
+        "home_visible_notes",
+    ):
+        cur.execute(f"DROP TABLE IF EXISTS pg_temp.{table}")
+    cur.execute(
+        """
+        CREATE TEMP TABLE home_visible_notes ON COMMIT DROP AS
+        SELECT n.*
+        FROM notes n
+        WHERE n.workspace_id = %s
+          AND (
+            %s::uuid IS NULL
+            OR EXISTS (
+              SELECT 1
+              FROM note_projects np
+              WHERE np.note_id = n.id
+                AND np.project_id = %s::uuid
+            )
+          )
+        """,
+        (workspace_id, project_id, project_id),
+    )
+    cur.execute("CREATE INDEX home_visible_notes_id_idx ON home_visible_notes(id)")
+    cur.execute(
+        """
+        CREATE TEMP TABLE home_visible_note_projects ON COMMIT DROP AS
+        SELECT np.note_id, np.project_id
+        FROM note_projects np
+        JOIN home_visible_notes vn ON vn.id = np.note_id
+        """
+    )
+    cur.execute("CREATE INDEX home_visible_note_projects_project_idx ON home_visible_note_projects(project_id, note_id)")
+    cur.execute(
+        """
+        CREATE TEMP TABLE home_project_note_stats ON COMMIT DROP AS
+        SELECT vnp.project_id,
+               max(coalesce(vn.occurred_at, vn.created_at)) AS last_note_at,
+               count(*)::int AS mention_count,
+               count(*) FILTER (WHERE vn.note_kind IN ('meeting','call'))::int AS meeting_count
+        FROM home_visible_note_projects vnp
+        JOIN home_visible_notes vn ON vn.id = vnp.note_id
+        WHERE vn.archived_at IS NULL
+        GROUP BY vnp.project_id
+        """
+    )
+    cur.execute("CREATE INDEX home_project_note_stats_project_idx ON home_project_note_stats(project_id)")
+    cur.execute(
+        """
+        CREATE TEMP TABLE home_project_task_stats ON COMMIT DROP AS
+        SELECT tp.project_id,
+               count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing','blocked'))::int AS open_task_count,
+               count(DISTINCT t.id) FILTER (WHERE t.status = 'blocked')::int AS blocked_task_count
+        FROM task_projects tp
+        JOIN tasks t ON t.id = tp.task_id
+        WHERE t.workspace_id = %s
+          AND NOT EXISTS (
+            SELECT 1
+            FROM notes source_note
+            WHERE source_note.id = t.source_note_id
+              AND source_note.archived_at IS NOT NULL
+          )
+          AND (%s::uuid IS NULL OR tp.project_id = %s::uuid)
+        GROUP BY tp.project_id
+        """,
+        (workspace_id, project_id, project_id),
+    )
+    cur.execute("CREATE INDEX home_project_task_stats_project_idx ON home_project_task_stats(project_id)")
+
+
 @router.get("/workspaces/{workspace_id}/home")
 def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
@@ -598,6 +672,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             project = one(cur, "SELECT id FROM projects WHERE id = %s AND workspace_id = %s", (project_id, workspace_id))
             if not project:
                 raise HTTPException(status_code=404, detail="Project not found")
+        _prepare_home_scope(cur, workspace_id, project_id)
         pending_review = many(
             cur,
             """
@@ -608,48 +683,30 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
               AND rq.state = 'open'
               AND EXISTS (
                 SELECT 1
-                FROM notes n
+                FROM home_visible_notes n
                 WHERE n.id = rq.entity_id
                   AND n.archived_at IS NULL
-              )
-              AND (
-                %s::uuid IS NULL
-                OR EXISTS (
-                  SELECT 1
-                  FROM note_projects np
-                  WHERE np.note_id = rq.entity_id
-                    AND np.project_id = %s::uuid
-                )
               )
             ORDER BY rq.created_at DESC
             LIMIT 5
             """,
-            (workspace_id, user.clerk_user_id, project_id, project_id),
+            (workspace_id, user.clerk_user_id),
         )
         recent_projects = many(
             cur,
             """
             SELECT p.*,
-                   max(coalesce(n.occurred_at, n.created_at)) AS last_note_at,
-                   count(DISTINCT n.id) AS mention_count,
-                   count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing','blocked')) AS open_task_count,
-                   count(DISTINCT t.id) FILTER (WHERE t.status = 'blocked') AS blocked_task_count
+                   ns.last_note_at,
+                   coalesce(ns.mention_count, 0) AS mention_count,
+                   coalesce(ts.open_task_count, 0) AS open_task_count,
+                   coalesce(ts.blocked_task_count, 0) AS blocked_task_count
             FROM projects p
-            LEFT JOIN note_projects np ON np.project_id = p.id
-            LEFT JOIN notes n ON n.id = np.note_id AND n.archived_at IS NULL
-            LEFT JOIN task_projects tp ON tp.project_id = p.id
-            LEFT JOIN tasks t ON t.id = tp.task_id
-              AND NOT EXISTS (
-                SELECT 1
-                FROM notes source_note
-                WHERE source_note.id = t.source_note_id
-                  AND source_note.archived_at IS NOT NULL
-              )
+            LEFT JOIN home_project_note_stats ns ON ns.project_id = p.id
+            LEFT JOIN home_project_task_stats ts ON ts.project_id = p.id
             WHERE p.workspace_id = %s
               AND (%s::uuid IS NULL OR p.id = %s::uuid)
               AND coalesce(p.status, 'active') = 'active'
-            GROUP BY p.id
-            ORDER BY coalesce(max(coalesce(n.occurred_at, n.created_at)), p.created_at) DESC
+            ORDER BY coalesce(ns.last_note_at, p.created_at) DESC
             LIMIT 5
             """,
             (workspace_id, project_id, project_id),
@@ -992,36 +1049,27 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             SELECT p.id,
                    p.id AS project_id,
                    p.name AS title,
-                   count(DISTINCT n.id) AS memory_count,
-                   count(DISTINCT n.id) FILTER (WHERE n.note_kind IN ('meeting','call')) AS meeting_count,
-                   count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing','blocked')) AS open_task_count,
-                   max(coalesce(n.occurred_at, n.created_at)) AS last_note_at,
+                   coalesce(ns.mention_count, 0) AS memory_count,
+                   coalesce(ns.meeting_count, 0) AS meeting_count,
+                   coalesce(ts.open_task_count, 0) AS open_task_count,
+                   ns.last_note_at,
                    CASE
-                     WHEN count(DISTINCT t.id) FILTER (WHERE t.status = 'blocked') > 0
-                       THEN (count(DISTINCT t.id) FILTER (WHERE t.status = 'blocked'))::text || ' blocked task(s)'
-                     WHEN count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing')) > 0
-                       THEN (count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing')))::text || ' open loop(s)'
-                     WHEN count(DISTINCT n.id) > 0
-                       THEN (count(DISTINCT n.id))::text || ' captured memory item(s)'
+                     WHEN coalesce(ts.blocked_task_count, 0) > 0
+                       THEN ts.blocked_task_count::text || ' blocked task(s)'
+                     WHEN coalesce(ts.open_task_count, 0) > 0
+                       THEN ts.open_task_count::text || ' open loop(s)'
+                     WHEN coalesce(ns.mention_count, 0) > 0
+                       THEN ns.mention_count::text || ' captured memory item(s)'
                      ELSE 'Waiting for enough project memory'
                    END AS subtitle
             FROM projects p
-            LEFT JOIN note_projects np ON np.project_id = p.id
-            LEFT JOIN notes n ON n.id = np.note_id AND n.archived_at IS NULL
-            LEFT JOIN task_projects tp ON tp.project_id = p.id
-            LEFT JOIN tasks t ON t.id = tp.task_id
-              AND NOT EXISTS (
-                SELECT 1
-                FROM notes source_note
-                WHERE source_note.id = t.source_note_id
-                  AND source_note.archived_at IS NOT NULL
-              )
+            LEFT JOIN home_project_note_stats ns ON ns.project_id = p.id
+            LEFT JOIN home_project_task_stats ts ON ts.project_id = p.id
             WHERE p.workspace_id = %s
               AND p.kind <> 'personal'
               AND (%s::uuid IS NULL OR p.id = %s::uuid)
-            GROUP BY p.id
-            ORDER BY count(DISTINCT t.id) FILTER (WHERE t.status IN ('todo','doing','blocked')) DESC,
-                     max(coalesce(n.occurred_at, n.created_at)) DESC NULLS LAST,
+            ORDER BY coalesce(ts.open_task_count, 0) DESC,
+                     ns.last_note_at DESC NULLS LAST,
                      p.created_at DESC
             LIMIT 6
             """,
@@ -1030,42 +1078,30 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
         pipeline_row = one(
             cur,
             """
-            WITH scoped AS (
-              SELECT n.id,
-                     n.ai_processing_status,
-                     EXISTS (
-                       SELECT 1 FROM review_queue rq
-                       WHERE rq.entity_id = n.id
-                         AND rq.workspace_id = n.workspace_id
-                         AND rq.state = 'open'
-                     ) AS has_open_review
-              FROM notes n
-              WHERE n.workspace_id = %s
-                AND n.archived_at IS NULL
-                AND (
-                  %s::uuid IS NULL
-                  OR EXISTS (
-                    SELECT 1 FROM note_projects np
-                    WHERE np.note_id = n.id AND np.project_id = %s::uuid
-                  )
-                )
+            WITH open_reviews AS (
+              SELECT DISTINCT rq.entity_id
+              FROM review_queue rq
+              WHERE rq.workspace_id = %s
+                AND rq.state = 'open'
             )
             SELECT
               count(*) FILTER (
-                WHERE ai_processing_status IN ('unprocessed','skipped')
-                  AND NOT has_open_review
+                WHERE n.ai_processing_status IN ('unprocessed','skipped')
+                  AND open_reviews.entity_id IS NULL
               ) AS received,
-              count(*) FILTER (WHERE ai_processing_status = 'processing') AS processing,
+              count(*) FILTER (WHERE n.ai_processing_status = 'processing') AS processing,
               count(*) FILTER (
-                WHERE has_open_review
+                WHERE open_reviews.entity_id IS NOT NULL
               ) AS needs_review,
               count(*) FILTER (
-                WHERE ai_processing_status = 'processed' AND NOT has_open_review
+                WHERE n.ai_processing_status = 'processed' AND open_reviews.entity_id IS NULL
               ) AS accepted,
-              count(*) FILTER (WHERE ai_processing_status = 'failed') AS failed
-            FROM scoped
+              count(*) FILTER (WHERE n.ai_processing_status = 'failed') AS failed
+            FROM home_visible_notes n
+            LEFT JOIN open_reviews ON open_reviews.entity_id = n.id
+            WHERE n.archived_at IS NULL
             """,
-            (workspace_id, project_id, project_id),
+            (workspace_id,),
         )
         pipeline_counts = {
             "received": int((pipeline_row or {}).get("received") or 0),
@@ -1078,21 +1114,13 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             cur,
             """
             SELECT id, title, note_kind, ai_processing_error, created_at
-            FROM notes n
-            WHERE n.workspace_id = %s
-              AND n.ai_processing_status = 'failed'
+            FROM home_visible_notes n
+            WHERE n.ai_processing_status = 'failed'
               AND n.archived_at IS NULL
-              AND (
-                %s::uuid IS NULL
-                OR EXISTS (
-                  SELECT 1 FROM note_projects np
-                  WHERE np.note_id = n.id AND np.project_id = %s::uuid
-                )
-              )
             ORDER BY n.created_at DESC
             LIMIT 3
             """,
-            (workspace_id, project_id, project_id),
+            (),
         )
         loose_notes_without_project = many(
             cur,
@@ -1175,19 +1203,12 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
               AND rq.created_at < now() - interval '7 days'
               AND EXISTS (
                 SELECT 1
-                FROM notes n
+                FROM home_visible_notes n
                 WHERE n.id = rq.entity_id
                   AND n.archived_at IS NULL
               )
-              AND (
-                %s::uuid IS NULL
-                OR EXISTS (
-                  SELECT 1 FROM note_projects np
-                  WHERE np.note_id = rq.entity_id AND np.project_id = %s::uuid
-                )
-              )
             """,
-            (workspace_id, user.clerk_user_id, project_id, project_id),
+            (workspace_id, user.clerk_user_id),
         )
         loose_ends = {
             "notes_without_project": loose_notes_without_project,
@@ -1199,13 +1220,8 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             cur,
             """
             SELECT
-              (SELECT count(*) FROM notes n
-                 WHERE n.workspace_id = %s
-                   AND n.created_at >= date_trunc('day', now())
-                   AND (
-                     %s::uuid IS NULL
-                     OR EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s::uuid)
-                   )
+              (SELECT count(*) FROM home_visible_notes n
+                 WHERE n.created_at >= date_trunc('day', now())
               ) AS new_notes,
               (SELECT count(*) FROM tasks t
                  WHERE t.workspace_id = %s
@@ -1224,7 +1240,6 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             """,
             (
                 workspace_id, project_id, project_id,
-                workspace_id, project_id, project_id,
                 workspace_id,
             ),
         )
@@ -1237,13 +1252,8 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             cur,
             """
             SELECT
-              (SELECT count(*) FROM notes n
-                 WHERE n.workspace_id = %s
-                   AND n.created_at >= now() - INTERVAL '7 days'
-                   AND (
-                     %s::uuid IS NULL
-                     OR EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s::uuid)
-                   )
+              (SELECT count(*) FROM home_visible_notes n
+                 WHERE n.created_at >= now() - INTERVAL '7 days'
               ) AS new_notes,
               (SELECT count(*) FROM tasks t
                  WHERE t.workspace_id = %s
@@ -1259,14 +1269,9 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                    AND ce.user_decision = 'accepted'
                    AND ce.created_at >= now() - INTERVAL '7 days'
               ) AS reviews_accepted,
-              (SELECT count(*) FROM notes n
-                 WHERE n.workspace_id = %s
-                   AND n.archived_at IS NOT NULL
+              (SELECT count(*) FROM home_visible_notes n
+                 WHERE n.archived_at IS NOT NULL
                    AND n.archived_at >= now() - INTERVAL '7 days'
-                   AND (
-                     %s::uuid IS NULL
-                     OR EXISTS (SELECT 1 FROM note_projects np WHERE np.note_id = n.id AND np.project_id = %s::uuid)
-                   )
               ) AS notes_archived,
               (SELECT count(*) FROM projects p
                  WHERE p.workspace_id = %s
@@ -1277,9 +1282,7 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             """,
             (
                 workspace_id, project_id, project_id,
-                workspace_id, project_id, project_id,
                 workspace_id,
-                workspace_id, project_id, project_id,
                 workspace_id, project_id, project_id,
             ),
         )
@@ -1294,20 +1297,13 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             cur,
             """
             SELECT id, title, note_kind, ai_processing_status, created_at
-            FROM notes n
-            WHERE n.workspace_id = %s
-              AND n.ai_processing_status IN ('unprocessed','skipped')
-              AND (
-                %s::uuid IS NULL
-                OR EXISTS (
-                  SELECT 1 FROM note_projects np
-                  WHERE np.note_id = n.id AND np.project_id = %s::uuid
-                )
-              )
+            FROM home_visible_notes n
+            WHERE n.ai_processing_status IN ('unprocessed','skipped')
+              AND n.archived_at IS NULL
             ORDER BY n.created_at DESC
             LIMIT 3
             """,
-            (workspace_id, project_id, project_id),
+            (),
         )
         return {
             "data": {
@@ -1356,22 +1352,12 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                     cur,
                     """
                     SELECT *
-                    FROM notes n
-                    WHERE n.workspace_id = %s
-                      AND n.archived_at IS NULL
-                      AND (
-                        %s::uuid IS NULL
-                        OR EXISTS (
-                          SELECT 1
-                          FROM note_projects np
-                          WHERE np.note_id = n.id
-                            AND np.project_id = %s::uuid
-                        )
-                      )
+                    FROM home_visible_notes n
+                    WHERE n.archived_at IS NULL
                     ORDER BY coalesce(occurred_at, created_at) DESC
                     LIMIT 5
                     """,
-                    (workspace_id, project_id, project_id),
+                    (),
                 ),
                 "open_tasks": open_tasks,
                 "reminders": reminders,
