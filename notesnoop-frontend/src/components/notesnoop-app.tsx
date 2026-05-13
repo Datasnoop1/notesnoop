@@ -1782,6 +1782,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         appliedRouteRef.current = routeKey(target);
         setRouteTarget(target);
         writeAppRoute(target);
+        setToast(err instanceof Error ? err.message : "Could not open project");
       }
       throw err;
     }
@@ -1837,6 +1838,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         appliedRouteRef.current = routeKey(target);
         setRouteTarget(target);
         writeAppRoute(target);
+        setToast(err instanceof Error ? err.message : "Could not open person");
       }
       throw err;
     }
