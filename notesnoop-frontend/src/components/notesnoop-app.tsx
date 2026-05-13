@@ -4449,74 +4449,30 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
 
             <section className="entity-pane">
               <div className="section-head">
-                <h2>{personTimeline?.person?.name || projectTimeline?.project?.name || "People"}</h2>
-                {projectTimeline ? <Archive size={18} /> : <Users size={18} />}
+                <h2>People</h2>
+                <Users size={18} />
               </div>
-              {personTimeline ? (
-                <TimelinePanel
-                  timeline={personTimeline}
-                  kind="person"
-                  people={state?.people || []}
-                  projects={state?.projects || []}
-                  onOpenNote={openNote}
-                  onOpenMemory={openMemoryItem}
-                  onCopy={() => copyBrief("person", personTimeline.person)}
-                  onCopyLink={() => copyRouteLink({ kind: "person", id: personTimeline.person.id }, "Person")}
-                  onFlag={() => flag({ person_id: personTimeline.person.id })}
-                  onMerge={mergePerson}
-                  onCreateTask={createTaskForAnchor}
-                  onRename={(next) => renamePerson(personTimeline.person.id, next)}
-                  onUpdateProfile={(updates) => updatePersonProfile(personTimeline.person.id, updates)}
-                  onBack={closePersonTimeline}
-                />
-              ) : projectTimeline ? (
-                <TimelinePanel
-                  timeline={projectTimeline}
-                  kind="project"
-                  people={state?.people || []}
-                  projects={state?.projects || []}
-                  onOpenNote={openNote}
-                  onOpenMemory={openMemoryItem}
-                  onCopy={() => copyBrief("project", projectTimeline.project)}
-                  onCopyLink={() => copyRouteLink({ kind: "project", id: projectTimeline.project.id }, "Project")}
-                  onFlag={() => flag({ project_id: projectTimeline.project.id })}
-                  onMerge={mergePerson}
-                  onMergeProject={mergeProject}
-                  inviteEmail={inviteEmail}
-                  onInviteEmailChange={setInviteEmail}
-                  onInvite={inviteProjectMember}
-                  onGenerateReport={generateProjectReport}
-                  onCreateTask={createTaskForAnchor}
-                  onRename={projectTimeline.project?.kind === "user" ? (next) => renameProject(projectTimeline.project.id, next) : undefined}
-                  onSetProjectStatus={projectTimeline.project?.kind === "user" ? (status) => setProjectStatus(projectTimeline.project.id, status) : undefined}
-                  onUpdateProjectDescription={projectTimeline.project?.kind === "user" ? (desc) => updateProjectDescription(projectTimeline.project.id, desc) : undefined}
-                  onBack={closeProjectTimeline}
-                />
-              ) : (
-                <>
-                  <div className="person-create-grid">
-                    <input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="Quick-add person" />
-                    <input value={personRole} onChange={(e) => setPersonRole(e.target.value)} placeholder="Role" />
-                    <input value={personCompany} onChange={(e) => setPersonCompany(e.target.value)} placeholder="Company" />
-                    <input value={personEmail} onChange={(e) => setPersonEmail(e.target.value)} placeholder="Email" type="email" />
-                    <button className="icon-btn" onClick={createPerson} aria-label="Add person">
-                      <Plus size={18} />
-                    </button>
+              <div className="person-create-grid">
+                <input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="Quick-add person" />
+                <input value={personRole} onChange={(e) => setPersonRole(e.target.value)} placeholder="Role" />
+                <input value={personCompany} onChange={(e) => setPersonCompany(e.target.value)} placeholder="Company" />
+                <input value={personEmail} onChange={(e) => setPersonEmail(e.target.value)} placeholder="Email" type="email" />
+                <button className="icon-btn" onClick={createPerson} aria-label="Add person">
+                  <Plus size={18} />
+                </button>
+              </div>
+              {state?.people.map((person) => (
+                <div className="entity-row" key={person.id} onClick={() => openPerson(person)}>
+                  <UserRound size={17} />
+                  <div>
+                    <strong>{person.name}</strong>
+                    <span>{person.role || person.company || person.email || `${person.confirmed_note_count || 0} notes`}</span>
                   </div>
-                  {state?.people.map((person) => (
-                    <div className="entity-row" key={person.id} onClick={() => openPerson(person)}>
-                      <UserRound size={17} />
-                      <div>
-                        <strong>{person.name}</strong>
-                        <span>{person.role || person.company || person.email || `${person.confirmed_note_count || 0} notes`}</span>
-                      </div>
-                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copyBrief("person", person); }} aria-label="Copy person brief">
-                        <Copy size={16} />
-                      </button>
-                    </div>
-                  ))}
-                </>
-              )}
+                  <button className="icon-btn" onClick={(e) => { e.stopPropagation(); copyBrief("person", person); }} aria-label="Copy person brief">
+                    <Copy size={16} />
+                  </button>
+                </div>
+              ))}
             </section>
           </div>
         )}
