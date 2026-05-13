@@ -3383,6 +3383,16 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .memory-workbench {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .extraction-banner {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 10px;
+  }
+  .extraction-banner-action {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
   .sheet-handle {
     display: block;
     width: 42px;
