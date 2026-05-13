@@ -14,7 +14,7 @@
 html, body { margin: 0; min-height: 100%; background: var(--paper); color: var(--ink); }
 body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
 button, input, textarea, select { font: inherit; letter-spacing: 0; }
-button { cursor: pointer; }
+button { cursor: pointer; touch-action: manipulation; }
 
 .app-shell {
   min-height: 100vh;
@@ -155,6 +155,28 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   align-items: center;
   gap: 5px;
   color: var(--muted);
+}
+.search-scope-chip {
+  min-height: 34px;
+  border: 1px solid #b8d4ce;
+  background: #edf7f3;
+  color: #17453e;
+  border-radius: 8px;
+  padding: 0 6px 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 750;
+}
+.search-scope-chip button {
+  min-height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #17453e;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 800;
 }
 .filter-toggle {
   border: 1px solid var(--line);
@@ -330,7 +352,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   min-width: 190px;
 }
 .onboarding-actions button {
-  min-height: 40px;
+  min-height: 44px;
   border-radius: 8px;
   border: 1px solid var(--line);
   background: #fffefb;
@@ -482,7 +504,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border: 1px solid #173832;
   background: #173832;
   color: white;
-  min-height: 40px;
+  min-height: 44px;
   border-radius: 8px;
   padding: 0 12px;
   display: inline-flex;
@@ -1575,7 +1597,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   border: 1px solid #173832;
   background: #173832;
   color: white;
-  min-height: 38px;
+  min-height: 44px;
   border-radius: 8px;
   padding: 0 12px;
   display: inline-flex;
@@ -1634,6 +1656,40 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   grid-template-columns: minmax(0, 1.45fr) minmax(280px, .55fr);
   gap: 18px;
   padding: 0 18px 28px;
+}
+.scoped-memory-view {
+  width: min(1180px, calc(100% - 36px));
+  margin: 18px auto 28px;
+  display: grid;
+  gap: 14px;
+}
+.scoped-head {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+  display: grid;
+  gap: 4px;
+}
+.scoped-head > span {
+  color: var(--teal);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.scoped-head h1 {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.1;
+}
+.scoped-head p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.scoped-memory-loading {
+  min-height: 220px;
 }
 
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -3127,9 +3183,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .dashboard-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
   }
   .dashboard-actions button {
+    min-height: 48px;
     min-width: 0;
+    padding: 0 14px;
   }
   .dashboard-metrics {
     gap: 8px;
@@ -3209,11 +3268,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   }
   .ask-row {
     min-width: 0;
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) 48px;
   }
   .ask-row button {
-    width: 44px;
-    min-width: 44px;
+    width: 48px;
+    min-width: 48px;
+    min-height: 48px;
     padding: 0;
     font-size: 0;
   }
@@ -3233,6 +3293,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .warm-start { grid-template-columns: 1fr; }
   .warm-start-inputs { grid-template-columns: 1fr 1fr; }
   .warm-start-inputs button:not(.icon-btn) { min-width: 0; }
+  .scoped-memory-view {
+    width: auto;
+    margin: 14px 10px 22px;
+  }
+  .scoped-head h1 {
+    font-size: 26px;
+  }
   .onboarding-flow {
     grid-template-columns: 1fr;
     padding: 14px;

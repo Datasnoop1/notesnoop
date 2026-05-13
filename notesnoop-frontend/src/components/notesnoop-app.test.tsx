@@ -313,6 +313,18 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
       });
     }
     if (url.includes("/api/projects/project-1/timeline")) return json({ data: projectTimeline });
+    if (url.includes("/api/projects/project-created/timeline")) {
+      return json({
+        data: {
+          ...projectTimeline,
+          project: { id: "project-created", name: "New Deal", kind: "user", color_hex: "#e85d4f" },
+          events: [],
+          members: [],
+          people: [],
+          notes: [],
+        },
+      });
+    }
     if (url.includes("/api/projects/project-2/timeline")) {
       return json({ data: { ...projectTimeline, project: responseProjects[3] } });
     }
@@ -576,7 +588,9 @@ describe("NoteSnoopApp", () => {
     });
     render(<NoteSnoopApp quickCapture={false} />);
 
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
     expect(await screen.findByRole("region", { name: "First capture" })).toBeInTheDocument();
+    expect(dashboard.querySelector(".dashboard-actions")).toBeNull();
     expect(screen.getByRole("region", { name: "First capture composer" })).toContainElement(screen.getByPlaceholderText(/Dump a note/i));
     expect(screen.getByText("Capture")).toBeInTheDocument();
     expect(screen.getByText("Extract")).toBeInTheDocument();
@@ -657,6 +671,7 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
     const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    expect(dashboard.querySelector(".dashboard-actions")).toBeNull();
     expect(within(dashboard).getByRole("heading", { name: "Capture" })).toBeInTheDocument();
     expect(within(dashboard).queryByRole("region", { name: "Ask memory" })).not.toBeInTheDocument();
     expect(within(dashboard).queryByRole("heading", { name: "Needs attention" })).not.toBeInTheDocument();
@@ -774,7 +789,9 @@ describe("NoteSnoopApp", () => {
 
     const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
     fireEvent.click(await within(dashboard).findByRole("button", { name: /Open project Apollo/i }));
-    expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    const scopedProject = await screen.findByRole("region", { name: "Project memory" });
+    expect(screen.queryByRole("region", { name: "Memory dashboard" })).not.toBeInTheDocument();
+    expect(within(scopedProject).getByRole("heading", { name: "Apollo" })).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /Generate report/i })[0]);
 
     await waitFor(() => expect(calls.some((call) => call.includes("POST /api/projects/project-1/reports/generate"))).toBe(true));
@@ -789,12 +806,378 @@ describe("NoteSnoopApp", () => {
     window.history.replaceState({}, "", "/projects/project-1?workspace_id=workspace-1");
     render(<NoteSnoopApp quickCapture={false} initialRoute={{ kind: "project", id: "project-1" }} />);
 
-    expect(await screen.findByRole("heading", { name: "Apollo dashboard" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    const scopedProject = await screen.findByRole("region", { name: "Project memory" });
+    expect(screen.queryByRole("region", { name: "Memory dashboard" })).not.toBeInTheDocument();
+    expect(within(scopedProject).getByRole("heading", { name: "Apollo" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^Copy link$/i }));
 
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://localhost:3000/projects/project-1?workspace_id=workspace-1"));
     expect(calls.some((call) => call.includes("GET /api/projects/project-1/timeline"))).toBe(true);
+
+    const searchInput = screen.getByPlaceholderText(/Search memory/i);
+    fireEvent.change(searchInput, { target: { value: "Apollo" } });
+    await waitFor(() => {
+      const searchCall = calls.find((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo"));
+      expect(searchCall).toBeTruthy();
+      expect(searchCall).toContain("project_id=project-1");
+    });
+    expect(await screen.findByRole("region", { name: "Memory dashboard" })).toBeInTheDocument();
+    expect(screen.getByText(/Project: Apollo/i)).toBeInTheDocument();
+    fireEvent.change(searchInput, { target: { value: "" } });
+    await waitFor(() => {
+      const searchCalls = calls.filter((call) => call.includes("GET /api/workspaces/workspace-1/search?q="));
+      expect(searchCalls.at(-1)).not.toContain("project_id=");
+    });
+    expect(screen.queryByText(/Project: Apollo/i)).not.toBeInTheDocument();
+    fireEvent.change(searchInput, { target: { value: "Apollo" } });
+    await waitFor(() => {
+      const searchCalls = calls.filter((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo"));
+      expect(searchCalls.at(-1)).not.toContain("project_id=");
+    });
+    fireEvent.click((await screen.findAllByRole("button", { name: /^Apollo$/i }))[0]);
+    const scopedProjectAgain = await screen.findByRole("region", { name: "Project memory" });
+    expect(within(scopedProjectAgain).getByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    fireEvent.change(searchInput, { target: { value: "Apollo project" } });
+    await waitFor(() => {
+      const searchCalls = calls.filter((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo+project"));
+      expect(searchCalls.at(-1)).toContain("project_id=project-1");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Search workspace" }));
+    await waitFor(() => {
+      const searchCalls = calls.filter((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo+project"));
+      expect(searchCalls.at(-1)).not.toContain("project_id=");
+    });
+  });
+
+  it("does not show a project dashboard while scoped project memory is loading", async () => {
+    let releaseTimeline: (() => void) | undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/events/")) return streamResponse();
+      if (url.includes("/api/me")) {
+        return json({
+          data: {
+            bootstrapped: true,
+            workspace,
+            workspaces: [{ id: workspace.id, name: workspace.name, role: "admin" }],
+            projects,
+            people,
+            inbound_address: "dev@in.notesnoop.app",
+          },
+        });
+      }
+      if (url.includes("/api/workspaces/workspace-1/home")) return json({ data: { recent_notes: [note], pending_review: [] } });
+      if (url.includes("/api/workspaces/workspace-1/memory-graph")) return json({ data: { nodes: [], edges: [] } });
+      if (url.includes("/api/workspaces/workspace-1/review-queue")) return json({ data: [], meta: { count: 0 } });
+      if (url.includes("/api/workspaces/workspace-1/notes")) return json({ data: [note] });
+      if (url.includes("/api/workspaces/workspace-1/people")) return json({ data: people });
+      if (url.includes("/api/workspaces/workspace-1/projects")) return json({ data: projects });
+      if (url.includes("/api/projects/project-1/timeline")) {
+        await new Promise<void>((resolve) => { releaseTimeline = resolve; });
+        return json({ data: projectTimeline });
+      }
+      return json({ data: [] });
+    });
+    global.fetch = fetchMock as any;
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    fireEvent.click(await within(dashboard).findByRole("button", { name: /Open project Apollo/i }));
+
+    expect(await screen.findByRole("region", { name: "Project memory loading" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Memory dashboard" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Apollo dashboard" })).not.toBeInTheDocument();
+
+    releaseTimeline?.();
+    const scopedProject = await screen.findByRole("region", { name: "Project memory" });
+    expect(within(scopedProject).getByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+  });
+
+  it("search exits a pending project scoped load without trusting the pending project id", async () => {
+    let releaseTimeline: (() => void) | undefined;
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(`${init?.method || "GET"} ${url}`);
+      if (url.includes("/api/events/")) return streamResponse();
+      if (url.includes("/api/me")) {
+        return json({
+          data: {
+            bootstrapped: true,
+            workspace,
+            workspaces: [{ id: workspace.id, name: workspace.name, role: "admin" }],
+            projects,
+            people,
+            inbound_address: "dev@in.notesnoop.app",
+          },
+        });
+      }
+      if (url.includes("/api/workspaces/workspace-1/home")) return json({ data: { recent_notes: [note], pending_review: [] } });
+      if (url.includes("/api/workspaces/workspace-1/memory-graph")) return json({ data: { nodes: [], edges: [] } });
+      if (url.includes("/api/workspaces/workspace-1/review-queue")) return json({ data: [], meta: { count: 0 } });
+      if (url.includes("/api/workspaces/workspace-1/search")) return json({ data: [note], meta: { memory_results: [] } });
+      if (url.includes("/api/workspaces/workspace-1/notes")) return json({ data: [note] });
+      if (url.includes("/api/workspaces/workspace-1/people")) return json({ data: people });
+      if (url.includes("/api/workspaces/workspace-1/projects")) return json({ data: projects });
+      if (url.includes("/api/projects/project-1/timeline")) {
+        await new Promise<void>((resolve) => { releaseTimeline = resolve; });
+        return json({ data: projectTimeline });
+      }
+      return json({ data: [] });
+    });
+    global.fetch = fetchMock as any;
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    fireEvent.click(await within(dashboard).findByRole("button", { name: /Open project Apollo/i }));
+    expect(await screen.findByRole("region", { name: "Project memory loading" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/Search memory/i), { target: { value: "Apollo" } });
+    await waitFor(() => {
+      const searchCall = calls.find((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo"));
+      expect(searchCall).toBeTruthy();
+      expect(searchCall).not.toContain("project_id=");
+    });
+    expect(await screen.findByRole("region", { name: "Memory dashboard" })).toBeInTheDocument();
+    expect(screen.queryByText(/Project: Apollo/i)).not.toBeInTheDocument();
+
+    releaseTimeline?.();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(screen.queryByRole("region", { name: "Project memory" })).not.toBeInTheDocument();
+  });
+
+  it("does not reuse a previous project search scope during a new pending project load", async () => {
+    let releaseProjectTwoTimeline: (() => void) | undefined;
+    const calls: string[] = [];
+    const projectTwo = { id: "project-2", name: "Hermes", kind: "user", color_hex: "#2563eb" };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(`${init?.method || "GET"} ${url}`);
+      if (url.includes("/api/events/")) return streamResponse();
+      if (url.includes("/api/me")) {
+        return json({
+          data: {
+            bootstrapped: true,
+            workspace,
+            workspaces: [{ id: workspace.id, name: workspace.name, role: "admin" }],
+            projects: [...projects, projectTwo],
+            people,
+            inbound_address: "dev@in.notesnoop.app",
+          },
+        });
+      }
+      if (url.includes("/api/workspaces/workspace-1/home")) return json({ data: { recent_notes: [note], pending_review: [], recent_projects: [projects[2], projectTwo] } });
+      if (url.includes("/api/workspaces/workspace-1/memory-graph")) return json({ data: { nodes: [], edges: [] } });
+      if (url.includes("/api/workspaces/workspace-1/review-queue")) return json({ data: [], meta: { count: 0 } });
+      if (url.includes("/api/workspaces/workspace-1/search")) return json({ data: [note], meta: { memory_results: [] } });
+      if (url.includes("/api/workspaces/workspace-1/notes")) return json({ data: [note] });
+      if (url.includes("/api/workspaces/workspace-1/people")) return json({ data: people });
+      if (url.includes("/api/workspaces/workspace-1/projects")) return json({ data: [...projects, projectTwo] });
+      if (url.includes("/api/projects/project-1/timeline")) return json({ data: projectTimeline });
+      if (url.includes("/api/projects/project-2/timeline")) {
+        await new Promise<void>((resolve) => { releaseProjectTwoTimeline = resolve; });
+        return json({ data: { ...projectTimeline, project: projectTwo, events: [], people: [], notes: [] } });
+      }
+      return json({ data: [] });
+    });
+    global.fetch = fetchMock as any;
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    fireEvent.click(await within(dashboard).findByRole("button", { name: /Open project Apollo/i }));
+    expect(await screen.findByRole("region", { name: "Project memory" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/Search memory/i), { target: { value: "Apollo" } });
+    await waitFor(() => {
+      const apolloSearch = calls.find((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo"));
+      expect(apolloSearch).toContain("project_id=project-1");
+    });
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /^Hermes$/i }))[0]);
+    expect(await screen.findByRole("region", { name: "Project memory loading" })).toBeInTheDocument();
+    fireEvent.change(screen.getByPlaceholderText(/Search memory/i), { target: { value: "Hermes" } });
+    await waitFor(() => {
+      const hermesSearch = calls.find((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Hermes"));
+      expect(hermesSearch).toBeTruthy();
+      expect(hermesSearch).not.toContain("project_id=project-1");
+      expect(hermesSearch).not.toContain("project_id=project-2");
+    });
+
+    releaseProjectTwoTimeline?.();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(screen.queryByRole("region", { name: "Project memory" })).not.toBeInTheDocument();
+  });
+
+  it("search exits a pending person scoped load and ignores the stale response", async () => {
+    let releasePersonTimeline: (() => void) | undefined;
+    const calls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(`${init?.method || "GET"} ${url}`);
+      if (url.includes("/api/events/")) return streamResponse();
+      if (url.includes("/api/me")) {
+        return json({
+          data: {
+            bootstrapped: true,
+            workspace,
+            workspaces: [{ id: workspace.id, name: workspace.name, role: "admin" }],
+            projects,
+            people,
+            inbound_address: "dev@in.notesnoop.app",
+          },
+        });
+      }
+      if (url.includes("/api/workspaces/workspace-1/home")) return json({ data: { recent_notes: [note], recent_people: people, pending_review: [] } });
+      if (url.includes("/api/workspaces/workspace-1/memory-graph")) return json({ data: { nodes: [], edges: [] } });
+      if (url.includes("/api/workspaces/workspace-1/review-queue")) return json({ data: [], meta: { count: 0 } });
+      if (url.includes("/api/workspaces/workspace-1/search")) return json({ data: [note], meta: { memory_results: [] } });
+      if (url.includes("/api/workspaces/workspace-1/notes")) return json({ data: [note] });
+      if (url.includes("/api/workspaces/workspace-1/people")) return json({ data: people });
+      if (url.includes("/api/workspaces/workspace-1/projects")) return json({ data: projects });
+      if (url.includes("/api/people/person-1/timeline")) {
+        await new Promise<void>((resolve) => { releasePersonTimeline = resolve; });
+        return json({ data: personTimeline });
+      }
+      return json({ data: [] });
+    });
+    global.fetch = fetchMock as any;
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /Open Morgan Lee timeline/i }))[0]);
+    expect(await screen.findByRole("region", { name: "Person memory loading" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/Search memory/i), { target: { value: "Apollo" } });
+    await waitFor(() => {
+      const searchCall = calls.find((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo"));
+      expect(searchCall).toBeTruthy();
+      expect(searchCall).not.toContain("person_id=");
+    });
+    expect(await screen.findByRole("region", { name: "Memory dashboard" })).toBeInTheDocument();
+    expect(screen.queryByText(/Person: Morgan Lee/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Person memory loading" })).not.toBeInTheDocument();
+
+    releasePersonTimeline?.();
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(screen.queryByRole("region", { name: "Person memory" })).not.toBeInTheDocument();
+  });
+
+  it("searches within a person after the person timeline is loaded", async () => {
+    const { calls } = installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /Open Morgan Lee timeline/i }))[0]);
+    const personScope = await screen.findByRole("region", { name: "Person memory" });
+    expect(within(personScope).getByRole("heading", { name: "Morgan Lee" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText(/Search memory/i), { target: { value: "Morgan" } });
+    await waitFor(() => {
+      const searchCall = calls.find((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Morgan"));
+      expect(searchCall).toBeTruthy();
+      expect(searchCall).toContain("person_id=person-1");
+    });
+    expect(await screen.findByRole("region", { name: "Memory dashboard" })).toBeInTheDocument();
+    expect(screen.getByText(/Person: Morgan Lee/i)).toBeInTheDocument();
+  });
+
+  it("ignores stale search responses after the query changes during debounce", async () => {
+    let releaseApolloSearch: (() => void) | undefined;
+    const staleNote = { ...note, id: "note-stale", title: "Stale Apollo result", body: "Old result" };
+    const freshNote = { ...note, id: "note-fresh", title: "Fresh Morgan result", body: "New result" };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/events/")) return streamResponse();
+      if (url.includes("/api/me")) {
+        return json({
+          data: {
+            bootstrapped: true,
+            workspace,
+            workspaces: [{ id: workspace.id, name: workspace.name, role: "admin" }],
+            projects,
+            people,
+            inbound_address: "dev@in.notesnoop.app",
+          },
+        });
+      }
+      if (url.includes("/api/workspaces/workspace-1/home")) return json({ data: { recent_notes: [note], pending_review: [] } });
+      if (url.includes("/api/workspaces/workspace-1/memory-graph")) return json({ data: { nodes: [], edges: [] } });
+      if (url.includes("/api/workspaces/workspace-1/review-queue")) return json({ data: [], meta: { count: 0 } });
+      if (url.includes("/api/workspaces/workspace-1/search?q=Apollo")) {
+        await new Promise<void>((resolve) => { releaseApolloSearch = resolve; });
+        return json({ data: [staleNote], meta: { memory_results: [] } });
+      }
+      if (url.includes("/api/workspaces/workspace-1/search?q=Morgan")) return json({ data: [freshNote], meta: { memory_results: [] } });
+      if (url.includes("/api/workspaces/workspace-1/notes")) return json({ data: [note] });
+      if (url.includes("/api/workspaces/workspace-1/people")) return json({ data: people });
+      if (url.includes("/api/workspaces/workspace-1/projects")) return json({ data: projects });
+      return json({ data: [] });
+    });
+    global.fetch = fetchMock as any;
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const searchInput = await screen.findByPlaceholderText(/Search memory/i);
+    fireEvent.change(searchInput, { target: { value: "Apollo" } });
+    await new Promise((resolve) => window.setTimeout(resolve, 380));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("search?q=Apollo"))).toBe(true));
+
+    fireEvent.change(searchInput, { target: { value: "Morgan" } });
+    releaseApolloSearch?.();
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+    expect(screen.queryByText("Stale Apollo result")).not.toBeInTheDocument();
+
+    await new Promise((resolve) => window.setTimeout(resolve, 380));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("search?q=Morgan"))).toBe(true));
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(await screen.findByText("Fresh Morgan result")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Stale Apollo result")).not.toBeInTheDocument());
+  });
+
+  it("ignores stale search failures after the query changes", async () => {
+    let releaseApolloSearch: (() => void) | undefined;
+    const freshNote = { ...note, id: "note-fresh", title: "Fresh Morgan result", body: "New result" };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/events/")) return streamResponse();
+      if (url.includes("/api/me")) {
+        return json({
+          data: {
+            bootstrapped: true,
+            workspace,
+            workspaces: [{ id: workspace.id, name: workspace.name, role: "admin" }],
+            projects,
+            people,
+            inbound_address: "dev@in.notesnoop.app",
+          },
+        });
+      }
+      if (url.includes("/api/workspaces/workspace-1/home")) return json({ data: { recent_notes: [note], pending_review: [] } });
+      if (url.includes("/api/workspaces/workspace-1/memory-graph")) return json({ data: { nodes: [], edges: [] } });
+      if (url.includes("/api/workspaces/workspace-1/review-queue")) return json({ data: [], meta: { count: 0 } });
+      if (url.includes("/api/workspaces/workspace-1/search?q=Apollo")) {
+        await new Promise<void>((resolve) => { releaseApolloSearch = resolve; });
+        throw new Error("Apollo search failed");
+      }
+      if (url.includes("/api/workspaces/workspace-1/search?q=Morgan")) return json({ data: [freshNote], meta: { memory_results: [] } });
+      if (url.includes("/api/workspaces/workspace-1/notes")) return json({ data: [note] });
+      if (url.includes("/api/workspaces/workspace-1/people")) return json({ data: people });
+      if (url.includes("/api/workspaces/workspace-1/projects")) return json({ data: projects });
+      return json({ data: [] });
+    });
+    global.fetch = fetchMock as any;
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const searchInput = await screen.findByPlaceholderText(/Search memory/i);
+    fireEvent.change(searchInput, { target: { value: "Apollo" } });
+    await new Promise((resolve) => window.setTimeout(resolve, 380));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => String(input).includes("search?q=Apollo"))).toBe(true));
+
+    fireEvent.change(searchInput, { target: { value: "Morgan" } });
+    releaseApolloSearch?.();
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+    expect(screen.queryByText("Apollo search failed")).not.toBeInTheDocument();
+
+    await new Promise((resolve) => window.setTimeout(resolve, 380));
+    expect(await screen.findByText("Fresh Morgan result")).toBeInTheDocument();
+    expect(screen.queryByText("Apollo search failed")).not.toBeInTheDocument();
   });
 
   it("opens a note from a durable route and returns to the dashboard URL on close", async () => {
@@ -975,7 +1358,9 @@ describe("NoteSnoopApp", () => {
 
     const projectButtons = await screen.findAllByRole("button", { name: /^Apollo$/i });
     fireEvent.click(projectButtons[0]);
-    expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    const projectScope = await screen.findByRole("region", { name: "Project memory" });
+    expect(screen.queryByRole("region", { name: "Memory dashboard" })).not.toBeInTheDocument();
+    expect(within(projectScope).getByRole("heading", { name: "Apollo" })).toBeInTheDocument();
     expect(await screen.findByText("Interaction history")).toBeInTheDocument();
     expect((await screen.findAllByText("Apollo weekly brief")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getByPlaceholderText("Invite by email"), { target: { value: "peer@example.test" } });
@@ -991,9 +1376,12 @@ describe("NoteSnoopApp", () => {
     expect(screen.getByLabelText("Merge target project")).toHaveValue("");
     expect(screen.getByRole("button", { name: /Merge project/i })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: /^Close$/i }));
+    expect(await screen.findByRole("region", { name: "Memory dashboard" })).toBeInTheDocument();
 
     fireEvent.click((await screen.findAllByRole("button", { name: /Open Morgan Lee timeline/i }))[0]);
-    expect(await screen.findByRole("heading", { name: "Morgan Lee" })).toBeInTheDocument();
+    const personScope = await screen.findByRole("region", { name: "Person memory" });
+    expect(screen.queryByRole("region", { name: "Memory dashboard" })).not.toBeInTheDocument();
+    expect(within(personScope).getByRole("heading", { name: "Morgan Lee" })).toBeInTheDocument();
     expect((await screen.findAllByText("Morgan kickoff call")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getAllByRole("combobox").at(-1)!, { target: { value: "person-2" } });
     fireEvent.click(screen.getByRole("button", { name: /Merge/i }));
@@ -1020,13 +1408,15 @@ describe("NoteSnoopApp", () => {
     fireEvent.change(screen.getByLabelText("Filter by person"), { target: { value: "person-1" } });
     const filters = document.querySelector(".search-filter-row") as HTMLElement;
     fireEvent.click(within(filters).getByRole("button", { name: /Flagged/i }));
-    fireEvent.change(screen.getByPlaceholderText("New project"), { target: { value: "New Deal" } });
-    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
-    fireEvent.change(screen.getByPlaceholderText("Quick-add person"), { target: { value: "Avery Chen" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add person" }));
-
     expect(await screen.findByText("Memory matches")).toBeInTheDocument();
     expect((await screen.findAllByText("Northstar")).length).toBeGreaterThan(0);
+    fireEvent.change(screen.getByPlaceholderText("Quick-add person"), { target: { value: "Avery Chen" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add person" }));
+    fireEvent.change(screen.getByPlaceholderText("New project"), { target: { value: "New Deal" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    const projectScope = await screen.findByRole("region", { name: "Project memory" });
+    expect(screen.queryByRole("region", { name: "Memory dashboard" })).not.toBeInTheDocument();
+    expect(within(projectScope).getByRole("heading", { name: "New Deal" })).toBeInTheDocument();
     await waitFor(() => {
       expect(calls.some((call) => call.includes("GET /api/workspaces/workspace-1/search?q=Apollo"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/projects"))).toBe(true);

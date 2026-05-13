@@ -101,6 +101,12 @@ type SearchFilters = {
   note_kind?: string;
 };
 
+type SearchScope = {
+  kind: "project" | "person";
+  id: string;
+  label: string;
+};
+
 type MemoryGraphState = {
   nodes: any[];
   edges: any[];
@@ -392,6 +398,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [askResult, setAskResult] = useState<any | null>(null);
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({});
   const [searchMeta, setSearchMeta] = useState<any | null>(null);
+  const [searchScope, setSearchScope] = useState<SearchScope | null>(null);
   const [memorySearchKind, setMemorySearchKind] = useState<string>("all");
   const [personName, setPersonName] = useState("");
   const [personRole, setPersonRole] = useState("");
@@ -407,6 +414,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [activeProject, setActiveProject] = useState<string | null>(null);
   const [personTimeline, setPersonTimeline] = useState<any | null>(null);
   const [projectTimeline, setProjectTimeline] = useState<any | null>(null);
+  const [pendingScopedView, setPendingScopedView] = useState<{ kind: "person" | "project"; id: string; name: string } | null>(null);
   const [activity, setActivity] = useState<any[]>([]);
   const [reviewCount, setReviewCount] = useState(0);
   const [mergeUndoId, setMergeUndoId] = useState("");
@@ -473,7 +481,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const appliedRouteRef = useRef("");
   const openProjectRef = useRef<((project: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
   const openMemoryItemRef = useRef<((sectionId: string, item: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
+  const workspaceIdRef = useRef<string | null>(null);
   const activeProjectRef = useRef<string | null>(null);
+  const queryRef = useRef("");
+  const timelineRequestRef = useRef(0);
+  const searchRequestRef = useRef(0);
+  const appRefreshRequestRef = useRef(0);
+  const workspaceRefreshRequestRef = useRef(0);
+  const signalRefreshRequestRef = useRef(0);
   const onboardingWorkspaceRef = useRef<string | null>(null);
   const staleProjectRefreshIdsRef = useRef<Set<string>>(new Set());
   const selectedNoteIdRef = useRef<string | null>(null);
@@ -503,6 +518,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   );
 
   const workspaceId = state?.workspace?.id;
+  useEffect(() => {
+    workspaceIdRef.current = workspaceId || null;
+  }, [workspaceId]);
+  useEffect(() => {
+    queryRef.current = query;
+  }, [query]);
   const resetOnboardingState = useCallback(() => {
     setWarmStartDismissed(false);
     setFirstCaptureDismissed(false);
@@ -520,6 +541,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   useEffect(() => {
     activeProjectRef.current = activeProject;
   }, [activeProject]);
+  const setActiveProjectScope = useCallback((nextProjectId: string | null) => {
+    activeProjectRef.current = nextProjectId;
+    workspaceRefreshRequestRef.current += 1;
+    signalRefreshRequestRef.current += 1;
+    setActiveProject(nextProjectId);
+  }, []);
   const showNoteSheet = useCallback((note: any) => {
     selectedNoteIdRef.current = note?.id ? String(note.id) : null;
     sheetOpenRef.current = Boolean(note);
@@ -548,7 +575,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const activityByProject = useMemo(() => new Map(activity.map((item) => [item.project_id, item])), [activity]);
   const seededPeople = useMemo(() => (state?.people || []).filter((person) => !person.clerk_user_id), [state]);
   const hasCapturedNotes = notes.length > 0 || Boolean(home?.recent_notes?.length);
-  const showFirstCapture = !quickCapture && !!state?.workspace && home !== null && !activeProject && !hasCapturedNotes && !firstCaptureDismissed;
+  const showFirstCapture = !quickCapture && !!state?.workspace && home !== null && !activeProject && !pendingScopedView && !personTimeline && !projectTimeline && !hasCapturedNotes && !firstCaptureDismissed;
   const showWarmStart = showFirstCapture && !warmStartDismissed && seededPeople.length < 2;
   const selectedNoteIsFirstCapture = Boolean(
     selectedNote?.id && firstCaptureNoteId && String(selectedNote.id) === firstCaptureNoteId,
@@ -589,46 +616,60 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   );
 
   const buildSearchParams = useCallback(
-    (nextQuery: string, filters: SearchFilters) => {
+    (nextQuery: string, filters: SearchFilters, scope: SearchScope | null = null) => {
       const params = new URLSearchParams({ q: nextQuery });
-      if (activeProject) params.set("project_id", activeProject);
-      if (filters.person_id) params.set("person_id", filters.person_id);
+      if (scope?.kind === "project") params.set("project_id", scope.id);
+      if (scope?.kind === "person") params.set("person_id", scope.id);
+      if (scope?.kind !== "person" && filters.person_id) params.set("person_id", filters.person_id);
       if (filters.date_from) params.set("date_from", filters.date_from);
       if (filters.date_to) params.set("date_to", filters.date_to);
       if (filters.flagged_only) params.set("flagged_only", "true");
       if (filters.note_kind) params.set("note_kind", filters.note_kind);
       return params.toString();
     },
-    [activeProject],
+    [],
   );
 
   const refresh = useCallback(async () => {
-    const me = await api(`/api/me${requestedWorkspaceId ? `?workspace_id=${encodeURIComponent(requestedWorkspaceId)}` : ""}`);
-    if (!me.data.bootstrapped) {
-      const boot = await api("/api/bootstrap", {
-        method: "POST",
-        body: JSON.stringify({ workspace_name: "My NoteSnoop workspace", inbox_mode: "per_user_private" }),
+    const requestId = appRefreshRequestRef.current + 1;
+    appRefreshRequestRef.current = requestId;
+    try {
+      const me = await api(`/api/me${requestedWorkspaceId ? `?workspace_id=${encodeURIComponent(requestedWorkspaceId)}` : ""}`);
+      if (appRefreshRequestRef.current !== requestId) return;
+      if (!me.data.bootstrapped) {
+        const boot = await api("/api/bootstrap", {
+          method: "POST",
+          body: JSON.stringify({ workspace_name: "My NoteSnoop workspace", inbox_mode: "per_user_private" }),
+        });
+        if (appRefreshRequestRef.current !== requestId) return;
+        setState({ ...boot.data, user: me.data.user });
+        return;
+      }
+      setState({
+        user: me.data.user,
+        workspace: me.data.workspace,
+        workspaces: me.data.workspaces || [],
+        projects: me.data.projects || [],
+        people: me.data.people || [],
+        inbound_address: me.data.inbound_address,
       });
-      setState({ ...boot.data, user: me.data.user });
-      return;
-    }
-    setState({
-      user: me.data.user,
-      workspace: me.data.workspace,
-      workspaces: me.data.workspaces || [],
-      projects: me.data.projects || [],
-      people: me.data.people || [],
-      inbound_address: me.data.inbound_address,
-    });
-    if (me.data.accepted_invites?.length) {
-      const invite = me.data.accepted_invites.at(-1);
-      if (invite?.project_id) setLandingProjectId(String(invite.project_id));
-      setToast(`Joined ${me.data.accepted_invites.length} shared project${me.data.accepted_invites.length > 1 ? "s" : ""}.`);
+      if (me.data.accepted_invites?.length) {
+        const invite = me.data.accepted_invites.at(-1);
+        if (invite?.project_id) setLandingProjectId(String(invite.project_id));
+        setToast(`Joined ${me.data.accepted_invites.length} shared project${me.data.accepted_invites.length > 1 ? "s" : ""}.`);
+      }
+    } catch (err) {
+      if (appRefreshRequestRef.current !== requestId) return;
+      throw err;
     }
   }, [api, requestedWorkspaceId]);
 
   const refreshWorkspaceData = useCallback(async () => {
     if (!workspaceId) return;
+    const requestId = workspaceRefreshRequestRef.current + 1;
+    workspaceRefreshRequestRef.current = requestId;
+    const refreshWorkspaceId = workspaceId;
+    const refreshProjectId = activeProject;
     const projectQuery = activeProject ? `?project_id=${activeProject}` : "";
     try {
       const [homeRes, graphRes, notesRes, peopleRes, projectsRes] = await Promise.all([
@@ -638,14 +679,21 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         api(`/api/workspaces/${workspaceId}/people`),
         api(`/api/workspaces/${workspaceId}/projects`),
       ]);
+      if (
+        workspaceRefreshRequestRef.current !== requestId
+        || workspaceIdRef.current !== refreshWorkspaceId
+        || activeProjectRef.current !== refreshProjectId
+      ) return;
       setHome(homeRes.data);
       setMemoryGraph(graphRes.data?.nodes ? graphRes.data : { nodes: [], edges: [] });
-      setNotes(notesRes.data);
+      if (!queryRef.current.trim()) setNotes(notesRes.data);
       setState((prev) => (prev ? { ...prev, people: peopleRes.data, projects: projectsRes.data } : prev));
     } catch (err) {
       if (
-        activeProject
-        && (activeProjectRef.current !== activeProject || staleProjectRefreshIdsRef.current.has(activeProject))
+        workspaceRefreshRequestRef.current !== requestId
+        || workspaceIdRef.current !== refreshWorkspaceId
+        || activeProjectRef.current !== refreshProjectId
+        || (activeProject && staleProjectRefreshIdsRef.current.has(activeProject))
       ) return;
       throw err;
     }
@@ -661,18 +709,29 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
 
   const refreshSignals = useCallback(async () => {
     if (!workspaceId) return;
+    const requestId = signalRefreshRequestRef.current + 1;
+    signalRefreshRequestRef.current = requestId;
+    const signalWorkspaceId = workspaceId;
+    const signalProjectId = activeProject;
     const projectQuery = activeProject ? `&project_id=${activeProject}` : "";
     try {
       const [countRes, activityRes] = await Promise.all([
         api(`/api/review-queue/count?workspace_id=${workspaceId}${projectQuery}`),
         api(`/api/collaborator-activity/${workspaceId}`),
       ]);
+      if (
+        signalRefreshRequestRef.current !== requestId
+        || workspaceIdRef.current !== signalWorkspaceId
+        || activeProjectRef.current !== signalProjectId
+      ) return;
       setReviewCount(countRes.data.count || 0);
       setActivity(activityRes.data || []);
     } catch (err) {
       if (
-        activeProject
-        && (activeProjectRef.current !== activeProject || staleProjectRefreshIdsRef.current.has(activeProject))
+        signalRefreshRequestRef.current !== requestId
+        || workspaceIdRef.current !== signalWorkspaceId
+        || activeProjectRef.current !== signalProjectId
+        || (activeProject && staleProjectRefreshIdsRef.current.has(activeProject))
       ) return;
       throw err;
     }
@@ -1039,8 +1098,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       body: JSON.stringify({ name: projectName, color_hex: "#e85d4f" }),
     });
     setProjectName("");
-    setActiveProject(res.data.id);
     await refreshWorkspaceData();
+    await openProject(res.data);
   }
 
   async function createQuickTask() {
@@ -1560,10 +1619,34 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     });
   }
 
-  async function runSearch(nextQuery: string, filters = searchFilters) {
+  function scopedSearchScopeFromCurrentView(): SearchScope | null {
+    if (projectTimeline?.project?.id) {
+      return { kind: "project", id: String(projectTimeline.project.id), label: String(projectTimeline.project.name || "Project") };
+    }
+    if (personTimeline?.person?.id) {
+      return { kind: "person", id: String(personTimeline.person.id), label: String(personTimeline.person.name || "Person") };
+    }
+    return null;
+  }
+
+  async function runSearch(nextQuery: string, filters = searchFilters, requestId?: number, scope: SearchScope | null = searchScope) {
+    const effectiveRequestId = requestId ?? searchRequestRef.current + 1;
+    searchRequestRef.current = effectiveRequestId;
+    queryRef.current = nextQuery;
     setQuery(nextQuery);
     if (!workspaceId) return;
-    const res = await api(`/api/workspaces/${workspaceId}/search?${buildSearchParams(nextQuery, filters)}`);
+    let res: any;
+    try {
+      res = await api(`/api/workspaces/${workspaceId}/search?${buildSearchParams(nextQuery, filters, scope)}`);
+    } catch (err) {
+      if (searchRequestRef.current === effectiveRequestId) {
+        setNotes([]);
+        setSearchMeta(null);
+        throw err;
+      }
+      return;
+    }
+    if (searchRequestRef.current !== effectiveRequestId) return;
     setNotes(res.data);
     setSearchMeta(res.meta || null);
   }
@@ -1576,22 +1659,59 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   }
 
   function scheduleSearch(nextQuery: string) {
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
+    queryRef.current = nextQuery;
     setQuery(nextQuery);
+    const scopedSearchScope = scopedSearchScopeFromCurrentView();
+    const nextSearchScope = nextQuery.trim() ? (scopedSearchScope || searchScope) : null;
+    if (nextSearchScope) {
+      setSearchScope(nextSearchScope);
+    } else if (!nextQuery.trim()) {
+      setSearchScope(null);
+    }
+    if (nextQuery.trim() && (pendingScopedView || personTimeline || projectTimeline || activeProject || routeTarget.kind !== "dashboard")) {
+      openDashboard({ preserveSearchScope: Boolean(nextSearchScope) });
+    }
     clearSearchDebounce();
     searchDebounceRef.current = window.setTimeout(() => {
-      runSearch(nextQuery).catch((err) => setToast(err.message));
+      runSearch(nextQuery, searchFilters, requestId, nextSearchScope).catch((err) => setToast(err.message));
       searchDebounceRef.current = null;
     }, 350);
   }
 
   async function applySearchFilters(nextFilters: SearchFilters) {
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
     setSearchFilters(nextFilters);
     clearSearchDebounce();
-    await runSearch(query, nextFilters);
+    await runSearch(query, nextFilters, requestId, searchScope);
+  }
+
+  async function searchEntireWorkspace() {
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
+    clearSearchDebounce();
+    try {
+      if (query.trim()) {
+        await runSearch(query, searchFilters, requestId, null);
+        if (searchRequestRef.current === requestId) setSearchScope(null);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not search workspace");
+    }
   }
 
   function selectWorkspace(nextWorkspaceId: string) {
+    timelineRequestRef.current += 1;
+    searchRequestRef.current += 1;
+    appRefreshRequestRef.current += 1;
+    workspaceRefreshRequestRef.current += 1;
+    signalRefreshRequestRef.current += 1;
+    clearSearchDebounce();
+    setPendingScopedView(null);
     setRequestedWorkspaceId(nextWorkspaceId);
+    activeProjectRef.current = null;
     setActiveProject(null);
     setSelectedProjectIds([]);
     resetOnboardingState();
@@ -1602,6 +1722,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setHome(null);
     setMemoryGraph({ nodes: [], edges: [] });
     setNotes([]);
+    setSearchScope(null);
+    setSearchMeta(null);
     setReviewCount(0);
     appliedRouteRef.current = routeKey({ kind: "dashboard" });
     setRouteTarget({ kind: "dashboard" });
@@ -1613,26 +1735,55 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
-  function openDashboard() {
-    setActiveProject(null);
+  const openDashboard = useCallback((options: { preserveSearchScope?: boolean } = {}) => {
+    timelineRequestRef.current += 1;
+    setPendingScopedView(null);
+    setActiveProjectScope(null);
     setSelectedProjectIds([]);
     setPersonTimeline(null);
     setProjectTimeline(null);
     clearNoteSheetState();
     setSelectedMemory(null);
+    if (!options.preserveSearchScope) setSearchScope(null);
     setMobileNav(false);
     const target = { kind: "dashboard" } as const;
     appliedRouteRef.current = routeKey(target);
     setRouteTarget(target);
     writeAppRoute(target);
-  }
+  }, [clearNoteSheetState, setActiveProjectScope, writeAppRoute]);
 
   const openProject = useCallback(async (project: any, options: { push?: boolean } = {}) => {
-    setActiveProject(project.id);
+    const requestId = timelineRequestRef.current + 1;
+    timelineRequestRef.current = requestId;
+    setPendingScopedView({ kind: "project", id: String(project.id), name: String(project.name || "Project") });
+    setActiveProjectScope(String(project.id));
+    setSearchScope(null);
     setSelectedProjectIds([]);
     setPersonTimeline(null);
+    setProjectTimeline(null);
     setSelectedMemory(null);
-    const res = await api(`/api/projects/${project.id}/timeline`);
+    let res: any;
+    try {
+      res = await api(`/api/projects/${project.id}/timeline`);
+    } catch (err) {
+      if (timelineRequestRef.current === requestId) {
+        setPendingScopedView(null);
+        setActiveProjectScope(null);
+        setSelectedProjectIds([]);
+        setPersonTimeline(null);
+        setProjectTimeline(null);
+        clearNoteSheetState();
+        setSelectedMemory(null);
+        setMobileNav(false);
+        const target = { kind: "dashboard" } as const;
+        appliedRouteRef.current = routeKey(target);
+        setRouteTarget(target);
+        writeAppRoute(target);
+      }
+      throw err;
+    }
+    if (timelineRequestRef.current !== requestId) return;
+    setPendingScopedView(null);
     setProjectTimeline(res.data);
     const target = { kind: "project", id: project.id } as const;
     if (options.push !== false) {
@@ -1641,7 +1792,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       writeAppRoute(target);
     }
     setMobileNav(false);
-  }, [api, writeAppRoute]);
+  }, [api, clearNoteSheetState, setActiveProjectScope, writeAppRoute]);
 
   useEffect(() => {
     openProjectRef.current = openProject;
@@ -1659,8 +1810,34 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   }
 
   const openPerson = useCallback(async (person: any, options: { push?: boolean } = {}) => {
+    const requestId = timelineRequestRef.current + 1;
+    timelineRequestRef.current = requestId;
+    setPendingScopedView({ kind: "person", id: String(person.id), name: String(person.name || "Person") });
+    setSearchScope(null);
     setProjectTimeline(null);
-    const res = await api(`/api/people/${person.id}/timeline`);
+    setPersonTimeline(null);
+    let res: any;
+    try {
+      res = await api(`/api/people/${person.id}/timeline`);
+    } catch (err) {
+      if (timelineRequestRef.current === requestId) {
+        setPendingScopedView(null);
+        setActiveProjectScope(null);
+        setSelectedProjectIds([]);
+        setPersonTimeline(null);
+        setProjectTimeline(null);
+        clearNoteSheetState();
+        setSelectedMemory(null);
+        setMobileNav(false);
+        const target = { kind: "dashboard" } as const;
+        appliedRouteRef.current = routeKey(target);
+        setRouteTarget(target);
+        writeAppRoute(target);
+      }
+      throw err;
+    }
+    if (timelineRequestRef.current !== requestId) return;
+    setPendingScopedView(null);
     setPersonTimeline(res.data);
     const target = { kind: "person", id: person.id } as const;
     if (options.push !== false) {
@@ -1669,18 +1846,22 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       writeAppRoute(target);
     }
     setMobileNav(false);
-  }, [api, writeAppRoute]);
+  }, [api, clearNoteSheetState, setActiveProjectScope, writeAppRoute]);
 
-  function closePersonTimeline() {
+  async function closePersonTimeline() {
     setPersonTimeline(null);
-    const target = activeProject ? { kind: "project", id: activeProject } as const : { kind: "dashboard" } as const;
-    appliedRouteRef.current = routeKey(target);
-    setRouteTarget(target);
-    writeAppRoute(target);
+    if (activeProject) {
+      const project = (state?.projects || []).find((candidate) => candidate.id === activeProject);
+      if (project) {
+        await openProject(project);
+        return;
+      }
+    }
+    openDashboard();
   }
 
   function closeProjectTimeline() {
-    setProjectTimeline(null);
+    openDashboard();
   }
 
   function closeNoteSheet() {
@@ -1846,7 +2027,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       if (targetProject) {
         await openProject(targetProject);
       } else {
-        setActiveProject(null);
+        setActiveProjectScope(null);
         setProjectTimeline(null);
       }
       await refresh();
@@ -2075,8 +2256,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     if (currentRouteKey !== key) return;
     if (appliedRouteRef.current === key) return;
     if (routeTarget.kind === "dashboard") {
+      timelineRequestRef.current += 1;
+      setPendingScopedView(null);
       appliedRouteRef.current = key;
-      setActiveProject(null);
+      setActiveProjectScope(null);
       setSelectedProjectIds([]);
       setPersonTimeline(null);
       setProjectTimeline(null);
@@ -2085,8 +2268,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       return;
     }
     if (routeTarget.kind === "project" && routeTarget.id) {
+      if (!state?.workspace) return;
       const project = state?.projects.find((item) => item.id === routeTarget.id);
-      if (!project) return;
+      if (!project) {
+        openDashboard();
+        return;
+      }
       appliedRouteRef.current = key;
       openProject(project, { push: false }).catch((err) => {
         appliedRouteRef.current = "";
@@ -2095,8 +2282,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       return;
     }
     if (routeTarget.kind === "person" && routeTarget.id) {
-      const person = state?.people.find((item) => item.id === routeTarget.id) || { id: routeTarget.id, name: "Person" };
       if (!state?.workspace) return;
+      const person = state?.people.find((item) => item.id === routeTarget.id);
+      if (!person) {
+        openDashboard();
+        return;
+      }
       appliedRouteRef.current = key;
       openPerson(person, { push: false }).catch((err) => {
         appliedRouteRef.current = "";
@@ -2120,7 +2311,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         setToast(err.message);
       });
     }
-  }, [clearNoteSheetState, isSignedIn, openNote, openPerson, openProject, quickCapture, routeTarget, state?.people, state?.projects, state?.workspace, workspaceId]);
+  }, [clearNoteSheetState, isSignedIn, openDashboard, openNote, openPerson, openProject, quickCapture, routeTarget, setActiveProjectScope, state?.people, state?.projects, state?.workspace, workspaceId]);
 
   useEffect(() => {
     if (!landingProjectId || !state?.projects?.length) return;
@@ -2445,7 +2636,20 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const showPeoplePanel = !showFirstCapture && Boolean(dashboardPeople.length && hasRelationshipContext);
   const showRecentMemoryPanel = !showFirstCapture && dashboardNotes.length > 0;
   const showLooseEndsPanel = !showFirstCapture && looseEndsTotal > 0;
-  const showExplorerGrid = Boolean(query.trim() || personTimeline || projectTimeline);
+  const isScopedEntityView = Boolean(pendingScopedView || personTimeline || projectTimeline);
+  const hasDashboardActivity = Boolean(
+    activity.length
+      || Object.values(home?.today_counts || {}).some((value) => Number(value || 0) > 0)
+      || Object.values(home?.week_counts || {}).some((value) => Number(value || 0) > 0),
+  );
+  const showInboxAction = Boolean(inbox && pipelineCounts.received > 0);
+  const showDashboardActions = !showFirstCapture && Boolean(
+    activeProjectRecord
+      || dashboardReviewCount > 0
+      || showInboxAction
+      || hasDashboardActivity,
+  );
+  const showExplorerGrid = !isScopedEntityView && Boolean(query.trim());
 
   const composerRows = useMemo(() => {
     const minRows = quickCapture ? 9 : 5;
@@ -2590,7 +2794,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             <X size={18} />
           </button>
         </div>
-        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={openDashboard}>
+        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={() => openDashboard()}>
           <Archive size={17} /> Home
         </button>
         {inbox && (
@@ -2801,25 +3005,35 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         </header>
 
         {!quickCapture && (() => {
-          const hasActiveFilters = Boolean(
+          const hasManualFilters = Boolean(
             searchFilters.person_id
               || searchFilters.date_from
               || searchFilters.date_to
               || searchFilters.note_kind
               || searchFilters.flagged_only
           );
-          const show = query.trim().length > 0 || hasActiveFilters;
+          const hasActiveFilters = Boolean(searchScope || hasManualFilters);
+          const show = !isScopedEntityView && (query.trim().length > 0 || hasActiveFilters);
           if (!show) return null;
           return (
             <div className="search-filter-row">
-              <select
-                value={searchFilters.person_id || ""}
-                onChange={(e) => applySearchFilters({ ...searchFilters, person_id: e.target.value || undefined })}
-                aria-label="Filter by person"
-              >
-                <option value="">All people</option>
-                {state?.people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
-              </select>
+              {searchScope && (
+                <span className="search-scope-chip">
+                  {searchScope.kind === "project" ? <Archive size={15} /> : <UserRound size={15} />}
+                  {searchScope.kind === "project" ? "Project" : "Person"}: {searchScope.label}
+                  <button type="button" onClick={searchEntireWorkspace}>Search workspace</button>
+                </span>
+              )}
+              {searchScope?.kind !== "person" && (
+                <select
+                  value={searchFilters.person_id || ""}
+                  onChange={(e) => applySearchFilters({ ...searchFilters, person_id: e.target.value || undefined })}
+                  aria-label="Filter by person"
+                >
+                  <option value="">All people</option>
+                  {state?.people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+                </select>
+              )}
               <label>
                 <CalendarDays size={15} />
                 <input
@@ -2854,7 +3068,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               >
                 <Flag size={15} /> Flagged
               </button>
-              {hasActiveFilters && (
+              {hasManualFilters && (
                 <button
                   className="filter-toggle"
                   onClick={() => applySearchFilters({})}
@@ -2871,7 +3085,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
 
         {quickCapture ? (
           composerSection
-        ) : (
+        ) : !isScopedEntityView ? (
           <section className="dashboard" aria-label="Memory dashboard">
             <div className="dashboard-head">
               <div>
@@ -2888,7 +3102,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   if (tasksDone > 0) parts.push(`${tasksDone} task${tasksDone === 1 ? "" : "s"} done`);
                   if (reviewsAccepted > 0) parts.push(`${reviewsAccepted} review${reviewsAccepted === 1 ? "" : "s"} accepted`);
                   if (parts.length === 0) return null;
-                  return <p className="dashboard-today">Today: {parts.join(" · ")}</p>;
+                  return <p className="dashboard-today">Today: {parts.join(" / ")}</p>;
                 })()}
                 {(() => {
                   const weekCounts = home?.week_counts || {};
@@ -2904,27 +3118,27 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   if (notesArchived > 0) parts.push(`${notesArchived} archived`);
                   if (projectsClosed > 0) parts.push(`${projectsClosed} project${projectsClosed === 1 ? "" : "s"} closed`);
                   if (parts.length === 0) return null;
-                  return <p className="dashboard-week">Past 7 days: {parts.join(" · ")}</p>;
+                  return <p className="dashboard-week">Past 7 days: {parts.join(" / ")}</p>;
                 })()}
               </div>
-              <div className="dashboard-actions">
+              {showDashboardActions && <div className="dashboard-actions" aria-label="Dashboard actions">
                 {activeProjectRecord && (
                   <button type="button" onClick={() => generateProjectReport(activeProjectRecord)} disabled={busy}>
                     <FileText size={16} /> Generate report
                   </button>
                 )}
-                <button type="button" onClick={openReviewQueue}>
+                {dashboardReviewCount > 0 && <button type="button" onClick={openReviewQueue}>
                   <Bell size={16} /> Review{dashboardReviewCount ? ` (${dashboardReviewCount})` : ""}
-                </button>
-                {inbox && (
+                </button>}
+                {showInboxAction && inbox && (
                   <button type="button" onClick={() => openProject(inbox)} aria-label="Open Inbox project">
                     <Inbox size={16} /> Inbox{pipelineCounts.received > 0 ? ` (${pipelineCounts.received})` : ""}
                   </button>
                 )}
-                <button type="button" onClick={openActivity} aria-label="Recent 7-day activity">
+                {hasDashboardActivity && <button type="button" onClick={openActivity} aria-label="Recent 7-day activity">
                   <CalendarDays size={16} /> Activity
-                </button>
-              </div>
+                </button>}
+              </div>}
             </div>
 
             {showFirstCapture && (
@@ -3978,6 +4192,77 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               </section>
               )}
             </div>
+          </section>
+        ) : null}
+
+        {!quickCapture && pendingScopedView && (
+          <section className="scoped-memory-view scoped-memory-loading" aria-label={`${pendingScopedView.kind === "project" ? "Project" : "Person"} memory loading`}>
+            <div className="scoped-head">
+              <span>
+                {pendingScopedView.kind === "project" ? <Archive size={16} /> : <UserRound size={16} />}
+                {pendingScopedView.kind === "project" ? "Project memory" : "Person memory"}
+              </span>
+              <h1>{pendingScopedView.name}</h1>
+              <p>Loading only the memory linked to this {pendingScopedView.kind}.</p>
+            </div>
+          </section>
+        )}
+
+        {!quickCapture && personTimeline && (
+          <section className="scoped-memory-view" aria-label="Person memory">
+            <div className="scoped-head">
+              <span><UserRound size={16} /> Person memory</span>
+              <h1>{personTimeline.person?.name || "Person"}</h1>
+              <p>{"Only this person's interactions, tasks, projects, companies, reports, and notes."}</p>
+            </div>
+            <TimelinePanel
+              timeline={personTimeline}
+              kind="person"
+              people={state?.people || []}
+              projects={state?.projects || []}
+              onOpenNote={openNote}
+              onOpenMemory={openMemoryItem}
+              onCopy={() => copyBrief("person", personTimeline.person)}
+              onCopyLink={() => copyRouteLink({ kind: "person", id: personTimeline.person.id }, "Person")}
+              onFlag={() => flag({ person_id: personTimeline.person.id })}
+              onMerge={mergePerson}
+              onCreateTask={createTaskForAnchor}
+              onRename={(next) => renamePerson(personTimeline.person.id, next)}
+              onUpdateProfile={(updates) => updatePersonProfile(personTimeline.person.id, updates)}
+              onBack={closePersonTimeline}
+            />
+          </section>
+        )}
+
+        {!quickCapture && projectTimeline && (
+          <section className="scoped-memory-view" aria-label="Project memory">
+            <div className="scoped-head">
+              <span><Archive size={16} /> Project memory</span>
+              <h1>{projectTimeline.project?.name || "Project"}</h1>
+              <p>Only memory linked to this project: open loops, people, meetings, companies, reports, and notes.</p>
+            </div>
+            <TimelinePanel
+              timeline={projectTimeline}
+              kind="project"
+              people={state?.people || []}
+              projects={state?.projects || []}
+              onOpenNote={openNote}
+              onOpenMemory={openMemoryItem}
+              onCopy={() => copyBrief("project", projectTimeline.project)}
+              onCopyLink={() => copyRouteLink({ kind: "project", id: projectTimeline.project.id }, "Project")}
+              onFlag={() => flag({ project_id: projectTimeline.project.id })}
+              onMerge={mergePerson}
+              onMergeProject={mergeProject}
+              inviteEmail={inviteEmail}
+              onInviteEmailChange={setInviteEmail}
+              onInvite={inviteProjectMember}
+              onGenerateReport={generateProjectReport}
+              onCreateTask={createTaskForAnchor}
+              onRename={projectTimeline.project?.kind === "user" ? (next) => renameProject(projectTimeline.project.id, next) : undefined}
+              onSetProjectStatus={projectTimeline.project?.kind === "user" ? (status) => setProjectStatus(projectTimeline.project.id, status) : undefined}
+              onUpdateProjectDescription={projectTimeline.project?.kind === "user" ? (desc) => updateProjectDescription(projectTimeline.project.id, desc) : undefined}
+              onBack={closeProjectTimeline}
+            />
           </section>
         )}
 
