@@ -144,11 +144,13 @@ def list_tasks(
 ):
     with transaction(user.clerk_user_id) as cur:
         params: list = [workspace_id]
-        where = "t.workspace_id = %s"
+        where = "t.workspace_id = %s AND can_access_task(t.id)"
         if not include_archived:
             where += " AND t.status <> 'archived'"
         if project_id:
             project_id = _normalize_uuid_or_422(project_id, "One or more projects are unavailable")
+            _ensure_workspace_access(cur, workspace_id)
+            _validate_accessible_project_ids(cur, workspace_id, [project_id])
             where += """
               AND (
                 EXISTS (SELECT 1 FROM task_projects scoped_tp WHERE scoped_tp.task_id = t.id AND scoped_tp.project_id = %s)
@@ -163,6 +165,8 @@ def list_tasks(
             """
             params.append(project_id)
             params.append(project_id)
+        else:
+            _ensure_workspace_access(cur, workspace_id)
         return {
             "data": many(
                 cur,
@@ -176,13 +180,13 @@ def list_tasks(
                        coalesce((SELECT count(*)::int FROM task_comments tcc WHERE tcc.task_id = t.id), 0) AS comment_count
                 FROM tasks t
                 LEFT JOIN task_projects tp ON tp.task_id = t.id
-                LEFT JOIN projects p ON p.id = tp.project_id
+                LEFT JOIN projects p ON p.id = tp.project_id AND can_access_project(p.id)
                 LEFT JOIN task_people tpe ON tpe.task_id = t.id
-                LEFT JOIN people pe ON pe.id = tpe.person_id
+                LEFT JOIN people pe ON pe.id = tpe.person_id AND can_access_person(pe.id)
                 LEFT JOIN task_companies tc ON tc.task_id = t.id
-                LEFT JOIN companies c ON c.id = tc.company_id
+                LEFT JOIN companies c ON c.id = tc.company_id AND can_access_company(c.id)
                 LEFT JOIN task_notes tn ON tn.task_id = t.id
-                LEFT JOIN notes n ON n.id = tn.note_id
+                LEFT JOIN notes n ON n.id = tn.note_id AND can_access_note(n.id)
                 LEFT JOIN task_reminders tr ON tr.task_id = t.id AND tr.state IN ('pending','snoozed')
                 WHERE {where}
                 GROUP BY t.id
@@ -207,10 +211,10 @@ def list_tasks(
 def create_task(workspace_id: str, payload: TaskCreate, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
         _ensure_workspace_access(cur, workspace_id)
-        _validate_project_ids(cur, workspace_id, payload.project_ids or [])
+        _validate_accessible_project_ids(cur, workspace_id, payload.project_ids or [])
         _validate_person_ids(cur, workspace_id, _task_person_ids_for_validation(payload.person_ids or [], payload.assignee_id))
-        _validate_company_ids(cur, workspace_id, payload.company_ids or [])
-        _validate_note_ids(cur, workspace_id, payload.note_ids or [])
+        _validate_accessible_company_ids(cur, workspace_id, payload.company_ids or [])
+        _validate_accessible_note_ids(cur, workspace_id, payload.note_ids or [])
         completed_at_sql = "now()" if payload.status == "done" else "NULL"
         cur.execute(
             f"""
@@ -239,13 +243,12 @@ def create_task(workspace_id: str, payload: TaskCreate, user: CurrentUser = Depe
 
 @router.patch("/tasks/{task_id}")
 def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(current_user)):
+    task_id = _normalize_uuid_or_422(task_id, "Task not found")
     with transaction(user.clerk_user_id) as cur:
-        task = one(cur, "SELECT * FROM tasks WHERE id = %s", (task_id,))
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
+        task = _accessible_task_row(cur, task_id)
         workspace_id = str(task["workspace_id"])
         if payload.project_ids is not None:
-            _validate_project_ids(cur, workspace_id, payload.project_ids)
+            _validate_accessible_project_ids(cur, workspace_id, payload.project_ids)
         if payload.person_ids is not None or "assignee_id" in payload.model_fields_set:
             _validate_person_ids(
                 cur,
@@ -253,9 +256,9 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
                 _task_person_ids_for_validation(payload.person_ids or [], payload.assignee_id),
             )
         if payload.company_ids is not None:
-            _validate_company_ids(cur, workspace_id, payload.company_ids)
+            _validate_accessible_company_ids(cur, workspace_id, payload.company_ids)
         if payload.note_ids is not None:
-            _validate_note_ids(cur, workspace_id, payload.note_ids)
+            _validate_accessible_note_ids(cur, workspace_id, payload.note_ids)
 
         next_title = payload.title.strip() if payload.title is not None else task["title"]
         next_status = payload.status or task["status"]
@@ -382,6 +385,7 @@ def update_task(task_id: str, payload: TaskUpdate, user: CurrentUser = Depends(c
 
 @router.get("/tasks/{task_id}")
 def get_task(task_id: str, user: CurrentUser = Depends(current_user)):
+    task_id = _normalize_uuid_or_422(task_id, "Task not found")
     with transaction(user.clerk_user_id) as cur:
         task = _task_payload(cur, task_id)
         if not task:
@@ -391,10 +395,9 @@ def get_task(task_id: str, user: CurrentUser = Depends(current_user)):
 
 @router.get("/tasks/{task_id}/comments")
 def list_task_comments(task_id: str, user: CurrentUser = Depends(current_user)):
+    task_id = _normalize_uuid_or_422(task_id, "Task not found")
     with transaction(user.clerk_user_id) as cur:
-        task = one(cur, "SELECT id FROM tasks WHERE id = %s", (task_id,))
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
+        _accessible_task_row(cur, task_id)
         return {
             "data": many(
                 cur,
@@ -415,14 +418,13 @@ def list_task_comments(task_id: str, user: CurrentUser = Depends(current_user)):
 
 @router.post("/tasks/{task_id}/comments")
 def create_task_comment(task_id: str, payload: TaskCommentCreate, user: CurrentUser = Depends(current_user)):
+    task_id = _normalize_uuid_or_422(task_id, "Task not found")
     body = payload.body.strip()
     if not body:
         raise HTTPException(status_code=400, detail="Comment body is required")
     with transaction(user.clerk_user_id) as cur:
         upsert_user_profile(cur, user)
-        task = one(cur, "SELECT id, workspace_id FROM tasks WHERE id = %s", (task_id,))
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
+        task = _accessible_task_row(cur, task_id)
         cur.execute(
             """
             INSERT INTO task_comments (workspace_id, task_id, author_user_id, author_name, body)
@@ -445,7 +447,12 @@ def update_task_comment(comment_id: str, payload: TaskCommentUpdate, user: Curre
     with transaction(user.clerk_user_id) as cur:
         comment = one(
             cur,
-            "SELECT id, author_user_id FROM task_comments WHERE id = %s",
+            """
+            SELECT id, author_user_id
+            FROM task_comments
+            WHERE id = %s
+              AND can_access_task(task_id)
+            """,
             (comment_id,),
         )
         if not comment:
@@ -474,12 +481,8 @@ def add_task_dependency(task_id: str, payload: TaskDependencyCreate, user: Curre
     if blocking_id == task_id:
         raise HTTPException(status_code=422, detail="A task cannot block itself")
     with transaction(user.clerk_user_id) as cur:
-        blocked = one(cur, "SELECT id, workspace_id FROM tasks WHERE id = %s", (task_id,))
-        if not blocked:
-            raise HTTPException(status_code=404, detail="Task not found")
-        blocking = one(cur, "SELECT id, workspace_id FROM tasks WHERE id = %s", (blocking_id,))
-        if not blocking:
-            raise HTTPException(status_code=404, detail="Blocking task not found")
+        blocked = _accessible_task_row(cur, task_id)
+        blocking = _accessible_task_row(cur, blocking_id, "Blocking task not found")
         if blocked["workspace_id"] != blocking["workspace_id"]:
             raise HTTPException(status_code=422, detail="Both tasks must belong to the same workspace")
         # Refuse the obvious A↔B cycle. Transitive cycles are caught lazily on
@@ -507,9 +510,8 @@ def remove_task_dependency(task_id: str, blocking_task_id: str, user: CurrentUse
     task_id = _normalize_uuid_or_422(task_id, "Task not found")
     blocking_task_id = _normalize_uuid_or_422(blocking_task_id, "Blocking task not found")
     with transaction(user.clerk_user_id) as cur:
-        task = one(cur, "SELECT id FROM tasks WHERE id = %s", (task_id,))
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
+        _accessible_task_row(cur, task_id)
+        _accessible_task_row(cur, blocking_task_id, "Blocking task not found")
         cur.execute(
             "DELETE FROM task_dependencies WHERE blocked_task_id = %s AND blocking_task_id = %s",
             (task_id, blocking_task_id),
@@ -522,7 +524,12 @@ def delete_task_comment(comment_id: str, user: CurrentUser = Depends(current_use
     with transaction(user.clerk_user_id) as cur:
         comment = one(
             cur,
-            "SELECT id, author_user_id FROM task_comments WHERE id = %s",
+            """
+            SELECT id, author_user_id
+            FROM task_comments
+            WHERE id = %s
+              AND can_access_task(task_id)
+            """,
             (comment_id,),
         )
         if not comment:
@@ -537,11 +544,15 @@ def delete_task_comment(comment_id: str, user: CurrentUser = Depends(current_use
 def list_task_reminders(workspace_id: str, project_id: str | None = None, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
         params: list = [workspace_id]
-        where = "tr.workspace_id = %s AND tr.state IN ('pending','snoozed')"
+        where = "tr.workspace_id = %s AND tr.state IN ('pending','snoozed') AND can_access_task(tr.task_id)"
         if project_id:
             project_id = _normalize_uuid_or_422(project_id, "One or more projects are unavailable")
+            _ensure_workspace_access(cur, workspace_id)
+            _validate_accessible_project_ids(cur, workspace_id, [project_id])
             where += " AND EXISTS (SELECT 1 FROM task_projects tp WHERE tp.task_id = tr.task_id AND tp.project_id = %s)"
             params.append(project_id)
+        else:
+            _ensure_workspace_access(cur, workspace_id)
         return {
             "data": many(
                 cur,
@@ -558,9 +569,9 @@ def list_task_reminders(workspace_id: str, project_id: str | None = None, user: 
                 FROM task_reminders tr
                 JOIN tasks t ON t.id = tr.task_id
                 LEFT JOIN task_projects tp ON tp.task_id = t.id
-                LEFT JOIN projects p ON p.id = tp.project_id
+                LEFT JOIN projects p ON p.id = tp.project_id AND can_access_project(p.id)
                 LEFT JOIN task_people tpe ON tpe.task_id = t.id
-                LEFT JOIN people pe ON pe.id = tpe.person_id
+                LEFT JOIN people pe ON pe.id = tpe.person_id AND can_access_person(pe.id)
                 WHERE {where}
                 GROUP BY tr.id, t.id
                 ORDER BY
@@ -584,10 +595,9 @@ def create_task_reminder(task_id: str, payload: TaskReminderUpdate, user: Curren
     """
     if not payload.remind_at:
         raise HTTPException(status_code=422, detail="remind_at is required to create a reminder")
+    task_id = _normalize_uuid_or_422(task_id, "Task not found")
     with transaction(user.clerk_user_id) as cur:
-        task = one(cur, "SELECT * FROM tasks WHERE id = %s", (task_id,))
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
+        task = _accessible_task_row(cur, task_id)
         cur.execute(
             """
             INSERT INTO task_reminders (workspace_id, task_id, remind_at, channel, state, created_by)
@@ -609,7 +619,16 @@ def create_task_reminder(task_id: str, payload: TaskReminderUpdate, user: Curren
 @router.patch("/task-reminders/{reminder_id}")
 def update_task_reminder(reminder_id: str, payload: TaskReminderUpdate, user: CurrentUser = Depends(current_user)):
     with transaction(user.clerk_user_id) as cur:
-        reminder = one(cur, "SELECT * FROM task_reminders WHERE id = %s", (reminder_id,))
+        reminder = one(
+            cur,
+            """
+            SELECT *
+            FROM task_reminders
+            WHERE id = %s
+              AND can_access_task(task_id)
+            """,
+            (reminder_id,),
+        )
         if not reminder:
             raise HTTPException(status_code=404, detail="Reminder not found")
         next_state = payload.state or reminder["state"]
@@ -1961,12 +1980,23 @@ def _ask_source_lines(citations) -> list[str]:
 
 
 def _ensure_workspace_access(cur, workspace_id: str) -> None:
-    if not one(cur, "SELECT id FROM workspaces WHERE id = %s", (workspace_id,)):
+    if not one(cur, "SELECT id FROM workspaces WHERE id = %s AND is_workspace_member(id)", (workspace_id,)):
         raise HTTPException(status_code=404, detail="Workspace not found")
+
+
+def _accessible_task_row(cur, task_id: str, detail: str = "Task not found") -> dict:
+    task = one(cur, "SELECT * FROM tasks WHERE id = %s AND can_access_task(id)", (task_id,))
+    if not task:
+        raise HTTPException(status_code=404, detail=detail)
+    return task
 
 
 def _validate_project_ids(cur, workspace_id: str, ids: list[str]) -> None:
     _validate_ids(cur, "projects", workspace_id, ids, "One or more projects are unavailable")
+
+
+def _validate_accessible_project_ids(cur, workspace_id: str, ids: list[str]) -> None:
+    _validate_accessible_ids(cur, "projects", "can_access_project", workspace_id, ids, "One or more projects are unavailable")
 
 
 def _validate_person_ids(cur, workspace_id: str, ids: list[str]) -> None:
@@ -1975,6 +2005,10 @@ def _validate_person_ids(cur, workspace_id: str, ids: list[str]) -> None:
 
 def _validate_note_ids(cur, workspace_id: str, ids: list[str]) -> None:
     _validate_ids(cur, "notes", workspace_id, ids, "One or more notes are unavailable")
+
+
+def _validate_accessible_note_ids(cur, workspace_id: str, ids: list[str]) -> None:
+    _validate_accessible_ids(cur, "notes", "can_access_note", workspace_id, ids, "One or more notes are unavailable")
 
 
 def _validate_task_ids(cur, workspace_id: str, ids: list[str]) -> None:
@@ -1997,11 +2031,34 @@ def _validate_company_ids(cur, workspace_id: str, ids: list[str]) -> None:
     _validate_ids(cur, "companies", workspace_id, ids, "One or more companies are unavailable")
 
 
+def _validate_accessible_company_ids(cur, workspace_id: str, ids: list[str]) -> None:
+    _validate_accessible_ids(cur, "companies", "can_access_company", workspace_id, ids, "One or more companies are unavailable")
+
+
 def _validate_ids(cur, table: str, workspace_id: str, ids: list[str], detail: str) -> None:
     unique_ids = _canonical_ids(ids, detail)
     if not unique_ids:
         return
     row = one(cur, f"SELECT count(*) AS count FROM {table} WHERE workspace_id = %s AND id = ANY(%s::uuid[])", (workspace_id, unique_ids))
+    if not row or int(row["count"]) != len(unique_ids):
+        raise HTTPException(status_code=422, detail=detail)
+
+
+def _validate_accessible_ids(cur, table: str, access_function: str, workspace_id: str, ids: list[str], detail: str) -> None:
+    unique_ids = _canonical_ids(ids, detail)
+    if not unique_ids:
+        return
+    row = one(
+        cur,
+        f"""
+        SELECT count(*) AS count
+        FROM {table}
+        WHERE workspace_id = %s
+          AND id = ANY(%s::uuid[])
+          AND {access_function}(id)
+        """,
+        (workspace_id, unique_ids),
+    )
     if not row or int(row["count"]) != len(unique_ids):
         raise HTTPException(status_code=422, detail=detail)
 
@@ -2145,15 +2202,15 @@ def _apply_task_people(
 
 
 def _task_payload(cur, task_id: str) -> dict | None:
-    task = one(cur, "SELECT * FROM tasks WHERE id = %s", (task_id,))
+    task = one(cur, "SELECT * FROM tasks WHERE id = %s AND can_access_task(id)", (task_id,))
     if not task:
         return None
-    task["projects"] = many(cur, "SELECT p.*, tp.linked_via FROM projects p JOIN task_projects tp ON tp.project_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (task_id,))
-    task["people"] = many(cur, "SELECT p.*, tp.relation, tp.linked_via FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s ORDER BY tp.relation = 'assignee' DESC, p.name", (task_id,))
-    task["companies"] = many(cur, "SELECT c.*, tc.linked_via FROM companies c JOIN task_companies tc ON tc.company_id = c.id WHERE tc.task_id = %s ORDER BY c.name", (task_id,))
-    task["notes"] = many(cur, "SELECT n.* FROM notes n JOIN task_notes tn ON tn.note_id = n.id WHERE tn.task_id = %s ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (task_id,))
+    task["projects"] = many(cur, "SELECT p.*, tp.linked_via FROM projects p JOIN task_projects tp ON tp.project_id = p.id WHERE tp.task_id = %s AND can_access_project(p.id) ORDER BY p.name", (task_id,))
+    task["people"] = many(cur, "SELECT p.*, tp.relation, tp.linked_via FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s AND can_access_person(p.id) ORDER BY tp.relation = 'assignee' DESC, p.name", (task_id,))
+    task["companies"] = many(cur, "SELECT c.*, tc.linked_via FROM companies c JOIN task_companies tc ON tc.company_id = c.id WHERE tc.task_id = %s AND can_access_company(c.id) ORDER BY c.name", (task_id,))
+    task["notes"] = many(cur, "SELECT n.* FROM notes n JOIN task_notes tn ON tn.note_id = n.id WHERE tn.task_id = %s AND can_access_note(n.id) ORDER BY coalesce(n.occurred_at, n.created_at) DESC", (task_id,))
     task["reminders"] = many(cur, "SELECT * FROM task_reminders WHERE task_id = %s ORDER BY coalesce(snoozed_until, remind_at), created_at DESC", (task_id,))
-    assignee_row = one(cur, "SELECT p.id, p.name FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s AND tp.relation = 'assignee' LIMIT 1", (task_id,))
+    assignee_row = one(cur, "SELECT p.id, p.name FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s AND tp.relation = 'assignee' AND can_access_person(p.id) LIMIT 1", (task_id,))
     task["assignee_id"] = str(assignee_row["id"]) if assignee_row else None
     task["assignee_name"] = (assignee_row or {}).get("name")
     comment_row = one(cur, "SELECT count(*)::int AS n FROM task_comments WHERE task_id = %s", (task_id,))
@@ -2165,6 +2222,7 @@ def _task_payload(cur, task_id: str) -> dict | None:
         FROM task_dependencies td
         JOIN tasks t ON t.id = td.blocking_task_id
         WHERE td.blocked_task_id = %s
+          AND can_access_task(t.id)
         ORDER BY td.created_at
         """,
         (task_id,),
@@ -2176,6 +2234,7 @@ def _task_payload(cur, task_id: str) -> dict | None:
         FROM task_dependencies td
         JOIN tasks t ON t.id = td.blocked_task_id
         WHERE td.blocking_task_id = %s
+          AND can_access_task(t.id)
         ORDER BY td.created_at
         """,
         (task_id,),
@@ -2196,13 +2255,14 @@ def _task_reminder_payload(cur, reminder_id: str) -> dict | None:
         FROM task_reminders tr
         JOIN tasks t ON t.id = tr.task_id
         WHERE tr.id = %s
+          AND can_access_task(tr.task_id)
         """,
         (reminder_id,),
     )
     if not reminder:
         return None
-    reminder["projects"] = many(cur, "SELECT p.* FROM projects p JOIN task_projects tp ON tp.project_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (reminder["task_id"],))
-    reminder["people"] = many(cur, "SELECT p.*, tp.relation FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s ORDER BY p.name", (reminder["task_id"],))
+    reminder["projects"] = many(cur, "SELECT p.* FROM projects p JOIN task_projects tp ON tp.project_id = p.id WHERE tp.task_id = %s AND can_access_project(p.id) ORDER BY p.name", (reminder["task_id"],))
+    reminder["people"] = many(cur, "SELECT p.*, tp.relation FROM people p JOIN task_people tp ON tp.person_id = p.id WHERE tp.task_id = %s AND can_access_person(p.id) ORDER BY p.name", (reminder["task_id"],))
     return reminder
 
 

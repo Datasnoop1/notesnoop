@@ -1051,7 +1051,7 @@ def test_memory_task_dependencies_canonicalize_uuid_aliases(monkeypatch):
     )
 
     assert result == {"data": {"id": task_id}}
-    assert _params_for_backend(cur, "SELECT id, workspace_id FROM tasks WHERE id = %s") == [
+    assert _params_for_backend(cur, "SELECT * FROM tasks WHERE id = %s AND can_access_task(id)") == [
         (task_id,),
         (blocking_id,),
     ]
@@ -1142,7 +1142,7 @@ def test_default_notes_and_tasks_lists_hide_archived_items(monkeypatch):
     include_note_sql, _ = next((sql, params) for sql, params in include_note_cur.executed if "FROM notes n" in sql)
     assert "n.archived_at IS NULL" not in include_note_sql
 
-    task_cur = FakeCursor()
+    task_cur = FakeCursor(fetchone_values=[{"id": "workspace-1"}])
 
     @contextmanager
     def fake_task_transaction(_user_id):
@@ -1154,7 +1154,7 @@ def test_default_notes_and_tasks_lists_hide_archived_items(monkeypatch):
     assert "t.status <> 'archived'" in task_sql
     assert task_params == ("workspace-1",)
 
-    include_task_cur = FakeCursor()
+    include_task_cur = FakeCursor(fetchone_values=[{"id": "workspace-1"}])
 
     @contextmanager
     def fake_include_task_transaction(_user_id):
