@@ -1736,7 +1736,11 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     try {
       await api(`/api/notes/${noteId}/process-with-ai`, { method: "POST" });
       setToast("Queued for AI processing.");
-      await refreshWorkspaceData();
+      if (sheetOpenRef.current && selectedNoteIdRef.current === String(noteId)) {
+        await refreshSelectedNote(noteId);
+      } else {
+        await refreshWorkspaceData();
+      }
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Could not queue AI processing");
     }
@@ -2916,7 +2920,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               </section>
             )}
 
-            <section className="dashboard-ask" aria-label="Ask memory">
+            <section className="dashboard-ask" aria-label="Ask memory" hidden={showFirstCapture}>
               <div className="ask-prompt">
                 <span><Sparkles size={16} /> Ask memory</span>
                 <div className="ask-row">
@@ -2987,7 +2991,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               )}
             </section>
 
-            <div className="dashboard-metrics">
+            <div className="dashboard-metrics" hidden={showFirstCapture}>
               <button className="metric-card metric-button" type="button" onClick={openReviewQueue} aria-label={`Open review queue with ${dashboardReviewCount} items`}>
                 <span><Bell size={16} /> Review queue</span>
                 <strong>{dashboardReviewCount}</strong>
@@ -3033,7 +3037,17 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               </button>
             </div>
 
-            <div className="dashboard-grid">
+            <div className="dashboard-grid" hidden={showFirstCapture}>
+              {!showFirstCapture && (
+                <section className="dashboard-panel capture-panel">
+                  <div className="panel-head">
+                    <h2>Capture</h2>
+                    <Send size={18} />
+                  </div>
+                  {composerSection}
+                </section>
+              )}
+
               <section className="dashboard-panel attention-panel">
                 <div className="panel-head">
                   <h2>Needs attention</h2>
@@ -3196,16 +3210,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   <p className="dashboard-empty">Caught up. No reminders, no review suggestions, nothing flagged.</p>
                 )}
               </section>
-
-              {!showFirstCapture && (
-                <section className="dashboard-panel capture-panel">
-                  <div className="panel-head">
-                    <h2>Capture</h2>
-                    <Send size={18} />
-                  </div>
-                  {composerSection}
-                </section>
-              )}
 
               <section className="dashboard-panel pipeline-panel">
                 <div className="panel-head">
@@ -7144,6 +7148,8 @@ function LinkedSheet({
   const [draftKind, setDraftKind] = useState("note");
   const [draftOccurredAt, setDraftOccurredAt] = useState("");
   const [newProjectName, setNewProjectName] = useState("");
+  const pollingNoteId = note?.id ? String(note.id) : "";
+  const pollingStatus = String(note?.ai_processing_status || "");
   useEffect(() => {
     if (!note) return;
     setDraftTitle(note.title || "");
@@ -7154,8 +7160,8 @@ function LinkedSheet({
     setNewProjectName("");
   }, [note]);
   useEffect(() => {
-    if (!open || !note) return;
-    if (note.ai_processing_status !== "processing" && note.ai_processing_status !== "queued" && note.ai_processing_status !== "pending") return;
+    if (!open || !pollingNoteId) return;
+    if (pollingStatus !== "processing" && pollingStatus !== "queued" && pollingStatus !== "pending") return;
     let cancelled = false;
     let attempts = 0;
     // Short polls early so quick extractions surface fast, longer polls
@@ -7165,7 +7171,7 @@ function LinkedSheet({
       if (cancelled) return;
       attempts += 1;
       try {
-        await refresh(String(note.id));
+        await refresh(pollingNoteId);
       } catch {
         // network jitter is fine; we'll try again
       }
@@ -7178,7 +7184,7 @@ function LinkedSheet({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [open, note, refresh]);
+  }, [open, pollingNoteId, pollingStatus, refresh]);
   if (!open || !note) return null;
 
   const currentProjectIds = (note.projects || []).map((project: any) => project.id);

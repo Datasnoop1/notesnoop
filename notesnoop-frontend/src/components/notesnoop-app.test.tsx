@@ -127,6 +127,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
   const responsePending = options.pendingItems ?? pending;
   const responseProjects = options.projects ?? projects;
   let sourceProjectMerged = false;
+  let noteProcessingQueued = false;
   const memoryResults = [
     { id: "task-1", kind: "task", title: "Send Apollo diligence follow-up", subtitle: "Ask Morgan for the revised timeline." },
     { id: "company-1", kind: "company", title: "Northstar", subtitle: "northstar.example" },
@@ -324,7 +325,10 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/person-merges/undo-1/undo")) return json({ data: { undone: true } });
     if (url.includes("/api/briefs/")) return json({ data: { markdown: "Brief markdown" } });
     if (url.includes("/api/flags")) return json({ data: { flagged: true } });
-    if (url.includes("/api/notes/note-1/process-with-ai")) return json({ data: { queued: true } });
+    if (url.includes("/api/notes/note-1/process-with-ai")) {
+      noteProcessingQueued = true;
+      return json({ data: { queued: true } });
+    }
     if (url.includes("/api/tasks/note-task-1") && (!init?.method || init.method === "GET")) {
       return json({ data: { ...taskNote, id: "note-task-1", projects: [responseProjects[2]], people: [people[0]], notes: [note] } });
     }
@@ -377,7 +381,15 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
     if (url.includes("/api/review-queue/review-2/accept")) return json({ data: { accepted: true } });
     if (url.includes("/api/review-queue/review-2/reject")) return json({ data: { rejected: true } });
     if (url.includes("/api/review-queue/")) return json({ data: { accepted: true } });
-    if (url.includes("/api/notes/note-1")) return json({ data: note });
+    if (url.includes("/api/notes/note-1")) {
+      return json({
+        data: {
+          ...note,
+          ai_processing_status: noteProcessingQueued ? "processing" : note.ai_processing_status,
+          review_suggestions: noteProcessingQueued ? [] : note.review_suggestions,
+        },
+      });
+    }
     return json({ data: {} });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -551,7 +563,7 @@ describe("NoteSnoopApp", () => {
 
   it("guides a fresh workspace into a starter capture", async () => {
     const selfOnly = [{ id: "person-self", name: "Dev User", clerk_user_id: "dev_user", confirmed_note_count: 0 }];
-    const { fetchMock } = installFetch({
+    const { fetchMock, calls } = installFetch({
       people: selfOnly,
       notes: [],
       pendingItems: [],
@@ -565,6 +577,8 @@ describe("NoteSnoopApp", () => {
     expect(screen.getByText("Extract")).toBeInTheDocument();
     expect(screen.getByText("Accept all")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Capture" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Ask memory" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Active work" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Edit starter note/i }));
     expect((screen.getByPlaceholderText(/Dump a note/i) as HTMLTextAreaElement).value).toContain("Project Meridian");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
@@ -586,6 +600,13 @@ describe("NoteSnoopApp", () => {
     });
     expect(await screen.findByText("Starter note captured")).toBeInTheDocument();
     expect(screen.getByText("Extract memory to turn the starter note into reviewable people, tasks, projects, and companies.")).toBeInTheDocument();
+
+    const sheet = document.querySelector(".linked-sheet") as HTMLElement;
+    fireEvent.click(within(sheet).getAllByRole("button", { name: /Extract memory/i })[0]);
+
+    await waitFor(() => expect(calls.some((call) => call.includes("POST /api/notes/note-1/process-with-ai"))).toBe(true));
+    await waitFor(() => expect(calls.some((call) => call === "GET /api/notes/note-1")).toBe(true));
+    expect(await screen.findByText(/Building your first workspace memory/i)).toBeInTheDocument();
   });
 
   it("creates meetings, reports, workflows, companies, and dated tasks from the dashboard", async () => {

@@ -499,18 +499,20 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 .dashboard-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 .metric-card {
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--ink);
   border-radius: 8px;
-  min-height: 112px;
-  padding: 12px;
+  min-height: 56px;
+  padding: 9px 10px;
   display: grid;
-  align-content: space-between;
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
   text-align: left;
   box-shadow: 0 1px 0 rgba(16, 32, 28, .04);
 }
@@ -522,10 +524,13 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   font-size: 13px;
 }
 .metric-card strong {
-  font-size: 30px;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  font-size: 24px;
   line-height: 1;
 }
 .metric-card small {
+  grid-column: 1;
   color: var(--muted);
   font-size: 12px;
 }
@@ -656,12 +661,12 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   grid-column: span 4;
 }
 .capture-panel {
-  grid-column: span 8;
+  grid-column: span 12;
   border-color: #bdd7d0;
   background: #f7fbf8;
 }
 .pipeline-panel {
-  grid-column: span 4;
+  grid-column: span 12;
 }
 .pipeline-stages {
   display: grid;
@@ -1527,7 +1532,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   max-width: none;
 }
 .capture-panel .dashboard-composer textarea {
-  min-height: 126px;
+  min-height: 112px;
 }
 .capture-panel .project-picker {
   max-height: 86px;
@@ -3032,10 +3037,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .dashboard-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .dashboard-panel, .pipeline-panel, .relationships-panel, .recent-memory, .memory-map-panel {
+  .dashboard-panel, .relationships-panel, .recent-memory, .memory-map-panel {
     grid-column: span 1;
   }
-  .attention-panel, .capture-panel, .memory-system-panel {
+  .attention-panel, .capture-panel, .pipeline-panel, .memory-system-panel {
     grid-column: span 2;
   }
   .pipeline-stages {
