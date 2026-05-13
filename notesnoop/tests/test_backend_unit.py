@@ -467,6 +467,15 @@ def test_ops_heartbeat_migration_adds_worker_and_ai_job_health():
     assert "GRANT SELECT, INSERT, UPDATE, DELETE ON ops_heartbeats" in migration.sql
 
 
+def test_ai_jobs_embed_migration_allows_deferred_embedding_jobs():
+    migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0038_defer_note_embedding_jobs.sql")
+
+    assert migration.filename == "0038_defer_note_embedding_jobs.sql"
+    assert "DROP CONSTRAINT IF EXISTS ai_jobs_kind_check" in migration.sql
+    assert "'embed'" in migration.sql
+    assert "CHECK (kind IN" in migration.sql
+
+
 def test_task_reminders_migration_adds_first_class_due_reminders():
     migration = migrate.parse_migration(ROOT / "notesnoop" / "migrations" / "0019_task_reminders.sql")
 
@@ -1361,9 +1370,6 @@ def test_worker_matching_claim_finish_and_process_extract(monkeypatch):
             "tasks": [{"title": "Send Apollo follow-up", "confidence": 0.86, "due_date": "2026-05-15"}],
         }
 
-    async def fake_embed(_text):
-        return EmbeddingResult([0.0], "test-model", "test", 1, "sha")
-
     note = {
         "id": "note-1",
         "workspace_id": "workspace-1",
@@ -1391,18 +1397,19 @@ def test_worker_matching_claim_finish_and_process_extract(monkeypatch):
     monkeypatch.setattr(worker, "_load_context", lambda _cur, _note_id: (note, people, projects))
     monkeypatch.setattr(worker, "get_conn", next_conn)
     monkeypatch.setattr(worker, "extract_entities", fake_extract)
-    monkeypatch.setattr(worker, "embed_text", fake_embed)
     monkeypatch.setattr(worker, "upsert_note_embedding", lambda cur, loaded_note, result: upserts.append((loaded_note, result)))
     monkeypatch.setattr(worker, "_finish_job", lambda job_id, state, error=None: finish_calls.append((job_id, state, error)))
     asyncio.run(worker._process_extract({"id": "job-extract", "note_id": "note-1", "target_user_id": None}))
 
     assert finish_calls[-1] == ("job-extract", "done", None)
-    assert upserts[0][0]["id"] == "note-1"
+    assert upserts == []
     executed_sql = "\n".join(sql for conn in used_conns for sql, _params in conn.cursor_obj.executed)
     assert "INSERT INTO note_people_links" in executed_sql
     assert "INSERT INTO review_queue" in executed_sql
     assert "INSERT INTO calibration_events" in executed_sql
     assert "INSERT INTO note_projects" in executed_sql
+    assert "VALUES (%s, 'embed', %s, %s, 2, %s)" in executed_sql
+    assert "consumed_at = CASE WHEN ai_jobs.state = 'running' THEN ai_jobs.consumed_at ELSE NULL END" in executed_sql
     review_params = [
         params
         for conn in used_conns
@@ -1417,6 +1424,86 @@ def test_worker_matching_claim_finish_and_process_extract(monkeypatch):
     assert task_payload["candidate_key"].startswith("task:note-1:action_item")
     assert task_payload["due_at"] == "2026-05-15"
     assert "INSERT INTO tasks" not in executed_sql
+
+
+def test_worker_process_embed_upserts_note_embedding(monkeypatch):
+    note = {
+        "id": "note-1",
+        "workspace_id": "workspace-1",
+        "title": "Apollo update",
+        "body": "Morgan mentioned Apollo.",
+        "created_by": "creator-1",
+    }
+    conn_queue = [FakeConn(), FakeConn()]
+    used_conns = []
+
+    def next_conn():
+        conn = conn_queue.pop(0)
+        used_conns.append(conn)
+        return conn
+
+    async def fake_embed(text):
+        return EmbeddingResult([0.0], "test-model", "test", 1, hashlib.sha256(text.encode("utf-8")).hexdigest())
+
+    finish_calls = []
+    upserts = []
+    monkeypatch.setattr(worker, "_load_context", lambda _cur, _note_id: (note, [], []))
+    monkeypatch.setattr(worker, "get_conn", next_conn)
+    monkeypatch.setattr(worker, "put_conn", lambda _conn: None)
+    monkeypatch.setattr(worker, "embed_text", fake_embed)
+    monkeypatch.setattr(worker, "upsert_note_embedding", lambda cur, loaded_note, result: upserts.append((loaded_note, result)))
+    monkeypatch.setattr(worker, "_finish_job", lambda job_id, state, error=None: finish_calls.append((job_id, state, error)))
+
+    asyncio.run(worker._process_embed({"id": "job-embed", "kind": "embed", "note_id": "note-1"}))
+
+    assert upserts[0][0]["id"] == "note-1"
+    assert upserts[0][1].provider == "test"
+    assert finish_calls[-1] == ("job-embed", "done", None)
+    assert [conn.commits for conn in used_conns] == [1, 1]
+
+
+def test_worker_process_embed_requeues_when_note_changes_midflight(monkeypatch):
+    old_note = {
+        "id": "note-1",
+        "workspace_id": "workspace-1",
+        "title": "Apollo update",
+        "body": "Old body.",
+        "created_by": "creator-1",
+    }
+    new_note = {
+        **old_note,
+        "body": "Updated body.",
+    }
+    load_results = [old_note, new_note]
+    conn_queue = [FakeConn(), FakeConn()]
+    used_conns = []
+
+    def next_conn():
+        conn = conn_queue.pop(0)
+        used_conns.append(conn)
+        return conn
+
+    async def fake_embed(text):
+        return EmbeddingResult([0.0], "test-model", "test", 1, hashlib.sha256(text.encode("utf-8")).hexdigest())
+
+    finish_calls = []
+    upserts = []
+    monkeypatch.setattr(worker, "_load_context", lambda _cur, _note_id: (load_results.pop(0), [], []))
+    monkeypatch.setattr(worker, "get_conn", next_conn)
+    monkeypatch.setattr(worker, "put_conn", lambda _conn: None)
+    monkeypatch.setattr(worker, "embed_text", fake_embed)
+    monkeypatch.setattr(worker, "upsert_note_embedding", lambda cur, loaded_note, result: upserts.append((loaded_note, result)))
+    monkeypatch.setattr(worker, "_finish_job", lambda job_id, state, error=None: finish_calls.append((job_id, state, error)))
+
+    asyncio.run(worker._process_embed({"id": "job-embed", "kind": "embed", "note_id": "note-1"}))
+
+    assert upserts == []
+    assert finish_calls == []
+    assert [conn.commits for conn in used_conns] == [1, 1]
+    executed_sql = "\n".join(sql for conn in used_conns for sql, _params in conn.cursor_obj.executed)
+    assert "UPDATE ai_jobs" in executed_sql
+    assert "state = 'queued'" in executed_sql
+    assert "consumed_at = NULL" in executed_sql
 
 
 def test_worker_materializes_ai_memory_idempotently():
@@ -1989,9 +2076,22 @@ def test_worker_personal_skip_and_failure_paths(monkeypatch):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(worker, "_process_extract", failing_process)
+    marked_failed = []
+    monkeypatch.setattr(worker, "_mark_note_failed", lambda note_id, error: marked_failed.append((note_id, error)))
     finish_calls.clear()
     asyncio.run(worker.handle_job({"id": "job-fail", "kind": "extract", "note_id": "note-1"}))
     assert finish_calls[-1] == ("job-fail", "failed", "boom")
+    assert marked_failed[-1] == ("note-1", "boom")
+
+    async def failing_embed(_job):
+        raise RuntimeError("embed boom")
+
+    monkeypatch.setattr(worker, "_process_embed", failing_embed)
+    finish_calls.clear()
+    marked_failed.clear()
+    asyncio.run(worker.handle_job({"id": "job-embed-fail", "kind": "embed", "note_id": "note-1"}))
+    assert finish_calls[-1] == ("job-embed-fail", "failed", "embed boom")
+    assert marked_failed == []
 
     retry_calls = []
 

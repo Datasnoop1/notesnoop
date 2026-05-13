@@ -96,6 +96,40 @@ def _finish_job(job_id: str, state: str, error: str | None = None) -> None:
         put_conn(conn)
 
 
+def _enqueue_note_embedding(cur, note: dict, target_user_id: str | None) -> None:
+    note_id = str(note["id"])
+    cur.execute(
+        """
+        INSERT INTO ai_jobs (workspace_id, kind, note_id, target_user_id, priority, idempotency_key)
+        VALUES (%s, 'embed', %s, %s, 2, %s)
+        ON CONFLICT (idempotency_key) DO UPDATE
+          SET state = CASE WHEN ai_jobs.state = 'running' THEN ai_jobs.state ELSE 'queued' END,
+              attempts = CASE WHEN ai_jobs.state = 'running' THEN ai_jobs.attempts ELSE 0 END,
+              last_error = NULL,
+              consumed_at = CASE WHEN ai_jobs.state = 'running' THEN ai_jobs.consumed_at ELSE NULL END,
+              completed_at = CASE WHEN ai_jobs.state = 'running' THEN ai_jobs.completed_at ELSE NULL END,
+              target_user_id = EXCLUDED.target_user_id
+        """,
+        (note["workspace_id"], note_id, target_user_id, f"note:{note_id}:embed"),
+    )
+
+
+def _requeue_current_embedding_job(cur, job_id: str, target_user_id: str | None) -> None:
+    cur.execute(
+        """
+        UPDATE ai_jobs
+        SET state = 'queued',
+            attempts = 0,
+            last_error = NULL,
+            consumed_at = NULL,
+            completed_at = NULL,
+            target_user_id = %s
+        WHERE id = %s
+        """,
+        (target_user_id, job_id),
+    )
+
+
 def _retry_job(job_id: str, error: str, delay_seconds: int) -> None:
     conn = get_conn()
     try:
@@ -1943,8 +1977,6 @@ async def _process_extract(job: dict) -> None:
         [project["name"] for project in projects if project["kind"] != "personal"],
         [company["name"] for company in companies],
     )
-    embedding = await embed_text(note_embedding_text(note))
-
     conn = get_conn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -2027,7 +2059,7 @@ async def _process_extract(job: dict) -> None:
                 str(job["id"]),
             )
             _enqueue_structured_memory_reviews(cur, note, data, target_user_id, person_ids)
-            upsert_note_embedding(cur, note, embedding)
+            _enqueue_note_embedding(cur, note, target_user_id)
 
             suggested_title = str(data.get("note_title") or "").strip()
             if suggested_title and note.get("title_is_derived") and 0 < len(suggested_title) <= 80:
@@ -2060,10 +2092,46 @@ async def _process_extract(job: dict) -> None:
         put_conn(conn)
 
 
+async def _process_embed(job: dict) -> None:
+    note_id = str(job["note_id"])
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SET LOCAL search_path = public")
+            note, _people, _projects, _companies = _unpack_context(_load_context(cur, note_id))
+        conn.commit()
+    finally:
+        put_conn(conn)
+
+    embedding_text = note_embedding_text(note)
+    embedding = await embed_text(embedding_text)
+
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SET LOCAL search_path = public")
+            note, _people, _projects, _companies = _unpack_context(_load_context(cur, note_id))
+            if note_embedding_text(note) != embedding_text:
+                target_user_id = job.get("target_user_id") or note.get("created_by")
+                _requeue_current_embedding_job(cur, str(job["id"]), str(target_user_id) if target_user_id else None)
+                conn.commit()
+                return
+            upsert_note_embedding(cur, note, embedding)
+        conn.commit()
+        _finish_job(str(job["id"]), "done")
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        put_conn(conn)
+
+
 async def handle_job(job: dict) -> None:
     try:
         if job["kind"] in {"extract", "reprocess"} and job.get("note_id"):
             await _process_extract(job)
+        elif job["kind"] == "embed" and job.get("note_id"):
+            await _process_embed(job)
         elif job["kind"] == "briefing":
             await send_morning_briefing(job)
             _finish_job(str(job["id"]), "done")
@@ -2079,7 +2147,7 @@ async def handle_job(job: dict) -> None:
             logger.warning("job requeued after transient failure: %s delay=%ss attempt=%s", job.get("id"), delay, attempts)
             return
         _finish_job(str(job["id"]), "failed", error)
-        if job.get("note_id"):
+        if job.get("note_id") and job.get("kind") != "embed":
             _mark_note_failed(str(job["note_id"]), error)
 
 
