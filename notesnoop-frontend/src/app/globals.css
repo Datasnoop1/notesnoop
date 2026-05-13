@@ -3177,6 +3177,18 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   .dashboard-row {
     min-height: 48px;
   }
+  .task-card-actions,
+  .task-board-card-actions,
+  .memory-status-actions {
+    width: 100%;
+  }
+  .task-card-actions button,
+  .task-board-card-actions button,
+  .memory-status-actions button {
+    flex: 1 1 92px;
+    min-height: 40px;
+    min-width: 0;
+  }
   .capture-panel .dashboard-composer {
     margin: 0;
   }
