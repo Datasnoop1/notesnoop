@@ -3182,11 +3182,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 })()}
               </div>
               {showDashboardActions && <div className="dashboard-actions" aria-label="Dashboard actions">
-                {activeProjectRecord && (
-                  <button type="button" onClick={() => generateProjectReport(activeProjectRecord)} disabled={busy}>
-                    <FileText size={16} /> Generate report
-                  </button>
-                )}
                 {dashboardReviewCount > 0 && <button type="button" onClick={openReviewQueue}>
                   <Bell size={16} /> Review{dashboardReviewCount ? ` (${dashboardReviewCount})` : ""}
                 </button>}
@@ -3251,7 +3246,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     onKeyDown={(event) => {
                       if (event.key === "Enter") askMemory();
                     }}
-                    placeholder={activeProjectRecord ? `Ask about ${activeProjectRecord.name}` : "Ask memory..."}
+                    placeholder="Ask memory..."
                     aria-label="Ask memory question"
                   />
                   <button
@@ -3331,7 +3326,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 >
                   <span><Archive size={16} /> Memory items</span>
                   <strong>{dashboardNotes.length}</strong>
-                  <small>{activeProjectRecord ? "in context" : "latest"}</small>
+                  <small>latest</small>
                 </button>
               )}
               {openTasks.length > 0 && (
@@ -3361,7 +3356,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 >
                   <span><Lightbulb size={16} /> Intelligence</span>
                   <strong>{home?.project_intelligence?.length || 0}</strong>
-                  <small>{activeProjectRecord ? "project signals" : "workspace signals"}</small>
+                  <small>workspace signals</small>
                 </button>
               )}
             </div>
@@ -3708,7 +3703,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     <input
                       value={quickTaskTitle}
                       onChange={(event) => setQuickTaskTitle(event.target.value)}
-                      placeholder={activeProjectRecord ? `Task for ${activeProjectRecord.name}` : "Add an open loop"}
+                      placeholder="Add an open loop"
                       aria-label="New task"
                     />
                     <input
@@ -3727,7 +3722,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     <input
                       value={quickMeetingTitle}
                       onChange={(event) => setQuickMeetingTitle(event.target.value)}
-                      placeholder={activeProjectRecord ? `Meeting for ${activeProjectRecord.name}` : "Add a meeting or call"}
+                      placeholder="Add a meeting or call"
                       aria-label="New meeting"
                     />
                     <input
@@ -3746,7 +3741,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     <input
                       value={quickReportTitle}
                       onChange={(event) => setQuickReportTitle(event.target.value)}
-                      placeholder={activeProjectRecord ? `Report for ${activeProjectRecord.name}` : "Start a report or brief"}
+                      placeholder="Start a report or brief"
                       aria-label="New report"
                     />
                     <button type="button" onClick={createQuickReport} disabled={busy || !quickReportTitle.trim()}>
@@ -3759,7 +3754,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     <input
                       value={quickWorkflowName}
                       onChange={(event) => setQuickWorkflowName(event.target.value)}
-                      placeholder={activeProjectRecord ? `Workflow in ${activeProjectRecord.name}` : "Add a workflow"}
+                      placeholder="Add a workflow"
                       aria-label="New workflow"
                     />
                     <button type="button" onClick={createQuickWorkflow} disabled={busy || !quickWorkflowName.trim()}>
@@ -3772,7 +3767,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                     <input
                       value={quickCompanyName}
                       onChange={(event) => setQuickCompanyName(event.target.value)}
-                      placeholder={activeProjectRecord ? `Company in ${activeProjectRecord.name}` : "Add a company"}
+                      placeholder="Add a company"
                       aria-label="New company"
                     />
                     <button type="button" onClick={createQuickCompany} disabled={busy || !quickCompanyName.trim()}>
