@@ -663,6 +663,7 @@ def _prepare_home_scope(cur, workspace_id: str, project_id: str | None) -> None:
         """
     )
     cur.execute("CREATE INDEX home_visible_note_projects_project_idx ON home_visible_note_projects(project_id, note_id)")
+    cur.execute("CREATE INDEX home_visible_note_projects_note_idx ON home_visible_note_projects(note_id, project_id)")
     cur.execute(
         """
         CREATE TEMP TABLE home_project_note_stats ON COMMIT DROP AS
@@ -1208,22 +1209,20 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
             cur,
             """
             SELECT n.id, n.title, n.note_kind, n.is_personal, n.created_at
-            FROM notes n
-            WHERE n.workspace_id = %s
-              AND n.archived_at IS NULL
+            FROM home_visible_notes n
+            WHERE n.archived_at IS NULL
               AND NOT EXISTS (
-                SELECT 1 FROM note_projects np
+                SELECT 1
+                FROM home_visible_note_projects np
+                JOIN projects p ON p.id = np.project_id
                 WHERE np.note_id = n.id
-                  AND EXISTS (
-                    SELECT 1 FROM projects p
-                    WHERE p.id = np.project_id AND p.kind <> 'inbox'
-                  )
+                  AND p.kind <> 'inbox'
               )
               AND n.created_at > now() - interval '30 days'
             ORDER BY n.created_at DESC
             LIMIT 5
             """,
-            (workspace_id,),
+            (),
         )
         loose_tasks_without_owner = many(
             cur,

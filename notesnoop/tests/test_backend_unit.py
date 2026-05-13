@@ -1166,6 +1166,36 @@ def test_memory_search_defaults_hide_archived_tasks_and_reports():
     assert "item.status <> 'archived'" in context_report_sql
 
 
+def test_home_loose_notes_reuses_materialized_scope(monkeypatch):
+    cur = FakeCursor()
+    many_calls = []
+
+    @contextmanager
+    def fake_transaction(_user_id):
+        yield cur
+
+    def fake_many(_cur, sql, params=()):
+        many_calls.append((sql, params))
+        return []
+
+    monkeypatch.setattr(notes, "transaction", fake_transaction)
+    monkeypatch.setattr(notes, "many", fake_many)
+    monkeypatch.setattr(notes, "one", lambda *_args, **_kwargs: {})
+
+    notes.home("workspace-1", user=SimpleNamespace(clerk_user_id="owner-1"))
+
+    assert any("home_visible_note_projects_note_idx" in sql for sql, _params in cur.executed)
+    loose_sql, loose_params = next(
+        (sql, params)
+        for sql, params in many_calls
+        if "FROM home_visible_notes n" in sql
+        and "FROM home_visible_note_projects np" in sql
+        and "p.kind <> 'inbox'" in sql
+    )
+    assert "FROM notes n" not in loose_sql
+    assert loose_params == ()
+
+
 def test_note_payload_scopes_review_suggestions_to_target_user():
     cur = FakeCursor(
         fetchone_values=[
