@@ -2203,8 +2203,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     const list: any[] = [];
     for (const task of openTasks) {
       if (!task.due_at || task.status === "done" || task.status === "archived") continue;
-      const days = daysSinceNow(task.due_at);
-      if (days === 0) list.push(task);
+      if (isSameLocalDay(task.due_at)) list.push(task);
     }
     return list.slice(0, 6);
   }, [openTasks]);
@@ -2220,8 +2219,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   for (const meeting of meetingsCalls as any[]) {
     const at = meeting.occurred_at || meeting.created_at;
     if (!at) continue;
-    const days = daysSinceNow(at);
-    if (days === 0) todaysMeetings.push(meeting);
+    if (isSameLocalDay(at)) todaysMeetings.push(meeting);
     if (todaysMeetings.length >= 6) break;
   }
   const reportsBriefs = (
@@ -5449,11 +5447,23 @@ function pipelineStatusForNote(note: any): { label: string; tone: string } | nul
 }
 
 function daysSinceNow(value?: string | null): number | null {
+  const dayDiff = calendarDayDiffFromToday(value);
+  if (dayDiff === null) return null;
+  return Math.max(0, -dayDiff);
+}
+
+function calendarDayDiffFromToday(value?: string | null): number | null {
   if (!value) return null;
-  const ts = new Date(value).getTime();
-  if (Number.isNaN(ts)) return null;
-  const diff = Date.now() - ts;
-  return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
+  const target = new Date(value);
+  if (Number.isNaN(target.getTime())) return null;
+  const now = new Date(Date.now());
+  const targetStart = new Date(target.getFullYear(), target.getMonth(), target.getDate()).getTime();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.round((targetStart - todayStart) / (1000 * 60 * 60 * 24));
+}
+
+function isSameLocalDay(value?: string | null): boolean {
+  return calendarDayDiffFromToday(value) === 0;
 }
 
 function isOverdue(value?: string | null): boolean {
@@ -5464,18 +5474,24 @@ function isOverdue(value?: string | null): boolean {
 }
 
 function eventAgeBucket(value?: string | null): "Today" | "Yesterday" | "This week" | "Earlier" {
-  const days = daysSinceNow(value);
-  if (days === null) return "Earlier";
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days <= 7) return "This week";
+  const dayDiff = calendarDayDiffFromToday(value);
+  if (dayDiff === null) return "Earlier";
+  if (dayDiff === 0) return "Today";
+  if (dayDiff === -1) return "Yesterday";
+  if (dayDiff < 0 && dayDiff >= -7) return "This week";
   return "Earlier";
 }
 
 function humanRelativeTime(value?: string | null): string {
-  const days = daysSinceNow(value);
-  if (days === null) return "";
-  if (days === 0) return "today";
+  const dayDiff = calendarDayDiffFromToday(value);
+  if (dayDiff === null) return "";
+  if (dayDiff === 0) return "today";
+  if (dayDiff === 1) return "tomorrow";
+  if (dayDiff > 1 && dayDiff < 7) return `in ${dayDiff} days`;
+  if (dayDiff >= 7 && dayDiff < 30) return `in ${Math.floor(dayDiff / 7)} weeks`;
+  if (dayDiff >= 30 && dayDiff < 365) return `in ${Math.floor(dayDiff / 30)} months`;
+  if (dayDiff >= 365) return `in ${Math.floor(dayDiff / 365)} years`;
+  const days = Math.abs(dayDiff);
   if (days === 1) return "1 day ago";
   if (days < 7) return `${days} days ago`;
   if (days < 30) return `${Math.floor(days / 7)} weeks ago`;

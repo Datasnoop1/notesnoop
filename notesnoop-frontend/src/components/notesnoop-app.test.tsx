@@ -500,6 +500,32 @@ describe("NoteSnoopApp", () => {
     expect(calls.some((call) => call.includes("PATCH /api/workspaces/workspace-1/settings"))).toBe(true);
   });
 
+  it("keeps future tasks and meetings out of today buckets", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(new Date("2026-05-13T10:00:00Z").getTime());
+    installFetch({
+      home: {
+        open_tasks: [
+          { id: "task-today", title: "Send today update", status: "todo", due_at: "2026-05-13T12:00:00Z" },
+          { id: "task-friday", title: "Friday board packet", status: "todo", due_at: "2026-05-15T12:00:00Z" },
+        ],
+        meetings_calls: [
+          { id: "meeting-today", title: "Today pilot sync", note_kind: "meeting", occurred_at: "2026-05-13T09:00:00Z" },
+          { id: "meeting-friday", title: "Friday planning call", note_kind: "meeting", occurred_at: "2026-05-15T09:00:00Z" },
+        ],
+      },
+    });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    const dueTodayGroup = (await within(dashboard).findByText("Due today")).closest(".attention-group") as HTMLElement;
+    expect(within(dueTodayGroup).getByText("Send today update")).toBeInTheDocument();
+    expect(within(dueTodayGroup).queryByText("Friday board packet")).not.toBeInTheDocument();
+
+    const meetingsTodayGroup = (await within(dashboard).findByText("Meetings today")).closest(".attention-group") as HTMLElement;
+    expect(within(meetingsTodayGroup).getByText("Today pilot sync")).toBeInTheDocument();
+    expect(within(meetingsTodayGroup).queryByText("Friday planning call")).not.toBeInTheDocument();
+  });
+
   it("pre-seeds first-run people from the warm start panel", async () => {
     const selfOnly = [{ id: "person-self", name: "Dev User", clerk_user_id: "dev_user", confirmed_note_count: 0 }];
     const { fetchMock } = installFetch({
