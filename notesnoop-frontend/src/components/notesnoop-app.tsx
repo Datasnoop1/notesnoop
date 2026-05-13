@@ -2821,6 +2821,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
 
   const appBody = (
     <main className={`app-shell ${quickCapture ? "quick-mode" : ""}`}>
+      {mobileNav && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          onClick={() => setMobileNav(false)}
+          aria-label="Close navigation"
+        />
+      )}
       <aside
         className={`sidebar ${mobileNav ? "open" : ""}`}
         aria-hidden={mobileSidebarHidden || undefined}

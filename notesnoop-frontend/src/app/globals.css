@@ -3167,8 +3167,20 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   }
 }
 
+.sidebar-backdrop { display: none; }
+
 @media (max-width: 767px) {
   .app-shell { grid-template-columns: 1fr; }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 24;
+    background: rgba(16, 32, 28, .32);
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
