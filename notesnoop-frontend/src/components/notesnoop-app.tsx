@@ -7481,6 +7481,18 @@ function TimelinePanel({
         </div>
         {(() => {
           const sections: Array<[string, any[]]> = (Object.entries(eventBuckets) as Array<[string, any[]]>).filter(([, list]) => list.length > 0);
+          if (sections.length === 0) {
+            return (
+              <div className="timeline-empty" role="status">
+                <strong>No memory linked to this {kind} yet.</strong>
+                <small>
+                  {kind === "project"
+                    ? "Capture a note tagged to this project, or accept a project suggestion from a recent note, to start the timeline."
+                    : "Capture a note that mentions this person, or accept a person suggestion from a recent note, to start the timeline."}
+                </small>
+              </div>
+            );
+          }
           return sections.map(([label, list]) => (
             <div key={label} className="timeline-event-section">
               <span className="timeline-event-section-label">{label}</span>
