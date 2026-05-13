@@ -2960,6 +2960,18 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               </section>
             )}
 
+            {!showFirstCapture && (
+              <div className="dashboard-grid dashboard-primary-grid">
+                <section className="dashboard-panel capture-panel">
+                  <div className="panel-head">
+                    <h2>Capture</h2>
+                    <Send size={18} />
+                  </div>
+                  {composerSection}
+                </section>
+              </div>
+            )}
+
             <section className="dashboard-ask" aria-label="Ask memory" hidden={!showAskMemory}>
               <div className="ask-prompt">
                 <span><Sparkles size={16} /> Ask memory</span>
@@ -3086,16 +3098,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             </div>
 
             <div className="dashboard-grid" hidden={showFirstCapture}>
-              {!showFirstCapture && (
-                <section className="dashboard-panel capture-panel">
-                  <div className="panel-head">
-                    <h2>Capture</h2>
-                    <Send size={18} />
-                  </div>
-                  {composerSection}
-                </section>
-              )}
-
               {showAttentionPanel && (
               <section className="dashboard-panel attention-panel">
                 <div className="panel-head">

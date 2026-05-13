@@ -427,6 +427,11 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Active work" })).toBeInTheDocument();
     expect(within(dashboard).queryByRole("heading", { name: "Processing lane" })).not.toBeInTheDocument();
     expect(within(dashboard).queryByRole("heading", { name: "Loose ends" })).not.toBeInTheDocument();
+    expect(
+      within(dashboard).getByRole("heading", { name: "Capture" }).compareDocumentPosition(
+        within(dashboard).getByRole("region", { name: "Ask memory" }),
+      ) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
     expect(within(dashboard).getByText("Reminders")).toBeInTheDocument();
     expect(within(dashboard).getAllByText(/^Due /i).length).toBeGreaterThan(0);
