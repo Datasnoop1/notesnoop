@@ -1199,6 +1199,8 @@ def test_home_loose_notes_reuses_materialized_scope(monkeypatch):
 
     notes.home("workspace-1", user=SimpleNamespace(clerk_user_id="owner-1"))
 
+    assert any("CREATE TEMP TABLE home_archived_source_notes" in sql for sql, _params in cur.executed)
+    assert any("home_archived_source_notes_id_idx" in sql for sql, _params in cur.executed)
     assert any("home_visible_note_projects_note_idx" in sql for sql, _params in cur.executed)
     scope_sql, scope_params = next(
         (sql, params)
@@ -1217,6 +1219,51 @@ def test_home_loose_notes_reuses_materialized_scope(monkeypatch):
     )
     assert "FROM notes n" not in loose_sql
     assert loose_params == ()
+
+
+def test_home_meetings_and_reports_reuse_materialized_note_scope(monkeypatch):
+    cur = FakeCursor()
+    many_calls = []
+
+    @contextmanager
+    def fake_transaction(_user_id):
+        yield cur
+
+    def fake_many(_cur, sql, params=()):
+        many_calls.append((sql, params))
+        return []
+
+    monkeypatch.setattr(notes, "transaction", fake_transaction)
+    monkeypatch.setattr(notes, "many", fake_many)
+    monkeypatch.setattr(notes, "one", lambda *_args, **_kwargs: {})
+
+    notes.home("workspace-1", user=SimpleNamespace(clerk_user_id="owner-1"))
+
+    meetings_sql, meetings_params = next(
+        (sql, params)
+        for sql, params in many_calls
+        if "FROM meetings m" in sql
+        and "n.note_kind IN ('meeting','call')" in sql
+    )
+    assert "FROM home_archived_source_notes source_note" in meetings_sql
+    assert "FROM home_visible_notes n" in meetings_sql
+    assert "JOIN home_visible_note_projects np" in meetings_sql
+    assert "FROM notes n" not in meetings_sql
+    assert "JOIN note_projects np" not in meetings_sql
+    assert meetings_params == ("workspace-1", None, None, None, None)
+
+    reports_sql, reports_params = next(
+        (sql, params)
+        for sql, params in many_calls
+        if "FROM reports r" in sql
+        and "n.note_kind = 'report'" in sql
+    )
+    assert "FROM home_archived_source_notes source_note" in reports_sql
+    assert "FROM home_visible_notes n" in reports_sql
+    assert "JOIN home_visible_note_projects np" in reports_sql
+    assert "FROM notes n" not in reports_sql
+    assert "JOIN note_projects np" not in reports_sql
+    assert reports_params == ("workspace-1", None, None, None, None)
 
 
 def test_note_payload_scopes_review_suggestions_to_target_user():

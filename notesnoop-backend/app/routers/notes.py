@@ -633,8 +633,20 @@ def _prepare_home_scope(cur, workspace_id: str, project_id: str | None) -> None:
         "home_project_note_stats",
         "home_visible_note_projects",
         "home_visible_notes",
+        "home_archived_source_notes",
     ):
         cur.execute(f"DROP TABLE IF EXISTS pg_temp.{table}")
+    cur.execute(
+        """
+        CREATE TEMP TABLE home_archived_source_notes ON COMMIT DROP AS
+        SELECT n.id
+        FROM notes n
+        WHERE n.workspace_id = %s
+          AND n.archived_at IS NOT NULL
+        """,
+        (workspace_id,),
+    )
+    cur.execute("CREATE INDEX home_archived_source_notes_id_idx ON home_archived_source_notes(id)")
     cur.execute(
         """
         CREATE TEMP TABLE home_visible_notes ON COMMIT DROP AS
@@ -994,9 +1006,8 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
               WHERE m.workspace_id = %s
                 AND NOT EXISTS (
                   SELECT 1
-                  FROM notes source_note
+                  FROM home_archived_source_notes source_note
                   WHERE source_note.id = m.source_note_id
-                    AND source_note.archived_at IS NOT NULL
                 )
                 AND (%s::uuid IS NULL OR mp.project_id = %s::uuid)
               GROUP BY m.id
@@ -1009,19 +1020,18 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                      n.note_kind,
                      coalesce(n.occurred_at, n.created_at) AS occurred_at,
                      min(p.name) AS project_name
-              FROM notes n
-              LEFT JOIN note_projects np ON np.note_id = n.id
+              FROM home_visible_notes n
+              LEFT JOIN home_visible_note_projects np ON np.note_id = n.id
               LEFT JOIN projects p ON p.id = np.project_id
-              WHERE n.workspace_id = %s
-                AND n.note_kind IN ('meeting','call')
+              WHERE n.note_kind IN ('meeting','call')
                 AND n.archived_at IS NULL
                 AND (%s::uuid IS NULL OR np.project_id = %s::uuid)
-              GROUP BY n.id
+              GROUP BY n.id, n.title, n.body, n.note_kind, n.occurred_at, n.created_at
             ) memory
             ORDER BY occurred_at DESC
             LIMIT 8
             """,
-            (workspace_id, project_id, project_id, workspace_id, project_id, project_id),
+            (workspace_id, project_id, project_id, project_id, project_id),
         )
         reports_briefs = many(
             cur,
@@ -1042,9 +1052,8 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
               WHERE r.workspace_id = %s
                 AND NOT EXISTS (
                   SELECT 1
-                  FROM notes source_note
+                  FROM home_archived_source_notes source_note
                   WHERE source_note.id = r.source_note_id
-                    AND source_note.archived_at IS NOT NULL
                 )
                 AND (%s::uuid IS NULL OR rp.project_id = %s::uuid)
               GROUP BY r.id
@@ -1057,19 +1066,18 @@ def home(workspace_id: str, project_id: str | None = None, user: CurrentUser = D
                      'note'::text AS status,
                      coalesce(n.occurred_at, n.created_at) AS created_at,
                      min(p.name) AS project_name
-              FROM notes n
-              LEFT JOIN note_projects np ON np.note_id = n.id
+              FROM home_visible_notes n
+              LEFT JOIN home_visible_note_projects np ON np.note_id = n.id
               LEFT JOIN projects p ON p.id = np.project_id
-              WHERE n.workspace_id = %s
-                AND n.note_kind = 'report'
+              WHERE n.note_kind = 'report'
                 AND n.archived_at IS NULL
                 AND (%s::uuid IS NULL OR np.project_id = %s::uuid)
-              GROUP BY n.id
+              GROUP BY n.id, n.title, n.body, n.occurred_at, n.created_at
             ) reports
             ORDER BY created_at DESC
             LIMIT 8
             """,
-            (workspace_id, project_id, project_id, workspace_id, project_id, project_id),
+            (workspace_id, project_id, project_id, project_id, project_id),
         )
         workflows = many(
             cur,
