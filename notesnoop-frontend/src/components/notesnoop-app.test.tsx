@@ -425,8 +425,8 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Capture" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Active work" })).toBeInTheDocument();
-    expect(within(dashboard).getByRole("heading", { name: "Processing lane" })).toBeInTheDocument();
-    expect(within(dashboard).getByRole("heading", { name: "Loose ends" })).toBeInTheDocument();
+    expect(within(dashboard).queryByRole("heading", { name: "Processing lane" })).not.toBeInTheDocument();
+    expect(within(dashboard).queryByRole("heading", { name: "Loose ends" })).not.toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
     expect(within(dashboard).getByText("Reminders")).toBeInTheDocument();
     expect(within(dashboard).getAllByText(/^Due /i).length).toBeGreaterThan(0);
@@ -579,6 +579,9 @@ describe("NoteSnoopApp", () => {
     expect(screen.queryByRole("heading", { name: "Capture" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Ask memory" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Active work" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Processing lane" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Recent memory" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Loose ends" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Edit starter note/i }));
     expect((screen.getByPlaceholderText(/Dump a note/i) as HTMLTextAreaElement).value).toContain("Project Meridian");
     fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
@@ -609,12 +612,63 @@ describe("NoteSnoopApp", () => {
     expect(await screen.findByText(/Building your first workspace memory/i)).toBeInTheDocument();
   });
 
+  it("keeps a dismissed sparse workspace focused on capture instead of empty panels", async () => {
+    installFetch({
+      notes: [],
+      pendingItems: [],
+      home: {
+        recent_notes: [],
+        pending_review: [],
+        recent_projects: [projects[2]],
+        recent_people: people,
+        companies: [],
+        workflows: [],
+        flagged: [],
+        open_tasks: [],
+        tasks: [],
+        meetings: [],
+        calls: [],
+        meetings_calls: [],
+        reports: [],
+        briefs: [],
+        reports_briefs: [],
+        reminders: [],
+        loose_ends: {
+          notes_without_project: [],
+          tasks_without_owner: [],
+          people_without_company: [],
+          stale_reviews_count: 0,
+        },
+        pipeline_counts: { received: 0, processing: 0, needs_review: 0, accepted: 8, failed: 0 },
+        pipeline_recent_received: [],
+        pipeline_recent_failed: [],
+      },
+    });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Edit starter note/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/i }));
+    expect(await screen.findByRole("heading", { name: "Fresh note" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    expect(within(dashboard).getByRole("heading", { name: "Capture" })).toBeInTheDocument();
+    expect(within(dashboard).queryByRole("region", { name: "Ask memory" })).not.toBeInTheDocument();
+    expect(within(dashboard).queryByRole("heading", { name: "Needs attention" })).not.toBeInTheDocument();
+    expect(within(dashboard).queryByRole("heading", { name: "Active work" })).not.toBeInTheDocument();
+    expect(within(dashboard).queryByRole("heading", { name: "Processing lane" })).not.toBeInTheDocument();
+    expect(within(dashboard).queryByRole("heading", { name: "Active projects" })).not.toBeInTheDocument();
+    expect(within(dashboard).queryByRole("heading", { name: "People" })).not.toBeInTheDocument();
+    expect(within(dashboard).queryByRole("heading", { name: "Recent memory" })).not.toBeInTheDocument();
+    expect(within(dashboard).queryByRole("heading", { name: "Loose ends" })).not.toBeInTheDocument();
+  });
+
   it("creates meetings, reports, workflows, companies, and dated tasks from the dashboard", async () => {
     const { calls } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
 
     const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
-    fireEvent.change(within(dashboard).getByLabelText("New task"), { target: { value: "Send diligence pack" } });
+    fireEvent.change(await within(dashboard).findByLabelText("New task"), { target: { value: "Send diligence pack" } });
     fireEvent.change(within(dashboard).getByLabelText("Task due date"), { target: { value: "2026-05-15" } });
     fireEvent.click(within(dashboard).getByRole("button", { name: /Add task/i }));
     await waitFor(() => expect(calls.some((call) => call.includes("POST /api/workspaces/workspace-1/tasks"))).toBe(true));
@@ -714,7 +768,7 @@ describe("NoteSnoopApp", () => {
     render(<NoteSnoopApp quickCapture={false} />);
 
     const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
-    fireEvent.click(within(dashboard).getByRole("button", { name: /Open project Apollo/i }));
+    fireEvent.click(await within(dashboard).findByRole("button", { name: /Open project Apollo/i }));
     expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: /Generate report/i })[0]);
 

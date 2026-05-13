@@ -2405,6 +2405,46 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     },
   ];
   const activeMemorySection = memorySections.find((section) => section.id === activeMemoryTab) || memorySections[0];
+  const hasAttentionItems = Boolean(
+    dashboardReviewItems.length
+      || dashboardFlagged.length
+      || upcomingReminders.length
+      || overdueTasks.length
+      || dueTodayTasks.length
+      || todaysMeetings.length,
+  );
+  const hasProjectIntelligence = Boolean(home?.project_intelligence?.length);
+  const hasActiveWorkItems = Boolean(
+    openTasks.length
+      || meetingsCalls.length
+      || reportsBriefs.length
+      || workflows.length
+      || companies.length
+      || hasProjectIntelligence
+      || activeProjectRecord,
+  );
+  const hasRelationshipContext = Boolean(hasCapturedNotes || openTasks.length || meetingsCalls.length || reportsBriefs.length);
+  const showAskMemory = !showFirstCapture && Boolean(hasCapturedNotes || activeProjectRecord);
+  const showMetricRail = !showFirstCapture && Boolean(
+    dashboardReviewCount
+      || dashboardNotes.length
+      || openTasks.length
+      || hasProjectIntelligence,
+  );
+  const showAttentionPanel = !showFirstCapture && hasAttentionItems;
+  const actionablePipelineTotal =
+    pipelineCounts.received +
+    pipelineCounts.processing +
+    pipelineCounts.needs_review +
+    pipelineCounts.failed;
+  const showPipelinePanel = !showFirstCapture && Boolean(
+    actionablePipelineTotal || pipelineRecentReceived.length || pipelineRecentFailed.length,
+  );
+  const showActiveWorkPanel = !showFirstCapture && hasActiveWorkItems;
+  const showProjectsPanel = !showFirstCapture && Boolean(activeProjectRecord || (dashboardProjects.length && hasRelationshipContext));
+  const showPeoplePanel = !showFirstCapture && Boolean(dashboardPeople.length && hasRelationshipContext);
+  const showRecentMemoryPanel = !showFirstCapture && dashboardNotes.length > 0;
+  const showLooseEndsPanel = !showFirstCapture && looseEndsTotal > 0;
   const showExplorerGrid = Boolean(query.trim() || personTimeline || projectTimeline);
 
   const composerRows = useMemo(() => {
@@ -2920,7 +2960,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               </section>
             )}
 
-            <section className="dashboard-ask" aria-label="Ask memory" hidden={showFirstCapture}>
+            <section className="dashboard-ask" aria-label="Ask memory" hidden={!showAskMemory}>
               <div className="ask-prompt">
                 <span><Sparkles size={16} /> Ask memory</span>
                 <div className="ask-row">
@@ -2991,50 +3031,58 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               )}
             </section>
 
-            <div className="dashboard-metrics" hidden={showFirstCapture}>
-              <button className="metric-card metric-button" type="button" onClick={openReviewQueue} aria-label={`Open review queue with ${dashboardReviewCount} items`}>
-                <span><Bell size={16} /> Review queue</span>
-                <strong>{dashboardReviewCount}</strong>
-                <small>{dashboardReviewCount ? "needs decisions" : "clear"}</small>
-              </button>
-              <button
-                className="metric-card metric-button"
-                type="button"
-                onClick={() => {
-                  document.querySelector(".memory-system-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-                aria-label={`Jump to memory items, ${dashboardNotes.length} in context`}
-              >
-                <span><Archive size={16} /> Memory items</span>
-                <strong>{dashboardNotes.length}</strong>
-                <small>{activeProjectRecord ? "in context" : "latest"}</small>
-              </button>
-              <button
-                className="metric-card metric-button"
-                type="button"
-                onClick={() => {
-                  setActiveMemoryTab("tasks");
-                  document.querySelector(".memory-system-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-                aria-label={`Jump to open tasks, ${openTasks.length} active`}
-              >
-                <span><ClipboardList size={16} /> Open tasks</span>
-                <strong>{openTasks.length}</strong>
-                <small>{openTasks.length ? "active loops" : "none open"}</small>
-              </button>
-              <button
-                className="metric-card metric-button"
-                type="button"
-                onClick={() => {
-                  setActiveMemoryTab("intel");
-                  document.querySelector(".memory-system-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-                aria-label={`Jump to project intelligence, ${projectIntelligence.length} items`}
-              >
-                <span><Lightbulb size={16} /> Intelligence</span>
-                <strong>{projectIntelligence.length}</strong>
-                <small>{activeProjectRecord ? "project signals" : "project views"}</small>
-              </button>
+            <div className="dashboard-metrics" hidden={!showMetricRail}>
+              {dashboardReviewCount > 0 && (
+                <button className="metric-card metric-button" type="button" onClick={openReviewQueue} aria-label={`Open review queue with ${dashboardReviewCount} items`}>
+                  <span><Bell size={16} /> Review queue</span>
+                  <strong>{dashboardReviewCount}</strong>
+                  <small>needs decisions</small>
+                </button>
+              )}
+              {dashboardNotes.length > 0 && (
+                <button
+                  className="metric-card metric-button"
+                  type="button"
+                  onClick={() => {
+                    document.querySelector(".memory-system-panel, .recent-memory")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  aria-label={`Jump to memory items, ${dashboardNotes.length} in context`}
+                >
+                  <span><Archive size={16} /> Memory items</span>
+                  <strong>{dashboardNotes.length}</strong>
+                  <small>{activeProjectRecord ? "in context" : "latest"}</small>
+                </button>
+              )}
+              {openTasks.length > 0 && (
+                <button
+                  className="metric-card metric-button"
+                  type="button"
+                  onClick={() => {
+                    setActiveMemoryTab("tasks");
+                    document.querySelector(".memory-system-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  aria-label={`Jump to open tasks, ${openTasks.length} active`}
+                >
+                  <span><ClipboardList size={16} /> Open tasks</span>
+                  <strong>{openTasks.length}</strong>
+                  <small>active loops</small>
+                </button>
+              )}
+              {hasProjectIntelligence && (
+                <button
+                  className="metric-card metric-button"
+                  type="button"
+                  onClick={() => {
+                    setActiveMemoryTab("intel");
+                    document.querySelector(".memory-system-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  aria-label={`Jump to project intelligence, ${home?.project_intelligence?.length || 0} items`}
+                >
+                  <span><Lightbulb size={16} /> Intelligence</span>
+                  <strong>{home?.project_intelligence?.length || 0}</strong>
+                  <small>{activeProjectRecord ? "project signals" : "workspace signals"}</small>
+                </button>
+              )}
             </div>
 
             <div className="dashboard-grid" hidden={showFirstCapture}>
@@ -3048,6 +3096,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 </section>
               )}
 
+              {showAttentionPanel && (
               <section className="dashboard-panel attention-panel">
                 <div className="panel-head">
                   <h2>Needs attention</h2>
@@ -3210,7 +3259,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   <p className="dashboard-empty">Caught up. No reminders, no review suggestions, nothing flagged.</p>
                 )}
               </section>
+              )}
 
+              {showPipelinePanel && (
               <section className="dashboard-panel pipeline-panel">
                 <div className="panel-head">
                   <h2>Processing lane</h2>
@@ -3239,7 +3290,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   ))}
                 </div>
                 {pipelineTotal === 0 ? (
-                  <p className="dashboard-empty">No notes captured yet.</p>
+                  <p className="dashboard-empty">{dashboardNotes.length ? "Processing lane clear. Recent captures are below." : "No notes captured yet."}</p>
                 ) : (
                   <div className="pipeline-detail">
                     {pipelineRecentReceived.length > 0 && (
@@ -3295,7 +3346,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   </div>
                 )}
               </section>
+              )}
 
+              {showActiveWorkPanel && (
               <section className="dashboard-panel memory-system-panel">
                 <div className="panel-head">
                   <h2>Active work</h2>
@@ -3489,6 +3542,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   </div>
                 )}
               </section>
+              )}
 
               {(home?.team_capacity || []).length > 0 && (
                 <section className="dashboard-panel capacity-panel">
@@ -3535,6 +3589,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 </section>
               )}
 
+              {showProjectsPanel && (
               <section className="dashboard-panel relationships-panel">
                 <div className="panel-head">
                   <h2>Active projects</h2>
@@ -3579,7 +3634,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   <p className="dashboard-empty">No active projects yet. Capture a note and tag it to start a project here.</p>
                 )}
               </section>
+              )}
 
+              {showPeoplePanel && (
               <section className="dashboard-panel relationships-panel">
                 <div className="panel-head">
                   <h2>People</h2>
@@ -3623,7 +3680,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   <p className="dashboard-empty">No people yet. People you mention in notes or who arrive via forwarded email will appear here.</p>
                 )}
               </section>
+              )}
 
+              {showRecentMemoryPanel && (
               <section className="dashboard-panel recent-memory">
                 <div className="panel-head">
                   <h2>Recent memory</h2>
@@ -3698,7 +3757,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   );
                 })()}
               </section>
+              )}
 
+              {showLooseEndsPanel && (
               <section className="dashboard-panel loose-ends-panel">
                 <div className="panel-head">
                   <h2>Loose ends</h2>
@@ -3846,8 +3907,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   </div>
                 )}
               </section>
+              )}
 
-              {memoryGraph.nodes.length >= 12 && (
+              {!showFirstCapture && memoryGraph.nodes.length >= 12 && (
               <section className="dashboard-panel memory-map-panel">
                 <div className="panel-head">
                   <h2>Memory map</h2>

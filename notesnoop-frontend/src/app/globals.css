@@ -423,7 +423,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   display: grid;
   gap: 14px;
 }
-.dashboard-head, .dashboard-metrics, .dashboard-grid {
+.dashboard-head, .dashboard-ask, .dashboard-metrics, .dashboard-grid {
   width: 100%;
   max-width: 1180px;
   margin: 0 auto;
@@ -498,7 +498,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
 }
 .dashboard-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 8px;
 }
 .metric-card {
