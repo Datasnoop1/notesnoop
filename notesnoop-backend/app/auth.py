@@ -134,7 +134,9 @@ def current_user(
 ) -> CurrentUser:
     settings = get_settings()
     if settings.dev_auth:
-        user_id = x_notesnoop_user_id or "dev_user"
+        if not x_notesnoop_user_id:
+            raise HTTPException(status_code=401, detail="Missing dev auth header")
+        user_id = x_notesnoop_user_id
         return CurrentUser(
             clerk_user_id=user_id,
             email=x_notesnoop_email or f"{user_id}@example.test",

@@ -168,6 +168,9 @@ def test_auth_jwks_clerk_token_and_dev_user_paths(monkeypatch):
     )
     assert dev_user.email == "dev-2@example.test"
     assert dev_user.display_name == "Dev Two"
+    with pytest.raises(HTTPException) as missing_dev:
+        auth.current_user(request, x_notesnoop_user_id=None)
+    assert missing_dev.value.status_code == 401
 
 
 def test_ollama_extraction_payload_and_validation(monkeypatch):
