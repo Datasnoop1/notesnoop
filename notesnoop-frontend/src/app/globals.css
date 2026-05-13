@@ -2666,6 +2666,17 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   background: #f7fbf8;
 }
 .review-sheet-list { display: grid; gap: 10px; }
+.review-sheet-empty {
+  display: grid;
+  gap: 6px;
+  padding: 14px 14px 16px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: #fffdf8;
+  color: var(--ink);
+}
+.review-sheet-empty strong { font-size: 14px; }
+.review-sheet-empty small { color: var(--muted); line-height: 1.45; }
 .review-sheet-list article {
   border: 1px solid var(--line);
   background: #fffdf8;

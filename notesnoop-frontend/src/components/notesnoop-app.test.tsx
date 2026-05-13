@@ -1269,6 +1269,34 @@ describe("NoteSnoopApp", () => {
     await waitFor(() => expect(calls.some((call) => call.includes("POST /api/review-queue/review-1/accept"))).toBe(true));
   });
 
+  it("exposes a persistent Review queue sidebar entry and opens the sheet", async () => {
+    installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByRole("region", { name: "Memory dashboard" });
+    const sidebarReview = screen.getByRole("button", { name: /Open review queue/i });
+    expect(sidebarReview.textContent || "").toContain("Review queue");
+    expect(await within(sidebarReview).findByLabelText(/2 pending review/i)).toBeInTheDocument();
+
+    fireEvent.click(sidebarReview);
+    expect(await screen.findByRole("heading", { name: /Review \(2\)/i })).toBeInTheDocument();
+  });
+
+  it("shows the Review queue sidebar entry without a badge and explains the empty state", async () => {
+    installFetch({ pendingItems: [] });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByRole("region", { name: "Memory dashboard" });
+    const sidebarReview = screen.getByRole("button", { name: /Open review queue/i });
+    await waitFor(() =>
+      expect(within(sidebarReview).queryByLabelText(/pending review/i)).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(sidebarReview);
+    expect(await screen.findByText("No suggestions waiting.")).toBeInTheDocument();
+    expect(screen.getByText(/extracts people, projects, tasks, and meetings/i)).toBeInTheDocument();
+  });
+
   it("edits and accepts a structured task review item with payload", async () => {
     const taskReview = {
       id: "review-task-1",

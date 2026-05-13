@@ -2842,6 +2842,22 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             <UserRound size={17} /> Personal
           </button>
         )}
+        <button
+          type="button"
+          className={`nav-item ${reviewSheetOpen ? "active" : ""}`}
+          onClick={() => openReviewQueue()}
+          aria-label="Open review queue"
+        >
+          <Bell size={17} /> Review queue
+          {dashboardReviewCount > 0 && (
+            <span
+              className="sidebar-count"
+              aria-label={`${dashboardReviewCount} pending review${dashboardReviewCount === 1 ? "" : "s"}`}
+            >
+              {dashboardReviewCount}
+            </span>
+          )}
+        </button>
         <div className="sidebar-label">Projects</div>
         {state?.projects
           .filter((p) => p.kind === "user" && (p.status || "active") === "active")
@@ -5638,6 +5654,14 @@ function ReviewSheet({
           </div>
         )}
         <div className="review-sheet-list">
+          {reviewItems.length === 0 && (
+            <div className="review-sheet-empty" role="status">
+              <strong>No suggestions waiting.</strong>
+              <small>
+                When you capture notes, NoteSnoop extracts people, projects, tasks, and meetings here for you to accept or reject.
+              </small>
+            </div>
+          )}
           {filteredItems.map((item) => {
             const draft = payloadDrafts[item.id] || item.payload || {};
             const isStructured = STRUCTURED_REVIEW_KINDS.has(item.entity_kind);
