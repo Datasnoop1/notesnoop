@@ -1333,6 +1333,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
 
   async function openMemoryItem(sectionId: string, item: any, options: { push?: boolean } = {}) {
     if (!workspaceId) return;
+    setMobileNav(false);
     if (sectionId === "intel") {
       const projectId = item.project_id || item.id;
       const project = (state?.projects || []).find((candidate) => candidate.id === projectId);
@@ -1404,6 +1405,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   }
 
   async function openReviewQueue() {
+    setMobileNav(false);
     if (!workspaceId) {
       setReviewSheetOpen(true);
       return;
@@ -1755,6 +1757,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const openProject = useCallback(async (project: any, options: { push?: boolean } = {}) => {
     const requestId = timelineRequestRef.current + 1;
     timelineRequestRef.current = requestId;
+    setMobileNav(false);
     setPendingScopedView({ kind: "project", id: String(project.id), name: String(project.name || "Project") });
     setActiveProjectScope(String(project.id));
     setSearchScope(null);
@@ -1812,6 +1815,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const openPerson = useCallback(async (person: any, options: { push?: boolean } = {}) => {
     const requestId = timelineRequestRef.current + 1;
     timelineRequestRef.current = requestId;
+    setMobileNav(false);
     setPendingScopedView({ kind: "person", id: String(person.id), name: String(person.name || "Person") });
     setSearchScope(null);
     setProjectTimeline(null);
