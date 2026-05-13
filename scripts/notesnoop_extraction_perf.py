@@ -98,14 +98,14 @@ def percentile(values: list[float], pct: float) -> float:
     return ordered[index]
 
 
-def wait_for_processed(client: Client, note_id: str, timeout_s: int) -> tuple[dict[str, Any], float]:
+def wait_for_processed(client: Client, note_id: str, timeout_s: int, poll_interval_s: float) -> tuple[dict[str, Any], float]:
     deadline = time.perf_counter() + timeout_s
     last: dict[str, Any] = {}
     while time.perf_counter() < deadline:
         last = data(client.get(f"/api/notes/{note_id}")) or {}
         if last.get("ai_processing_status") in {"processed", "skipped"}:
             return last, time.perf_counter()
-        time.sleep(0.75)
+        time.sleep(poll_interval_s)
     raise TimeoutError(f"note {note_id} did not finish extraction; last status={last.get('ai_processing_status')}")
 
 
@@ -118,12 +118,15 @@ def run(
     base_url: str,
     samples: int,
     timeout_s: int,
+    poll_interval_s: float,
     *,
     dev_auth: bool,
     allow_remote_dev_auth: bool,
     bearer_token: str | None,
     preview_basic_auth: str | None,
 ) -> dict[str, Any]:
+    if poll_interval_s <= 0:
+        raise ValueError("poll_interval_s must be positive")
     if dev_auth and not allow_remote_dev_auth and not _is_local_url(base_url):
         raise ValueError("Remote dev-auth perf runs require --allow-remote-dev-auth")
     if bearer_token and preview_basic_auth:
@@ -160,7 +163,7 @@ def run(
         )
         if note.get("ai_processing_status") in {"unprocessed", "skipped"}:
             client.post(f"/api/notes/{note['id']}/process-with-ai", expected=(200, 429))
-        finished_note, finished = wait_for_processed(client, note["id"], timeout_s)
+        finished_note, finished = wait_for_processed(client, note["id"], timeout_s, poll_interval_s)
         elapsed = finished - started
         review_rows = data(client.get(f"/api/workspaces/{workspace_id}/review-queue?limit=100")) or []
         timings.append(
@@ -190,6 +193,7 @@ def main() -> int:
     parser.add_argument("--base-url", default=os.getenv("NOTESNOOP_PERF_BASE_URL", "http://localhost:3010"))
     parser.add_argument("--samples", type=int, default=5)
     parser.add_argument("--timeout-s", type=int, default=90)
+    parser.add_argument("--poll-interval-s", type=float, default=0.25)
     parser.add_argument("--dev-auth", action="store_true", help="send NoteSnoop dev-auth headers")
     parser.add_argument(
         "--allow-remote-dev-auth",
@@ -203,6 +207,7 @@ def main() -> int:
                 args.base_url,
                 args.samples,
                 args.timeout_s,
+                args.poll_interval_s,
                 dev_auth=args.dev_auth,
                 allow_remote_dev_auth=args.allow_remote_dev_auth,
                 bearer_token=os.getenv("NOTESNOOP_PERF_BEARER_TOKEN"),

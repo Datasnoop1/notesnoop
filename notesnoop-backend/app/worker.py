@@ -22,7 +22,7 @@ from .ollama_client import extract_entities
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("notesnoop-worker")
 
-POLL_INTERVAL_S = float(os.getenv("NOTESNOOP_WORKER_POLL_INTERVAL_S", "2"))
+POLL_INTERVAL_S = float(os.getenv("NOTESNOOP_WORKER_POLL_INTERVAL_S", "0.5"))
 MAX_JOB_ATTEMPTS = int(os.getenv("NOTESNOOP_WORKER_MAX_ATTEMPTS", "3"))
 RETRY_BACKOFF_SECONDS = int(os.getenv("NOTESNOOP_WORKER_RETRY_BACKOFF_SECONDS", "60"))
 HEARTBEAT_INTERVAL_S = float(os.getenv("NOTESNOOP_WORKER_HEARTBEAT_INTERVAL_S", "30"))
