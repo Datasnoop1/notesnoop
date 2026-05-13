@@ -657,10 +657,11 @@ def _prepare_home_scope(cur, workspace_id: str, project_id: str | None) -> None:
     cur.execute(
         """
         CREATE TEMP TABLE home_visible_note_projects ON COMMIT DROP AS
-        SELECT np.note_id, np.project_id
-        FROM note_projects np
-        JOIN home_visible_notes vn ON vn.id = np.note_id
-        """
+        SELECT links.note_id, links.project_id
+        FROM home_accessible_note_project_links(%s::uuid, NULL::uuid) links
+        JOIN home_visible_notes vn ON vn.id = links.note_id
+        """,
+        (workspace_id,),
     )
     cur.execute("CREATE INDEX home_visible_note_projects_project_idx ON home_visible_note_projects(project_id, note_id)")
     cur.execute("CREATE INDEX home_visible_note_projects_note_idx ON home_visible_note_projects(note_id, project_id)")

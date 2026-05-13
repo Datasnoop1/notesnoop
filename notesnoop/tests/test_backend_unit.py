@@ -515,6 +515,21 @@ def test_project_bootstrap_returning_migration_restores_direct_creator_select():
     assert "USING (can_access_project(id))" not in migration.sql
 
 
+def test_home_note_project_links_function_preserves_access_checks():
+    migration = migrate.parse_migration(
+        ROOT / "notesnoop" / "migrations" / "0037_home_note_project_links_function.sql"
+    )
+
+    assert migration.filename == "0037_home_note_project_links_function.sql"
+    assert "CREATE OR REPLACE FUNCTION home_accessible_note_project_links" in migration.sql
+    assert "SECURITY DEFINER" in migration.sql
+    assert "is_workspace_member(n.workspace_id)" in migration.sql
+    assert "n.created_by = current_user_id()" in migration.sql
+    assert "n.is_personal = FALSE AND is_workspace_admin(n.workspace_id)" in migration.sql
+    assert "can_access_project(np.project_id)" in migration.sql
+    assert "GRANT EXECUTE ON FUNCTION home_accessible_note_project_links(UUID, UUID)" in migration.sql
+
+
 def test_search_skips_semantic_when_keyword_results_are_plentiful():
     assert notes._should_run_semantic_search("Apollo", 0) is True
     assert notes._should_run_semantic_search("Apollo", notes.SEARCH_KEYWORD_FAST_PATH_MIN_ROWS - 1) is True
@@ -1185,6 +1200,14 @@ def test_home_loose_notes_reuses_materialized_scope(monkeypatch):
     notes.home("workspace-1", user=SimpleNamespace(clerk_user_id="owner-1"))
 
     assert any("home_visible_note_projects_note_idx" in sql for sql, _params in cur.executed)
+    scope_sql, scope_params = next(
+        (sql, params)
+        for sql, params in cur.executed
+        if "CREATE TEMP TABLE home_visible_note_projects" in sql
+    )
+    assert "home_accessible_note_project_links(%s::uuid, NULL::uuid)" in scope_sql
+    assert "JOIN home_visible_notes vn ON vn.id = links.note_id" in scope_sql
+    assert scope_params == ("workspace-1",)
     loose_sql, loose_params = next(
         (sql, params)
         for sql, params in many_calls
