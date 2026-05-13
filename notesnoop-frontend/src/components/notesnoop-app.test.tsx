@@ -1298,6 +1298,16 @@ describe("NoteSnoopApp", () => {
     expect(screen.getByText(/extracts people, projects, tasks, and meetings/i)).toBeInTheDocument();
   });
 
+  it("renders an empty-state message when search returns no notes", async () => {
+    installFetch({ notes: [] });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByRole("region", { name: "Memory dashboard" });
+    fireEvent.change(screen.getByLabelText("Search memory"), { target: { value: "zzzzzzz" } });
+
+    expect(await screen.findByText(/No notes match/i)).toBeInTheDocument();
+  });
+
   it("edits and accepts a structured task review item with payload", async () => {
     const taskReview = {
       id: "review-task-1",

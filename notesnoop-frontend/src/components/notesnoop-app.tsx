@@ -4426,6 +4426,11 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 <h2>Notes</h2>
                 <Sparkles size={18} />
               </div>
+              {notes.length === 0 && (
+                <p className="note-search-empty muted">
+                  No notes match &ldquo;{query.trim()}&rdquo;. Try a shorter query or clear filters.
+                </p>
+              )}
               {notes.map((note) => (
                 <article key={note.id} className="note-row" onClick={() => openNote(note.id)}>
                   <div>

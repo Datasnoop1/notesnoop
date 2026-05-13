@@ -1806,6 +1806,10 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   gap: 10px;
   align-items: start;
 }
+.note-search-empty {
+  padding: 16px 4px 0;
+  line-height: 1.5;
+}
 .note-row h3 { margin: 0 0 4px; font-size: 16px; }
 .note-row h3.derived { font-style: italic; font-weight: 520; }
 .raw-badge, .kind-badge {
