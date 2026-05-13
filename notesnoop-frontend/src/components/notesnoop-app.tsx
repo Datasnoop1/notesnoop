@@ -2986,7 +2986,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               ref={searchInputRef}
               value={query}
               onChange={(e) => scheduleSearch(e.target.value)}
-              aria-label="Search memory"
+              aria-label={searchPlaceholder.replace(/\.{3}$/, "")}
               placeholder={searchPlaceholder}
             />
           </div>

@@ -1303,7 +1303,7 @@ describe("NoteSnoopApp", () => {
     render(<NoteSnoopApp quickCapture={false} />);
 
     await screen.findByRole("region", { name: "Memory dashboard" });
-    fireEvent.change(screen.getByLabelText("Search memory"), { target: { value: "zzzzzzz" } });
+    fireEvent.change(screen.getByPlaceholderText(/Search memory/i), { target: { value: "zzzzzzz" } });
 
     expect(await screen.findByText(/No notes match/i)).toBeInTheDocument();
   });
