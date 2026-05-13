@@ -440,6 +440,7 @@ describe("NoteSnoopApp", () => {
     expect(within(dashboard).getByRole("heading", { name: "Active work" })).toBeInTheDocument();
     expect(within(dashboard).queryByRole("heading", { name: "Processing lane" })).not.toBeInTheDocument();
     expect(within(dashboard).queryByRole("heading", { name: "Loose ends" })).not.toBeInTheDocument();
+    expect(within(dashboard).queryByRole("button", { name: /Open Inbox project/i })).not.toBeInTheDocument();
     expect(
       within(dashboard).getByRole("heading", { name: "Capture" }).compareDocumentPosition(
         within(dashboard).getByRole("region", { name: "Ask memory" }),

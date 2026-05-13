@@ -3186,11 +3186,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                 {dashboardReviewCount > 0 && <button type="button" onClick={openReviewQueue}>
                   <Bell size={16} /> Review{dashboardReviewCount ? ` (${dashboardReviewCount})` : ""}
                 </button>}
-                {showInboxAction && inbox && (
-                  <button type="button" onClick={() => openProject(inbox)} aria-label="Open Inbox project">
-                    <Inbox size={16} /> Inbox{pipelineCounts.received > 0 ? ` (${pipelineCounts.received})` : ""}
-                  </button>
-                )}
                 {hasDashboardActivity && <button type="button" onClick={openActivity} aria-label="Recent 7-day activity">
                   <CalendarDays size={16} /> Activity
                 </button>}
@@ -4685,6 +4680,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         }}
         onAcceptAllSuggestions={async (reviewIds) => {
           if (!reviewIds.length) return;
+          const wasFirstCapture = selectedNoteIsFirstCapture;
           try {
             const res = await api(`/api/reviews/accept-many`, {
               method: "POST",
@@ -4692,13 +4688,21 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             });
             const accepted = Array.isArray(res?.data?.accepted) ? res.data.accepted.length : 0;
             const failed = Array.isArray(res?.data?.failures) ? res.data.failures.length : 0;
-            if (failed === 0) {
+            if (wasFirstCapture && failed === 0 && accepted > 0) {
+              setToast(`Workspace seeded with ${accepted} suggestion${accepted === 1 ? "" : "s"}. Explore your projects, people, and tasks in the dashboard.`);
+            } else if (failed === 0) {
               setToast(`Accepted ${accepted} suggestion${accepted === 1 ? "" : "s"}.`);
             } else {
               setToast(`Accepted ${accepted}; ${failed} could not be applied.`);
             }
-            if (selectedNote) await openNote(selectedNote.id);
-            clearFirstCaptureNote(selectedNote?.id);
+            const sourceNoteId = selectedNote?.id;
+            if (wasFirstCapture && failed === 0) {
+              clearFirstCaptureNote(sourceNoteId);
+              clearNoteSheetState();
+            } else {
+              if (selectedNote) await openNote(selectedNote.id);
+              clearFirstCaptureNote(sourceNoteId);
+            }
             await refreshWorkspaceData();
           } catch (err) {
             setToast(err instanceof Error ? err.message : "Bulk accept failed");
