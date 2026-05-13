@@ -432,7 +432,8 @@ describe("NoteSnoopApp", () => {
     expect(await screen.findByText("NoteSnoop")).toBeInTheDocument();
     expect((await screen.findAllByText("dev@in.notesnoop.app")).length).toBeGreaterThan(0);
     const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
-    expect(within(dashboard).getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Workspace overview/i })).toHaveClass("active");
+    expect(within(dashboard).getByRole("heading", { name: "Workspace overview" })).toBeInTheDocument();
     expect(within(dashboard).getByText("Workspace memory")).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Needs attention" })).toBeInTheDocument();
     expect(within(dashboard).getByRole("heading", { name: "Capture" })).toBeInTheDocument();
@@ -485,8 +486,14 @@ describe("NoteSnoopApp", () => {
     });
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Quick brief/i }));
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Full brief/i }));
-    fireEvent.click(within(memorySheet).getByLabelText("Jordan Kim"));
-    fireEvent.click(within(memorySheet).getByLabelText("Northstar"));
+    const jordanCheckbox = within(memorySheet).getByLabelText("Jordan Kim") as HTMLInputElement;
+    const northstarCheckbox = within(memorySheet).getByLabelText("Northstar") as HTMLInputElement;
+    fireEvent.click(jordanCheckbox);
+    fireEvent.click(northstarCheckbox);
+    await waitFor(() => {
+      expect(jordanCheckbox).toBeChecked();
+      expect(northstarCheckbox).toBeChecked();
+    });
     fireEvent.click(within(memorySheet).getByRole("button", { name: /Save memory/i }));
     await waitFor(() => {
       const relationPatch = fetchMock.mock.calls.filter(([input, init]) => (
@@ -809,6 +816,8 @@ describe("NoteSnoopApp", () => {
     const scopedProject = await screen.findByRole("region", { name: "Project memory" });
     expect(screen.queryByRole("region", { name: "Memory dashboard" })).not.toBeInTheDocument();
     expect(within(scopedProject).getByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Current memory scope")).toHaveTextContent("Project: Apollo");
+    expect(screen.getByPlaceholderText("Search memory in the Apollo project...")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /^Copy link$/i }));
 
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("http://localhost:3000/projects/project-1?workspace_id=workspace-1"));
@@ -822,7 +831,8 @@ describe("NoteSnoopApp", () => {
       expect(searchCall).toContain("project_id=project-1");
     });
     expect(await screen.findByRole("region", { name: "Memory dashboard" })).toBeInTheDocument();
-    expect(screen.getByText(/Project: Apollo/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Current memory scope")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Project search scope: Apollo")).toHaveTextContent("Project: Apollo");
     fireEvent.change(searchInput, { target: { value: "" } });
     await waitFor(() => {
       const searchCalls = calls.filter((call) => call.includes("GET /api/workspaces/workspace-1/search?q="));
@@ -1075,7 +1085,8 @@ describe("NoteSnoopApp", () => {
       expect(searchCall).toContain("person_id=person-1");
     });
     expect(await screen.findByRole("region", { name: "Memory dashboard" })).toBeInTheDocument();
-    expect(screen.getByText(/Person: Morgan Lee/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Current memory scope")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Person search scope: Morgan Lee")).toHaveTextContent("Person: Morgan Lee");
   });
 
   it("ignores stale search responses after the query changes during debounce", async () => {

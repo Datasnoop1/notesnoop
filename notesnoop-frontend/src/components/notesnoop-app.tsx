@@ -2372,7 +2372,13 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     ? home.recent_projects
     : (state?.projects || []).filter((project) => project.kind === "user");
   const dashboardPeople = home?.recent_people?.length ? home.recent_people : state?.people || [];
-  const dashboardTitle = activeProjectRecord ? `${activeProjectRecord.name} dashboard` : "Dashboard";
+  const dashboardTitle = searchScope ? `${searchScope.kind === "project" ? "Project" : "Person"} search` : "Workspace overview";
+  const dashboardKicker = searchScope
+    ? `${searchScope.kind === "project" ? "Project" : "Person"} memory`
+    : "Workspace memory";
+  const dashboardDescription = searchScope
+    ? `Results are scoped to ${searchScope.label}. Clear the scope chip to search the whole workspace.`
+    : "All projects, people, tasks, meetings, reports, and recent capture in this workspace.";
   const openTasks = (home?.open_tasks?.length ? home.open_tasks : home?.tasks?.length ? home.tasks : dashboardNotes.filter((note) => note.note_kind === "task"));
   const upcomingReminders = ((home?.reminders?.length ? home.reminders : openTasks) || [])
     .filter((task) => (task.attention_at || task.remind_at || task.due_at) && task.status !== "done" && task.status !== "archived")
@@ -2650,6 +2656,33 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       || hasDashboardActivity,
   );
   const showExplorerGrid = !isScopedEntityView && Boolean(query.trim());
+  const workspaceNavActive = !activeProject && !pendingScopedView && !personTimeline && !projectTimeline && !searchScope;
+  const activeTopbarScope = (() => {
+    if (pendingScopedView) {
+      return {
+        kind: pendingScopedView.kind,
+        label: `${pendingScopedView.kind === "project" ? "Project" : "Person"}: ${pendingScopedView.name}`,
+        name: pendingScopedView.name,
+      };
+    }
+    if (projectTimeline?.project?.id) {
+      const name = String(projectTimeline.project.name || "Project");
+      return { kind: "project" as const, label: `Project: ${name}`, name };
+    }
+    if (personTimeline?.person?.id) {
+      const name = String(personTimeline.person.name || "Person");
+      return { kind: "person" as const, label: `Person: ${name}`, name };
+    }
+    return null;
+  })();
+  const searchPromptScope = activeTopbarScope || (searchScope
+    ? { kind: searchScope.kind, name: searchScope.label }
+    : { kind: "workspace" as const, name: String(state?.workspace?.name || "Workspace") });
+  const searchPlaceholder = searchPromptScope.kind === "workspace"
+    ? "Search memory across workspace..."
+    : searchPromptScope.kind === "project"
+      ? `Search memory in the ${searchPromptScope.name} project...`
+      : `Search memory for ${searchPromptScope.name}...`;
 
   const composerRows = useMemo(() => {
     const minRows = quickCapture ? 9 : 5;
@@ -2794,8 +2827,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             <X size={18} />
           </button>
         </div>
-        <button className={`nav-item ${!activeProject ? "active" : ""}`} onClick={() => openDashboard()}>
-          <Archive size={17} /> Home
+        <div className="sidebar-label">Workspace</div>
+        <button className={`nav-item ${workspaceNavActive ? "active" : ""}`} onClick={() => openDashboard()}>
+          <Archive size={17} /> Workspace overview
         </button>
         {inbox && (
           <button className={`nav-item ${activeProject === inbox.id ? "active" : ""}`} onClick={() => openProject(inbox)}>
@@ -2920,6 +2954,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           <button className="icon-btn hide-desktop" onClick={() => setMobileNav(true)} aria-label="Open navigation">
             <Menu size={20} />
           </button>
+          {activeTopbarScope && (
+            <span className={`topbar-scope topbar-scope-${activeTopbarScope.kind}`} aria-label="Current memory scope">
+              {activeTopbarScope.kind === "project" ? <Archive size={15} /> : <UserRound size={15} />}
+              {activeTopbarScope.label}
+            </span>
+          )}
           <div className="search-box">
             <Search size={18} />
             <input
@@ -2927,7 +2967,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               value={query}
               onChange={(e) => scheduleSearch(e.target.value)}
               aria-label="Search memory"
-              placeholder="Search memory..."
+              placeholder={searchPlaceholder}
             />
           </div>
           {!!state?.workspaces?.length && state.workspaces.length > 1 && (
@@ -3018,7 +3058,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           return (
             <div className="search-filter-row">
               {searchScope && (
-                <span className="search-scope-chip">
+                <span className="search-scope-chip" aria-label={`${searchScope.kind === "project" ? "Project" : "Person"} search scope: ${searchScope.label}`}>
                   {searchScope.kind === "project" ? <Archive size={15} /> : <UserRound size={15} />}
                   {searchScope.kind === "project" ? "Project" : "Person"}: {searchScope.label}
                   <button type="button" onClick={searchEntireWorkspace}>Search workspace</button>
@@ -3089,9 +3129,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           <section className="dashboard" aria-label="Memory dashboard">
             <div className="dashboard-head">
               <div>
-                <span className="dashboard-kicker">{activeProjectRecord ? "Project memory" : "Workspace memory"}</span>
+                <span className="dashboard-kicker">{dashboardKicker}</span>
                 <h1>{dashboardTitle}</h1>
-                <p>{activeProjectRecord ? "Open loops, people, and notes in this project." : "Open loops, recent movement, and capture."}</p>
+                <p>{dashboardDescription}</p>
                 {(() => {
                   const todayCounts = home?.today_counts || {};
                   const parts: string[] = [];

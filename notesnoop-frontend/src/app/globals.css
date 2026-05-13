@@ -59,6 +59,19 @@ button { cursor: pointer; touch-action: manipulation; }
   box-shadow: 0 0 0 3px rgba(232, 93, 79, .16);
 }
 .sidebar-label { margin: 16px 0 4px; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.sidebar-label:first-of-type { margin-top: 4px; }
+.nav-item {
+  min-width: 0;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-item > svg,
+.nav-item > .dot,
+.nav-item > .avatar {
+  flex: 0 0 auto;
+}
 .dot { width: 10px; height: 10px; border-radius: 999px; flex: 0 0 auto; }
 
 .sidebar-create, .inline-create {
@@ -137,6 +150,27 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   backdrop-filter: blur(14px);
 }
 
+.topbar-scope {
+  max-width: 240px;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: #31443c;
+  border-radius: 8px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+}
+.topbar-scope svg { flex: 0 0 auto; color: var(--teal); }
+.topbar-scope-project { background: #fff8dc; border-color: #e0cf93; color: #624a0e; }
+.topbar-scope-person { background: #f3f0fb; border-color: #d3cbef; color: #2c2358; }
 .search-box { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .search-box input { min-height: 44px; width: auto; min-width: 0; flex: 1; }
 .search-filter-row {
@@ -3134,6 +3168,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
   }
   .topbar > * { min-width: 0; }
   .topbar-dev-badge, .topbar-user-menu { display: none !important; }
+  .topbar-scope { display: none; }
   .search-box {
     min-width: 0;
     grid-column: 2;
@@ -3178,23 +3213,35 @@ input:focus, textarea:focus, select:focus { border-color: var(--teal); box-shado
     gap: 12px;
   }
   .dashboard-head h1 {
-    font-size: 26px;
+    font-size: 24px;
   }
+  .dashboard-head p { font-size: 14px; }
   .dashboard-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    display: flex;
+    gap: 6px;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 2px;
   }
   .dashboard-actions button {
-    min-height: 48px;
+    min-height: 36px;
     min-width: 0;
-    padding: 0 14px;
+    flex: 0 0 auto;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+  .dashboard-today,
+  .dashboard-week {
+    font-size: 11px;
+    margin: 5px 4px 0 0 !important;
+    padding: 2px 8px;
   }
   .dashboard-metrics {
     gap: 8px;
   }
   .metric-card {
-    min-height: 96px;
+    min-height: 74px;
     padding: 10px;
   }
   .metric-card strong {
