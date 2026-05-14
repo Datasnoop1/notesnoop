@@ -1526,6 +1526,8 @@ describe("NoteSnoopApp", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Flag$/i }));
     fireEvent.change(screen.getByLabelText("Merge target project"), { target: { value: "project-2" } });
     fireEvent.click(screen.getByRole("button", { name: /Merge project/i }));
+    // project merge now requires confirming a destructive-action dialog
+    fireEvent.click(await screen.findByRole("button", { name: /Merge.*delete Apollo/i }));
     await waitFor(() => expect(calls.some((call) => call.includes("GET /api/projects/project-2/timeline"))).toBe(true));
     window.dispatchEvent(new Event("notesnoop:refresh"));
     await new Promise((resolve) => window.setTimeout(resolve, 0));
@@ -1540,7 +1542,7 @@ describe("NoteSnoopApp", () => {
     expect(within(personScope).getByRole("heading", { name: "Morgan Lee" })).toBeInTheDocument();
     expect((await screen.findAllByText("Morgan kickoff call")).length).toBeGreaterThan(0);
     fireEvent.change(screen.getAllByRole("combobox").at(-1)!, { target: { value: "person-2" } });
-    fireEvent.click(screen.getByRole("button", { name: /Merge/i }));
+    fireEvent.click(within(personScope).getByRole("button", { name: /^Merge$/i }));
     expect(await screen.findByText("People merged.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Undo merge/i }));
 
@@ -1553,6 +1555,29 @@ describe("NoteSnoopApp", () => {
       expect(calls.some((call) => call.includes("POST /api/people/person-1/merge"))).toBe(true);
       expect(calls.some((call) => call.includes("POST /api/person-merges/undo-1/undo"))).toBe(true);
     });
+  });
+
+  it("cancels a project merge without deleting the source project", async () => {
+    const duplicateProjects = [
+      ...projects,
+      { id: "project-2", name: "Apollo duplicate", kind: "user", color_hex: "#2563eb" },
+    ];
+    const { calls } = installFetch({ projects: duplicateProjects });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    fireEvent.click((await screen.findAllByRole("button", { name: /^Apollo$/i }))[0]);
+    await screen.findByRole("region", { name: "Project memory" });
+    fireEvent.change(screen.getByLabelText("Merge target project"), { target: { value: "project-2" } });
+    fireEvent.click(screen.getByRole("button", { name: /Merge project/i }));
+
+    // the destructive merge waits on a confirmation dialog
+    const dialog = await screen.findByRole("dialog", { name: "Confirm project merge" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Cancel$/i }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Confirm project merge" })).not.toBeInTheDocument(),
+    );
+    expect(calls.some((call) => call.includes("POST /api/projects/project-1/merge"))).toBe(false);
   });
 
   it("uses search filters and creates entities", async () => {

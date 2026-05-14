@@ -450,6 +450,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     projectName: string;
     openTaskCount: number;
   } | null>(null);
+  const [mergeProjectPrompt, setMergeProjectPrompt] = useState<{
+    sourceId: string;
+    sourceName: string;
+    targetId: string;
+    targetName: string;
+  } | null>(null);
   const activityGroups = useMemo(() => {
     const groups: Record<string, any[]> = {};
     for (const event of activityItems) {
@@ -2094,7 +2100,19 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     await refreshWorkspaceData();
   }
 
-  async function mergeProject(sourceProjectId: string, targetProjectId: string) {
+  function mergeProject(sourceProjectId: string, targetProjectId: string) {
+    const source = (state?.projects || []).find((project) => project.id === sourceProjectId)
+      || projectTimeline?.project;
+    const target = (state?.projects || []).find((project) => project.id === targetProjectId);
+    setMergeProjectPrompt({
+      sourceId: sourceProjectId,
+      sourceName: String(source?.name || "this project"),
+      targetId: targetProjectId,
+      targetName: String(target?.name || "the target project"),
+    });
+  }
+
+  async function confirmMergeProject(sourceProjectId: string, targetProjectId: string) {
     staleProjectRefreshIdsRef.current.add(sourceProjectId);
     try {
       const res = await api(`/api/projects/${sourceProjectId}/merge`, {
@@ -5147,6 +5165,51 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         </div>
       )}
 
+      {mergeProjectPrompt && (
+        <div
+          className="palette-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm project merge"
+          onClick={() => setMergeProjectPrompt(null)}
+        >
+          <div className="close-project-sheet" onClick={(event) => event.stopPropagation()}>
+            <div className="close-project-head">
+              <h2>Merge {mergeProjectPrompt.sourceName} into {mergeProjectPrompt.targetName}?</h2>
+              <button
+                className="icon-btn"
+                onClick={() => setMergeProjectPrompt(null)}
+                aria-label="Close merge dialog"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <p>
+              Every note, task, meeting, report, workflow, company, member, and flag
+              linked to <strong>{mergeProjectPrompt.sourceName}</strong> moves onto{" "}
+              <strong>{mergeProjectPrompt.targetName}</strong>, and{" "}
+              <strong>{mergeProjectPrompt.sourceName}</strong> is deleted.
+              This cannot be undone.
+            </p>
+            <div className="close-project-actions">
+              <button className="secondary" onClick={() => setMergeProjectPrompt(null)}>
+                Cancel
+              </button>
+              <button
+                className="primary"
+                onClick={async () => {
+                  const target = mergeProjectPrompt;
+                  setMergeProjectPrompt(null);
+                  await confirmMergeProject(target.sourceId, target.targetId);
+                }}
+              >
+                <Archive size={16} /> Merge &amp; delete {mergeProjectPrompt.sourceName}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {shortcutsOpen && (
         <div
           className="palette-backdrop"
@@ -7171,7 +7234,7 @@ function TimelinePanel({
   onCopyLink: () => void;
   onFlag?: () => void;
   onMerge: (sourcePersonId: string, targetPersonId: string) => Promise<void>;
-  onMergeProject?: (sourceProjectId: string, targetProjectId: string) => Promise<void>;
+  onMergeProject?: (sourceProjectId: string, targetProjectId: string) => void | Promise<void>;
   onMergeCompany?: (sourceCompanyId: string, targetCompanyId: string) => Promise<void>;
   onCreateTask?: (input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null; company_id?: string | null }) => Promise<void>;
   onRename?: (nextName: string) => Promise<void>;
