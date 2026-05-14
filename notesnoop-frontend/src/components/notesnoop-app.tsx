@@ -2658,11 +2658,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       || Object.values(home?.today_counts || {}).some((value) => Number(value || 0) > 0)
       || Object.values(home?.week_counts || {}).some((value) => Number(value || 0) > 0),
   );
-  const showInboxAction = Boolean(inbox && pipelineCounts.received > 0);
   const showDashboardActions = !showFirstCapture && Boolean(
-    activeProjectRecord
-      || dashboardReviewCount > 0
-      || showInboxAction
+    dashboardReviewCount > 0
       || hasDashboardActivity,
   );
   const showExplorerGrid = !isScopedEntityView && Boolean(query.trim());
