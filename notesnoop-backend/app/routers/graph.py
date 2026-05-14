@@ -35,6 +35,7 @@ def person_timeline(person_id: str, user: CurrentUser = Depends(current_user)):
             WHERE npl.person_id = %s
             GROUP BY n.id, npl.state, npl.confidence, npl.source
             ORDER BY coalesce(n.occurred_at, n.created_at) DESC
+            LIMIT 60
             """,
             (person_id,),
         )
@@ -161,9 +162,16 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
             WHERE np.project_id = %s
             GROUP BY n.id
             ORDER BY coalesce(n.occurred_at, n.created_at) DESC
+            LIMIT 60
             """,
             (project_id,),
         )
+        note_total = one(
+            cur,
+            "SELECT count(DISTINCT note_id) AS total FROM note_projects WHERE project_id = %s",
+            (project_id,),
+        )
+        note_count = int((note_total or {}).get("total") or 0)
         people = many(
             cur,
             """
@@ -273,7 +281,7 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
             (project_id,),
         )
         events = _timeline_events(notes=notes, tasks=tasks, meetings=meetings, reports=reports, workflows=workflows)
-        profile = _project_memory_profile(project, notes, people, members, tasks, meetings, reports, workflows, companies)
+        profile = _project_memory_profile(project, notes, people, members, tasks, meetings, reports, workflows, companies, note_count)
         return {
             "data": {
                 "project": project,
@@ -306,9 +314,16 @@ def company_timeline(company_id: str, user: CurrentUser = Depends(current_user))
             JOIN company_notes cn ON cn.note_id = n.id
             WHERE cn.company_id = %s
             ORDER BY coalesce(n.occurred_at, n.created_at) DESC
+            LIMIT 60
             """,
             (company_id,),
         )
+        note_total = one(
+            cur,
+            "SELECT count(DISTINCT note_id) AS total FROM company_notes WHERE company_id = %s",
+            (company_id,),
+        )
+        note_count = int((note_total or {}).get("total") or 0)
         people = many(
             cur,
             """
@@ -393,7 +408,7 @@ def company_timeline(company_id: str, user: CurrentUser = Depends(current_user))
             (company_id,),
         )
         events = _timeline_events(notes=notes, tasks=tasks, meetings=meetings, reports=reports, workflows=workflows)
-        profile = _company_memory_profile(company, notes, people, projects, tasks, meetings, reports, workflows)
+        profile = _company_memory_profile(company, notes, people, projects, tasks, meetings, reports, workflows, note_count)
         return {
             "data": {
                 "company": company,
@@ -1532,14 +1547,16 @@ def _project_memory_profile(
     reports: list[dict],
     workflows: list[dict],
     companies: list[dict],
+    note_count: int | None = None,
 ) -> dict:
     open_tasks = [task for task in tasks if task.get("status") not in {"done", "archived"}]
     blocked_tasks = [task for task in open_tasks if task.get("status") == "blocked"]
     last_touch = _latest_timestamp([*notes, *meetings, *reports], "occurred_at", "created_at")
+    total_notes = note_count if note_count is not None else len(notes)
     return {
         "headline": f"{project.get('name')} project memory",
         "last_touch_at": last_touch,
-        "memory_count": len(notes) + len(tasks) + len(meetings) + len(reports) + len(workflows),
+        "memory_count": total_notes + len(tasks) + len(meetings) + len(reports) + len(workflows),
         "open_loop_count": len(open_tasks),
         "blocked_count": len(blocked_tasks),
         "people_count": len(people),
@@ -1561,14 +1578,16 @@ def _company_memory_profile(
     meetings: list[dict],
     reports: list[dict],
     workflows: list[dict],
+    note_count: int | None = None,
 ) -> dict:
     open_tasks = [task for task in tasks if task.get("status") not in {"done", "archived"}]
     blocked_tasks = [task for task in open_tasks if task.get("status") == "blocked"]
     last_touch = _latest_timestamp([*notes, *meetings, *reports], "occurred_at", "created_at")
+    total_notes = note_count if note_count is not None else len(notes)
     return {
         "headline": f"{company.get('name')} company memory",
         "last_touch_at": last_touch,
-        "memory_count": len(notes) + len(tasks) + len(meetings) + len(reports) + len(workflows),
+        "memory_count": total_notes + len(tasks) + len(meetings) + len(reports) + len(workflows),
         "open_loop_count": len(open_tasks),
         "blocked_count": len(blocked_tasks),
         "people_count": len(people),
