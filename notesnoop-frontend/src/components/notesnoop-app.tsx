@@ -4703,18 +4703,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         onDeleteTaskComment={async (commentId) => {
           await api(`/api/comments/${commentId}`, { method: "DELETE" });
         }}
-        onMergeCompany={async (sourceId, targetId) => {
-          try {
-            await api(`/api/companies/${sourceId}/merge`, {
-              method: "POST",
-              body: JSON.stringify({ target_company_id: targetId }),
-            });
-            setToast("Companies merged.");
-            await refreshWorkspaceData();
-          } catch (err) {
-            setToast(err instanceof Error ? err.message : "Merge failed");
-          }
-        }}
         allOpenTasks={openTasks}
         onAddBlocker={async (taskId, blockingTaskId) => {
           try {
@@ -4753,25 +4741,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             }
           } catch (err) {
             setToast(err instanceof Error ? err.message : "Could not set reminder");
-          }
-        }}
-        onCreateTaskForCompany={async (companyId, title, dueAt, assigneeId) => {
-          if (!workspaceId) return;
-          const body: Record<string, unknown> = { title, company_ids: [companyId] };
-          if (dueAt) body.due_at = dueAt;
-          if (assigneeId) {
-            body.person_ids = [assigneeId];
-            body.assignee_id = assigneeId;
-          }
-          try {
-            await api(`/api/workspaces/${workspaceId}/tasks`, { method: "POST", body: JSON.stringify(body) });
-            setToast("Task added.");
-            await refreshWorkspaceData();
-            if (selectedMemory?.sectionId === "companies" && selectedMemory.item?.id === companyId) {
-              await openMemoryItem("companies", selectedMemory.item);
-            }
-          } catch (err) {
-            setToast(err instanceof Error ? err.message : "Could not create task");
           }
         }}
       />
@@ -6376,13 +6345,11 @@ function MemoryDetailSheet({
   onOpenNote,
   onOpenProject,
   onOpenMemory,
-  onCreateTaskForCompany,
   onCreateReminder,
   onListTaskComments,
   onAddTaskComment,
   onEditTaskComment,
   onDeleteTaskComment,
-  onMergeCompany,
   allOpenTasks,
   onAddBlocker,
   onRemoveBlocker,
@@ -6403,19 +6370,16 @@ function MemoryDetailSheet({
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenProject: (projectId: string) => void;
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
-  onCreateTaskForCompany?: (companyId: string, title: string, dueAt: string | null, assigneeId: string | null) => Promise<void>;
   onCreateReminder?: (taskId: string, remindAt: string) => Promise<void>;
   onListTaskComments?: (taskId: string) => Promise<any[]>;
   onAddTaskComment?: (taskId: string, body: string) => Promise<any>;
   onEditTaskComment?: (commentId: string, body: string) => Promise<any>;
   onDeleteTaskComment?: (commentId: string) => Promise<void>;
-  onMergeCompany?: (sourceCompanyId: string, targetCompanyId: string) => Promise<void>;
   allOpenTasks?: any[];
   onAddBlocker?: (taskId: string, blockingTaskId: string) => Promise<void>;
   onRemoveBlocker?: (taskId: string, blockingTaskId: string) => Promise<void>;
   currentUserId?: string | null;
 }) {
-  const [mergeCompanyTargetId, setMergeCompanyTargetId] = useState("");
   const [newBlockerId, setNewBlockerId] = useState("");
   const sectionId = memory?.sectionId || "";
   const item = memory?.item || {};
@@ -6437,10 +6401,6 @@ function MemoryDetailSheet({
     return assigneePerson ? String(assigneePerson.id) : "";
   }, [item.assignee_id, item.people]);
   const [draftAssigneeId, setDraftAssigneeId] = useState<string>(initialAssignee);
-  const [companyQuickTaskTitle, setCompanyQuickTaskTitle] = useState("");
-  const [companyQuickTaskDue, setCompanyQuickTaskDue] = useState("");
-  const [companyQuickTaskAssignee, setCompanyQuickTaskAssignee] = useState("");
-  const [draftDomain, setDraftDomain] = useState<string>(String(item.domain || ""));
   useEffect(() => {
     setDraftTitle(title);
     setDraftBody(body);
@@ -6452,8 +6412,7 @@ function MemoryDetailSheet({
     setDraftPersonIds(relationIds(item.people));
     setDraftCompanyIds(relationIds(item.companies));
     setDraftAssigneeId(initialAssignee);
-    setDraftDomain(String(item.domain || ""));
-  }, [body, initialAssignee, item.companies, item.domain, item.due_at, item.id, item.occurred_at, item.people, item.priority, item.projects, item.recurrence, item.status, title]);
+  }, [body, initialAssignee, item.companies, item.due_at, item.id, item.occurred_at, item.people, item.priority, item.projects, item.recurrence, item.status, title]);
   if (!memory) return null;
   const projects = item.projects || [];
   const people = item.people || [];
@@ -6482,10 +6441,6 @@ function MemoryDetailSheet({
     const payload: Record<string, unknown> = {};
     if (sectionId === "workflows") payload.name = draftTitle.trim();
     else payload.title = draftTitle.trim();
-    if (sectionId === "companies") {
-      payload.description = draftBody || null;
-      payload.domain = draftDomain.trim() || null;
-    }
     if (sectionId === "tasks") {
       payload.description = draftBody || null;
       payload.due_at = eventDate(draftDate);
@@ -6529,7 +6484,6 @@ function MemoryDetailSheet({
     meetings: "Meeting/call",
     reports: "Report/brief",
     workflows: "Workflow",
-    companies: "Company",
   };
   const editableProjects = allProjects.filter((project) => project.kind !== "inbox");
   const editablePeople = allPeople.filter((person) => !person.clerk_user_id);
@@ -6605,15 +6559,6 @@ function MemoryDetailSheet({
             <input value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} aria-label="Memory title" />
             {(isTask || sectionId === "meetings") && (
               <input type="date" value={draftDate} onChange={(event) => setDraftDate(event.target.value)} aria-label="Memory date" />
-            )}
-            {sectionId === "companies" && (
-              <input
-                type="text"
-                value={draftDomain}
-                onChange={(event) => setDraftDomain(event.target.value)}
-                placeholder="Domain (e.g. northstar.example)"
-                aria-label="Company domain"
-              />
             )}
             {(isTask || sectionId === "reports" || sectionId === "workflows") && (
               <select value={draftStatus} onChange={(event) => setDraftStatus(event.target.value)} aria-label="Memory status">
@@ -6948,80 +6893,6 @@ function MemoryDetailSheet({
               );
             })}
           </div>
-        )}
-        {sectionId === "companies" && item.id && onCreateTaskForCompany && (
-          <div className="quick-task-row task-create-row" aria-label="Quick task for this company">
-            <input
-              value={companyQuickTaskTitle}
-              onChange={(event) => setCompanyQuickTaskTitle(event.target.value)}
-              placeholder={`Add a task for ${item.name || "this company"}`}
-              aria-label="Quick task title"
-            />
-            <input
-              type="date"
-              value={companyQuickTaskDue}
-              onChange={(event) => setCompanyQuickTaskDue(event.target.value)}
-              aria-label="Quick task due date"
-            />
-            <select
-              value={companyQuickTaskAssignee}
-              onChange={(event) => setCompanyQuickTaskAssignee(event.target.value)}
-              aria-label="Quick task assignee"
-            >
-              <option value="">No assignee</option>
-              {allPeople.filter((person) => !person.clerk_user_id).map((person) => (
-                <option key={person.id} value={person.id}>{person.name}</option>
-              ))}
-            </select>
-            <button
-              type="button"
-              disabled={!companyQuickTaskTitle.trim()}
-              onClick={async () => {
-                if (!onCreateTaskForCompany || !companyQuickTaskTitle.trim()) return;
-                await onCreateTaskForCompany(
-                  String(item.id),
-                  companyQuickTaskTitle.trim(),
-                  companyQuickTaskDue ? `${companyQuickTaskDue}T12:00:00` : null,
-                  companyQuickTaskAssignee || null,
-                );
-                setCompanyQuickTaskTitle("");
-                setCompanyQuickTaskDue("");
-                setCompanyQuickTaskAssignee("");
-              }}
-            >
-              <Plus size={16} /> Add task
-            </button>
-          </div>
-        )}
-        {sectionId === "companies" && item.id && onMergeCompany && allCompanies.length > 1 && (
-          <details className="company-merge">
-            <summary>Merge with another company…</summary>
-            <p>This collapses every link (people, projects, notes, tasks, meetings, reports, workflows) onto the chosen target. The current company is deleted.</p>
-            <div className="merge-row">
-              <select
-                value={mergeCompanyTargetId}
-                onChange={(event) => setMergeCompanyTargetId(event.target.value)}
-                aria-label="Merge target company"
-              >
-                <option value="">Choose target…</option>
-                {allCompanies
-                  .filter((c) => c.id !== item.id)
-                  .map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-              <button
-                type="button"
-                disabled={!mergeCompanyTargetId}
-                onClick={async () => {
-                  if (!onMergeCompany || !mergeCompanyTargetId) return;
-                  await onMergeCompany(String(item.id), mergeCompanyTargetId);
-                  setMergeCompanyTargetId("");
-                  onClose();
-                }}
-              >
-                Merge
-              </button>
-            </div>
-          </details>
         )}
         {!!tasks.length && (
           <div className="timeline-list">
