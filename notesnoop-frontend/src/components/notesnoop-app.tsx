@@ -102,7 +102,7 @@ type SearchFilters = {
 };
 
 type SearchScope = {
-  kind: "project" | "person";
+  kind: "project" | "person" | "company";
   id: string;
   label: string;
 };
@@ -626,6 +626,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       const params = new URLSearchParams({ q: nextQuery });
       if (scope?.kind === "project") params.set("project_id", scope.id);
       if (scope?.kind === "person") params.set("person_id", scope.id);
+      if (scope?.kind === "company") params.set("company_id", scope.id);
       if (scope?.kind !== "person" && filters.person_id) params.set("person_id", filters.person_id);
       if (filters.date_from) params.set("date_from", filters.date_from);
       if (filters.date_to) params.set("date_to", filters.date_to);
@@ -1638,6 +1639,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     if (personTimeline?.person?.id) {
       return { kind: "person", id: String(personTimeline.person.id), label: String(personTimeline.person.name || "Person") };
     }
+    if (companyTimeline?.company?.id) {
+      return { kind: "company", id: String(companyTimeline.company.id), label: String(companyTimeline.company.name || "Company") };
+    }
     return null;
   }
 
@@ -2503,9 +2507,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     ? home.recent_projects
     : (state?.projects || []).filter((project) => project.kind === "user");
   const dashboardPeople = home?.recent_people?.length ? home.recent_people : state?.people || [];
-  const dashboardTitle = searchScope ? `${searchScope.kind === "project" ? "Project" : "Person"} search` : "Workspace overview";
+  const dashboardScopeLabel = searchScope
+    ? searchScope.kind === "project" ? "Project" : searchScope.kind === "company" ? "Company" : "Person"
+    : "";
+  const dashboardTitle = searchScope ? `${dashboardScopeLabel} search` : "Workspace overview";
   const dashboardKicker = searchScope
-    ? `${searchScope.kind === "project" ? "Project" : "Person"} memory`
+    ? `${dashboardScopeLabel} memory`
     : "Workspace memory";
   const dashboardDescription = searchScope
     ? `Results are scoped to ${searchScope.label}. Clear the scope chip to search the whole workspace.`
@@ -2815,7 +2822,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     ? `Search memory in the ${searchPromptScope.name} project...`
     : searchPromptScope.kind === "person"
       ? `Search memory for ${searchPromptScope.name}...`
-      : "Search memory across workspace...";
+      : searchPromptScope.kind === "company"
+        ? `Search memory for the ${searchPromptScope.name} company...`
+        : "Search memory across workspace...";
 
   const composerRows = useMemo(() => {
     const minRows = quickCapture ? 9 : 5;
@@ -3219,9 +3228,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
           return (
             <div className="search-filter-row">
               {searchScope && (
-                <span className="search-scope-chip" aria-label={`${searchScope.kind === "project" ? "Project" : "Person"} search scope: ${searchScope.label}`}>
-                  {searchScope.kind === "project" ? <Archive size={15} /> : <UserRound size={15} />}
-                  {searchScope.kind === "project" ? "Project" : "Person"}: {searchScope.label}
+                <span className="search-scope-chip" aria-label={`${scopeKindLabel(searchScope.kind)} search scope: ${searchScope.label}`}>
+                  {searchScope.kind === "project" ? <Archive size={15} /> : searchScope.kind === "company" ? <Building2 size={15} /> : <UserRound size={15} />}
+                  {scopeKindLabel(searchScope.kind)}: {searchScope.label}
                   <button type="button" onClick={searchEntireWorkspace}>Search workspace</button>
                 </span>
               )}

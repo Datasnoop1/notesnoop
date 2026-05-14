@@ -881,6 +881,26 @@ describe("NoteSnoopApp", () => {
     expect(screen.getByLabelText("Current memory scope")).toHaveTextContent("Company: Northstar");
   });
 
+  it("scopes search to the company when searching from a company page", async () => {
+    const { calls } = installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByRole("region", { name: "Memory dashboard" });
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    fireEvent.click(await within(sidebar).findByRole("button", { name: /Open Northstar/i }));
+    await screen.findByRole("region", { name: "Company memory" });
+
+    fireEvent.change(
+      screen.getByPlaceholderText(/Search memory for the Northstar company/i),
+      { target: { value: "Apollo" } },
+    );
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.includes("/search?") && call.includes("company_id=company-1"))).toBe(true),
+    );
+    expect(await screen.findByText("Company: Northstar")).toBeInTheDocument();
+  });
+
   it("opens a project from a durable route and copies its link", async () => {
     const { calls } = installFetch();
     window.history.replaceState({}, "", "/projects/project-1?workspace_id=workspace-1");

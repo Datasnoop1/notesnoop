@@ -743,6 +743,14 @@ def _resolve_person_filter_id(cur, workspace_id: str, person_id: str) -> str:
     return normalized
 
 
+def _resolve_company_filter_id(cur, workspace_id: str, company_id: str) -> str:
+    normalized = _normalize_uuid_or_404(company_id, "Company not found")
+    company = one(cur, "SELECT id FROM companies WHERE id = %s AND workspace_id = %s", (normalized, workspace_id))
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return normalized
+
+
 def _normalize_project_ids_or_422(project_ids: list[str]) -> list[str]:
     normalized: list[str] = []
     for project_id in project_ids:
@@ -1474,6 +1482,7 @@ def search(
     q: str = "",
     project_id: str | None = None,
     person_id: str | None = None,
+    company_id: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     flagged_only: bool = False,
@@ -1489,6 +1498,8 @@ def search(
             project_id = _resolve_project_filter_id(cur, workspace_id, project_id)
         if person_id:
             person_id = _resolve_person_filter_id(cur, workspace_id, person_id)
+        if company_id:
+            company_id = _resolve_company_filter_id(cur, workspace_id, company_id)
         where_sql, where_params = _search_where(
             workspace_id,
             user.clerk_user_id,
@@ -1499,6 +1510,7 @@ def search(
             flagged_only,
             note_kind,
             include_archived,
+            company_id,
         )
         if not query:
             rows = many(
@@ -1544,7 +1556,7 @@ def search(
                 """,
                 tuple(where_params),
             )
-            memory_results = _memory_search_results(cur, workspace_id, query, project_id, person_id, include_archived)
+            memory_results = _memory_search_results(cur, workspace_id, query, project_id, person_id, include_archived, company_id)
     if not query:
         return {"data": rows, "meta": meta}
 
@@ -1566,6 +1578,7 @@ def search(
                 flagged_only,
                 note_kind,
                 include_archived,
+                company_id,
             )
             literal = vector_literal(query_embedding.vector)
             semantic_rows = many(
@@ -1592,6 +1605,7 @@ def search(
         "filters": {
             "project_id": project_id,
             "person_id": person_id,
+            "company_id": company_id,
             "date_from": date_from,
             "date_to": date_to,
             "flagged_only": flagged_only,
@@ -1673,10 +1687,12 @@ def _memory_search_results(
     project_id: str | None,
     person_id: str | None,
     include_archived: bool = False,
+    company_id: str | None = None,
 ) -> list[dict]:
     terms = _memory_query_terms(query)
     project_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.project_id = %s::uuid)"
     person_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.person_id = %s::uuid)"
+    company_filter = "%s::uuid IS NULL OR EXISTS (SELECT 1 FROM {link_table} link WHERE link.{id_column} = item.id AND link.company_id = %s::uuid)"
     searches = [
         (
             "task",
@@ -1686,6 +1702,7 @@ def _memory_search_results(
             "created_at",
             project_filter.format(link_table="task_projects", id_column="task_id"),
             person_filter.format(link_table="task_people", id_column="task_id"),
+            company_filter.format(link_table="task_companies", id_column="task_id"),
         ),
         (
             "meeting",
@@ -1695,6 +1712,7 @@ def _memory_search_results(
             "coalesce(occurred_at, created_at)",
             project_filter.format(link_table="meeting_projects", id_column="meeting_id"),
             person_filter.format(link_table="meeting_people", id_column="meeting_id"),
+            company_filter.format(link_table="meeting_companies", id_column="meeting_id"),
         ),
         (
             "report",
@@ -1704,6 +1722,7 @@ def _memory_search_results(
             "created_at",
             project_filter.format(link_table="report_projects", id_column="report_id"),
             person_filter.format(link_table="report_people", id_column="report_id"),
+            company_filter.format(link_table="report_companies", id_column="report_id"),
         ),
         (
             "workflow",
@@ -1713,6 +1732,7 @@ def _memory_search_results(
             "updated_at",
             project_filter.format(link_table="workflow_projects", id_column="workflow_id"),
             person_filter.format(link_table="workflow_people", id_column="workflow_id"),
+            company_filter.format(link_table="workflow_companies", id_column="workflow_id"),
         ),
         (
             "company",
@@ -1722,12 +1742,13 @@ def _memory_search_results(
             "updated_at",
             project_filter.format(link_table="company_projects", id_column="company_id"),
             person_filter.format(link_table="company_people", id_column="company_id"),
+            "%s::uuid IS NULL OR item.id = %s::uuid",
         ),
         # People and Projects are covered by dedicated query blocks below this
         # loop — don't duplicate them here.
     ]
     results: list[dict] = []
-    for kind, table, title_column, subtitle_column, sort_column, project_sql, person_sql in searches:
+    for kind, table, title_column, subtitle_column, sort_column, project_sql, person_sql, company_sql in searches:
         match_sql = _memory_match_sql("item", title_column=title_column, subtitle_column=subtitle_column, term_count=len(terms))
         match_params = [f"%{term}%" for term in terms for _ in range(2)]
         active_filter = "TRUE"
@@ -1749,10 +1770,11 @@ def _memory_search_results(
               AND {active_filter}
               AND ({project_sql})
               AND ({person_sql})
+              AND ({company_sql})
             ORDER BY {sort_column} DESC
             LIMIT 8
             """,
-            (kind, workspace_id, *match_params, project_id, project_id, person_id, person_id),
+            (kind, workspace_id, *match_params, project_id, project_id, person_id, person_id, company_id, company_id),
         )
         results.extend(rows)
 
@@ -1781,10 +1803,19 @@ def _memory_search_results(
                         AND np.project_id = %s::uuid
                     )
                   )
+                  AND (
+                    %s::uuid IS NULL
+                    OR EXISTS (
+                      SELECT 1
+                      FROM company_people cp
+                      WHERE cp.person_id = p.id
+                        AND cp.company_id = %s::uuid
+                    )
+                  )
                 ORDER BY p.created_at DESC
                 LIMIT 8
                 """,
-                (workspace_id, *person_match_params, project_id, project_id),
+                (workspace_id, *person_match_params, project_id, project_id, company_id, company_id),
             )
         )
 
@@ -1804,10 +1835,19 @@ def _memory_search_results(
               AND p.kind <> 'personal'
               AND ({project_match_sql})
               AND (%s::uuid IS NULL OR p.id = %s::uuid)
+              AND (
+                %s::uuid IS NULL
+                OR EXISTS (
+                  SELECT 1
+                  FROM company_projects cp
+                  WHERE cp.project_id = p.id
+                    AND cp.company_id = %s::uuid
+                )
+              )
             ORDER BY p.created_at DESC
             LIMIT 8
             """,
-            (workspace_id, *project_match_params, project_id, project_id),
+            (workspace_id, *project_match_params, project_id, project_id, company_id, company_id),
         )
     )
     results.sort(key=lambda row: str(row.get("sort_at") or ""), reverse=True)
@@ -1900,6 +1940,7 @@ def _search_where(
     flagged_only: bool,
     note_kind: str | None = None,
     include_archived: bool = False,
+    company_id: str | None = None,
 ) -> tuple[str, list]:
     clauses = ["n.workspace_id = %s"]
     params: list = [workspace_id]
@@ -1921,6 +1962,9 @@ def _search_where(
             """
         )
         params.append(person_id)
+    if company_id:
+        clauses.append("EXISTS (SELECT 1 FROM company_notes cn WHERE cn.note_id = n.id AND cn.company_id = %s)")
+        params.append(company_id)
     if date_from:
         clauses.append("coalesce(n.occurred_at, n.created_at) >= %s::timestamptz")
         params.append(date_from)
