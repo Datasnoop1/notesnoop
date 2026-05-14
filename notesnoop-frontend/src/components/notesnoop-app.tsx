@@ -2331,7 +2331,6 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     openProject(project).catch((err) => setToast(err.message));
   }, [landingProjectId, openProject, state?.projects]);
 
-  const activeProjectRecord = state?.projects.find((project) => project.id === activeProject) || null;
   const projectOpenTaskCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const task of (home?.open_tasks || []) as any[]) {
@@ -2627,11 +2626,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       || reportsBriefs.length
       || workflows.length
       || companies.length
-      || hasProjectIntelligence
-      || activeProjectRecord,
+      || hasProjectIntelligence,
   );
   const hasRelationshipContext = Boolean(hasCapturedNotes || openTasks.length || meetingsCalls.length || reportsBriefs.length);
-  const showAskMemory = !showFirstCapture && Boolean(hasCapturedNotes || activeProjectRecord);
+  const showAskMemory = !showFirstCapture && Boolean(hasCapturedNotes);
   const showMetricRail = !showFirstCapture && Boolean(
     dashboardReviewCount
       || dashboardNotes.length
@@ -2648,7 +2646,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     actionablePipelineTotal || pipelineRecentReceived.length || pipelineRecentFailed.length,
   );
   const showActiveWorkPanel = !showFirstCapture && hasActiveWorkItems;
-  const showProjectsPanel = !showFirstCapture && Boolean(activeProjectRecord || (dashboardProjects.length && hasRelationshipContext));
+  const showProjectsPanel = !showFirstCapture && Boolean(dashboardProjects.length && hasRelationshipContext);
   const showPeoplePanel = !showFirstCapture && Boolean(dashboardPeople.length && hasRelationshipContext);
   const showRecentMemoryPanel = !showFirstCapture && dashboardNotes.length > 0;
   const showLooseEndsPanel = !showFirstCapture && looseEndsTotal > 0;
