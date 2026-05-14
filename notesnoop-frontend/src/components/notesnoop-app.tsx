@@ -508,16 +508,19 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
 
   const api = useCallback(
     async (path: string, init: RequestInit = {}) => {
-      const token = isSignedIn ? await getToken() : null;
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...(init.headers as Record<string, string> | undefined),
       };
-      if (token) headers.Authorization = `Bearer ${token}`;
-      if (DEV_AUTH && !token) {
+      if (DEV_AUTH) {
+        // Dev-auth backends ignore Authorization entirely and require the dev
+        // headers, so never send a Clerk token here even if a stale session exists.
         headers["x-notesnoop-user-id"] = "dev_user";
         headers["x-notesnoop-email"] = "dev@example.test";
         headers["x-notesnoop-name"] = "Dev User";
+      } else if (isSignedIn) {
+        const token = await getToken();
+        if (token) headers.Authorization = `Bearer ${token}`;
       }
       const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
       if (!res.ok) {
@@ -905,13 +908,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     const controller = new AbortController();
     let cancelled = false;
     async function connect() {
-      const token = isSignedIn ? await getToken() : null;
       const headers: Record<string, string> = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
-      if (DEV_AUTH && !token) {
+      if (DEV_AUTH) {
         headers["x-notesnoop-user-id"] = "dev_user";
         headers["x-notesnoop-email"] = "dev@example.test";
         headers["x-notesnoop-name"] = "Dev User";
+      } else if (isSignedIn) {
+        const token = await getToken();
+        if (token) headers.Authorization = `Bearer ${token}`;
       }
       const response = await fetch(`${API_BASE}/api/events/${workspaceId}`, { headers, signal: controller.signal });
       if (!response.body) return;

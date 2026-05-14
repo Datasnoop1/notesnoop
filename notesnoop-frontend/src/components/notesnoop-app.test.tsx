@@ -455,6 +455,20 @@ describe("NoteSnoopApp", () => {
     });
   });
 
+  it("sends a Clerk bearer token without dev-auth headers when signed in", async () => {
+    const { fetchMock } = installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByRole("region", { name: "Memory dashboard" });
+    const meCall = fetchMock.mock.calls.find(([input]) => String(input).includes("/api/me"));
+    const headers = (meCall?.[1]?.headers || {}) as Record<string, string>;
+    // signed in via Clerk: bearer token is sent and the dev-auth header is NOT
+    // (the two auth modes are mutually exclusive so a dev-auth backend never
+    // receives a token it can't honour, and vice versa)
+    expect(headers.Authorization).toBe("Bearer test-token");
+    expect(headers["x-notesnoop-user-id"]).toBeUndefined();
+  });
+
   it("renders dashboard-first workspace data and toggles Morning briefing", async () => {
     const { calls, fetchMock } = installFetch();
     render(<NoteSnoopApp quickCapture={false} />);
