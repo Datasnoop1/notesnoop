@@ -104,6 +104,34 @@ const projectTimeline = {
   people: [{ ...people[0], mention_count: 1 }],
   notes: [{ ...note, created_at: "2026-05-09T08:00:00Z" }],
 };
+const companyTimeline = {
+  company: { id: "company-1", name: "Northstar", domain: "northstar.example" },
+  profile: {
+    headline: "Northstar company memory",
+    last_touch_at: "2026-05-10T09:00:00Z",
+    memory_count: 3,
+    open_loop_count: 1,
+    blocked_count: 0,
+    people_count: 1,
+    project_count: 1,
+    meeting_count: 1,
+    report_count: 0,
+    workflow_count: 0,
+    next_action: "Send Apollo follow-up",
+    top_projects: ["Apollo"],
+  },
+  events: [
+    { id: "meeting-1", kind: "meeting", section_id: "meetings", title: "Morgan kickoff call", subtitle: "Discussed Apollo timeline.", event_at: "2026-05-10T09:00:00Z" },
+    { id: "note-1", note_id: "note-1", kind: "note", section_id: "notes", title: "Apollo update", subtitle: "Morgan mentioned Apollo follow-up.", status: "email", event_at: "2026-05-09T08:00:00Z" },
+  ],
+  notes: [{ ...note, created_at: "2026-05-09T08:00:00Z" }],
+  people: [{ ...people[0], role: "Sponsor" }],
+  projects: [projects[2]],
+  tasks: [{ id: "task-1", title: "Send Apollo follow-up", status: "todo" }],
+  meetings: [{ id: "meeting-1", title: "Morgan kickoff call" }],
+  reports: [],
+  workflows: [],
+};
 
 function json(data: unknown) {
   return new Response(JSON.stringify(data), { status: 200, headers: { "Content-Type": "application/json" } });
@@ -314,6 +342,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
       });
     }
     if (url.includes("/api/projects/project-1/timeline")) return json({ data: responseProjectTimeline });
+    if (url.includes("/api/companies/company-1/timeline")) return json({ data: companyTimeline });
     if (url.includes("/api/projects/project-created/timeline")) {
       return json({
         data: {
@@ -830,6 +859,26 @@ describe("NoteSnoopApp", () => {
     expect(
       within(scopedProject).getByText(/Capture a note tagged to this project/i),
     ).toBeInTheDocument();
+  });
+
+  it("opens a company as a full scoped memory page with related memory", async () => {
+    installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    await screen.findByRole("region", { name: "Memory dashboard" });
+    const sidebar = document.querySelector(".sidebar") as HTMLElement;
+    fireEvent.click(await within(sidebar).findByRole("button", { name: /Open Northstar/i }));
+
+    const scopedCompany = await screen.findByRole("region", { name: "Company memory" });
+    expect(within(scopedCompany).getByRole("heading", { name: "Northstar" })).toBeInTheDocument();
+    expect(within(scopedCompany).getByText("Company profile")).toBeInTheDocument();
+    expect(within(scopedCompany).getByText("Interaction history")).toBeInTheDocument();
+    // related memory: linked people and projects render in mini-sections
+    expect(within(scopedCompany).getByText("Morgan Lee - Sponsor")).toBeInTheDocument();
+    expect(within(scopedCompany).getAllByText("Apollo").length).toBeGreaterThan(0);
+    // the workspace dashboard is replaced by the scoped view
+    expect(screen.queryByRole("region", { name: "Memory dashboard" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Current memory scope")).toHaveTextContent("Company: Northstar");
   });
 
   it("opens a project from a durable route and copies its link", async () => {

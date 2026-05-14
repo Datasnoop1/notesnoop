@@ -292,6 +292,124 @@ def project_timeline(project_id: str, user: CurrentUser = Depends(current_user))
         }
 
 
+@router.get("/companies/{company_id}/timeline")
+def company_timeline(company_id: str, user: CurrentUser = Depends(current_user)):
+    with transaction(user.clerk_user_id) as cur:
+        company = one(cur, "SELECT * FROM companies WHERE id = %s", (company_id,))
+        if not company:
+            raise HTTPException(status_code=404, detail="Company not found")
+        notes = many(
+            cur,
+            """
+            SELECT n.*
+            FROM notes n
+            JOIN company_notes cn ON cn.note_id = n.id
+            WHERE cn.company_id = %s
+            ORDER BY coalesce(n.occurred_at, n.created_at) DESC
+            """,
+            (company_id,),
+        )
+        people = many(
+            cur,
+            """
+            SELECT p.*, cp.role
+            FROM people p
+            JOIN company_people cp ON cp.person_id = p.id
+            WHERE cp.company_id = %s
+            ORDER BY p.name
+            """,
+            (company_id,),
+        )
+        projects = many(
+            cur,
+            """
+            SELECT p.*
+            FROM projects p
+            JOIN company_projects cp ON cp.project_id = p.id
+            WHERE cp.company_id = %s
+            ORDER BY p.name
+            """,
+            (company_id,),
+        )
+        tasks = many(
+            cur,
+            """
+            SELECT t.*,
+                   min(pe.name) AS assignee_name,
+                   min(pe.id::text) AS assignee_id,
+                   coalesce((SELECT count(*)::int FROM task_comments tcc WHERE tcc.task_id = t.id), 0) AS comment_count
+            FROM tasks t
+            JOIN task_companies tc ON tc.task_id = t.id
+            LEFT JOIN task_people tpe ON tpe.task_id = t.id AND tpe.relation = 'assignee'
+            LEFT JOIN people pe ON pe.id = tpe.person_id
+            WHERE tc.company_id = %s
+              AND t.status <> 'archived'
+            GROUP BY t.id
+            ORDER BY
+              CASE t.status WHEN 'blocked' THEN 1 WHEN 'doing' THEN 2 WHEN 'todo' THEN 3 WHEN 'done' THEN 4 ELSE 5 END,
+              t.due_at NULLS LAST,
+              t.created_at DESC
+            LIMIT 15
+            """,
+            (company_id,),
+        )
+        meetings = many(
+            cur,
+            """
+            SELECT m.*
+            FROM meetings m
+            JOIN meeting_companies mc ON mc.meeting_id = m.id
+            WHERE mc.company_id = %s
+            ORDER BY coalesce(m.occurred_at, m.created_at) DESC
+            LIMIT 10
+            """,
+            (company_id,),
+        )
+        reports = many(
+            cur,
+            """
+            SELECT r.*
+            FROM reports r
+            JOIN report_companies rc ON rc.report_id = r.id
+            WHERE rc.company_id = %s
+            ORDER BY r.created_at DESC
+            LIMIT 10
+            """,
+            (company_id,),
+        )
+        workflows = many(
+            cur,
+            """
+            SELECT w.*,
+                   count(DISTINCT wt.task_id) AS task_count
+            FROM workflows w
+            JOIN workflow_companies wc ON wc.workflow_id = w.id
+            LEFT JOIN workflow_tasks wt ON wt.workflow_id = w.id
+            WHERE wc.company_id = %s
+            GROUP BY w.id
+            ORDER BY w.updated_at DESC
+            LIMIT 10
+            """,
+            (company_id,),
+        )
+        events = _timeline_events(notes=notes, tasks=tasks, meetings=meetings, reports=reports, workflows=workflows)
+        profile = _company_memory_profile(company, notes, people, projects, tasks, meetings, reports, workflows)
+        return {
+            "data": {
+                "company": company,
+                "profile": profile,
+                "events": events,
+                "notes": notes,
+                "people": people,
+                "projects": projects,
+                "tasks": tasks,
+                "meetings": meetings,
+                "reports": reports,
+                "workflows": workflows,
+            }
+        }
+
+
 @router.get("/briefs/{kind}/{entity_id}")
 def copy_brief(kind: str, entity_id: str, variant: str = "quick", user: CurrentUser = Depends(current_user)):
     if kind not in {"note", "person", "project", "task", "meeting", "report", "workflow", "company"}:
@@ -1431,6 +1549,35 @@ def _project_memory_profile(
         "workflow_count": len(workflows),
         "companies": [company.get("name") for company in companies[:4] if company.get("name")],
         "next_action": open_tasks[0].get("title") if open_tasks else None,
+    }
+
+
+def _company_memory_profile(
+    company: dict,
+    notes: list[dict],
+    people: list[dict],
+    projects: list[dict],
+    tasks: list[dict],
+    meetings: list[dict],
+    reports: list[dict],
+    workflows: list[dict],
+) -> dict:
+    open_tasks = [task for task in tasks if task.get("status") not in {"done", "archived"}]
+    blocked_tasks = [task for task in open_tasks if task.get("status") == "blocked"]
+    last_touch = _latest_timestamp([*notes, *meetings, *reports], "occurred_at", "created_at")
+    return {
+        "headline": f"{company.get('name')} company memory",
+        "last_touch_at": last_touch,
+        "memory_count": len(notes) + len(tasks) + len(meetings) + len(reports) + len(workflows),
+        "open_loop_count": len(open_tasks),
+        "blocked_count": len(blocked_tasks),
+        "people_count": len(people),
+        "project_count": len(projects),
+        "meeting_count": len(meetings),
+        "report_count": len(reports),
+        "workflow_count": len(workflows),
+        "next_action": open_tasks[0].get("title") if open_tasks else None,
+        "top_projects": [project.get("name") for project in projects[:4] if project.get("name")],
     }
 
 

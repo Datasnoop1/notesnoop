@@ -418,7 +418,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const [activeProject, setActiveProject] = useState<string | null>(null);
   const [personTimeline, setPersonTimeline] = useState<any | null>(null);
   const [projectTimeline, setProjectTimeline] = useState<any | null>(null);
-  const [pendingScopedView, setPendingScopedView] = useState<{ kind: "person" | "project"; id: string; name: string } | null>(null);
+  const [companyTimeline, setCompanyTimeline] = useState<any | null>(null);
+  const [pendingScopedView, setPendingScopedView] = useState<{ kind: "person" | "project" | "company"; id: string; name: string } | null>(null);
   const [activity, setActivity] = useState<any[]>([]);
   const [reviewCount, setReviewCount] = useState(0);
   const [mergeUndoId, setMergeUndoId] = useState("");
@@ -484,6 +485,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const composerBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const appliedRouteRef = useRef("");
   const openProjectRef = useRef<((project: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
+  const openCompanyRef = useRef<((company: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
   const openMemoryItemRef = useRef<((sectionId: string, item: any, options?: { push?: boolean }) => Promise<void>) | null>(null);
   const workspaceIdRef = useRef<string | null>(null);
   const activeProjectRef = useRef<string | null>(null);
@@ -579,7 +581,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const activityByProject = useMemo(() => new Map(activity.map((item) => [item.project_id, item])), [activity]);
   const seededPeople = useMemo(() => (state?.people || []).filter((person) => !person.clerk_user_id), [state]);
   const hasCapturedNotes = notes.length > 0 || Boolean(home?.recent_notes?.length);
-  const showFirstCapture = !quickCapture && !!state?.workspace && home !== null && !activeProject && !pendingScopedView && !personTimeline && !projectTimeline && !hasCapturedNotes && !firstCaptureDismissed;
+  const showFirstCapture = !quickCapture && !!state?.workspace && home !== null && !activeProject && !pendingScopedView && !personTimeline && !projectTimeline && !companyTimeline && !hasCapturedNotes && !firstCaptureDismissed;
   const showWarmStart = showFirstCapture && !warmStartDismissed && seededPeople.length < 2;
   const selectedNoteIsFirstCapture = Boolean(
     selectedNote?.id && firstCaptureNoteId && String(selectedNote.id) === firstCaptureNoteId,
@@ -1344,6 +1346,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       if (project) await openProjectRef.current?.(project);
       return;
     }
+    if (sectionId === "companies") {
+      await openCompanyRef.current?.(item, options);
+      return;
+    }
     const routeTargetForItem = memoryRouteTarget(sectionId, item);
     const query = activeProject ? `?project_id=${activeProject}` : "";
     const endpointBySection: Record<string, string> = {
@@ -1676,7 +1682,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     } else if (!nextQuery.trim()) {
       setSearchScope(null);
     }
-    if (nextQuery.trim() && (pendingScopedView || personTimeline || projectTimeline || activeProject || routeTarget.kind !== "dashboard")) {
+    if (nextQuery.trim() && (pendingScopedView || personTimeline || projectTimeline || companyTimeline || activeProject || routeTarget.kind !== "dashboard")) {
       openDashboard({ preserveSearchScope: Boolean(nextSearchScope) });
     }
     clearSearchDebounce();
@@ -1748,6 +1754,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setSelectedProjectIds([]);
     setPersonTimeline(null);
     setProjectTimeline(null);
+    setCompanyTimeline(null);
     clearNoteSheetState();
     setSelectedMemory(null);
     if (!options.preserveSearchScope) setSearchScope(null);
@@ -1768,6 +1775,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setSelectedProjectIds([]);
     setPersonTimeline(null);
     setProjectTimeline(null);
+    setCompanyTimeline(null);
     setSelectedMemory(null);
     let res: any;
     try {
@@ -1779,6 +1787,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         setSelectedProjectIds([]);
         setPersonTimeline(null);
         setProjectTimeline(null);
+        setCompanyTimeline(null);
         clearNoteSheetState();
         setSelectedMemory(null);
         setMobileNav(false);
@@ -1825,6 +1834,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setSearchScope(null);
     setProjectTimeline(null);
     setPersonTimeline(null);
+    setCompanyTimeline(null);
     let res: any;
     try {
       res = await api(`/api/people/${person.id}/timeline`);
@@ -1835,6 +1845,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         setSelectedProjectIds([]);
         setPersonTimeline(null);
         setProjectTimeline(null);
+        setCompanyTimeline(null);
         clearNoteSheetState();
         setSelectedMemory(null);
         setMobileNav(false);
@@ -1858,6 +1869,56 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     setMobileNav(false);
   }, [api, clearNoteSheetState, setActiveProjectScope, writeAppRoute]);
 
+  const openCompany = useCallback(async (company: any, options: { push?: boolean } = {}) => {
+    const requestId = timelineRequestRef.current + 1;
+    timelineRequestRef.current = requestId;
+    setMobileNav(false);
+    setPendingScopedView({ kind: "company", id: String(company.id), name: String(company.name || company.title || "Company") });
+    setSearchScope(null);
+    setActiveProjectScope(null);
+    setSelectedProjectIds([]);
+    setProjectTimeline(null);
+    setPersonTimeline(null);
+    setCompanyTimeline(null);
+    setSelectedMemory(null);
+    let res: any;
+    try {
+      res = await api(`/api/companies/${company.id}/timeline`);
+    } catch (err) {
+      if (timelineRequestRef.current === requestId) {
+        setPendingScopedView(null);
+        setActiveProjectScope(null);
+        setSelectedProjectIds([]);
+        setPersonTimeline(null);
+        setProjectTimeline(null);
+        setCompanyTimeline(null);
+        clearNoteSheetState();
+        setSelectedMemory(null);
+        setMobileNav(false);
+        const target = { kind: "dashboard" } as const;
+        appliedRouteRef.current = routeKey(target);
+        setRouteTarget(target);
+        writeAppRoute(target);
+        setToast(err instanceof Error ? err.message : "Could not open company");
+      }
+      throw err;
+    }
+    if (timelineRequestRef.current !== requestId) return;
+    setPendingScopedView(null);
+    setCompanyTimeline(res.data);
+    const target = { kind: "company", id: company.id } as const;
+    if (options.push !== false) {
+      appliedRouteRef.current = routeKey(target);
+      setRouteTarget(target);
+      writeAppRoute(target);
+    }
+    setMobileNav(false);
+  }, [api, clearNoteSheetState, setActiveProjectScope, writeAppRoute]);
+
+  useEffect(() => {
+    openCompanyRef.current = openCompany;
+  }, [openCompany]);
+
   async function closePersonTimeline() {
     setPersonTimeline(null);
     if (activeProject) {
@@ -1871,6 +1932,10 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   }
 
   function closeProjectTimeline() {
+    openDashboard();
+  }
+
+  function closeCompanyTimeline() {
     openDashboard();
   }
 
@@ -2094,6 +2159,59 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
+  async function renameCompany(companyId: string, nextName: string) {
+    if (!nextName.trim()) return;
+    try {
+      const res = await api(`/api/companies/${companyId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: nextName.trim() }),
+      });
+      setToast("Company renamed.");
+      await refreshWorkspaceData();
+      if (companyTimeline?.company?.id === companyId) {
+        await openCompany(res.data || companyTimeline.company);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not rename company");
+    }
+  }
+
+  async function updateCompanyProfile(companyId: string, updates: { domain?: string | null; description?: string | null }) {
+    try {
+      const res = await api(`/api/companies/${companyId}`, {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      });
+      setToast("Company updated.");
+      await refreshWorkspaceData();
+      if (companyTimeline?.company?.id === companyId) {
+        await openCompany(res.data || companyTimeline.company);
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Could not update company");
+    }
+  }
+
+  async function mergeCompany(sourceCompanyId: string, targetCompanyId: string) {
+    try {
+      const res = await api(`/api/companies/${sourceCompanyId}/merge`, {
+        method: "POST",
+        body: JSON.stringify({ target_company_id: targetCompanyId }),
+      });
+      setToast("Companies merged.");
+      const targetCompany = res?.data?.target_company
+        || (companies || []).find((company: any) => company.id === targetCompanyId);
+      await refreshWorkspaceData();
+      if (targetCompany) {
+        await openCompany(targetCompany);
+      } else {
+        openDashboard();
+      }
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : "Merge failed");
+    }
+  }
+
   async function setProjectStatus(
     projectId: string,
     status: "active" | "closed",
@@ -2179,11 +2297,12 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
     }
   }
 
-  async function createTaskForAnchor(input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null }) {
+  async function createTaskForAnchor(input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null; company_id?: string | null }) {
     if (!workspaceId || !input.title.trim()) return;
     const body: Record<string, unknown> = { title: input.title.trim() };
     if (input.due_at) body.due_at = input.due_at;
     if (input.project_id) body.project_ids = [input.project_id];
+    if (input.company_id) body.company_ids = [input.company_id];
     if (input.assignee_id) {
       body.person_ids = [input.assignee_id];
       body.assignee_id = input.assignee_id;
@@ -2197,6 +2316,9 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       }
       if (personTimeline && input.assignee_id === personTimeline.person?.id) {
         await openPerson(personTimeline.person);
+      }
+      if (companyTimeline && input.company_id === companyTimeline.company?.id) {
+        await openCompany(companyTimeline.company);
       }
     } catch (err) {
       setToast(err instanceof Error ? err.message : "Could not create task");
@@ -2650,7 +2772,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
   const showPeoplePanel = !showFirstCapture && Boolean(dashboardPeople.length && hasRelationshipContext);
   const showRecentMemoryPanel = !showFirstCapture && dashboardNotes.length > 0;
   const showLooseEndsPanel = !showFirstCapture && looseEndsTotal > 0;
-  const isScopedEntityView = Boolean(pendingScopedView || personTimeline || projectTimeline);
+  const isScopedEntityView = Boolean(pendingScopedView || personTimeline || projectTimeline || companyTimeline);
   const hasDashboardActivity = Boolean(
     activity.length
       || Object.values(home?.today_counts || {}).some((value) => Number(value || 0) > 0)
@@ -2661,12 +2783,14 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       || hasDashboardActivity,
   );
   const showExplorerGrid = !isScopedEntityView && Boolean(query.trim());
-  const workspaceNavActive = !activeProject && !pendingScopedView && !personTimeline && !projectTimeline && !searchScope;
+  const workspaceNavActive = !activeProject && !pendingScopedView && !personTimeline && !projectTimeline && !companyTimeline && !searchScope;
+  const scopeKindLabel = (kind: "project" | "person" | "company") =>
+    kind === "project" ? "Project" : kind === "person" ? "Person" : "Company";
   const activeTopbarScope = (() => {
     if (pendingScopedView) {
       return {
         kind: pendingScopedView.kind,
-        label: `${pendingScopedView.kind === "project" ? "Project" : "Person"}: ${pendingScopedView.name}`,
+        label: `${scopeKindLabel(pendingScopedView.kind)}: ${pendingScopedView.name}`,
         name: pendingScopedView.name,
       };
     }
@@ -2678,16 +2802,20 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
       const name = String(personTimeline.person.name || "Person");
       return { kind: "person" as const, label: `Person: ${name}`, name };
     }
+    if (companyTimeline?.company?.id) {
+      const name = String(companyTimeline.company.name || "Company");
+      return { kind: "company" as const, label: `Company: ${name}`, name };
+    }
     return null;
   })();
   const searchPromptScope = activeTopbarScope || (searchScope
     ? { kind: searchScope.kind, name: searchScope.label }
     : { kind: "workspace" as const, name: String(state?.workspace?.name || "Workspace") });
-  const searchPlaceholder = searchPromptScope.kind === "workspace"
-    ? "Search memory across workspace..."
-    : searchPromptScope.kind === "project"
-      ? `Search memory in the ${searchPromptScope.name} project...`
-      : `Search memory for ${searchPromptScope.name}...`;
+  const searchPlaceholder = searchPromptScope.kind === "project"
+    ? `Search memory in the ${searchPromptScope.name} project...`
+    : searchPromptScope.kind === "person"
+      ? `Search memory for ${searchPromptScope.name}...`
+      : "Search memory across workspace...";
 
   const composerRows = useMemo(() => {
     const minRows = quickCapture ? 9 : 5;
@@ -4259,11 +4387,11 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         ) : null}
 
         {!quickCapture && pendingScopedView && (
-          <section className="scoped-memory-view scoped-memory-loading" aria-label={`${pendingScopedView.kind === "project" ? "Project" : "Person"} memory loading`}>
+          <section className="scoped-memory-view scoped-memory-loading" aria-label={`${scopeKindLabel(pendingScopedView.kind)} memory loading`}>
             <div className="scoped-head">
               <span>
-                {pendingScopedView.kind === "project" ? <Archive size={16} /> : <UserRound size={16} />}
-                {pendingScopedView.kind === "project" ? "Project memory" : "Person memory"}
+                {pendingScopedView.kind === "project" ? <Archive size={16} /> : pendingScopedView.kind === "company" ? <Building2 size={16} /> : <UserRound size={16} />}
+                {scopeKindLabel(pendingScopedView.kind)} memory
               </span>
               <h1>{pendingScopedView.name}</h1>
               <p>Loading only the memory linked to this {pendingScopedView.kind}.</p>
@@ -4325,6 +4453,33 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               onSetProjectStatus={projectTimeline.project?.kind === "user" ? (status) => setProjectStatus(projectTimeline.project.id, status) : undefined}
               onUpdateProjectDescription={projectTimeline.project?.kind === "user" ? (desc) => updateProjectDescription(projectTimeline.project.id, desc) : undefined}
               onBack={closeProjectTimeline}
+            />
+          </section>
+        )}
+
+        {!quickCapture && companyTimeline && (
+          <section className="scoped-memory-view" aria-label="Company memory">
+            <div className="scoped-head">
+              <span><Building2 size={16} /> Company memory</span>
+              <h1>{companyTimeline.company?.name || "Company"}</h1>
+              <p>Only memory linked to this company: people, projects, open loops, meetings, reports, and notes.</p>
+            </div>
+            <TimelinePanel
+              timeline={companyTimeline}
+              kind="company"
+              people={state?.people || []}
+              projects={state?.projects || []}
+              companies={companies}
+              onOpenNote={openNote}
+              onOpenMemory={openMemoryItem}
+              onCopy={() => copyBrief("company", companyTimeline.company)}
+              onCopyLink={() => copyRouteLink({ kind: "company", id: companyTimeline.company.id }, "Company")}
+              onMerge={mergePerson}
+              onMergeCompany={mergeCompany}
+              onCreateTask={createTaskForAnchor}
+              onRename={(next) => renameCompany(companyTimeline.company.id, next)}
+              onUpdateCompanyProfile={(updates) => updateCompanyProfile(companyTimeline.company.id, updates)}
+              onBack={closeCompanyTimeline}
             />
           </section>
         )}
@@ -6014,6 +6169,63 @@ function ProjectDescriptionEditor({
   );
 }
 
+function CompanyProfileEditor({
+  company,
+  onSave,
+}: {
+  company: any;
+  onSave: (updates: { domain?: string | null; description?: string | null }) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [domain, setDomain] = useState(String(company.domain || ""));
+  const [description, setDescription] = useState(String(company.description || ""));
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    setDomain(String(company.domain || ""));
+    setDescription(String(company.description || ""));
+  }, [company.id, company.domain, company.description]);
+
+  if (!editing) {
+    const hasProfile = company.domain || company.description;
+    return (
+      <div className="person-contact-display">
+        {hasProfile ? (
+          <dl>
+            {company.domain && <><dt>Domain</dt><dd>{company.domain}</dd></>}
+            {company.description && <><dt>About</dt><dd>{company.description}</dd></>}
+          </dl>
+        ) : (
+          <p className="muted">No domain or description yet.</p>
+        )}
+        <button type="button" className="person-contact-edit-btn" onClick={() => setEditing(true)}>
+          <Settings size={13} /> Edit company
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="person-contact-editor"
+      onSubmit={(event) => {
+        event.preventDefault();
+        setSaving(true);
+        onSave({ domain: domain.trim() || null, description: description.trim() || null }).finally(() => {
+          setSaving(false);
+          setEditing(false);
+        });
+      }}
+    >
+      <label>Domain<input value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="e.g. northstar.example" /></label>
+      <label>About<textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="What this company is, the relationship, why it matters." /></label>
+      <div className="person-contact-actions">
+        <button type="button" onClick={() => { setEditing(false); setDomain(String(company.domain || "")); setDescription(String(company.description || "")); }}>Cancel</button>
+        <button type="submit" disabled={saving}>Save</button>
+      </div>
+    </form>
+  );
+}
+
 function PersonContactEditor({
   person,
   onSave,
@@ -7045,6 +7257,7 @@ function TimelinePanel({
   kind,
   people,
   projects,
+  companies = [],
   onOpenNote,
   onOpenMemory,
   onCopy,
@@ -7052,6 +7265,7 @@ function TimelinePanel({
   onFlag,
   onMerge,
   onMergeProject,
+  onMergeCompany,
   onCreateTask,
   onRename,
   inviteEmail = "",
@@ -7062,23 +7276,27 @@ function TimelinePanel({
   onSetProjectStatus,
   onUpdateProjectDescription,
   onUpdateProfile,
+  onUpdateCompanyProfile,
 }: {
   timeline: any;
-  kind: "person" | "project";
+  kind: "person" | "project" | "company";
   people: any[];
   projects: any[];
+  companies?: any[];
   onOpenNote: (noteId: string) => Promise<void>;
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
   onCopy: () => void;
   onCopyLink: () => void;
-  onFlag: () => void;
+  onFlag?: () => void;
   onMerge: (sourcePersonId: string, targetPersonId: string) => Promise<void>;
   onMergeProject?: (sourceProjectId: string, targetProjectId: string) => Promise<void>;
-  onCreateTask?: (input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null }) => Promise<void>;
+  onMergeCompany?: (sourceCompanyId: string, targetCompanyId: string) => Promise<void>;
+  onCreateTask?: (input: { title: string; due_at?: string | null; project_id?: string | null; assignee_id?: string | null; company_id?: string | null }) => Promise<void>;
   onRename?: (nextName: string) => Promise<void>;
   onSetProjectStatus?: (status: "active" | "closed") => Promise<void>;
   onUpdateProjectDescription?: (description: string | null) => Promise<void>;
   onUpdateProfile?: (updates: Record<string, string | null>) => Promise<void>;
+  onUpdateCompanyProfile?: (updates: { domain?: string | null; description?: string | null }) => Promise<void>;
   inviteEmail?: string;
   onInviteEmailChange?: (email: string) => void;
   onInvite?: (project: any, email: string) => Promise<void>;
@@ -7090,7 +7308,9 @@ function TimelinePanel({
   const [quickTaskDue, setQuickTaskDue] = useState("");
   const [quickTaskAssignee, setQuickTaskAssignee] = useState("");
   const [personTaskFilter, setPersonTaskFilter] = useState<"all" | "owner" | "watcher">("all");
-  const timelineEntityId = String(kind === "project" ? timeline.project?.id : timeline.person?.id || "");
+  const timelineEntityId = String(
+    (kind === "project" ? timeline.project?.id : kind === "company" ? timeline.company?.id : timeline.person?.id) || "",
+  );
   useEffect(() => {
     setMergeTargetId("");
   }, [kind, timelineEntityId]);
@@ -7131,19 +7351,33 @@ function TimelinePanel({
         ["Meetings", profile.meeting_count],
         ["Reports", profile.report_count],
       ]
-    : [
-        ["Open loops", profile.open_loop_count],
-        ["Blocked", profile.blocked_count],
-        ["Projects", profile.project_count],
-        ["Meetings", profile.meeting_count],
-        ["Reports", profile.report_count],
-      ];
+    : kind === "company"
+      ? [
+          ["Memory", profile.memory_count],
+          ["Open loops", profile.open_loop_count],
+          ["Blocked", profile.blocked_count],
+          ["People", profile.people_count],
+          ["Projects", profile.project_count],
+          ["Meetings", profile.meeting_count],
+        ]
+      : [
+          ["Open loops", profile.open_loop_count],
+          ["Blocked", profile.blocked_count],
+          ["Projects", profile.project_count],
+          ["Meetings", profile.meeting_count],
+          ["Reports", profile.report_count],
+        ];
+  const entityName = kind === "project"
+    ? timeline.project?.name
+    : kind === "company"
+      ? timeline.company?.name
+      : timeline.person?.name;
   return (
     <div className="timeline-panel">
       <div className="timeline-actions">
         <button onClick={onCopy}><Copy size={16} /> Brief</button>
         <button onClick={onCopyLink}><Link size={16} /> Copy link</button>
-        <button onClick={onFlag}><Flag size={16} /> Flag</button>
+        {onFlag && <button onClick={onFlag}><Flag size={16} /> Flag</button>}
         {kind === "project" && onGenerateReport && (
           <button onClick={() => onGenerateReport(timeline.project)}><FileText size={16} /> Generate report</button>
         )}
@@ -7162,14 +7396,14 @@ function TimelinePanel({
             <PersonAvatar name={String(timeline.person.name)} size={44} />
           )}
           <div>
-          <span>{kind === "project" ? "Project profile" : "Person profile"}</span>
+          <span>{kind === "project" ? "Project profile" : kind === "company" ? "Company profile" : "Person profile"}</span>
           {onRename ? (
             <ProfileNameEditor
-              initial={String((kind === "project" ? timeline.project?.name : timeline.person?.name) || "Untitled")}
+              initial={String(entityName || "Untitled")}
               onSave={(next) => onRename(next)}
             />
           ) : (
-            <strong>{profile.headline || (kind === "project" ? timeline.project?.name : timeline.person?.name)}</strong>
+            <strong>{profile.headline || entityName}</strong>
           )}
           <small>
             {profile.last_touch_at ? `Last touch ${new Date(profile.last_touch_at).toLocaleDateString()}` : "No dated touch yet"}
@@ -7192,6 +7426,9 @@ function TimelinePanel({
         )}
         {kind === "project" && onUpdateProjectDescription && timeline.project && (
           <ProjectDescriptionEditor description={String(timeline.project.description || "")} onSave={onUpdateProjectDescription} />
+        )}
+        {kind === "company" && onUpdateCompanyProfile && timeline.company && (
+          <CompanyProfileEditor company={timeline.company} onSave={onUpdateCompanyProfile} />
         )}
       </div>
       {kind === "person" && (
@@ -7234,6 +7471,26 @@ function TimelinePanel({
           </button>
         </div>
       )}
+      {kind === "company" && onMergeCompany && companies.length > 1 && (
+        <div className="merge-row">
+          <select value={mergeTargetId} onChange={(event) => setMergeTargetId(event.target.value)} aria-label="Merge target company">
+            <option value="">Merge company into...</option>
+            {companies
+              .filter((company) => company.id !== timeline.company?.id)
+              .map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+          </select>
+          <button
+            disabled={!mergeTargetId || mergeTargetId === timeline.company?.id}
+            onClick={async () => {
+              const targetId = mergeTargetId;
+              setMergeTargetId("");
+              await onMergeCompany(timeline.company.id, targetId);
+            }}
+          >
+            <Building2 size={16} /> Merge company
+          </button>
+        </div>
+      )}
       {kind === "person" && !!timeline.projects?.length && (
         <div className="mini-section">
           {(timeline.person.role || timeline.person.company || timeline.person.email) && (
@@ -7250,6 +7507,22 @@ function TimelinePanel({
           <strong>{timeline.members?.length || 0} members</strong>
           {(timeline.people || []).slice(0, 5).map((person: any) => (
             <span key={person.id}>{person.name} - {person.mention_count} mentions</span>
+          ))}
+        </div>
+      )}
+      {kind === "company" && !!timeline.people?.length && (
+        <div className="mini-section">
+          <strong>People</strong>
+          {timeline.people.slice(0, 8).map((person: any) => (
+            <span key={person.id}>{person.name}{person.role ? ` - ${person.role}` : ""}</span>
+          ))}
+        </div>
+      )}
+      {kind === "company" && !!timeline.projects?.length && (
+        <div className="mini-section">
+          <strong>Projects</strong>
+          {timeline.projects.slice(0, 8).map((project: any) => (
+            <span key={project.id}>{project.name}</span>
           ))}
         </div>
       )}
@@ -7304,7 +7577,9 @@ function TimelinePanel({
             onChange={(event) => setQuickTaskTitle(event.target.value)}
             placeholder={kind === "person"
               ? `Assign a task to ${timeline.person?.name || "this person"}`
-              : `Add a task for ${timeline.project?.name || "this project"}`}
+              : kind === "company"
+                ? `Add a task for ${timeline.company?.name || "this company"}`
+                : `Add a task for ${timeline.project?.name || "this project"}`}
             aria-label="Quick task title"
           />
           <input
@@ -7313,7 +7588,7 @@ function TimelinePanel({
             onChange={(event) => setQuickTaskDue(event.target.value)}
             aria-label="Quick task due date"
           />
-          {kind === "project" && (
+          {(kind === "project" || kind === "company") && (
             <select
               value={quickTaskAssignee}
               onChange={(event) => setQuickTaskAssignee(event.target.value)}
@@ -7332,13 +7607,14 @@ function TimelinePanel({
               if (!onCreateTask || !quickTaskTitle.trim()) return;
               const assigneeId = kind === "person"
                 ? timeline.person?.id || null
-                : kind === "project"
+                : kind === "project" || kind === "company"
                   ? quickTaskAssignee || null
                   : null;
               await onCreateTask({
                 title: quickTaskTitle.trim(),
                 due_at: quickTaskDue ? `${quickTaskDue}T12:00:00` : null,
                 project_id: kind === "project" ? timeline.project?.id || null : null,
+                company_id: kind === "company" ? timeline.company?.id || null : null,
                 assignee_id: assigneeId,
               });
               setQuickTaskTitle("");
@@ -7452,7 +7728,9 @@ function TimelinePanel({
                 <small>
                   {kind === "project"
                     ? "Capture a note tagged to this project, or accept a project suggestion from a recent note, to start the timeline."
-                    : "Capture a note that mentions this person, or accept a person suggestion from a recent note, to start the timeline."}
+                    : kind === "company"
+                      ? "Capture a note that mentions this company, or accept a company suggestion from a recent note, to start the timeline."
+                      : "Capture a note that mentions this person, or accept a person suggestion from a recent note, to start the timeline."}
                 </small>
               </div>
             );
