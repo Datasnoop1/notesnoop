@@ -120,12 +120,13 @@ function streamResponse() {
   );
 }
 
-function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<string, unknown>; pendingItems?: any[]; projects?: any[] } = {}) {
+function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<string, unknown>; pendingItems?: any[]; projects?: any[]; projectTimeline?: Record<string, unknown> } = {}) {
   const calls: string[] = [];
   const responsePeople = options.people ?? people;
   const responseNotes = options.notes ?? [note, taskNote, meetingNote, reportNote];
   const responsePending = options.pendingItems ?? pending;
   const responseProjects = options.projects ?? projects;
+  const responseProjectTimeline = options.projectTimeline ?? projectTimeline;
   let sourceProjectMerged = false;
   let noteProcessingQueued = false;
   const memoryResults = [
@@ -312,7 +313,7 @@ function installFetch(options: { people?: any[]; notes?: any[]; home?: Record<st
         },
       });
     }
-    if (url.includes("/api/projects/project-1/timeline")) return json({ data: projectTimeline });
+    if (url.includes("/api/projects/project-1/timeline")) return json({ data: responseProjectTimeline });
     if (url.includes("/api/projects/project-created/timeline")) {
       return json({
         data: {
@@ -807,6 +808,28 @@ describe("NoteSnoopApp", () => {
     expect(await screen.findByRole("heading", { name: "Apollo generated report" })).toBeInTheDocument();
     expect(screen.getByText("82% grounded")).toBeInTheDocument();
     expect(screen.getByDisplayValue(/Grounded in memory/i)).toBeInTheDocument();
+  });
+
+  it("hints how to seed an empty project timeline", async () => {
+    installFetch({
+      projectTimeline: {
+        project: projects[2],
+        events: [],
+        members: [],
+        invites: [],
+        people: [],
+        notes: [],
+      },
+    });
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    fireEvent.click(await within(dashboard).findByRole("button", { name: /Open project Apollo/i }));
+    const scopedProject = await screen.findByRole("region", { name: "Project memory" });
+    expect(within(scopedProject).getByText("No memory linked to this project yet.")).toBeInTheDocument();
+    expect(
+      within(scopedProject).getByText(/Capture a note tagged to this project/i),
+    ).toBeInTheDocument();
   });
 
   it("opens a project from a durable route and copies its link", async () => {
