@@ -901,6 +901,20 @@ describe("NoteSnoopApp", () => {
     expect(await screen.findByText("Company: Northstar")).toBeInTheDocument();
   });
 
+  it("opens the linked project from a clickable chip in the note sheet", async () => {
+    const { calls } = installFetch();
+    render(<NoteSnoopApp quickCapture={false} />);
+
+    const dashboard = await screen.findByRole("region", { name: "Memory dashboard" });
+    fireEvent.click((await within(dashboard).findAllByRole("button", { name: /Apollo update/i }))[0]);
+    const projectChip = await screen.findByRole("button", { name: /Open Inbox project memory/i });
+    fireEvent.click(projectChip);
+
+    await waitFor(() =>
+      expect(calls.some((call) => call.includes("GET /api/projects/inbox-1/timeline"))).toBe(true),
+    );
+  });
+
   it("opens a project from a durable route and copies its link", async () => {
     const { calls } = installFetch();
     window.history.replaceState({}, "", "/projects/project-1?workspace_id=workspace-1");

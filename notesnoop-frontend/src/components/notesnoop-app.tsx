@@ -4780,6 +4780,8 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         }}
         onUpdate={updateNote}
         onSetProjects={setNoteProjects}
+        onOpenProject={(project) => { openProject(project).catch((err) => setToast(err.message)); }}
+        onOpenPerson={(person) => { openPerson(person).catch((err) => setToast(err.message)); }}
         onReviewDecision={async (reviewId, decision) => {
           await decideReview(reviewId, decision);
           if (selectedNote) await openNote(selectedNote.id);
@@ -7670,6 +7672,8 @@ function LinkedSheet({
   onAcceptAllSuggestions,
   onSuggestionQueued,
   onOpenMemory,
+  onOpenProject,
+  onOpenPerson,
   onOpenReview,
   firstCaptureGuide = false,
   createProject,
@@ -7694,6 +7698,8 @@ function LinkedSheet({
   onAcceptAllSuggestions?: (reviewIds: string[]) => Promise<void>;
   onSuggestionQueued: () => void;
   onOpenMemory: (sectionId: string, item: any) => Promise<void>;
+  onOpenProject?: (project: any) => void;
+  onOpenPerson?: (person: any) => void;
   onOpenReview: () => void;
   firstCaptureGuide?: boolean;
   createProject: (name: string) => Promise<any>;
@@ -8008,22 +8014,34 @@ function LinkedSheet({
         </div>
         <div className="chip-row">
           {(note.projects || []).map((project: any) => (
-            <span className="chip project-chip" key={project.id}>
+            <button
+              type="button"
+              className="chip project-chip"
+              key={project.id}
+              onClick={() => { onClose(); onOpenProject?.(project); }}
+              aria-label={`Open ${project.name} project memory`}
+            >
               <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} />
               {project.name}
-            </span>
+            </button>
           ))}
           {(note.people || []).map((person: any) => {
             const sourceLabel = personSourceLabel(person.source, person.state);
             const sourceClass = personSourceBadgeClass(person.source, person.state);
             return (
-              <span className="chip person-chip" key={person.id}>
+              <button
+                type="button"
+                className="chip person-chip"
+                key={person.id}
+                onClick={() => { onClose(); onOpenPerson?.(person); }}
+                aria-label={`Open ${person.name} memory`}
+              >
                 {person.name}
                 {sourceLabel && <span className={`evidence-badge ${sourceClass}`}>{sourceLabel}</span>}
                 {person.confidence && person.source !== "manual" ? (
                   <span className="evidence-badge evidence-confidence">{Math.round(person.confidence * 100)}%</span>
                 ) : null}
-              </span>
+              </button>
             );
           })}
           {note.ai_processing_status === "processing" && <span className="chip">Processing...</span>}
