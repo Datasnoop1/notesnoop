@@ -360,6 +360,10 @@ function reviewPayloadValue(value: any) {
   return String(value);
 }
 
+function badgeCount(value: number): string {
+  return value > 99 ? "99+" : String(value);
+}
+
 function nextReviewPayload(current: any, key: string, value: string) {
   if (Array.isArray(current?.[key])) {
     return {
@@ -2848,7 +2852,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         {inbox && (
           <button className={`nav-item ${activeProject === inbox.id ? "active" : ""}`} onClick={() => openProject(inbox)}>
             <Inbox size={17} /> Inbox
-            {pipelineCounts.received > 0 && <span className="sidebar-count" aria-label={`${pipelineCounts.received} unprocessed`}>{pipelineCounts.received}</span>}
+            {pipelineCounts.received > 0 && <span className="sidebar-count" aria-label={`${pipelineCounts.received} unprocessed`}>{badgeCount(pipelineCounts.received)}</span>}
           </button>
         )}
         {personal && (
@@ -2868,7 +2872,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
               className="sidebar-count"
               aria-label={`${dashboardReviewCount} pending review${dashboardReviewCount === 1 ? "" : "s"}`}
             >
-              {dashboardReviewCount}
+              {badgeCount(dashboardReviewCount)}
             </span>
           )}
         </button>
@@ -2880,7 +2884,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
             return (
               <button key={project.id} className={`nav-item ${activeProject === project.id ? "active" : ""}`} onClick={() => openProject(project)}>
                 <span className="dot" style={{ background: project.color_hex || "#7c3aed" }} /> {project.name}
-                {count > 0 && <span className="sidebar-count" aria-label={`${count} open tasks`}>{count}</span>}
+                {count > 0 && <span className="sidebar-count" aria-label={`${count} open tasks`}>{badgeCount(count)}</span>}
                 {activityByProject.has(project.id) && <span className="activity-dot" title="Collaborator active" />}
               </button>
             );
@@ -2919,7 +2923,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   aria-label={`Open ${person.name} timeline`}
                 >
                   <PersonAvatar name={person.name} size={20} /> {person.name}
-                  {count > 0 && <span className="sidebar-count" aria-label={`${count} tasks assigned`}>{count}</span>}
+                  {count > 0 && <span className="sidebar-count" aria-label={`${count} tasks assigned`}>{badgeCount(count)}</span>}
                 </button>
               );
             })}
@@ -2938,7 +2942,7 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
                   aria-label={`Open ${company.name}`}
                 >
                   <Building2 size={15} /> {company.name}
-                  {count > 0 && <span className="sidebar-count" aria-label={`${count} open tasks`}>{count}</span>}
+                  {count > 0 && <span className="sidebar-count" aria-label={`${count} open tasks`}>{badgeCount(count)}</span>}
                 </button>
               );
             })}
@@ -2979,7 +2983,11 @@ export function NoteSnoopApp({ quickCapture, initialRoute }: { quickCapture: boo
         </div>
       </aside>
 
-      <section className="main-pane">
+      <section
+        className="main-pane"
+        aria-hidden={mobileNav && isMobileViewport ? true : undefined}
+        inert={mobileNav && isMobileViewport ? true : undefined}
+      >
         <header className="topbar">
           <button className="icon-btn hide-desktop" onClick={() => setMobileNav(true)} aria-label="Open navigation">
             <Menu size={20} />
