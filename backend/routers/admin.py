@@ -933,20 +933,175 @@ async def traction_dashboard(user=Depends(_require_admin)):
             ORDER BY days_active
         """, tuple(admin_params) or None))
 
-        # Most engaged guests: top 10 by pages visited
+        # Most engaged guests: backend API view. request_origin separates
+        # direct browser/API traffic from Next.js server-render fetches.
         top_guests = _ser(fetch_all(f"""
+            WITH per_guest AS (
+                SELECT
+                    user_email,
+                    COUNT(DISTINCT endpoint) AS unique_pages,
+                    COUNT(*) AS total_requests,
+                    COUNT(DISTINCT session_id) FILTER (WHERE session_id IS NOT NULL) AS sessions,
+                    MIN(created_at) AS first_seen,
+                    MAX(created_at) AS last_seen,
+                    COUNT(*) FILTER (WHERE COALESCE(request_origin, 'direct') = 'next-ssr') AS next_ssr_requests,
+                    COUNT(*) FILTER (WHERE COALESCE(request_origin, 'direct') = 'sitemap') AS sitemap_requests,
+                    COUNT(*) FILTER (WHERE COALESCE(request_origin, 'direct') = 'direct') AS direct_requests,
+                    COUNT(*) FILTER (WHERE ua_family = 'bot') AS bot_requests,
+                    COUNT(*) FILTER (WHERE bot_family IS NOT NULL) AS declared_bot_requests,
+                    MAX(bot_family) FILTER (WHERE bot_family IS NOT NULL) AS bot_family,
+                    COUNT(DISTINCT substring(endpoint from '^/api/companies/([0-9]{{10}})')) FILTER (
+                        WHERE endpoint ~ '^/api/companies/[0-9]{{10}}(/structure)?$'
+                    ) AS company_cbes,
+                    COUNT(*) FILTER (WHERE endpoint ~ '^/api/companies/[0-9]{{10}}$') AS company_detail_requests,
+                    COUNT(*) FILTER (WHERE endpoint ~ '^/api/companies/[0-9]{{10}}/structure$') AS company_structure_requests,
+                    COUNT(*) FILTER (WHERE endpoint LIKE '/api/companies/search%%') AS company_search_requests,
+                    COUNT(*) FILTER (WHERE endpoint LIKE '/api/screener%%') AS screener_requests
+                FROM activity_log
+                WHERE user_email LIKE 'anon:%%'
+                  AND created_at > NOW() - INTERVAL '7 days'
+                  {admin_filter}
+                GROUP BY user_email
+            )
             SELECT
                 REPLACE(user_email, 'anon:', '') AS ip,
-                COUNT(DISTINCT endpoint) AS unique_pages,
-                COUNT(*) AS total_requests,
-                MIN(created_at) AS first_seen,
-                MAX(created_at) AS last_seen
-            FROM activity_log
-            WHERE user_email LIKE 'anon:%%' AND created_at > NOW() - INTERVAL '7 days' {admin_filter}
-            GROUP BY user_email
+                unique_pages,
+                total_requests,
+                sessions,
+                first_seen,
+                last_seen,
+                next_ssr_requests,
+                sitemap_requests,
+                direct_requests,
+                bot_requests,
+                declared_bot_requests,
+                bot_family,
+                company_cbes,
+                company_detail_requests,
+                company_structure_requests,
+                company_search_requests,
+                screener_requests,
+                CASE
+                    WHEN next_ssr_requests >= total_requests * 0.80 THEN 'Next.js render/prefetch'
+                    WHEN sitemap_requests >= total_requests * 0.80 THEN 'Sitemap generation'
+                    WHEN bot_requests >= total_requests * 0.80 THEN 'Declared bot/API'
+                    WHEN sessions = total_requests
+                         AND (company_detail_requests + company_structure_requests) >= total_requests * 0.90
+                         AND company_search_requests = 0
+                         AND screener_requests = 0
+                        THEN 'Likely render/prefetch'
+                    ELSE 'Direct guest/API'
+                END AS likely_source
+            FROM per_guest
             ORDER BY unique_pages DESC
             LIMIT 10
         """, tuple(admin_params) or None))
+
+        audit_table = fetch_one("SELECT to_regclass('public.public_request_audit') AS table_name")
+        extraction_audit = {
+            "available": bool(audit_table and audit_table.get("table_name")),
+            "totals": [],
+            "suspect_clients": [],
+        }
+        if extraction_audit["available"]:
+            extraction_audit["totals"] = _ser(fetch_all("""
+                SELECT
+                    client_type AS category,
+                    COUNT(*) AS requests,
+                    COUNT(DISTINCT client_hash) AS clients,
+                    COUNT(DISTINCT cbe) FILTER (WHERE cbe IS NOT NULL) AS companies
+                FROM public_request_audit
+                WHERE created_at > NOW() - INTERVAL '7 days'
+                GROUP BY 1
+                ORDER BY requests DESC
+            """))
+            extraction_audit["suspect_clients"] = _ser(fetch_all("""
+                WITH client_rows AS (
+                    SELECT
+                        client_hash,
+                        COALESCE(MAX(client_type), 'unknown') AS client_type,
+                        MAX(client_network) FILTER (WHERE client_network IS NOT NULL) AS client_network,
+                        MAX(bot_family) FILTER (WHERE bot_family IS NOT NULL) AS bot_family,
+                        COUNT(*) AS requests,
+                        COUNT(*) FILTER (WHERE route_kind = 'company_page') AS company_page_requests,
+                        COUNT(*) FILTER (WHERE route_kind LIKE 'api_company%%') AS api_company_requests,
+                        COUNT(DISTINCT cbe) FILTER (WHERE cbe IS NOT NULL) AS distinct_companies,
+                        COUNT(*) FILTER (WHERE is_rsc_prefetch) AS rsc_prefetch_requests,
+                        COUNT(*) FILTER (WHERE referrer_path IS NULL) AS no_referrer_requests,
+                        MIN(created_at) AS first_seen,
+                        MAX(created_at) AS last_seen,
+                        MAX(referrer_path) FILTER (WHERE referrer_path IS NOT NULL) AS sample_referrer
+                    FROM public_request_audit
+                    WHERE created_at > NOW() - INTERVAL '7 days'
+                      AND route_kind IN (
+                          'company_page', 'api_company', 'api_company_structure',
+                          'api_company_financials', 'api_company_search',
+                          'screener_page', 'search_page'
+                      )
+                    GROUP BY client_hash
+                ),
+                scored AS (
+                    SELECT
+                        *,
+                        (
+                            CASE
+                                WHEN distinct_companies >= 500 THEN 45
+                                WHEN distinct_companies >= 100 THEN 30
+                                WHEN distinct_companies >= 25 THEN 15
+                                ELSE 0
+                            END
+                            + CASE
+                                WHEN api_company_requests >= 100 THEN 25
+                                WHEN api_company_requests >= 25 THEN 12
+                                ELSE 0
+                            END
+                            + CASE
+                                WHEN company_page_requests >= 100
+                                     AND no_referrer_requests >= requests * 0.80 THEN 15
+                                ELSE 0
+                            END
+                            + CASE
+                                WHEN client_type = 'cloud_browser' THEN 20
+                                WHEN client_type = 'unknown' THEN 10
+                                ELSE 0
+                            END
+                            + CASE
+                                WHEN client_type = 'ai_crawler' THEN 20
+                                ELSE 0
+                            END
+                            - CASE
+                                WHEN client_type = 'verified_search_bot' THEN 80
+                                ELSE 0
+                            END
+                        ) AS risk_score
+                    FROM client_rows
+                )
+                SELECT
+                    REPLACE(client_hash, 'anon:', '') AS client_hash,
+                    client_type,
+                    client_network,
+                    bot_family,
+                    requests,
+                    company_page_requests,
+                    api_company_requests,
+                    distinct_companies,
+                    rsc_prefetch_requests,
+                    no_referrer_requests,
+                    first_seen,
+                    last_seen,
+                    sample_referrer,
+                    GREATEST(0, risk_score) AS risk_score,
+                    CASE
+                        WHEN risk_score >= 60 THEN 'high'
+                        WHEN risk_score >= 30 THEN 'watch'
+                        ELSE 'low'
+                    END AS risk_label
+                FROM scored
+                WHERE client_type <> 'verified_search_bot'
+                  AND risk_score > 0
+                ORDER BY risk_score DESC, distinct_companies DESC, requests DESC
+                LIMIT 12
+            """))
 
         return {
             "kpis": kpis,
@@ -958,6 +1113,7 @@ async def traction_dashboard(user=Depends(_require_admin)):
             "signups": signups,
             "stickiness": stickiness,
             "top_guests": top_guests,
+            "extraction_audit": extraction_audit,
         }
     except Exception as e:
         logger.exception("Traction dashboard failed")

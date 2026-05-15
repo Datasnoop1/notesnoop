@@ -2,6 +2,13 @@ import type { Metadata } from "next";
 
 const API_BASE = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "";
 
+function auditHeaders(publicPath: string): HeadersInit {
+  return {
+    "x-datasnoop-request-origin": "next-ssr",
+    "x-datasnoop-public-path": publicPath,
+  };
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -17,6 +24,7 @@ export async function generateMetadata({
   try {
     const res = await fetch(`${API_BASE}/api/companies/${cleanCbe}`, {
       next: { revalidate: 86400 },
+      headers: auditHeaders(`/company/${cleanCbe}`),
     });
     if (res.ok) {
       const data = await res.json();

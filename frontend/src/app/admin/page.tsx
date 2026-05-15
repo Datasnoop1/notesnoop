@@ -276,7 +276,46 @@ interface TractionData {
   registered_pages: { feature: string; requests: number; unique_users: number }[];
   signups: { day: string; new_users: number }[];
   stickiness: { days_active: number; user_count: number }[];
-  top_guests: { ip: string; unique_pages: number; total_requests: number; first_seen: string; last_seen: string }[];
+  top_guests: {
+    ip: string;
+    unique_pages: number;
+    total_requests: number;
+    sessions?: number;
+    first_seen: string;
+    last_seen: string;
+    next_ssr_requests?: number;
+    sitemap_requests?: number;
+    direct_requests?: number;
+    bot_requests?: number;
+    bot_family?: string | null;
+    company_cbes?: number;
+    company_detail_requests?: number;
+    company_structure_requests?: number;
+    company_search_requests?: number;
+    screener_requests?: number;
+    likely_source?: string;
+  }[];
+  extraction_audit?: {
+    available: boolean;
+    totals: { category: string; requests: number; clients: number; companies: number }[];
+    suspect_clients: {
+      client_hash: string;
+      client_type: string;
+      client_network?: string | null;
+      bot_family?: string | null;
+      requests: number;
+      company_page_requests: number;
+      api_company_requests: number;
+      distinct_companies: number;
+      rsc_prefetch_requests: number;
+      no_referrer_requests: number;
+      first_seen: string;
+      last_seen: string;
+      sample_referrer?: string | null;
+      risk_score: number;
+      risk_label: "high" | "watch" | "low";
+    }[];
+  };
 }
 
 interface CostItem {
@@ -1706,16 +1745,80 @@ export default function AdminPanel() {
                   )}
                 </div>
 
+                {/* Extraction watch: public nginx audit, separate from backend render noise */}
+                {tractionData.extraction_audit?.available && (
+                  <Card className="bg-white">
+                    <CardContent className="pt-4 pb-4">
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                          <ShieldCheck className="size-3 inline mr-1" /> Extraction Watch (7d)
+                        </h3>
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          {(tractionData.extraction_audit.totals || []).slice(0, 4).map((t) => (
+                            <Badge key={t.category} variant="outline" className="text-[10px] font-mono">
+                              {t.category}: {fmt(t.requests)}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+
+                      {tractionData.extraction_audit.suspect_clients.length > 0 ? (
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-[10px]">Client</TableHead>
+                              <TableHead className="text-[10px]">Type</TableHead>
+                              <TableHead className="text-[10px] text-right">Score</TableHead>
+                              <TableHead className="text-[10px] text-right">Companies</TableHead>
+                              <TableHead className="text-[10px] text-right">Requests</TableHead>
+                              <TableHead className="text-[10px]">Last Seen</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {tractionData.extraction_audit.suspect_clients.map((c) => (
+                              <TableRow key={c.client_hash}>
+                                <TableCell className="text-xs font-mono py-1.5">{c.client_hash}</TableCell>
+                                <TableCell className="text-xs py-1.5">
+                                  <div className="flex items-center gap-1.5">
+                                    <Badge
+                                      variant={c.risk_label === "high" ? "destructive" : "outline"}
+                                      className="text-[10px]"
+                                    >
+                                      {c.client_type}
+                                    </Badge>
+                                    {c.bot_family && <span className="text-[10px] text-slate-400">{c.bot_family}</span>}
+                                  </div>
+                                  {c.client_network && (
+                                    <div className="text-[10px] text-slate-400 mt-0.5">{c.client_network}</div>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-xs text-right font-mono py-1.5">{c.risk_score}</TableCell>
+                                <TableCell className="text-xs text-right font-mono py-1.5">{fmt(c.distinct_companies)}</TableCell>
+                                <TableCell className="text-xs text-right font-mono text-slate-400 py-1.5">{fmt(c.requests)}</TableCell>
+                                <TableCell className="text-[10px] text-slate-400 py-1.5">{toBelgianTime(c.last_seen)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      ) : (
+                        <div className="text-xs text-slate-400">No high-signal extraction candidates in the ingested public logs.</div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* Most Engaged Guests */}
                 {tractionData.top_guests.length > 0 && (
                   <Card className="bg-white">
                     <CardContent className="pt-4 pb-4">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Most Engaged Guests (7d)</h3>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-3">Most Engaged Guests (Backend, 7d)</h3>
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead className="text-[10px]">IP</TableHead>
+                            <TableHead className="text-[10px]">Hash</TableHead>
+                            <TableHead className="text-[10px]">Signal</TableHead>
                             <TableHead className="text-[10px] text-right">Pages</TableHead>
+                            <TableHead className="text-[10px] text-right">CBEs</TableHead>
                             <TableHead className="text-[10px] text-right">Requests</TableHead>
                             <TableHead className="text-[10px]">First Seen</TableHead>
                             <TableHead className="text-[10px]">Last Seen</TableHead>
@@ -1725,7 +1828,16 @@ export default function AdminPanel() {
                           {tractionData.top_guests.map((g) => (
                             <TableRow key={g.ip}>
                               <TableCell className="text-xs font-mono py-1.5">{g.ip}</TableCell>
+                              <TableCell className="text-xs py-1.5">
+                                <Badge
+                                  variant={g.likely_source === "Direct guest/API" ? "outline" : "secondary"}
+                                  className="text-[10px]"
+                                >
+                                  {g.likely_source || "Unknown"}
+                                </Badge>
+                              </TableCell>
                               <TableCell className="text-xs text-right font-mono py-1.5">{g.unique_pages}</TableCell>
+                              <TableCell className="text-xs text-right font-mono py-1.5">{fmt(g.company_cbes)}</TableCell>
                               <TableCell className="text-xs text-right font-mono text-slate-400 py-1.5">{g.total_requests}</TableCell>
                               <TableCell className="text-[10px] text-slate-400 py-1.5">{toBelgianTime(g.first_seen)}</TableCell>
                               <TableCell className="text-[10px] text-slate-400 py-1.5">{toBelgianTime(g.last_seen)}</TableCell>

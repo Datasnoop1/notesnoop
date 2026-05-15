@@ -4,9 +4,19 @@ import type { CompanyDetail, StructureData } from "./types";
 // Server components need an absolute URL for fetch — use internal Docker URL if available
 const API_BASE = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "";
 
-async function fetchJson<T>(url: string): Promise<T | null> {
+function auditHeaders(publicPath: string): HeadersInit {
+  return {
+    "x-datasnoop-request-origin": "next-ssr",
+    "x-datasnoop-public-path": publicPath,
+  };
+}
+
+async function fetchJson<T>(url: string, publicPath: string): Promise<T | null> {
   try {
-    const res = await fetch(url, { next: { revalidate: 3600 } });
+    const res = await fetch(url, {
+      next: { revalidate: 3600 },
+      headers: auditHeaders(publicPath),
+    });
     if (!res.ok) return null;
     return res.json();
   } catch {
@@ -21,6 +31,7 @@ export default async function CompanyDetailPage({
 }) {
   const { cbe } = await params;
   const cleanCbe = cbe.replace(/\./g, "").padStart(10, "0");
+  const publicPath = `/company/${cleanCbe}`;
 
   // Server-side parallel fetch — detail + structure in initial HTML for SEO.
   // Financials are intentionally excluded here: they can be slow (5-15 s for
@@ -28,8 +39,8 @@ export default async function CompanyDetailPage({
   // every visitor. FinancialsSection (a client component) fetches them after
   // mount with a 15 s deadline and a retry fallback.
   const [detail, structure] = await Promise.all([
-    fetchJson<CompanyDetail>(`${API_BASE}/api/companies/${cleanCbe}`),
-    fetchJson<StructureData>(`${API_BASE}/api/companies/${cleanCbe}/structure`),
+    fetchJson<CompanyDetail>(`${API_BASE}/api/companies/${cleanCbe}`, publicPath),
+    fetchJson<StructureData>(`${API_BASE}/api/companies/${cleanCbe}/structure`, publicPath),
   ]);
 
   return (

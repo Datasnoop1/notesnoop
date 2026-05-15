@@ -15,6 +15,10 @@ export const revalidate = 0;
 const BASE = "https://datasnoop.be";
 const API_BASE =
   process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL || "";
+const SITEMAP_AUDIT_HEADERS: HeadersInit = {
+  "x-datasnoop-request-origin": "sitemap",
+  "x-datasnoop-public-path": "/sitemap.xml",
+};
 
 interface UrlEntry {
   loc: string;
@@ -75,6 +79,7 @@ export async function GET() {
     try {
       const res = await fetch(`${API_BASE}/api/sitemap/companies`, {
         cache: "no-store",
+        headers: SITEMAP_AUDIT_HEADERS,
       });
       if (!res.ok) {
         console.error(
@@ -99,6 +104,7 @@ export async function GET() {
     try {
       const res = await fetch(`${API_BASE}/api/sitemap/persons`, {
         cache: "no-store",
+        headers: SITEMAP_AUDIT_HEADERS,
       });
       if (!res.ok) {
         console.error(

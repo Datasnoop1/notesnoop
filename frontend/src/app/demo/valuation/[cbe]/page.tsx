@@ -9,7 +9,13 @@ const API_BASE = process.env.API_URL_INTERNAL || process.env.NEXT_PUBLIC_API_URL
 
 async function fetchDetail(cbe: string): Promise<CompanyDetail | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/companies/${cbe}`, { next: { revalidate: 3600 } });
+    const res = await fetch(`${API_BASE}/api/companies/${cbe}`, {
+      next: { revalidate: 3600 },
+      headers: {
+        "x-datasnoop-request-origin": "next-ssr",
+        "x-datasnoop-public-path": `/demo/valuation/${cbe}`,
+      },
+    });
     if (!res.ok) return null;
     return res.json();
   } catch {

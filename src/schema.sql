@@ -636,7 +636,10 @@ CREATE TABLE IF NOT EXISTS activity_log (
     session_id      TEXT,
     ua_family       TEXT,
     device_type     TEXT,
-    country_code    VARCHAR(2)
+    country_code    VARCHAR(2),
+    request_origin  TEXT,
+    public_path     TEXT,
+    bot_family      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_activity_log_user_date
     ON activity_log(user_email, created_at DESC);
@@ -644,6 +647,50 @@ CREATE INDEX IF NOT EXISTS idx_activity_log_endpoint_date
     ON activity_log(endpoint, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_log_date
     ON activity_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_log_origin_date
+    ON activity_log(request_origin, created_at DESC)
+    WHERE request_origin IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_activity_log_bot_date
+    ON activity_log(bot_family, created_at DESC)
+    WHERE bot_family IS NOT NULL;
+
+-- Passive public traffic audit populated from nginx access logs. Raw IP
+-- addresses, raw user agents, and URL query strings are not stored.
+CREATE TABLE IF NOT EXISTS public_request_audit (
+    id                  BIGSERIAL PRIMARY KEY,
+    event_hash          TEXT NOT NULL UNIQUE,
+    source              TEXT NOT NULL DEFAULT 'nginx',
+    client_hash         TEXT NOT NULL,
+    client_network      TEXT,
+    client_type         TEXT NOT NULL DEFAULT 'unknown',
+    method              TEXT NOT NULL,
+    path                TEXT NOT NULL,
+    route_kind          TEXT NOT NULL,
+    cbe                 TEXT,
+    status_code         INTEGER,
+    response_bytes      INTEGER,
+    referrer_path       TEXT,
+    ua_family           TEXT,
+    device_type         TEXT,
+    bot_family          TEXT,
+    is_verified_bot     BOOLEAN NOT NULL DEFAULT FALSE,
+    is_ai_crawler       BOOLEAN NOT NULL DEFAULT FALSE,
+    is_rsc_prefetch     BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at          TIMESTAMPTZ NOT NULL,
+    ingested_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_public_request_audit_date
+    ON public_request_audit(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_public_request_audit_client_date
+    ON public_request_audit(client_hash, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_public_request_audit_route_date
+    ON public_request_audit(route_kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_public_request_audit_bot_date
+    ON public_request_audit(bot_family, created_at DESC)
+    WHERE bot_family IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_public_request_audit_cbe_date
+    ON public_request_audit(cbe, created_at DESC)
+    WHERE cbe IS NOT NULL;
 
 -- ============================================================
 -- Platform invoices (from invoice@datasnoop.be inbox)

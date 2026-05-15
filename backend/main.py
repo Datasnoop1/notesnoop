@@ -19,6 +19,11 @@ from rate_limit import limiter, get_client_ip, assert_single_worker_or_redis, Re
 from db import ensure_trgm_setup, ensure_phase22_schema
 from middleware.cancel_watchdog import SearchCancelWatchdogMiddleware
 from middleware.timing import TimingMiddleware, metrics_response
+from request_audit import (
+    audit_public_path,
+    bot_family as classify_bot_family,
+    request_origin,
+)
 
 load_dotenv()
 
@@ -229,6 +234,8 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
                 request.headers.get("cf-ipcountry", "") or ""
             ).strip().upper()[:2] or None
             method = request.method
+            origin = request_origin(request.headers, client_ip=client_ip)
+            public_path = audit_public_path(request.headers)
 
             def write_activity_log() -> None:
                 from db import execute
@@ -254,15 +261,28 @@ class ActivityLogMiddleware(BaseHTTPMiddleware):
                 # string never lands in the database.
                 ua_fam = _ua_family(ua_raw)
                 device = _device_type(ua_raw)
+                bot_fam = classify_bot_family(ua_raw)
 
                 execute(
                     """
                     INSERT INTO activity_log
                         (user_email, endpoint, method, session_id, ua_family,
-                         device_type, country_code)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                         device_type, country_code, request_origin, public_path,
+                         bot_family)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (user_label, path, method, sid, ua_fam, device, country),
+                    (
+                        user_label,
+                        path,
+                        method,
+                        sid,
+                        ua_fam,
+                        device,
+                        country,
+                        origin,
+                        public_path,
+                        bot_fam,
+                    ),
                 )
 
             def safe_write_activity_log() -> None:

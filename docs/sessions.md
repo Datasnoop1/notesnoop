@@ -20,11 +20,17 @@ this doc is the paper trail.
 | `activity_log.device_type` | Postgres | One of: `desktop`, `mobile`, `tablet`, `bot`, `unknown`. |
 | `activity_log.country_code` | Postgres | Two-letter ISO from Cloudflare's `CF-IPCountry` header, or NULL. |
 | `activity_log.user_email` | Postgres | Email for authenticated users; for anonymous: `anon:<16-hex>` salted SHA-256 of the IP. **Raw IPs are never stored.** |
+| `activity_log.request_origin` | Postgres | Coarse source for backend API calls: `direct`, `next-ssr`, `sitemap`, or `internal`. Used to keep Next.js render/prefetch noise out of scraper interpretation. |
+| `activity_log.public_path` | Postgres | Public page path that caused an internal server-side fetch, when known, e.g. `/company/0400123456`. |
+| `activity_log.bot_family` | Postgres | Coarse bot label derived from the request user-agent, e.g. `googlebot`, `gptbot`, or `declared_bot`. Raw User-Agent is still not stored. |
+| `public_request_audit` | Postgres | Optional offline nginx-log ingest for public request evidence. Stores hashed client ID, sanitized route path without query strings, route kind, CBE, response size, same-site referrer path without query strings, bot/client type, and timestamps. |
 
 **What we do _not_ collect:**
 
 - Raw IP addresses (we hash with `ACTIVITY_LOG_IP_SALT`)
 - Raw User-Agent strings (we bucket into 7 families)
+- Raw nginx User-Agent strings, raw public IPs, or URL query strings in
+  `public_request_audit`
 - Canvas, font, WebGL, screen-size, hardware-concurrency, or any
   other browser-fingerprinting signal
 - Cross-site referrer chains
@@ -37,6 +43,23 @@ opaque identifier that lets us correlate hits made by the same
 browser. Joined with the (hashed) user identifier, it lets the admin
 panel compute "average session duration" without ever knowing _who_
 was in that session.
+
+### Public request audit ingest
+
+`activity_log` records backend API calls. Company pages are rendered by
+Next.js, so a public `/company/...` request can create internal
+`/api/companies/...` rows that otherwise look like anonymous guest
+traffic. For scraper investigations, ingest nginx access logs into
+`public_request_audit` instead:
+
+```
+ACTIVITY_LOG_IP_SALT=<same value as backend> \
+DATABASE_URL=<prod database url> \
+python scripts/ingest_public_request_audit.py --source docker --since 24h --verify-bots
+```
+
+The ingest is offline and idempotent (`event_hash` is unique), so it can
+run from cron without touching the request path.
 
 ### Trust boundary on `CF-IPCountry`
 
@@ -123,6 +146,10 @@ The Traction tab calls these endpoints (all admin-only):
   mix from the bucketed columns.
 * `GET /api/admin/sessions/paths` — top "page X → page Y" transitions
   per session.
+
+* The Traction tab also reads `public_request_audit` when populated by
+  `scripts/ingest_public_request_audit.py`, separating verified search bots,
+  AI crawlers, normal browser prefetches, and high-signal extraction candidates.
 
 All routes are gated by `_require_admin` (router-level dependency
 checking the user's `user_roles.role = 'admin'`).
