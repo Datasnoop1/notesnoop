@@ -10,3 +10,8 @@ Object.defineProperty(window.navigator, "clipboard", {
   value: { writeText: vi.fn().mockResolvedValue(undefined) },
   configurable: true,
 });
+
+Object.defineProperty(window.HTMLAnchorElement.prototype, "click", {
+  value: vi.fn(),
+  configurable: true,
+});

@@ -74,21 +74,21 @@ Backup targets:
 Install or refresh cron entries:
 
 ```bash
-cd /opt/leadpeek
+cd /opt/notesnoop
 bash scripts/install_notesnoop_postgres_crons.sh --env-file /opt/leadpeek/.env.staging
 ```
 
 Run a base backup:
 
 ```bash
-cd /opt/leadpeek
+cd /opt/notesnoop
 bash scripts/notesnoop_take_base_backup.sh --env-file /opt/leadpeek/.env.staging
 ```
 
 Run a restore drill into a disposable container:
 
 ```bash
-cd /opt/leadpeek
+cd /opt/notesnoop
 bash scripts/notesnoop_restore_drill.sh --env-file /opt/leadpeek/.env.staging
 ```
 

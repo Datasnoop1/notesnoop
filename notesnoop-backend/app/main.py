@@ -21,6 +21,7 @@ app.add_middleware(
         "https://staging.notesnoop.app",
         "https://note.datasnoop.be",
         "http://localhost:3010",
+        "http://127.0.0.1:3010",
     ],
     allow_credentials=True,
     allow_methods=["*"],
