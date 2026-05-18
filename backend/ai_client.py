@@ -2775,7 +2775,8 @@ def build_bulk_embedding_text(summary: dict, kbo: dict | None = None) -> str:
     Priority order:
       1. Factual business_description (the embedding workhorse)
       2. Products/services, customer segments
-      3. NACE + HQ city anchors (helps templated rows retrieve)
+      3. Extra narrative fields when present (refinement/elaboration)
+      4. NACE + HQ city anchors (helps templated rows retrieve)
 
     Spike 2 §12 fixed the lean schema for bulk; this builder mirrors it.
     """
@@ -2789,6 +2790,18 @@ def build_bulk_embedding_text(summary: dict, kbo: dict | None = None) -> str:
     cs = (summary or {}).get("customer_segments") or []
     if cs:
         bits.append("Customers: " + ", ".join(str(c) for c in cs))
+
+    # Refinement / elaboration may add extra fields. Include them when
+    # present so the embedding captures positioning and alternate phrasing.
+    market_position = (summary or {}).get("market_position") if summary else None
+    if market_position:
+        bits.append("Market position: " + str(market_position).strip())
+    keywords = (summary or {}).get("keywords") or []
+    if keywords:
+        bits.append("Keywords: " + ", ".join(str(k) for k in keywords))
+    synonyms = (summary or {}).get("synonyms") or []
+    if synonyms:
+        bits.append("Synonyms: " + ", ".join(str(s) for s in synonyms))
     if kbo:
         nace = (kbo.get("nace_description") or "").strip()
         hq = (kbo.get("hq_city") or "").strip()

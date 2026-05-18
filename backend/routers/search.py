@@ -73,14 +73,15 @@ async def semantic_search(
     min_revenue: Optional[float] = Query(None, ge=0),
     include_uncertain: int = Query(0, ge=0, le=1),
 ):
-    """Return companies ranked by cosine similarity to the query embedding."""
+    """Semantic company search (hybrid semantic + lexical ranking)."""
     text = (q or "").strip()
     if len(text) < 2:
         raise HTTPException(status_code=422, detail="query_too_short")
 
-    embedding = await embed_query(text)
-    if not embedding:
-        raise HTTPException(status_code=503, detail="embedding_unavailable")
+    qtype = detect_query_type(text)
+    cbe_digits = extract_cbe_digits(text) if qtype == "cbe" else None
+    nq = _v2_normalize_name(text)
+    rev = _v2_reversed_key(text)
 
     # Build the SQL with parameterised filters. pgvector needs the
     # embedding as a literal (it's a typed vector), so we coerce via
@@ -90,7 +91,7 @@ async def semantic_search(
     reg = _sanitize_region(region)
 
     clauses = []
-    params: list = [str(embedding)]
+    params: list = []
 
     if not include_uncertain:
         # SAFE: the string literal below is hardcoded — no user input
@@ -115,37 +116,162 @@ async def semantic_search(
 
     where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
 
-    sql = f"""
-        SELECT ce.enterprise_number,
-               ci.name, ci.city, ci.nace_code,
-               nl.description AS nace_description,
-               fl.revenue, fl.ebitda, fl.fte_total,
-               ce_bulk.bulk_confidence,
-               ce_bulk.bulk_summary->>'business_description' AS description,
-               1 - (ce.embedding <=> %s::vector) AS similarity
-          FROM company_embedding ce
-          JOIN company_info ci        ON ci.enterprise_number = ce.enterprise_number
-     LEFT JOIN nace_lookup nl         ON nl.nace_code = ci.nace_code
-     LEFT JOIN financial_latest fl    ON fl.enterprise_number = ce.enterprise_number
-     LEFT JOIN company_enrichment ce_bulk
-                ON ce_bulk.enterprise_number = ce.enterprise_number
-          {where}
-      ORDER BY ce.embedding <=> %s::vector
-         LIMIT %s OFFSET %s
-    """
-    # Two embedding slots in the SQL — append again + pagination.
-    params.append(str(embedding))
-    params.append(int(limit))
-    params.append(int(offset))
+    # Fast paths:
+    # - CBE-like queries: bypass embeddings and do direct lookup.
+    # - Very short queries: lexical-only (cheap, avoids noisy embeddings).
+    if cbe_digits and len(cbe_digits) >= 4:
+        sql = f"""
+            SELECT ci.enterprise_number,
+                   ci.name, ci.city, ci.nace_code,
+                   nl.description AS nace_description,
+                   fl.revenue, fl.ebitda, fl.fte_total,
+                   ce_bulk.bulk_confidence,
+                   ce_bulk.bulk_summary->>'business_description' AS description,
+                   1.0 AS similarity,
+                   1.0 AS lexical_score
+              FROM company_info ci
+         LEFT JOIN nace_lookup nl      ON nl.nace_code = ci.nace_code
+         LEFT JOIN financial_latest fl ON fl.enterprise_number = ci.enterprise_number
+         LEFT JOIN company_enrichment ce_bulk
+                    ON ce_bulk.enterprise_number = ci.enterprise_number
+              {where} {"AND" if where else "WHERE"} ci.enterprise_number LIKE %s
+          ORDER BY ci.enterprise_number
+             LIMIT %s OFFSET %s
+        """
+        params.extend([cbe_digits + "%", int(limit), int(offset)])
+    elif len(nq) < 4:
+        sql = f"""
+            WITH lex AS (
+                SELECT ci.enterprise_number,
+                       GREATEST(
+                           similarity(ci.name_normalized, %s),
+                           similarity(ci.name_normalized, %s),
+                           similarity(ci.name_normalized, %s)
+                       ) AS lexical_score
+                  FROM company_info ci
+                 WHERE ci.name_normalized LIKE %s
+                    OR ci.name_normalized LIKE %s
+                 ORDER BY lexical_score DESC
+                 LIMIT 400
+            )
+            SELECT ci.enterprise_number,
+                   ci.name, ci.city, ci.nace_code,
+                   nl.description AS nace_description,
+                   fl.revenue, fl.ebitda, fl.fte_total,
+                   ce_bulk.bulk_confidence,
+                   ce_bulk.bulk_summary->>'business_description' AS description,
+                   NULL::float8 AS similarity,
+                   lex.lexical_score
+              FROM lex
+              JOIN company_info ci        ON ci.enterprise_number = lex.enterprise_number
+         LEFT JOIN nace_lookup nl         ON nl.nace_code = ci.nace_code
+         LEFT JOIN financial_latest fl    ON fl.enterprise_number = ci.enterprise_number
+         LEFT JOIN company_enrichment ce_bulk
+                    ON ce_bulk.enterprise_number = ci.enterprise_number
+              {where}
+          ORDER BY lex.lexical_score DESC NULLS LAST
+             LIMIT %s OFFSET %s
+        """
+        params.extend([
+            nq,
+            rev,
+            text.lower(),
+            nq + "%",
+            "%" + nq + "%",
+            int(limit),
+            int(offset),
+        ])
+    else:
+        embedding = await embed_query(text)
+        if not embedding:
+            raise HTTPException(status_code=503, detail="embedding_unavailable")
+
+        sql = f"""
+            WITH
+            sem AS (
+                SELECT ce.enterprise_number,
+                       1 - (ce.embedding <=> %s::vector) AS similarity
+                  FROM company_embedding ce
+                 ORDER BY ce.embedding <=> %s::vector
+                 LIMIT 250
+            ),
+            lex AS (
+                SELECT ci.enterprise_number,
+                       GREATEST(
+                           similarity(ci.name_normalized, %s),
+                           similarity(ci.name_normalized, %s)
+                       ) AS lexical_score
+                  FROM company_info ci
+                 WHERE ci.name_normalized = %s
+                    OR ci.name_normalized LIKE %s
+                    OR ci.name_normalized LIKE %s
+                    OR similarity(ci.name_normalized, %s) > 0.35
+                 ORDER BY lexical_score DESC
+                 LIMIT 250
+            ),
+            candidates AS (
+                SELECT enterprise_number FROM sem
+                UNION
+                SELECT enterprise_number FROM lex
+            )
+            SELECT c.enterprise_number,
+                   ci.name, ci.city, ci.nace_code,
+                   nl.description AS nace_description,
+                   fl.revenue, fl.ebitda, fl.fte_total,
+                   ce_bulk.bulk_confidence,
+                   ce_bulk.bulk_summary->>'business_description' AS description,
+                   sem.similarity,
+                   lex.lexical_score,
+                   (0.65 * COALESCE(sem.similarity, 0)
+                    + 0.25 * COALESCE(lex.lexical_score, 0)
+                    + 0.10 * LEAST(
+                        1.0,
+                        GREATEST(0.0, LN(10 + COALESCE(fl.revenue, 0)) / 20.0)
+                      )
+                   ) AS score
+              FROM candidates c
+              JOIN company_info ci        ON ci.enterprise_number = c.enterprise_number
+         LEFT JOIN sem                  ON sem.enterprise_number = c.enterprise_number
+         LEFT JOIN lex                  ON lex.enterprise_number = c.enterprise_number
+         LEFT JOIN nace_lookup nl       ON nl.nace_code = ci.nace_code
+         LEFT JOIN financial_latest fl  ON fl.enterprise_number = c.enterprise_number
+         LEFT JOIN company_enrichment ce_bulk
+                    ON ce_bulk.enterprise_number = c.enterprise_number
+              {where}
+          ORDER BY score DESC
+             LIMIT %s OFFSET %s
+        """
+        params.extend([
+            str(embedding),
+            str(embedding),
+            nq,
+            rev,
+            nq,
+            nq + "%",
+            "%" + nq + "%",
+            nq,
+            int(limit),
+            int(offset),
+        ])
 
     try:
         rows = fetch_all(sql, params)
-    except Exception as e:
+    except Exception:
         logger.exception("semantic search failed for q=%r", text[:80])
-        raise HTTPException(status_code=500, detail=f"query_failed:{type(e).__name__}")
+        raise HTTPException(status_code=500, detail="query_failed")
 
+    query_tokens = [t for t in (nq or "").split() if len(t) >= 3][:6]
     results = []
     for r in rows:
+        name = (r.get("name") or "").lower()
+        desc = (r.get("description") or "").lower()
+        reasons: list[str] = []
+        for tok in query_tokens:
+            if tok and (tok in name or tok in desc):
+                reasons.append(tok)
+            if len(reasons) >= 3:
+                break
+
         results.append({
             "enterprise_number": r["enterprise_number"],
             "name": r.get("name"),
@@ -157,7 +283,17 @@ async def semantic_search(
             "fte_total": r.get("fte_total"),
             "description": r.get("description"),
             "confidence": r.get("bulk_confidence"),
-            "similarity": float(r.get("similarity") or 0.0),
+            "similarity": (
+                None
+                if r.get("similarity") is None
+                else float(r.get("similarity") or 0.0)
+            ),
+            "lexical_score": (
+                None
+                if r.get("lexical_score") is None
+                else float(r.get("lexical_score") or 0.0)
+            ),
+            "match_reasons": reasons,
         })
 
     return {
