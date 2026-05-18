@@ -16,6 +16,11 @@ services:
       PHASE_5_ELABORATION_ENABLED: "true"
       PHASE_5_DRAFT_MODEL: "ollama:qwen3-coder-next"
       PHASE_5_REFINE_MODEL: "ollama:kimi-k2.6"
+      # Staging Supabase projects occasionally get paused, returning 402 on
+      # the JWKS endpoint. Staging is open for browsing, so allow the backend
+      # to start even if JWKS bootstrap fails; auth-required routes will still
+      # enforce JWT verification at request time.
+      SUPABASE_JWKS_BOOTSTRAP_REQUIRED: "false"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     expose:

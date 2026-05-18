@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL", "")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
 SUPABASE_HS256_FALLBACK = os.getenv("SUPABASE_HS256_FALLBACK", "").lower() in ("1", "true", "yes")
+SUPABASE_JWKS_BOOTSTRAP_REQUIRED = (
+    os.getenv("SUPABASE_JWKS_BOOTSTRAP_REQUIRED", "true").lower() in ("1", "true", "yes")
+)
 
 # Accepted JWT audiences: Supabase project URL + project ref (bare ID)
 _SUPABASE_AUDIENCES = [
@@ -93,6 +96,12 @@ def ensure_jwks_bootstrapped() -> None:
     """
     jwks = _get_jwks()
     if not jwks.get("keys") and SUPABASE_URL:
+        if not SUPABASE_JWKS_BOOTSTRAP_REQUIRED:
+            logger.warning(
+                "JWKS bootstrap failed but SUPABASE_JWKS_BOOTSTRAP_REQUIRED is false; "
+                "starting anyway (JWT verification may fail until JWKS is reachable)"
+            )
+            return
         # SEC-HIGH: Handle HS256-only dev/legacy environments gracefully.
         # Skip the raise when SUPABASE_HS256_FALLBACK is enabled AND
         # SUPABASE_JWT_SECRET is present AND SUPABASE_URL is empty.
